@@ -1,0 +1,64 @@
+{
+  "name": "AftercareSurvey",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "title": "Survey Title"
+    },
+    "description": {
+      "type": "string",
+      "title": "Description"
+    },
+    "questions": {
+      "type": "array",
+      "title": "Questions",
+      "items": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "rating",
+              "yes_no"
+            ]
+          }
+        }
+      }
+    },
+    "status": {
+      "type": "string",
+      "title": "Status",
+      "enum": [
+        "Active",
+        "Closed"
+      ],
+      "default": "Active"
+    },
+    "due_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Due Date"
+    },
+    "phase": {
+      "type": "string",
+      "title": "Phase",
+      "enum": [
+        "30-Day Check-in",
+        "60-Day Check-in",
+        "90-Day Check-in",
+        "6-Month Review",
+        "Annual Review",
+        "General"
+      ],
+      "default": "General"
+    }
+  },
+  "required": [
+    "title"
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "name": "AftercareSurveyResponse",
+  "type": "object",
+  "properties": {
+    "candidate_email": {
+      "type": "string",
+      "title": "Candidate Email"
+    },
+    "survey_id": {
+      "type": "string",
+      "title": "Survey ID"
+    },
+    "survey_title": {
+      "type": "string",
+      "title": "Survey Title"
+    },
+    "answers": {
+      "type": "array",
+      "title": "Answers",
+      "items": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "answer": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "overall_rating": {
+      "type": "number",
+      "title": "Overall Rating (1-5)"
+    },
+    "submitted_at": {
+      "type": "string",
+      "title": "Submitted At"
+    }
+  },
+  "required": [
+    "candidate_email",
+    "survey_id",
+    "survey_title"
+  ]
+}

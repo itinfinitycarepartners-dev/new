@@ -1,0 +1,39 @@
+{
+  "name": "CandidateUpdate",
+  "type": "object",
+  "properties": {
+    "candidate_email": {
+      "type": "string",
+      "title": "Candidate Email"
+    },
+    "title": {
+      "type": "string",
+      "title": "Title"
+    },
+    "message": {
+      "type": "string",
+      "title": "Message"
+    },
+    "update_type": {
+      "type": "string",
+      "title": "Type",
+      "enum": [
+        "Info",
+        "Action Required",
+        "Milestone",
+        "Reminder"
+      ],
+      "default": "Info"
+    },
+    "is_read": {
+      "type": "boolean",
+      "title": "Read",
+      "default": false
+    }
+  },
+  "required": [
+    "candidate_email",
+    "title",
+    "message"
+  ]
+}

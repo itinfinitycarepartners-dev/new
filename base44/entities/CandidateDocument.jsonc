@@ -1,0 +1,63 @@
+{
+  "name": "CandidateDocument",
+  "type": "object",
+  "properties": {
+    "candidate_email": {
+      "type": "string",
+      "title": "Candidate Email"
+    },
+    "document_name": {
+      "type": "string",
+      "title": "Document Name"
+    },
+    "document_type": {
+      "type": "string",
+      "title": "Document Type",
+      "enum": [
+        "Passport",
+        "Visa",
+        "Nursing License",
+        "NCLEX Results",
+        "English Proficiency",
+        "Immunization Records",
+        "Employment Contract",
+        "Background Check",
+        "Educational Credentials",
+        "Other"
+      ]
+    },
+    "file_url": {
+      "type": "string",
+      "title": "File URL"
+    },
+    "status": {
+      "type": "string",
+      "title": "Status",
+      "enum": [
+        "Pending Review",
+        "Approved",
+        "Rejected",
+        "Expired"
+      ],
+      "default": "Pending Review"
+    },
+    "reviewer_notes": {
+      "type": "string",
+      "title": "Reviewer Notes"
+    },
+    "uploaded_by": {
+      "type": "string",
+      "title": "Uploaded By",
+      "enum": [
+        "candidate",
+        "staff"
+      ],
+      "default": "candidate"
+    }
+  },
+  "required": [
+    "candidate_email",
+    "document_name",
+    "document_type"
+  ]
+}

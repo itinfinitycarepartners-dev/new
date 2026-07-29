@@ -1,0 +1,58 @@
+{
+  "name": "CandidatePipeline",
+  "type": "object",
+  "properties": {
+    "candidate_email": {
+      "type": "string",
+      "title": "Candidate Email"
+    },
+    "stage_name": {
+      "type": "string",
+      "title": "Stage Name"
+    },
+    "stage_category": {
+      "type": "string",
+      "title": "Category",
+      "enum": [
+        "Hiring",
+        "Immigration",
+        "Deployment"
+      ]
+    },
+    "stage_order": {
+      "type": "number",
+      "title": "Stage Order"
+    },
+    "status": {
+      "type": "string",
+      "title": "Status",
+      "enum": [
+        "Not Started",
+        "In Progress",
+        "Completed",
+        "Blocked"
+      ],
+      "default": "Not Started"
+    },
+    "notes": {
+      "type": "string",
+      "title": "Notes"
+    },
+    "target_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Target Date"
+    },
+    "completed_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Completed Date"
+    }
+  },
+  "required": [
+    "candidate_email",
+    "stage_name",
+    "stage_category",
+    "stage_order"
+  ]
+}

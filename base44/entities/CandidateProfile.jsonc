@@ -1,0 +1,379 @@
+{
+  "name": "CandidateProfile",
+  "type": "object",
+  "properties": {
+    "full_name": {
+      "type": "string",
+      "title": "Full Name"
+    },
+    "email": {
+      "type": "string",
+      "format": "email",
+      "title": "Email"
+    },
+    "phone": {
+      "type": "string",
+      "title": "Phone Number"
+    },
+    "dob": {
+      "type": "string",
+      "format": "date",
+      "title": "Date of Birth"
+    },
+    "nationality": {
+      "type": "string",
+      "title": "Nationality"
+    },
+    "photo_url": {
+      "type": "string",
+      "title": "Photo URL"
+    },
+    "emergency_contact_name": {
+      "type": "string",
+      "title": "Emergency Contact Name"
+    },
+    "emergency_contact_phone": {
+      "type": "string",
+      "title": "Emergency Contact Phone"
+    },
+    "stage": {
+      "type": "string",
+      "title": "Stage"
+    },
+    "contact_person_name": {
+      "type": "string",
+      "title": "Contact Person Name"
+    },
+    "contact_person_email": {
+      "type": "string",
+      "title": "Contact Person Email"
+    },
+    "contact_person_phone": {
+      "type": "string",
+      "title": "Contact Person Phone"
+    },
+    "nursing_license_number": {
+      "type": "string",
+      "title": "Nursing License Number"
+    },
+    "specialty": {
+      "type": "string",
+      "title": "Specialty",
+      "enum": [
+        "Medical-Surgical",
+        "ICU/Critical Care",
+        "Emergency",
+        "Pediatrics",
+        "Labor & Delivery",
+        "Oncology",
+        "Cardiac",
+        "Orthopedic",
+        "Psychiatric",
+        "Home Health",
+        "Other"
+      ]
+    },
+    "years_experience": {
+      "type": "number",
+      "title": "Years of Experience"
+    },
+    "education": {
+      "type": "string",
+      "title": "Education"
+    },
+    "hospital_name": {
+      "type": "string",
+      "title": "Hospital Name"
+    },
+    "relias_enrolled_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Relias Enrolled Date"
+    },
+    "relias_skills_check": {
+      "type": "boolean",
+      "title": "Relias Skills Check"
+    },
+    "relias_unenrolled_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Relias Unenrolled Date"
+    },
+    "final_icp_self_assessment_submitted": {
+      "type": "boolean",
+      "title": "Final ICP Self Assessment Submitted"
+    },
+    "offer_status": {
+      "type": "string",
+      "title": "Offer Status"
+    },
+    "offer_sent_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Offer Sent Date"
+    },
+    "offer_decision_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Offer Decision Date"
+    },
+    "dept": {
+      "type": "string",
+      "title": "Dept"
+    },
+    "rate": {
+      "type": "string",
+      "title": "Rate"
+    },
+    "annual_salary": {
+      "type": "string",
+      "title": "Annual Salary"
+    },
+    "service_agreement_url": {
+      "type": "string",
+      "title": "Service Agreement (PDF)"
+    },
+    "signed_offer_url": {
+      "type": "string",
+      "title": "Signed Offer (PDF)"
+    },
+    "employment_contract_sent_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Employment Contract Sent Date"
+    },
+    "employment_contract_signed_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Employment Contract Signed Date"
+    },
+    "license_state": {
+      "type": "string",
+      "title": "License State"
+    },
+    "endorsement_state": {
+      "type": "string",
+      "title": "Endorsement State"
+    },
+    "ceus_required": {
+      "type": "string",
+      "title": "CEUs Required"
+    },
+    "license_notes": {
+      "type": "string",
+      "title": "License Notes"
+    },
+    "application_status": {
+      "type": "string",
+      "title": "Application Status"
+    },
+    "ces_report": {
+      "type": "boolean",
+      "title": "CES Report"
+    },
+    "finger_printing": {
+      "type": "boolean",
+      "title": "Finger Printing"
+    },
+    "proof_of_nclex": {
+      "type": "boolean",
+      "title": "Proof of NCLEX"
+    },
+    "passport_country": {
+      "type": "string",
+      "title": "Passport Country"
+    },
+    "birth_certificate_country": {
+      "type": "string",
+      "title": "Birth Certificate Country"
+    },
+    "submitted_to_immigration": {
+      "type": "boolean",
+      "title": "Submitted to Immigration"
+    },
+    "immigration_stage": {
+      "type": "string",
+      "title": "Immigration Stage"
+    },
+    "i140_filed_date": {
+      "type": "string",
+      "format": "date",
+      "title": "I-140 Filed Date"
+    },
+    "i140_priority_date": {
+      "type": "string",
+      "format": "date",
+      "title": "I-140 Priority Date"
+    },
+    "visa_fee_bill_stage": {
+      "type": "string",
+      "title": "Visa Fee Bill Stage"
+    },
+    "visa_bill_rec_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Visa Bill Rec Date"
+    },
+    "visa_bill_req_to_be_paid": {
+      "type": "string",
+      "title": "Visa Bill Req to be Paid"
+    },
+    "english_exam_type": {
+      "type": "string",
+      "title": "English Exam Type"
+    },
+    "ds260_stage": {
+      "type": "string",
+      "title": "DS260 Stage"
+    },
+    "all_clear": {
+      "type": "boolean",
+      "title": "All Clear"
+    },
+    "all_clear_date": {
+      "type": "string",
+      "format": "date",
+      "title": "All Clear Date"
+    },
+    "coe_url": {
+      "type": "string",
+      "title": "COE (PDF)"
+    },
+    "medical_exam_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Medical Exam Date"
+    },
+    "sputum_delay": {
+      "type": "boolean",
+      "title": "Sputum Delay"
+    },
+    "medical_expiration": {
+      "type": "string",
+      "format": "date",
+      "title": "Medical Expiration"
+    },
+    "embassy_eligibility": {
+      "type": "string",
+      "title": "Embassy Eligibility"
+    },
+    "embassy_location": {
+      "type": "string",
+      "title": "Embassy Location"
+    },
+    "embassy_letter_sent": {
+      "type": "boolean",
+      "title": "Embassy Letter Sent"
+    },
+    "embassy_interview_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Embassy Interview Date"
+    },
+    "resignation_period": {
+      "type": "string",
+      "title": "Resignation Period"
+    },
+    "last_day_of_employment": {
+      "type": "string",
+      "format": "date",
+      "title": "Last Day of Employment"
+    },
+    "visa_status": {
+      "type": "string",
+      "title": "Visa Status"
+    },
+    "visa_expiration_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Visa Expiration Date"
+    },
+    "projected_arrival_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Projected Arrival Date"
+    },
+    "attended_stage3_welcome_call": {
+      "type": "boolean",
+      "title": "Attended Stage 3 Welcome Call"
+    },
+    "housing_form_on_file": {
+      "type": "boolean",
+      "title": "Housing Form on File"
+    },
+    "rl_on_file": {
+      "type": "boolean",
+      "title": "R&L on File"
+    },
+    "statement_of_truth_on_file": {
+      "type": "boolean",
+      "title": "Statement of Truth on File"
+    },
+    "updated_resume_on_file": {
+      "type": "boolean",
+      "title": "Updated Resume on File"
+    },
+    "deployment_call": {
+      "type": "boolean",
+      "title": "Deployment Call"
+    },
+    "client_arrival_call": {
+      "type": "boolean",
+      "title": "Client Arrival Call"
+    },
+    "concierge_phone_number": {
+      "type": "string",
+      "title": "Concierge Phone Number"
+    },
+    "concierge_name": {
+      "type": "string",
+      "title": "Concierge Name"
+    },
+    "client_meet_greet": {
+      "type": "boolean",
+      "title": "Client Meet & Greet"
+    },
+    "transportation_plan": {
+      "type": "string",
+      "title": "Transportation Plan"
+    },
+    "destination_city": {
+      "type": "string",
+      "title": "Destination City"
+    },
+    "destination_state": {
+      "type": "string",
+      "title": "Destination State"
+    },
+    "deployment_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Deployment Date"
+    },
+    "arrival_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Arrival Date"
+    },
+    "status": {
+      "type": "string",
+      "title": "Status",
+      "enum": [
+        "Pre-Deployment",
+        "In Transit",
+        "Arrived",
+        "Onboarding",
+        "Active"
+      ],
+      "default": "Pre-Deployment"
+    },
+    "notes": {
+      "type": "string",
+      "title": "Notes"
+    }
+  },
+  "required": [
+    "full_name",
+    "email"
+  ]
+}
