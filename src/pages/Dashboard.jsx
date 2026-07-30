@@ -46,6 +46,110 @@ import { toast } from "sonner";
 import { messaging, websocket, tokenStorage } from "@/api/icpClient";
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://fictional-carnival-3inv.onrender.com';
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * Zoho Recruit may return Date_Received as:
+ *   2026-07-30
+ *   2026-07-30T14:25:00
+ *   2026-07-30T14:25:00+03:00
+ *
+ * A plain YYYY-MM-DD string is parsed by JavaScript as UTC, which can shift
+ * the displayed timeline. Treat date-only Recruit values as the start of that
+ * calendar day in the browser's local timezone. Preserve explicit offsets
+ * when Zoho supplies one.
+ */
+const parseRecruitDateReceived = (value) => {
+  if (!value) return null;
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
+  }
+
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) {
+    const [, year, month, day] = dateOnly;
+    const parsed = new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      0,
+      0,
+      0,
+      0
+    );
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  // Zoho sometimes returns a space instead of "T".
+  const normalized = raw.includes(" ") && !raw.includes("T")
+    ? raw.replace(" ", "T")
+    : raw;
+
+  const hasExplicitTimezone = /(Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
+  const parsed = new Date(
+    hasExplicitTimezone ? normalized : normalized
+  );
+
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const getStageTargetTime = (stage, startDate) => {
+  if (!stage || !startDate) return null;
+
+  if (
+    stage.hours_from_start !== undefined &&
+    stage.hours_from_start !== null
+  ) {
+    return new Date(
+      startDate.getTime() + Number(stage.hours_from_start) * HOUR_MS
+    );
+  }
+
+  if (
+    stage.days_from_start !== undefined &&
+    stage.days_from_start !== null
+  ) {
+    return new Date(
+      startDate.getTime() + Number(stage.days_from_start) * DAY_MS
+    );
+  }
+
+  return null;
+};
+
+const formatCountdown = (deadline, now = new Date()) => {
+  const diffMs = deadline.getTime() - now.getTime();
+  const overdue = diffMs < 0;
+  const absoluteMs = Math.abs(diffMs);
+
+  const totalMinutes = Math.floor(absoluteMs / (60 * 1000));
+  const days = Math.floor(totalMinutes / (24 * 60));
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const minutes = totalMinutes % 60;
+
+  let durationText;
+  if (days > 0) {
+    durationText = `${days}d ${hours}h`;
+  } else if (hours > 0) {
+    durationText = `${hours}h ${minutes}m`;
+  } else {
+    durationText = `${minutes}m`;
+  }
+
+  return {
+    overdue,
+    text: overdue
+      ? `${durationText} overdue`
+      : `${durationText} remaining`,
+    remainingMs: diffMs,
+  };
+};
+
 // ─── Stage → "what you need to do" guide ───────────────────────────────────
 const STAGE_ACTION_GUIDE = {
   // Hiring Stages
@@ -707,98 +811,204 @@ export default function Dashboard() {
   useEffect(() => {
     if (!user?.email) return;
 
+    let cancelled = false;
+
     const updateCountdown = async () => {
       try {
-        let savedStages = JSON.parse(localStorage.getItem(`pipeline_${user.email}`) || "[]");
-        if (!savedStages.length) return;
+        let savedStages;
 
-        // Keep the cached start_date in sync with Zoho Recruit's Date_Received
+        try {
+          savedStages = JSON.parse(
+            localStorage.getItem(`pipeline_${user.email}`) || "[]"
+          );
+        } catch {
+          savedStages = [];
+        }
+
+        if (!Array.isArray(savedStages) || savedStages.length === 0) {
+          if (!cancelled) {
+            setActiveStage(null);
+            setCountdown({
+              text: "",
+              color: "",
+              icon: null,
+            });
+          }
+          return;
+        }
+
+        /*
+         * Always prefer the current Date_Received value from Recruit instead
+         * of trusting an older start_date cached by the Pipeline page.
+         */
+        let recruitStart = null;
         const token = localStorage.getItem("icp_auth_token");
+
         if (token) {
           try {
-            const dateRes = await fetch(`${API_BASE}/api/recruit/date-received`, {
-              headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
-            });
+            const dateRes = await fetch(
+              `${API_BASE}/api/recruit/date-received?refresh=true&_=${Date.now()}`,
+              {
+                method: "GET",
+                cache: "no-store",
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  "Content-Type": "application/json",
+                  "Cache-Control": "no-cache",
+                },
+              }
+            );
+
             if (dateRes.ok) {
               const datePayload = await dateRes.json();
-              if (datePayload.success && datePayload.dateReceived) {
-                const freshStart = new Date(datePayload.dateReceived);
-                if (!isNaN(freshStart.getTime())) {
-                  const freshISO = freshStart.toISOString();
-                  const currentStart = savedStages[0]?.start_date;
-                  if (currentStart !== freshISO) {
-                    savedStages = savedStages.map(s => ({ ...s, start_date: freshISO }));
-                    localStorage.setItem(`pipeline_${user.email}`, JSON.stringify(savedStages));
-                  }
-                }
-              }
+              const rawDateReceived =
+                datePayload?.dateReceived ||
+                datePayload?.Date_Received ||
+                datePayload?.data?.dateReceived ||
+                datePayload?.data?.Date_Received ||
+                null;
+
+              recruitStart = parseRecruitDateReceived(rawDateReceived);
             }
-          } catch (e) {
-            console.warn("[Dashboard] Could not refresh Date_Received:", e.message);
+          } catch (error) {
+            console.warn(
+              "[Dashboard] Could not refresh Date_Received:",
+              error.message
+            );
           }
         }
 
-        // Sort by stage_order
-        savedStages.sort((a, b) => (a.stage_order || 0) - (b.stage_order || 0));
+        /*
+         * Fall back only when Recruit did not return a valid Date_Received.
+         * All stages must use one common start date.
+         */
+        const cachedStart = parseRecruitDateReceived(
+          savedStages.find((stage) => stage?.start_date)?.start_date
+        );
+        const timelineStart = recruitStart || cachedStart;
 
-        // Find the current active stage (first one that isn't completed and isn't a passive gate)
-        const current = savedStages.find(s => s.status !== "Completed" && !s.is_gate);
+        if (timelineStart) {
+          const normalizedStart = timelineStart.toISOString();
+          const needsStartUpdate = savedStages.some(
+            (stage) => stage.start_date !== normalizedStart
+          );
 
-        if (current) {
-          setActiveStage(current);
+          if (needsStartUpdate) {
+            savedStages = savedStages.map((stage) => ({
+              ...stage,
+              start_date: normalizedStart,
+            }));
 
-          let targetHours = current.hours_from_start;
-          if (targetHours === undefined && current.days_from_start !== undefined) {
-            targetHours = current.days_from_start * 24;
+            localStorage.setItem(
+              `pipeline_${user.email}`,
+              JSON.stringify(savedStages)
+            );
+
+            // Let the progress card and other same-tab components refresh.
+            window.dispatchEvent(
+              new CustomEvent("pipeline-updated", {
+                detail: {
+                  email: user.email,
+                  startDate: normalizedStart,
+                },
+              })
+            );
           }
+        }
 
-          if (targetHours !== undefined && targetHours !== null && current.start_date) {
-            const start = new Date(current.start_date);
+        savedStages.sort(
+          (a, b) => Number(a.stage_order || 0) - Number(b.stage_order || 0)
+        );
 
-            if (isNaN(start.getTime())) {
-              setCountdown({ text: "Processing timeline...", color: "text-blue-700 bg-blue-100 border-blue-200", icon: Clock });
-              return;
-            }
+        const current = savedStages.find(
+          (stage) => stage.status !== "Completed" && !stage.is_gate
+        );
 
-            const deadline = new Date(start.getTime() + targetHours * 60 * 60 * 1000);
-            const now = new Date();
-            const diffMs = deadline.getTime() - now.getTime();
-
-            if (diffMs < 0) {
-              const diffHours = Math.floor(Math.abs(diffMs) / (1000 * 60 * 60));
-              const diffDays = Math.floor(diffHours / 24);
-              const text = diffDays > 0 ? `${diffDays} days overdue` : `${diffHours} hours overdue`;
-              setCountdown({ text, color: "text-red-700 bg-red-100 border-red-200", icon: AlertCircle });
-            } else {
-              const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-              const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-              const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-
-              let text = "";
-              let color = "text-emerald-700 bg-emerald-100 border-emerald-200";
-
-              if (diffDays > 0) {
-                text = `${diffDays}d ${diffHours}h remaining`;
-              } else {
-                text = `${diffHours}h ${diffMins}m remaining`;
-                if (diffHours < 24) color = "text-amber-700 bg-amber-100 border-amber-200";
-              }
-              setCountdown({ text, color, icon: Timer });
-            }
-          } else {
-            setCountdown({ text: "No set deadline", color: "text-blue-700 bg-blue-100 border-blue-200", icon: Clock });
+        if (!current) {
+          if (!cancelled) {
+            setActiveStage(null);
+            setCountdown({
+              text: "All stages completed",
+              color:
+                "text-emerald-700 bg-emerald-100 border-emerald-200",
+              icon: CheckCircle2,
+            });
           }
+          return;
+        }
+
+        if (cancelled) return;
+        setActiveStage(current);
+
+        if (!timelineStart) {
+          setCountdown({
+            text: "Waiting for Date Received",
+            color: "text-blue-700 bg-blue-100 border-blue-200",
+            icon: Clock,
+          });
+          return;
+        }
+
+        const deadline = getStageTargetTime(current, timelineStart);
+
+        if (!deadline || Number.isNaN(deadline.getTime())) {
+          setCountdown({
+            text: "No set deadline",
+            color: "text-blue-700 bg-blue-100 border-blue-200",
+            icon: Clock,
+          });
+          return;
+        }
+
+        const result = formatCountdown(deadline, new Date());
+
+        if (result.overdue) {
+          setCountdown({
+            text: result.text,
+            color: "text-red-700 bg-red-100 border-red-200",
+            icon: AlertCircle,
+          });
         } else {
-          setActiveStage(null);
+          setCountdown({
+            text: result.text,
+            color:
+              result.remainingMs <= DAY_MS
+                ? "text-amber-700 bg-amber-100 border-amber-200"
+                : "text-emerald-700 bg-emerald-100 border-emerald-200",
+            icon: Timer,
+          });
         }
-      } catch (e) {
-        console.error("Error calculating countdown:", e);
+      } catch (error) {
+        console.error("[Dashboard] Error calculating countdown:", error);
+
+        if (!cancelled) {
+          setCountdown({
+            text: "Unable to calculate timeline",
+            color: "text-red-700 bg-red-100 border-red-200",
+            icon: AlertCircle,
+          });
+        }
       }
     };
 
     updateCountdown();
-    const interval = setInterval(updateCountdown, 60000);
-    return () => clearInterval(interval);
+
+    // Recalculate displayed minutes frequently; Recruit itself is refreshed
+    // on each run with cache disabled.
+    const intervalId = window.setInterval(updateCountdown, 30 * 1000);
+
+    const handlePipelineUpdate = () => updateCountdown();
+    const handleFocus = () => updateCountdown();
+
+    window.addEventListener("pipeline-updated", handlePipelineUpdate);
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener("pipeline-updated", handlePipelineUpdate);
+      window.removeEventListener("focus", handleFocus);
+    };
   }, [user?.email]);
 
   // ─── Stage Action Notifications ──────────────────────────────────────────
