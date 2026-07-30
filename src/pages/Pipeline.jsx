@@ -132,7 +132,7 @@ const getArrivalDate = async () => {
 // Hiring pipeline configuration.
 const STAGES_CONFIG = [
   // Hiring Stages (1-20)
-  { id: 1, stage_name: "Applied", stage_category: "Hiring", stage_order: 1, hours_from_start: 0, auto_complete_on_email: true },
+  { id: 1, stage_name: "Applied", stage_category: "Hiring", stage_order: 1, hours_from_start: 0 },
   { id: 2, stage_name: "Associated with Job", stage_category: "Hiring", stage_order: 2, hours_from_start: 24 },
   { id: 3, stage_name: "Not Qualified - to close", stage_category: "Hiring", stage_order: 3, hours_from_start: 48 },
   { id: 4, stage_name: "Qualified - Match", stage_category: "Hiring", stage_order: 4, hours_from_start: 48 },
@@ -4691,6 +4691,11 @@ export default function Pipeline() {
     try {
       const token = localStorage.getItem("icp_auth_token");
       let dateReceivedRaw = null;
+      let recruitModulePresence = {
+        applications: false,
+        candidates: false,
+        customModule1: false,
+      };
 
       if (token) {
         try {
@@ -4708,18 +4713,46 @@ export default function Pipeline() {
           console.warn("[Pipeline] Could not reach /api/recruit/date-received, will fall back:", e.message);
         }
 
-        if (!dateReceivedRaw) {
-          try {
-            const response = await fetch(`${API_BASE}/api/zoho/my-deals`, { 
-              headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } 
-            });
-            if (response.ok) {
-              const payload = await response.json();
-              dateReceivedRaw = ga(payload?.data, "Date_Received", "datereceived", "DateReceived") || null;
+        // Fetch the exact Recruit modules in which this email was found.
+        // The backend searches Applications and Candidates independently.
+        try {
+          const response = await fetch(`${API_BASE}/api/zoho/my-deals?refresh=true`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+          });
+
+          if (response.ok) {
+            const payload = await response.json();
+            const userData = payload?.data || {};
+
+            const sourceModules = Array.isArray(userData.recruitSourceModules)
+              ? userData.recruitSourceModules.map(moduleName =>
+                  String(moduleName || "").trim().toLowerCase()
+                )
+              : [];
+
+            recruitModulePresence = {
+              applications:
+                userData?.recruitModulePresence?.applications === true ||
+                sourceModules.includes("applications"),
+              candidates:
+                userData?.recruitModulePresence?.candidates === true ||
+                sourceModules.includes("candidates"),
+              customModule1:
+                userData?.recruitModulePresence?.customModule1 === true ||
+                sourceModules.includes("custommodule1"),
+            };
+
+            if (!dateReceivedRaw) {
+              dateReceivedRaw =
+                ga(userData, "Date_Received", "datereceived", "DateReceived") ||
+                null;
             }
-          } catch (e) {
-            console.warn("[Pipeline] Fallback my-deals fetch failed:", e.message);
           }
+        } catch (e) {
+          console.warn("[Pipeline] Recruit module-presence fetch failed:", e.message);
         }
       }
 
@@ -4729,15 +4762,47 @@ export default function Pipeline() {
       const saved = JSON.parse(localStorage.getItem(`pipeline_${user.email}`) || "[]");
       const savedByName = new Map(saved.map(x => [x.stage_name, x]));
       
-      // Build stages with immigration details
+      // Build stages with immigration details.
+      // The first two hiring stages are controlled only by Recruit module presence:
+      // Applied -> Applications; Associated with Job -> Applications + Candidates.
+      const applicationsFound = recruitModulePresence.applications === true;
+      const candidatesFound = recruitModulePresence.candidates === true;
+
       let allStages = STAGES_CONFIG.map(stage => {
+        const savedStage = savedByName.get(stage.stage_name);
+        const isAppliedStage = stage.stage_name === "Applied";
+        const isAssociatedStage = stage.stage_name === "Associated with Job";
+
+        let automaticStatus = null;
+
+        if (isAppliedStage) {
+          automaticStatus = applicationsFound ? "Completed" : "Not Started";
+        } else if (isAssociatedStage) {
+          automaticStatus =
+            applicationsFound && candidatesFound ? "Completed" : "Not Started";
+        }
+
+        const isAutomaticallyCompleted = automaticStatus === "Completed";
+
         const baseStage = {
           ...stage,
-          ...savedByName.get(stage.stage_name),
+          ...savedStage,
           candidate_email: user.email,
           start_date: Number.isNaN(start.getTime()) ? new Date().toISOString() : start.toISOString(),
-          status: stage.auto_complete_on_email && user.email ? "Completed" : (savedByName.get(stage.stage_name)?.status || "Not Started"),
-          completed_date: stage.auto_complete_on_email && user.email ? (savedByName.get(stage.stage_name)?.completed_date || format(new Date(), "yyyy-MM-dd")) : (savedByName.get(stage.stage_name)?.completed_date || null)
+          status:
+            automaticStatus !== null
+              ? automaticStatus
+              : stage.auto_complete_on_email && user.email
+                ? "Completed"
+                : savedStage?.status || "Not Started",
+          completed_date:
+            automaticStatus !== null
+              ? isAutomaticallyCompleted
+                ? savedStage?.completed_date || format(new Date(), "yyyy-MM-dd")
+                : null
+              : stage.auto_complete_on_email && user.email
+                ? savedStage?.completed_date || format(new Date(), "yyyy-MM-dd")
+                : savedStage?.completed_date || null,
         };
         
         // Add immigration stage details if available
