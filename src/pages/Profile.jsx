@@ -347,6 +347,17 @@ export default function Profile() {
           />
         </Section>
 
+        {/* Immigration */}
+        <Section title="Immigration">
+          <InfoRow label="Immigration Stage" value={getValue('immigrationStage') || getValue('i140')} icon={Shield} />
+          <InfoRow label="I-140 Filed Date" value={formatDate(getValue('i140FiledDate') || getValue('Filed_Date'))} icon={Calendar} />
+          <InfoRow label="I-140 Priority Date" value={formatDate(getValue('i140PriorityDate') || getValue('Priority_Date'))} icon={Calendar} />
+          <InfoRow label="English Exp Date" value={formatDate(getValue('englishExpirationDate') || getValue('IELTS_Scheduled_Exam_Date_if_applicable'))} icon={Calendar} />
+          <InfoRow label="All Clear (Date)" value={formatDate(getValue('allClearDate') || getValue('All_Clear_Date'))} icon={Calendar} />
+          <InfoRow label="All Clear" value={(getValue('allClear') ?? getValue('All_Clear_Documentary_Complete')) === true ? "Yes" : "No"} icon={CheckCircle} />
+          <InfoRow label="Submitted to Immigration" value={formatDate(getValue('submittedToImmigration') || getValue('Added_to_Weekly_I140_Candidates'))} icon={FileText} />
+        </Section>
+
         {/* Relias Section */}
         <Section title="Relias">
           <InfoRow label="Relias Enrolled Date" value={getFormattedDate('reliasEnrolledDate')} icon={Calendar} />
@@ -356,6 +367,9 @@ export default function Profile() {
 
       
       </div>
+    </div>
+  );
+}      </div>
     </div>
   );
 }
