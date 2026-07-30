@@ -88,15 +88,33 @@ const ga = (data, ...fieldNames) => {
   return null;
 };
 
-// Normalizes "truthy" CRM checkbox-style values (booleans, "true"/"yes"/"1"/"completed", numeric 1)
-const isTruthyField = (val) => {
+// Zoho All Clear is a picklist. Deployment should unlock when ANY valid option is selected.
+const ALL_CLEAR_PICKLIST_OPTIONS = new Set([
+  "yes",
+  "all clear date",
+  "all clear (date)",
+  "all clear links emailed",
+  "housing form on file",
+  "r&l checklist on file",
+  "affidavit of truth on file",
+  "updated resume on file",
+  "housing form",
+  "greenlighted",
+  "scheduled arrival date",
+]);
+
+const hasAllClearSelection = (val) => {
   if (val === true) return true;
   if (typeof val === "number") return val === 1;
-  if (typeof val === "string") {
-    const v = val.trim().toLowerCase();
-    return v === "true" || v === "yes" || v === "1" || v === "completed" || v === "complete" || v === "done" || v === "checked";
-  }
-  return false;
+  if (typeof val !== "string") return false;
+
+  const normalized = val.trim().toLowerCase();
+  if (!normalized) return false;
+
+  // Match the configured Zoho options. The fallback keeps the pipeline resilient
+  // if another non-empty option is added to the picklist later.
+  return ALL_CLEAR_PICKLIST_OPTIONS.has(normalized) ||
+    !["no", "none", "not selected", "not started", "false", "0"].includes(normalized);
 };
 
 const getArrivalDate = async () => {
@@ -765,6 +783,7 @@ const getSequencedMainStages = (allStages) => {
 const isStageUnlocked = (stage, allStages, pipelineStartDate) => {
   if (!stage) return false;
   if (stage.auto_complete_on_email) return true;
+  if (stage.crm_unlocked === true) return true;
   if (stage.status === "Completed") return true;
 
   const sequenced = getSequencedMainStages(allStages);
@@ -3930,10 +3949,9 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
         throw new Error("Not authenticated");
       }
 
-      // Fetch directly from the confirmed-working deals endpoint (the same one
-      // used by Contract/Flight/Concierge views), rather than a separate
-      // reimbursement-specific endpoint that may not exist on the backend.
-      const response = await fetch(`${API_BASE}/api/zoho/my-deals`, {
+      // Fetch from the reimbursement endpoint, which maps directly to the
+      // exact Zoho CRM Deals reimbursement and bank-detail API fields.
+      const response = await fetch(`${API_BASE}/api/crm/reimbursement-data`, {
         method: "GET",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -3946,30 +3964,28 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
       }
 
       const data = await response.json();
-      const userData = data.data || {};
+      const reimbursementData = data.data || {};
 
       setPaymentData({
-        nursePaymentType: ga(userData, "Nurse_payment_type", "Nurse_Payment_Type", "NursePaymentType") || "",
-        payment1: buildPaymentFromCRM(userData, 1),
-        payment2: buildPaymentFromCRM(userData, 2),
-        payment3: buildPaymentFromCRM(userData, 3),
-        payment4: buildPaymentFromCRM(userData, 4),
-        totalReimbursement: parseFloat(ga(userData, "Pay_Reimbursement_Total", "PayReimbursementTotal", "Reimbursement_Total")) || 0
+        nursePaymentType: reimbursementData.nursePaymentType || "",
+        payment1: reimbursementData.payment1 || { date: "", paid: false, total: 0 },
+        payment2: reimbursementData.payment2 || { date: "", paid: false, total: 0 },
+        payment3: reimbursementData.payment3 || { date: "", paid: false, total: 0 },
+        payment4: reimbursementData.payment4 || { date: "", paid: false, total: 0 },
+        totalReimbursement: parseFloat(reimbursementData.totalReimbursement) || 0
       });
 
-      const acctNumber = ga(userData, "Bank_Account_Number", "BankAccountNumber");
-      const hasBankDetails = !!acctNumber;
+      const crmBankDetails = reimbursementData.bankDetails || {};
+      const hasBankDetails = !!crmBankDetails.accountNumber;
       setIsSubmitted(hasBankDetails);
 
-      if (hasBankDetails) {
-        setBankDetails({
-          accountNumber: acctNumber || "",
-          accountName: ga(userData, "Bank_Account_Name", "BankAccountName") || "",
-          routingNumber: ga(userData, "Bank_Routing_Number", "BankRoutingNumber") || "",
-          bankName: ga(userData, "Bank_Name", "BankName") || "",
-          accountType: ga(userData, "Bank_Account_Type", "BankAccountType") || "Checking"
-        });
-      }
+      setBankDetails({
+        accountNumber: crmBankDetails.accountNumber || "",
+        accountName: crmBankDetails.accountName || "",
+        routingNumber: crmBankDetails.routingNumber || "",
+        bankName: crmBankDetails.bankName || "",
+        accountType: crmBankDetails.accountType || "Checking"
+      });
 
     } catch (error) {
       console.error("Error fetching payment data:", error);
@@ -4696,6 +4712,8 @@ export default function Pipeline() {
         candidates: false,
         customModule1: false,
       };
+      let submittedToImmigrationDate = null;
+      let allClearDocumentaryComplete = false;
 
       if (token) {
         try {
@@ -4750,6 +4768,18 @@ export default function Pipeline() {
                 ga(userData, "Date_Received", "datereceived", "DateReceived") ||
                 null;
             }
+
+            submittedToImmigrationDate =
+              ga(userData, "submittedToImmigration", "Added_to_Weekly_I140_Candidates") || null;
+
+            allClearDocumentaryComplete = hasAllClearSelection(
+              ga(
+                userData,
+                "All_Clear_Documentary_Complete",
+                "allClearSelection",
+                "allClear"
+              )
+            );
           }
         } catch (e) {
           console.warn("[Pipeline] Recruit module-presence fetch failed:", e.message);
@@ -4772,6 +4802,8 @@ export default function Pipeline() {
         const savedStage = savedByName.get(stage.stage_name);
         const isAppliedStage = stage.stage_name === "Applied";
         const isAssociatedStage = stage.stage_name === "Associated with Job";
+        const isFirstImmigrationStage = stage.stage_category === "Immigration" && stage.stage_order === 21;
+        const isFirstDeploymentStage = stage.stage_category === "Deployment" && stage.stage_order === 28;
 
         let automaticStatus = null;
 
@@ -4780,6 +4812,10 @@ export default function Pipeline() {
         } else if (isAssociatedStage) {
           automaticStatus =
             applicationsFound && candidatesFound ? "Completed" : "Not Started";
+        } else if (isFirstImmigrationStage && submittedToImmigrationDate) {
+          automaticStatus = savedStage?.status === "Completed" ? "Completed" : "In Progress";
+        } else if (isFirstDeploymentStage && allClearDocumentaryComplete) {
+          automaticStatus = savedStage?.status === "Completed" ? "Completed" : "In Progress";
         }
 
         const isAutomaticallyCompleted = automaticStatus === "Completed";
@@ -4789,6 +4825,15 @@ export default function Pipeline() {
           ...savedStage,
           candidate_email: user.email,
           start_date: Number.isNaN(start.getTime()) ? new Date().toISOString() : start.toISOString(),
+          crm_unlocked:
+            (stage.stage_category === "Immigration" && !!submittedToImmigrationDate) ||
+            (stage.stage_category === "Deployment" && allClearDocumentaryComplete),
+          crm_trigger_date:
+            stage.stage_category === "Immigration"
+              ? submittedToImmigrationDate
+              : stage.stage_category === "Deployment" && allClearDocumentaryComplete
+                ? new Date().toISOString()
+                : null,
           status:
             automaticStatus !== null
               ? automaticStatus
@@ -5357,7 +5402,7 @@ export default function Pipeline() {
           <div key={cat} className="bg-card rounded-xl border border-border overflow-hidden">
             <div className={cn("px-5 py-3 flex items-center justify-between border-b border-border", colors.bg)}>
               <h2 className={cn("font-semibold text-sm", colors.text)}>
-                {isNCLEX ? "🎓" : isImmigration ? "📜" : `Stage ${categories.indexOf(cat) + 1}`} – {cat}
+                {isNCLEX ? "🎓" : `Stage ${categories.indexOf(cat) + 1}`} – {cat}
               </h2>
               <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full border", colors.bg, colors.text, colors.border)}>
                 {catCompleted}/{catStages.length} complete
