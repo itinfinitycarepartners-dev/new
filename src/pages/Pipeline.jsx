@@ -154,7 +154,7 @@ const STAGES_CONFIG = [
   { id: 2, stage_name: "Associated with Job", stage_category: "Hiring", stage_order: 2, hours_from_start: 24 },
   { id: 3, stage_name: "Not Qualified - to close", stage_category: "Hiring", stage_order: 3, hours_from_start: 48 },
   { id: 4, stage_name: "Qualified - Match", stage_category: "Hiring", stage_order: 4, hours_from_start: 48 },
-  { id: 5, stage_name: "Unqualified Candidate Pool", stage_category: "Hiring", stage_order: 5, hours_from_start: 48 },
+  { id: 5, stage_name: "Qualified Candidate Pool", stage_category: "Hiring", stage_order: 5, hours_from_start: 48 },
   { id: 6, stage_name: "Transfer to ICP USRN School", stage_category: "Hiring", stage_order: 6, hours_from_start: 48 },
   { id: 7, stage_name: "Select Prescreen Time", stage_category: "Hiring", stage_order: 7, hours_from_start: 48 },
   { id: 8, stage_name: "Prescreen Scheduled", stage_category: "Hiring", stage_order: 8, hours_from_start: 48 },
@@ -216,6 +216,55 @@ const STAGES_CONFIG = [
   // Stage 5 - Reimbursement/Expenses
   { id: 57, stage_name: "Reimbursement/Expenses", stage_category: "Reimbursement", stage_order: 57 },
 ];
+
+// Zoho Recruit Lead Management Status (API: Application_Status) -> portal stage.
+// The normalized map accepts spacing/hyphen variations from Recruit while keeping
+// the portal stage names aligned with the existing hiring pipeline.
+const normalizeApplicationStatus = (value) => String(value || "")
+  .trim()
+  .toLowerCase()
+  .replace(/[–—]/g, "-")
+  .replace(/\s*-\s*/g, "-")
+  .replace(/\s+/g, " ");
+
+const APPLICATION_STATUS_STAGE_MAP = new Map([
+  ["applied", "Applied"],
+  ["associated", "Associated with Job"],
+  ["qualifications & verification", "Qualified - Match"],
+  ["transfer to icp usrn school", "Transfer to ICP USRN School"],
+  ["qualified-match", "Qualified - Match"],
+  ["qualified-candidate pool", "Qualified Candidate Pool"],
+  ["prescreen", "Select Prescreen Time"],
+  ["prescreen scheduled", "Prescreen Scheduled"],
+  ["prescreen complete", "Prescreen Completed"],
+  ["assessment", "Client Documents & Video Provided"],
+  ["assessment complete", "Pending Interview Selection"],
+  ["interview-scheduled", "Interview Scheduled"],
+  ["interview attended", "Interview Attended"],
+  ["no-show", "Interview Scheduled"],
+  ["offered", "Offer Made"],
+  ["offer made", "Offer Made"],
+  ["offer accepted", "Offer Accepted"],
+  ["offer declined", "Offer Declined"],
+  ["hired", "Hired"],
+  ["contract sent", "Employment Contract Sent"],
+  ["contract signed", "Employment Contract Signed"],
+  ["unqualified", "Not Qualified - to close"],
+]);
+
+const PORTAL_BLOCKED_APPLICATION_STATUSES = new Set([
+  "unqualified",
+  "not qualified-to close",
+  "not qualified - to close",
+  "qualified-candidate pool",
+  "qualified candidate pool",
+]);
+
+const getMappedHiringStage = (applicationStatus) =>
+  APPLICATION_STATUS_STAGE_MAP.get(normalizeApplicationStatus(applicationStatus)) || null;
+
+const shouldShowICPUSRNTransfer = (applicationStatus) =>
+  normalizeApplicationStatus(applicationStatus) === "transfer to icp usrn school";
 
 // ============= Hiring section field mappings to Recruit =============
 // These map pipeline stages to Recruit field names
@@ -297,7 +346,11 @@ const updateRecruitField = async (userEmail, stageName) => {
 
 const HIRING_SUBPROCESSES = {
   "Transfer to ICP USRN School": [
-    ["Complete Pre-assessment",5],["Program Prescreen",10],["Document Review",24],["Educational Program Agreement",24],["Program Approval",24],["Credential Evaluation Set-up",27],["Credential Evaluation",77],["Credential Evaluation Completed",92],["Credentials Issued",102],["Board Registration",120],["Board Approval",127],["Pearson Vue Registration",150],["Exam Registration",165],["Exam Results",195],["Go back to Select Prescreen Time",215]
+    ["Complete Pre-assessment",5],["Program Prescreen",10],["Document Review",24],["Educational Program Agreement",24],["Program Approval",24],["Credential Evaluation Set-up",27],["Credential Evaluation",77],["Credential Evaluation Completed",92],["Credentials Issued",102],["Board Registration",120],["Board Approval",127],["Pearson Vue Registration",150],["Exam Registration",165],["Exam Results",195],["Go back to Select Prescreen Time",215],
+    // Prescreen options are also shown here for candidates whose Application_Status
+    // is exactly "Transfer to ICP USRN school". The original Select Prescreen Time
+    // subprocess remains unchanged below.
+    ["Schedule time - booking app",24],["Learn HUB enrollment",27],["Performance Check 1",77],["Performance Check 2",102],["Required Courses",120],["Performance Check 3",127],["ATT Received",150],["Performance Check 4",165],["Performance Check FINAL",195],["Background Complete",215]
   ],
   "Select Prescreen Time": [
     ["Schedule time - booking app",24],["Learn HUB enrollment",27],["Performance Check 1",77],["Performance Check 2",102],["Required Courses",120],["Performance Check 3",127],["ATT Received",150],["Performance Check 4",165],["Performance Check FINAL",195],["Background Complete",215]
@@ -4037,7 +4090,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
           payment3: paymentData.payment3,
           payment4: paymentData.payment4
         },
-        payReimbursementTotal: paymentData.totalReimbursement || totalPayments
+        totalDueToICPRN: paymentData.totalReimbursement || totalPayments
       };
 
       console.log("[Reimbursement] Submitting payload:", payload);
@@ -4171,7 +4224,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
           })}
           
           <div className="grid grid-cols-4 gap-2 p-3 bg-green-50 border-t border-green-200 font-bold text-sm">
-            <div className="col-span-3 text-green-800">Total Reimbursement</div>
+            <div className="col-span-3 text-green-800">Total Due to ICP/RN</div>
             <div className="text-right text-green-800">
               ${(paymentData.totalReimbursement || totalPayments).toFixed(2)}
             </div>
@@ -4192,7 +4245,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
         </h3>
         <p className="text-sm text-muted-foreground mb-4">
           Please provide your bank account details for reimbursement payment.
-          This information will be securely sent to CRM and stored in the <strong>Pay_Reimbursement_Total</strong> field.
+          This information will be securely sent to CRM and stored in the <strong>Total Due to ICP/RN</strong> field.
         </p>
         
         {isSubmitted ? (
@@ -4673,6 +4726,8 @@ export default function Pipeline() {
   const [showNCLEX, setShowNCLEX] = useState(false);
   const [isCheckingNCLEX, setIsCheckingNCLEX] = useState(true);
   const [pipelineStartDate, setPipelineStartDate] = useState(null);
+  const [applicationStatus, setApplicationStatus] = useState("");
+  const [portalAccessBlocked, setPortalAccessBlocked] = useState(false);
 
   useEffect(() => {
     const checkNCLEXAccess = async () => {
@@ -4714,6 +4769,7 @@ export default function Pipeline() {
       };
       let submittedToImmigrationDate = null;
       let allClearDocumentaryComplete = false;
+      let recruitApplicationStatus = "";
 
       if (token) {
         try {
@@ -4744,6 +4800,25 @@ export default function Pipeline() {
           if (response.ok) {
             const payload = await response.json();
             const userData = payload?.data || {};
+            recruitApplicationStatus = ga(
+              userData,
+              "Application_Status",
+              "applicationStatus",
+              "Lead_Management_Status",
+              "leadManagementStatus"
+            ) || "";
+            setApplicationStatus(recruitApplicationStatus);
+
+            const normalizedStatus = normalizeApplicationStatus(recruitApplicationStatus);
+            const accessIsBlocked = PORTAL_BLOCKED_APPLICATION_STATUSES.has(normalizedStatus);
+            setPortalAccessBlocked(accessIsBlocked);
+            if (accessIsBlocked) {
+              localStorage.removeItem("icp_auth_token");
+              localStorage.removeItem(`pipeline_${user.email}`);
+              toast.error("Your candidate portal access is no longer active. Please contact Infinity Care Partners.");
+              navigate("/login", { replace: true });
+              return;
+            }
 
             const sourceModules = Array.isArray(userData.recruitSourceModules)
               ? userData.recruitSourceModules.map(moduleName =>
@@ -4858,6 +4933,42 @@ export default function Pipeline() {
         return baseStage;
       });
       
+      // The ICP USRN School transfer step is conditional and only appears when
+      // Recruit's Application_Status is exactly "Transfer to ICP USRN school".
+      if (!shouldShowICPUSRNTransfer(recruitApplicationStatus)) {
+        allStages = allStages.filter(stage => stage.stage_name !== "Transfer to ICP USRN School");
+      }
+
+      // Reflect Recruit Lead Management Status in the portal pipeline. Previous
+      // hiring stages are completed and the mapped current stage is in progress.
+      const mappedHiringStage = getMappedHiringStage(recruitApplicationStatus);
+      if (mappedHiringStage) {
+        const mappedConfig = STAGES_CONFIG.find(stage => stage.stage_name === mappedHiringStage);
+        const mappedOrder = mappedConfig?.stage_order;
+        allStages = allStages.map(stage => {
+          if (stage.stage_category !== "Hiring" || mappedOrder == null) return stage;
+          if (stage.stage_order < mappedOrder) {
+            return {
+              ...stage,
+              status: "Completed",
+              completed_date: stage.completed_date || format(new Date(), "yyyy-MM-dd"),
+              synced_from_application_status: true,
+            };
+          }
+          if (stage.stage_name === mappedHiringStage) {
+            const terminal = ["Not Qualified - to close", "Qualified Candidate Pool", "Hired"].includes(mappedHiringStage);
+            return {
+              ...stage,
+              status: terminal ? "Completed" : "In Progress",
+              completed_date: terminal ? (stage.completed_date || format(new Date(), "yyyy-MM-dd")) : null,
+              synced_from_application_status: true,
+              recruit_application_status: recruitApplicationStatus,
+            };
+          }
+          return stage;
+        });
+      }
+
       if (showNCLEX) {
         allStages = [...allStages, ...NCLEX_STAGES.map(stage => ({ 
           ...stage, 
