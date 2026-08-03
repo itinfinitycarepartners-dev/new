@@ -2960,18 +2960,51 @@ const WelcomeAppointments = ({ onClose, user, setStages }) => {
   );
 };
 
-const BEHAVIORAL_ASSESSMENT_QUESTIONS = [
-  "1. Select the 5 words that describe you best at work.",
-  "2. Select the 5 words that least describe you at work.",
-  "3. Rate the ten workplace statements from Strongly Disagree to Strongly Agree, including staying calm under pressure, comforting patients or families, double-checking work, routines, collaboration, adaptability, speaking up about safety, building trust, planning, and handling emotionally difficult situations.",
-  "4. A patient becomes agitated during a procedure. What is your first step?",
-  "5. You are short-staffed and under pressure. How do you prioritize?",
-  "6. A coworker is struggling with a task you are familiar with. What do you do?",
-  "7. During a busy shift, a patient becomes unresponsive while a family member demands attention. How do you respond?",
-  "8. Select all strategies you use to create and maintain work-life balance as a nurse.",
-  "9. Describe a specific situation in your nursing career where you demonstrated compassion.",
-  "10. Why did you choose to become a nurse?"
+const BEHAVIORAL_ASSESSMENT_WORDS = [
+  "Adaptable", "Calm", "Collaborative", "Compassionate", "Confident",
+  "Dependable", "Detail-oriented", "Empathetic", "Flexible", "Focused",
+  "Helpful", "Honest", "Organized", "Patient", "Proactive",
+  "Reliable", "Respectful", "Supportive", "Thorough", "Trustworthy",
+  "Dismissive", "Distracted", "Inattentive", "Inflexible", "Unreliable"
 ];
+
+const BEHAVIORAL_AGREEMENT_OPTIONS = [
+  "Strongly Disagree", "Somewhat Disagree", "Neutral", "Somewhat Agree", "Strongly Agree"
+];
+
+const BEHAVIORAL_STATEMENTS = [
+  "I stay calm and focused when things become hectic.",
+  "I make an effort to comfort patients or families who are upset.",
+  "I double-check my work to make sure it is correct.",
+  "I prefer clear routines and procedures.",
+  "I enjoy collaborating with my coworkers to solve problems.",
+  "I adapt easily when priorities change suddenly.",
+  "I feel confident speaking up when something seems unsafe or incorrect.",
+  "I build trust quickly with patients and colleagues.",
+  "I prefer to plan my day in detail before starting work.",
+  "I can handle emotionally difficult situations without shutting down."
+];
+
+const BEHAVIORAL_WORK_LIFE_OPTIONS = [
+  "I make time for hobbies, exercise, or self-care outside of work to recharge.",
+  "I prioritize tasks at work to reduce overtime and prevent burnout.",
+  "I set healthy boundaries between work and personal time.",
+  "I talk with trusted colleagues, friends, or family when I need support.",
+  "I use rest, sleep, and planned time off to recover between shifts."
+];
+
+const createEmptyBehavioralAssessment = () => ({
+  bestWords: [],
+  leastWords: [],
+  statements: Object.fromEntries(BEHAVIORAL_STATEMENTS.map(statement => [statement, ""])),
+  agitatedPatient: "",
+  shortStaffed: "",
+  coworkerSupport: "",
+  emergencyScenario: "",
+  workLifeBalance: [],
+  compassionExample: "",
+  nursingMotivation: ""
+});
 
 // Deployment Details Component
 const DeploymentDetails = ({ onClose, user, setStages }) => {
@@ -2996,8 +3029,96 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [behavioralAssessment, setBehavioralAssessment] = useState(createEmptyBehavioralAssessment);
+  const [behavioralSubmitting, setBehavioralSubmitting] = useState(false);
+  const [behavioralSubmitted, setBehavioralSubmitted] = useState(false);
+
+  const updateBehavioralField = (field, value) => {
+    setBehavioralAssessment(prev => ({ ...prev, [field]: value }));
+  };
+
+  const toggleBehavioralArrayValue = (field, value, maxSelections = null) => {
+    setBehavioralAssessment(prev => {
+      const current = Array.isArray(prev[field]) ? prev[field] : [];
+      if (current.includes(value)) {
+        return { ...prev, [field]: current.filter(item => item !== value) };
+      }
+      if (maxSelections && current.length >= maxSelections) {
+        toast.error(`Select no more than ${maxSelections} options.`);
+        return prev;
+      }
+      return { ...prev, [field]: [...current, value] };
+    });
+  };
+
+  const isBehavioralAssessmentComplete = () => {
+    const answers = behavioralAssessment;
+    return answers.bestWords.length === 5 &&
+      answers.leastWords.length === 5 &&
+      BEHAVIORAL_STATEMENTS.every(statement => Boolean(answers.statements[statement])) &&
+      Boolean(answers.agitatedPatient.trim()) &&
+      Boolean(answers.shortStaffed.trim()) &&
+      Boolean(answers.coworkerSupport.trim()) &&
+      Boolean(answers.emergencyScenario.trim()) &&
+      answers.workLifeBalance.length > 0 &&
+      Boolean(answers.compassionExample.trim()) &&
+      Boolean(answers.nursingMotivation.trim());
+  };
+
+  const submitBehavioralAssessment = async () => {
+    if (!isBehavioralAssessmentComplete()) {
+      toast.error("Please complete every Behavioral Assessment question before submitting.");
+      return;
+    }
+
+    setBehavioralSubmitting(true);
+    try {
+      const token = localStorage.getItem("icp_auth_token");
+      if (!token) throw new Error("Not authenticated");
+
+      const response = await fetch(`${API_BASE}/api/deployment/behavioral-assessment`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          candidateEmail: user?.email,
+          answers: behavioralAssessment,
+          submittedAt: new Date().toISOString()
+        })
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Failed to submit Behavioral Assessment to CRM");
+      }
+
+      setBehavioralSubmitted(true);
+      setRequirements(prev => ({
+        ...prev,
+        behaviorAssessment: {
+          ...prev.behaviorAssessment,
+          confirmed: true,
+          file: data,
+          fileName: "Behavioral Assessment submitted to CRM"
+        }
+      }));
+      toast.success("Behavioral Assessment submitted to CRM successfully.");
+    } catch (error) {
+      console.error("Behavioral Assessment submission error:", error);
+      toast.error(error.message || "Failed to submit Behavioral Assessment");
+    } finally {
+      setBehavioralSubmitting(false);
+    }
+  };
+
 
   const toggleRequirement = (key) => {
+    if (key === "behaviorAssessment") {
+      if (!behavioralSubmitted) toast.info("Complete and submit the Behavioral Assessment form below.");
+      return;
+    }
     setRequirements(prev => ({
       ...prev,
       [key]: {
@@ -3084,7 +3205,7 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
 
   const handleSubmit = async () => {
     if (!allRequirementsMet()) {
-      toast.error("Please confirm and upload all required documents before submitting.");
+      toast.error("Please complete the Behavioral Assessment and upload all required documents before submitting.");
       return;
     }
 
@@ -3151,19 +3272,92 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
                   {label} <span className="text-red-500">*</span>
                 </p>
                 {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
-                {requirementKey === "behaviorAssessment" && (
-                  <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900 space-y-2">
-                    <p className="font-semibold">Behavioral Assessment form requirements</p>
-                    {BEHAVIORAL_ASSESSMENT_QUESTIONS.map((question) => <p key={question}>{question}</p>)}
-                    <p className="font-medium">Upload the completed three-page Behavioral Assessment report as a PDF.</p>
-                  </div>
-                )}
+
               </div>
             </div>
           </div>
 
           <div className="mt-3 pt-3 border-t border-gray-100">
-            {req.fileName ? (
+            {requirementKey === "behaviorAssessment" ? (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-xs font-semibold text-gray-700 mb-2">1. Select exactly 5 words that describe you best at work.</p>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {BEHAVIORAL_ASSESSMENT_WORDS.map(word => (
+                      <label key={`best-${word}`} className="flex items-center gap-2 text-xs border rounded-md p-2 bg-white">
+                        <input type="checkbox" checked={behavioralAssessment.bestWords.includes(word)} onChange={() => toggleBehavioralArrayValue("bestWords", word, 5)} disabled={behavioralSubmitted} />
+                        {word}
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">Selected: {behavioralAssessment.bestWords.length}/5</p>
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold text-gray-700 mb-2">2. Select exactly 5 words that least describe you at work.</p>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {BEHAVIORAL_ASSESSMENT_WORDS.map(word => (
+                      <label key={`least-${word}`} className="flex items-center gap-2 text-xs border rounded-md p-2 bg-white">
+                        <input type="checkbox" checked={behavioralAssessment.leastWords.includes(word)} onChange={() => toggleBehavioralArrayValue("leastWords", word, 5)} disabled={behavioralSubmitted} />
+                        {word}
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">Selected: {behavioralAssessment.leastWords.length}/5</p>
+                </div>
+
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-gray-700">3. Select how much you agree or disagree with each statement.</p>
+                  {BEHAVIORAL_STATEMENTS.map(statement => (
+                    <div key={statement}>
+                      <label className="text-xs text-gray-700 block mb-1">{statement}</label>
+                      <select className="w-full border rounded-md px-3 py-2 text-sm bg-white" value={behavioralAssessment.statements[statement]} onChange={(e) => setBehavioralAssessment(prev => ({ ...prev, statements: { ...prev.statements, [statement]: e.target.value } }))} disabled={behavioralSubmitted}>
+                        <option value="">Select response</option>
+                        {BEHAVIORAL_AGREEMENT_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+
+                {[
+                  ["agitatedPatient", "4. A patient becomes agitated during a procedure. What is your first step?"],
+                  ["shortStaffed", "5. You are short-staffed and under pressure. How do you prioritize?"],
+                  ["coworkerSupport", "6. A coworker is struggling with a task you are familiar with. What do you do?"],
+                  ["emergencyScenario", "7. During a busy shift, a patient becomes unresponsive while a family member demands attention. How do you respond?"]
+                ].map(([field, question]) => (
+                  <div key={field}>
+                    <label className="text-xs font-semibold text-gray-700 block mb-1">{question}</label>
+                    <textarea className="w-full min-h-[90px] border rounded-md px-3 py-2 text-sm" value={behavioralAssessment[field]} onChange={(e) => updateBehavioralField(field, e.target.value)} disabled={behavioralSubmitted} />
+                  </div>
+                ))}
+
+                <div>
+                  <p className="text-xs font-semibold text-gray-700 mb-2">8. Select all strategies you use to create and maintain work-life balance as a nurse.</p>
+                  <div className="space-y-2">
+                    {BEHAVIORAL_WORK_LIFE_OPTIONS.map(option => (
+                      <label key={option} className="flex items-start gap-2 text-xs border rounded-md p-2 bg-white">
+                        <input type="checkbox" className="mt-0.5" checked={behavioralAssessment.workLifeBalance.includes(option)} onChange={() => toggleBehavioralArrayValue("workLifeBalance", option)} disabled={behavioralSubmitted} />
+                        {option}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 block mb-1">9. Describe a specific situation in your nursing career where you demonstrated compassion.</label>
+                  <textarea className="w-full min-h-[110px] border rounded-md px-3 py-2 text-sm" value={behavioralAssessment.compassionExample} onChange={(e) => updateBehavioralField("compassionExample", e.target.value)} disabled={behavioralSubmitted} />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 block mb-1">10. Why did you choose to become a nurse?</label>
+                  <textarea className="w-full min-h-[110px] border rounded-md px-3 py-2 text-sm" value={behavioralAssessment.nursingMotivation} onChange={(e) => updateBehavioralField("nursingMotivation", e.target.value)} disabled={behavioralSubmitted} />
+                </div>
+
+                <Button type="button" onClick={submitBehavioralAssessment} disabled={behavioralSubmitting || behavioralSubmitted || !isBehavioralAssessmentComplete()} className="w-full gap-2">
+                  {behavioralSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" />Submitting to CRM...</> : behavioralSubmitted ? <><CheckCircle2 className="h-4 w-4" />Submitted to CRM</> : <><FileCheck className="h-4 w-4" />Submit Behavioral Assessment to CRM</>}
+                </Button>
+              </div>
+            ) : req.fileName ? (
               <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <FileText className="h-4 w-4 text-green-600 flex-shrink-0" />
@@ -3234,8 +3428,8 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
 
       <div className="bg-white rounded-lg p-3 border border-gray-200">
         <div className="flex justify-between text-xs text-muted-foreground mb-1">
-          <span>{progress.total} required documents</span>
-          <span>{progress.completed} uploaded / {progress.total} total</span>
+          <span>{progress.total} required items (15 documents + 1 assessment form)</span>
+          <span>{progress.completed} completed / {progress.total} total</span>
         </div>
         <div className="w-full bg-gray-200 rounded-full h-2">
           <div 
@@ -3246,7 +3440,7 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
         {allRequirementsMet() && (
           <div className="mt-2 text-xs text-emerald-600 font-medium flex items-center gap-1">
             <CheckCircle2 className="h-3 w-3" />
-            All requirements confirmed and documents uploaded!
+            All required documents and the Behavioral Assessment are complete!
           </div>
         )}
       </div>
@@ -3260,6 +3454,8 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
           <div className="space-y-2">
             <RequirementCheckbox requirementKey="updatedResume" label="Updated Resume" description="Current resume with most recent experience" />
             <RequirementCheckbox requirementKey="certificateOfEmployment" label="Certificate of Employment" description="Most recent COE from current employer" />
+            <RequirementCheckbox requirementKey="housingChecklist" label="Updated Housing Checklist" description="Current completed housing checklist" />
+            <RequirementCheckbox requirementKey="rlChecklist" label="Updated R&L Checklist" description="Current completed relocation and logistics checklist" />
           </div>
         </div>
 
