@@ -75,6 +75,86 @@ import { candidate } from "@/api/icpClient";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://fictional-carnival-3inv.onrender.com'
 
+// Bank details are protected twice in transit:
+// 1) HTTPS/TLS for the request itself.
+// 2) A per-request AES-256-GCM key, wrapped with the backend's RSA-OAEP public key.
+const bytesToBase64 = (bytes) => {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+};
+
+const pemToArrayBuffer = (pem) => {
+  const base64 = String(pem || "")
+    .replace(/-----BEGIN PUBLIC KEY-----/g, "")
+    .replace(/-----END PUBLIC KEY-----/g, "")
+    .replace(/\s+/g, "");
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+};
+
+const encryptSensitivePayload = async (payload, token) => {
+  if (!window.crypto?.subtle) {
+    throw new Error("Secure encryption is not supported by this browser");
+  }
+
+  const keyResponse = await fetch(`${API_BASE}/api/security/bank-public-key?_=${Date.now()}`, {
+    method: "GET",
+    cache: "no-store",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Cache-Control": "no-store"
+    }
+  });
+
+  const keyData = await keyResponse.json().catch(() => ({}));
+  if (!keyResponse.ok || !keyData.publicKey) {
+    throw new Error(keyData.error || "Unable to establish a secure connection");
+  }
+
+  const publicKey = await window.crypto.subtle.importKey(
+    "spki",
+    pemToArrayBuffer(keyData.publicKey),
+    { name: "RSA-OAEP", hash: "SHA-256" },
+    false,
+    ["encrypt"]
+  );
+
+  const aesKey = await window.crypto.subtle.generateKey(
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt"]
+  );
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const plaintext = new TextEncoder().encode(JSON.stringify(payload));
+  const ciphertextWithTag = new Uint8Array(
+    await window.crypto.subtle.encrypt({ name: "AES-GCM", iv }, aesKey, plaintext)
+  );
+
+  // Web Crypto appends the 16-byte GCM authentication tag to the ciphertext.
+  const tagLength = 16;
+  const ciphertext = ciphertextWithTag.slice(0, -tagLength);
+  const authTag = ciphertextWithTag.slice(-tagLength);
+  const rawAesKey = new Uint8Array(await window.crypto.subtle.exportKey("raw", aesKey));
+  const wrappedKey = new Uint8Array(
+    await window.crypto.subtle.encrypt({ name: "RSA-OAEP" }, publicKey, rawAesKey)
+  );
+
+  return {
+    version: 1,
+    algorithm: "RSA-OAEP-256+A256GCM",
+    encryptedKey: bytesToBase64(wrappedKey),
+    iv: bytesToBase64(iv),
+    ciphertext: bytesToBase64(ciphertext),
+    authTag: bytesToBase64(authTag)
+  };
+};
+
 // ============= Generic field-lookup helpers =============
 // "ga" = "get attribute": tries a list of possible CRM/Zoho field names and
 // returns the first one that has a real value. This lets us stay resilient
@@ -4169,15 +4249,17 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
         totalDueToICPRN: paymentData.totalReimbursement || totalPayments
       };
 
-      console.log("[Reimbursement] Submitting payload:", payload);
+      const encryptedPayload = await encryptSensitivePayload(payload, token);
 
       const response = await fetch(`${API_BASE}/api/crm/update-bank-details`, {
         method: "POST",
+        cache: "no-store",
         headers: {
           Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store"
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ encryptedPayload })
       });
 
       const responseText = await response.text();
@@ -4348,6 +4430,8 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                 <input
                   type="text"
                   name="accountName"
+                  autoComplete="name"
+                  spellCheck={false}
                   value={bankDetails.accountName}
                   onChange={handleBankChange}
                   className="w-full px-3 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -4360,6 +4444,8 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                 <input
                   type="text"
                   name="bankName"
+                  autoComplete="off"
+                  spellCheck={false}
                   value={bankDetails.bankName}
                   onChange={handleBankChange}
                   className="w-full px-3 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -4372,6 +4458,9 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                 <input
                   type="text"
                   name="accountNumber"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  spellCheck={false}
                   value={bankDetails.accountNumber}
                   onChange={handleBankChange}
                   className="w-full px-3 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -4384,6 +4473,9 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                 <input
                   type="text"
                   name="routingNumber"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  spellCheck={false}
                   value={bankDetails.routingNumber}
                   onChange={handleBankChange}
                   className="w-full px-3 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
