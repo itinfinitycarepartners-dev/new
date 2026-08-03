@@ -3091,7 +3091,7 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
 
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) {
-        throw new Error(data.error || "Failed to submit Behavioral Assessment to CRM");
+        throw new Error(data.error || "Failed to submit Behavioral Assessment");
       }
 
       setBehavioralSubmitted(true);
@@ -3101,10 +3101,10 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
           ...prev.behaviorAssessment,
           confirmed: true,
           file: data,
-          fileName: "Behavioral Assessment submitted to CRM"
+          fileName: data.attachmentName || "Behavioral Assessment submitted"
         }
       }));
-      toast.success("Behavioral Assessment submitted to CRM successfully.");
+      toast.success("Behavioral Assessment submitted successfully.");
     } catch (error) {
       console.error("Behavioral Assessment submission error:", error);
       toast.error(error.message || "Failed to submit Behavioral Assessment");
@@ -3354,7 +3354,7 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
                 </div>
 
                 <Button type="button" onClick={submitBehavioralAssessment} disabled={behavioralSubmitting || behavioralSubmitted || !isBehavioralAssessmentComplete()} className="w-full gap-2">
-                  {behavioralSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" />Submitting to CRM...</> : behavioralSubmitted ? <><CheckCircle2 className="h-4 w-4" />Submitted to CRM</> : <><FileCheck className="h-4 w-4" />Submit Behavioral Assessment to CRM</>}
+                  {behavioralSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" />Submitting...</> : behavioralSubmitted ? <><CheckCircle2 className="h-4 w-4" />Submitted</> : <><FileCheck className="h-4 w-4" />Submit</>}
                 </Button>
               </div>
             ) : req.fileName ? (
