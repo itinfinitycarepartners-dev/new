@@ -328,22 +328,31 @@ const APPLICATION_STATUS_STAGE_MAP = new Map([
   ["qualifications & verification", "Qualified - Match"],
   ["transfer to icp usrn school", "Transfer to ICP USRN School"],
   ["qualified-match", "Qualified - Match"],
+  ["qualified candidate pool", "Qualified Candidate Pool"],
   ["qualified-candidate pool", "Qualified Candidate Pool"],
-  ["prescreen", "Select Prescreen Time"],
+
+  // Lead Management Status options supplied by Recruit.
+  // When the status is Prescreen Scheduled, Select Prescreen Time is treated as
+  // completed and Prescreen Scheduled becomes the current stage.
   ["prescreen scheduled", "Prescreen Scheduled"],
   ["prescreen complete", "Prescreen Completed"],
-  ["assessment", "Client Documents & Video Provided"],
-  ["assessment complete", "Pending Interview Selection"],
+  ["client documents & video provided", "Client Documents & Video Provided"],
+  ["pending interview selection", "Pending Interview Selection"],
+  ["interview scheduled", "Interview Scheduled"],
   ["interview-scheduled", "Interview Scheduled"],
   ["interview attended", "Interview Attended"],
-  ["no-show", "Interview Scheduled"],
-  ["offered", "Offer Made"],
   ["offer made", "Offer Made"],
   ["offer accepted", "Offer Accepted"],
   ["offer declined", "Offer Declined"],
+  ["documents received", "Documents Received"],
   ["hired", "Hired"],
-  ["contract sent", "Employment Contract Sent"],
-  ["contract signed", "Employment Contract Signed"],
+
+  // Backwards-compatible Recruit values.
+  ["prescreen", "Select Prescreen Time"],
+  ["assessment", "Client Documents & Video Provided"],
+  ["assessment complete", "Pending Interview Selection"],
+  ["no-show", "Interview Scheduled"],
+  ["offered", "Offer Made"],
   ["unqualified", "Not Qualified - to close"],
 ]);
 
@@ -380,6 +389,10 @@ const HIRING_FIELD_MAPPINGS = {
     field: "Contract_on_file",
     section: "Employment contract sent"
   },
+  "Employment Contract Signed": {
+    field: "Contract_Signed_Date",
+    section: "Employment contract signed"
+  },
   "closed": {
     field: "Closure_Reason",
     section: "closed"
@@ -408,6 +421,8 @@ const updateRecruitField = async (userEmail, stageName) => {
       fieldValue = "Accepted";
     } else if (field === "Contract_on_file") {
       fieldValue = true;
+    } else if (field === "Contract_Signed_Date") {
+      fieldValue = format(new Date(), "yyyy-MM-dd");
     } else if (field === "Closure_Reason") {
       fieldValue = "Hired";
     }
@@ -5337,6 +5352,44 @@ export default function Pipeline() {
               completed_date: terminal ? (stage.completed_date || format(new Date(), "yyyy-MM-dd")) : null,
               synced_from_application_status: true,
               recruit_application_status: recruitApplicationStatus,
+            };
+          }
+          return stage;
+        });
+      }
+
+      // Candidate-module API fields control the contract stages independently of
+      // Lead Management Status. Recruit is the source of truth for these values.
+      const contractOnFile = isTruthyField(
+        ga(icpUSRNData, "Contract_on_file", "contractOnFile")
+      );
+      const contractSignedDate = ga(
+        icpUSRNData,
+        "Contract_Signed_Date",
+        "contractSignedDate"
+      );
+      const hasContractSignedDate =
+        contractSignedDate !== undefined &&
+        contractSignedDate !== null &&
+        String(contractSignedDate).trim() !== "" &&
+        String(contractSignedDate).trim() !== "—";
+
+      if (contractOnFile || hasContractSignedDate) {
+        allStages = allStages.map(stage => {
+          if (stage.stage_name === "Employment Contract Sent" && (contractOnFile || hasContractSignedDate)) {
+            return {
+              ...stage,
+              status: "Completed",
+              completed_date: stage.completed_date || format(new Date(), "yyyy-MM-dd"),
+              synced_from_recruit_candidate_field: "Contract_on_file",
+            };
+          }
+          if (stage.stage_name === "Employment Contract Signed" && hasContractSignedDate) {
+            return {
+              ...stage,
+              status: "Completed",
+              completed_date: String(contractSignedDate).slice(0, 10),
+              synced_from_recruit_candidate_field: "Contract_Signed_Date",
             };
           }
           return stage;
