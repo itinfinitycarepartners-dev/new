@@ -47,6 +47,7 @@ export default function Login() {
     const enteredEmail = email.trim();
 
     // Admin uses the same login screen but skips candidate email lookup.
+    
     if (enteredEmail === "Admin") {
       setEmail("Admin");
       setPassword("");
