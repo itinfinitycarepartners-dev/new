@@ -815,113 +815,32 @@ export default function Dashboard() {
 
     const updateCountdown = async () => {
       try {
-        let savedStages;
-
-        try {
-          savedStages = JSON.parse(
-            localStorage.getItem(`pipeline_${user.email}`) || "[]"
-          );
-        } catch {
-          savedStages = [];
-        }
-
-        if (!Array.isArray(savedStages) || savedStages.length === 0) {
-          if (!cancelled) {
-            setActiveStage(null);
-            setCountdown({
-              text: "",
-              color: "",
-              icon: null,
-            });
-          }
-          return;
-        }
-
-        /*
-         * Always prefer the current Date_Received value from Recruit instead
-         * of trusting an older start_date cached by the Pipeline page.
-         */
-        let recruitStart = null;
         const token = localStorage.getItem("icp_auth_token");
+        if (!token) return;
 
-        if (token) {
-          try {
-            const dateRes = await fetch(
-              `${API_BASE}/api/recruit/date-received?refresh=true&_=${Date.now()}`,
-              {
-                method: "GET",
-                cache: "no-store",
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  "Content-Type": "application/json",
-                  "Cache-Control": "no-cache",
-                },
-              }
-            );
-
-            if (dateRes.ok) {
-              const datePayload = await dateRes.json();
-              const rawDateReceived =
-                datePayload?.dateReceived ||
-                datePayload?.Date_Received ||
-                datePayload?.data?.dateReceived ||
-                datePayload?.data?.Date_Received ||
-                null;
-
-              recruitStart = parseRecruitDateReceived(rawDateReceived);
-            }
-          } catch (error) {
-            console.warn(
-              "[Dashboard] Could not refresh Date_Received:",
-              error.message
-            );
+        const response = await fetch(
+          `${API_BASE}/api/pipeline/get?email=${encodeURIComponent(user.email)}&_=${Date.now()}`,
+          {
+            method: "GET",
+            cache: "no-store",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+              "Cache-Control": "no-cache",
+            },
           }
-        }
-
-        /*
-         * Fall back only when Recruit did not return a valid Date_Received.
-         * All stages must use one common start date.
-         */
-        const cachedStart = parseRecruitDateReceived(
-          savedStages.find((stage) => stage?.start_date)?.start_date
         );
-        const timelineStart = recruitStart || cachedStart;
 
-        if (timelineStart) {
-          const normalizedStart = timelineStart.toISOString();
-          const needsStartUpdate = savedStages.some(
-            (stage) => stage.start_date !== normalizedStart
-          );
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "Failed to load pipeline");
 
-          if (needsStartUpdate) {
-            savedStages = savedStages.map((stage) => ({
-              ...stage,
-              start_date: normalizedStart,
-            }));
-
-            localStorage.setItem(
-              `pipeline_${user.email}`,
-              JSON.stringify(savedStages)
-            );
-
-            // Let the progress card and other same-tab components refresh.
-            window.dispatchEvent(
-              new CustomEvent("pipeline-updated", {
-                detail: {
-                  email: user.email,
-                  startDate: normalizedStart,
-                },
-              })
-            );
-          }
-        }
-
-        savedStages.sort(
+        const databaseStages = Array.isArray(payload.stages) ? payload.stages : [];
+        databaseStages.sort(
           (a, b) => Number(a.stage_order || 0) - Number(b.stage_order || 0)
         );
 
-        const current = savedStages.find(
-          (stage) => stage.status !== "Completed" && !stage.is_gate
+        const current = databaseStages.find(
+          stage => stage.status !== "Completed" && !stage.is_gate
         );
 
         if (!current) {
@@ -929,8 +848,8 @@ export default function Dashboard() {
             setActiveStage(null);
             setCountdown({
               text: "All stages completed",
-              color:
-                "text-emerald-700 bg-emerald-100 border-emerald-200",
+              standing: "Good Standing",
+              color: "text-emerald-700 bg-emerald-100 border-emerald-200",
               icon: CheckCircle2,
             });
           }
@@ -940,50 +859,49 @@ export default function Dashboard() {
         if (cancelled) return;
         setActiveStage(current);
 
-        if (!timelineStart) {
-          setCountdown({
-            text: "Waiting for Date Received",
-            color: "text-blue-700 bg-blue-100 border-blue-200",
-            icon: Clock,
-          });
-          return;
-        }
-
-        const deadline = getStageTargetTime(current, timelineStart);
-
+        const deadline = current.target_date ? new Date(current.target_date) : null;
         if (!deadline || Number.isNaN(deadline.getTime())) {
           setCountdown({
-            text: "No set deadline",
-            color: "text-blue-700 bg-blue-100 border-blue-200",
+            text: current.started_at ? "Timer is being calculated" : "Waiting for previous stage",
+            standing: "Good Standing",
+            color: "text-emerald-700 bg-emerald-100 border-emerald-200",
             icon: Clock,
           });
           return;
         }
 
         const result = formatCountdown(deadline, new Date());
+        const durationMs = Math.max(
+          HOUR_MS,
+          Number(current.duration_hours || 0) * HOUR_MS
+        );
+
+        let standing = "Good Standing";
+        let color = "text-emerald-700 bg-emerald-100 border-emerald-200";
+        let icon = Timer;
 
         if (result.overdue) {
-          setCountdown({
-            text: result.text,
-            color: "text-red-700 bg-red-100 border-red-200",
-            icon: AlertCircle,
-          });
-        } else {
-          setCountdown({
-            text: result.text,
-            color:
-              result.remainingMs <= DAY_MS
-                ? "text-amber-700 bg-amber-100 border-amber-200"
-                : "text-emerald-700 bg-emerald-100 border-emerald-200",
-            icon: Timer,
-          });
+          standing = "Late";
+          color = "text-red-700 bg-red-100 border-red-200";
+          icon = AlertCircle;
+        } else if (result.remainingMs <= durationMs * 0.25) {
+          standing = "At Risk";
+          color = "text-amber-700 bg-amber-100 border-amber-200";
+          icon = AlertTriangle;
         }
-      } catch (error) {
-        console.error("[Dashboard] Error calculating countdown:", error);
 
+        setCountdown({
+          text: `${standing} · ${result.text}`,
+          standing,
+          color,
+          icon,
+        });
+      } catch (error) {
+        console.error("[Dashboard] Error loading database pipeline:", error);
         if (!cancelled) {
           setCountdown({
             text: "Unable to calculate timeline",
+            standing: "Late",
             color: "text-red-700 bg-red-100 border-red-200",
             icon: AlertCircle,
           });
@@ -992,11 +910,7 @@ export default function Dashboard() {
     };
 
     updateCountdown();
-
-    // Recalculate displayed minutes frequently; Recruit itself is refreshed
-    // on each run with cache disabled.
     const intervalId = window.setInterval(updateCountdown, 30 * 1000);
-
     const handlePipelineUpdate = () => updateCountdown();
     const handleFocus = () => updateCountdown();
 
