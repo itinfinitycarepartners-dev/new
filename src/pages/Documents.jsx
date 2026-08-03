@@ -126,15 +126,6 @@ function PDFViewerModal({ doc, isOpen, onClose }) {
           <span className="text-gray-600">
             📄 {doc.document_name || 'Unnamed Document'}
           </span>
-          {doc.source && (
-            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-              doc.source === "recruit" 
-                ? "bg-blue-100 text-blue-700 border border-blue-200" 
-                : "bg-green-100 text-green-700 border border-green-200"
-            }`}>
-              {doc.source === "recruit" ? "📊 Recruit" : "📤 CRM"}
-            </span>
-          )}
           {(doc.uploaded_at || doc.created_at) && (
             <span className="text-xs text-gray-500">
               Uploaded: {new Date(doc.uploaded_at || doc.created_at).toLocaleDateString()}
@@ -217,118 +208,131 @@ export default function Documents() {
   const [error, setError] = useState(null);
 
   // ============================================
-  // FETCH ALL DOCUMENTS - Unified API
+  // FETCH DOCUMENTS FROM BOTH SOURCES INDEPENDENTLY
   // ============================================
   const { data: allDocs = [], isLoading, refetch } = useQuery({
     queryKey: ["all-documents", user?.email],
     queryFn: async () => {
-      try {
-        if (!user?.email) {
-          setConnectionStatus({ recruit: false, crm: false });
-          setRecruitCount(0);
-          setCrmCount(0);
-          setError("No user email found");
-          return [];
-        }
-
-        const token = localStorage.getItem("icp_auth_token");
-        if (!token) {
-          setConnectionStatus({ recruit: false, crm: false });
-          setRecruitCount(0);
-          setCrmCount(0);
-          setError("Authentication token not found");
-          return [];
-        }
-
-        const response = await fetch(`${API_BASE}/api/documents/all`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-            'Cache-Control': 'no-cache'
-          }
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          
-          let errorMessage = `Server error (${response.status})`;
-          try {
-            const errorData = JSON.parse(errorText);
-            if (errorData.error) {
-              errorMessage = errorData.error;
-            }
-          } catch (e) {
-            if (errorText) {
-              errorMessage = errorText.substring(0, 100);
-            }
-          }
-          
-          setError(errorMessage);
-          setConnectionStatus({ recruit: false, crm: false });
-          setRecruitCount(0);
-          setCrmCount(0);
-          return [];
-        }
-
-        const data = await response.json();
-        
-        const docs = data.documents || [];
-        
-        // Update counts and connection status
-        if (data.sources) {
-          setRecruitCount(data.sources.recruit || 0);
-          setCrmCount(data.sources.crm || 0);
-        }
-        
-        if (data.connected) {
-          setConnectionStatus({
-            recruit: data.connected.recruit || false,
-            crm: data.connected.crm || false
-          });
-        } else {
-          // Fallback: infer from documents
-          const hasRecruit = docs.some(d => d.source === "recruit");
-          const hasCrm = docs.some(d => d.source === "crm");
-          setConnectionStatus({
-            recruit: hasRecruit || docs.length > 0,
-            crm: hasCrm || docs.length > 0
-          });
-        }
-        
-        setError(null);
-        
-        // Process and normalize documents
-        const processed = docs.map((doc, index) => {
-          const name = doc.document_name || doc.File_Name || doc.name || doc.file_name || `Document ${index + 1}`;
-          
-          return {
-            ...doc,
-            source: doc.source || "unknown",
-            sourceLabel: doc.source === "recruit" ? "Recruit" : doc.source === "crm" ? "CRM" : "Unknown",
-            sourceIcon: doc.source === "recruit" ? "📊" : doc.source === "crm" ? "📤" : "📄",
-            sourceColor: doc.source === "recruit" ? "bg-blue-100 text-blue-700 border-blue-200" : 
-                         doc.source === "crm" ? "bg-green-100 text-green-700 border-green-200" : 
-                         "bg-gray-100 text-gray-700 border-gray-200",
-            attachment_id: doc.attachment_id || doc.id || doc.attachment_Id || doc._id,
-            document_name: name,
-            uploaded_at: doc.uploaded_at || doc.Created_Time || doc.created_at || new Date().toISOString()
-          };
-        });
-
-        return processed;
-      } catch (error) {
-        setError(error.message || "Network error");
+      if (!user?.email) {
         setConnectionStatus({ recruit: false, crm: false });
         setRecruitCount(0);
         setCrmCount(0);
+        setError("No user email found");
         return [];
       }
+
+      const token = localStorage.getItem("icp_auth_token");
+      if (!token) {
+        setConnectionStatus({ recruit: false, crm: false });
+        setRecruitCount(0);
+        setCrmCount(0);
+        setError("Authentication token not found");
+        return [];
+      }
+
+      const request = async (path) => {
+        const response = await fetch(`${API_BASE}${path}?refresh=true&_=${Date.now()}`, {
+          method: "GET",
+          cache: "no-store",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            "Cache-Control": "no-cache"
+          }
+        });
+
+        if (response.status === 403) {
+          const blocked = await response.clone().json().catch(() => ({}));
+          if (blocked.portalAccessBlocked) {
+            localStorage.removeItem("icp_auth_token");
+            window.location.assign("/login");
+          }
+        }
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.error || payload.message || `Request failed (${response.status})`);
+        }
+        return payload;
+      };
+
+      const [recruitResult, crmResult] = await Promise.allSettled([
+        request("/api/documents/recruit-documents"),
+        request("/api/documents/crm-documents")
+      ]);
+
+      let recruitDocs = [];
+      let crmDocs = [];
+      let recruitOk = recruitResult.status === "fulfilled";
+      let crmOk = crmResult.status === "fulfilled";
+
+      if (recruitOk) {
+        recruitDocs = recruitResult.value?.documents || [];
+      }
+      if (crmOk) {
+        crmDocs = crmResult.value?.documents || [];
+      }
+
+      // Compatibility fallback for older backends that only expose /api/documents/all.
+      if (!recruitOk || !crmOk) {
+        try {
+          const unified = await request("/api/documents/all");
+          const unifiedDocs = unified?.documents || [];
+          if (!recruitOk) {
+            recruitDocs = unifiedDocs.filter((doc) => doc.source === "recruit");
+            recruitOk = unified?.connected?.recruit === true || recruitDocs.length > 0;
+          }
+          if (!crmOk) {
+            crmDocs = unifiedDocs.filter((doc) => doc.source === "crm");
+            crmOk = unified?.connected?.crm === true || crmDocs.length > 0;
+          }
+        } catch (fallbackError) {
+          console.warn("[Documents] Unified fallback failed:", fallbackError.message);
+        }
+      }
+
+      const normalize = (doc, source, index) => ({
+        ...doc,
+        source,
+        attachment_id: doc.attachment_id || doc.id || doc.attachment_Id || doc._id,
+        document_name: doc.document_name || doc.File_Name || doc.name || doc.file_name || `Document ${index + 1}`,
+        uploaded_at: doc.uploaded_at || doc.Created_Time || doc.created_at || new Date().toISOString()
+      });
+
+      const combined = [
+        ...recruitDocs.map((doc, index) => normalize(doc, "recruit", index)),
+        ...crmDocs.map((doc, index) => normalize(doc, "crm", index))
+      ];
+
+      // Prevent accidental duplicates within the same source while preserving
+      // documents that exist separately in Recruit and CRM.
+      const seen = new Set();
+      const deduped = combined.filter((doc) => {
+        const key = `${doc.source}:${doc.attachment_id || doc.document_name}:${doc.uploaded_at || ""}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      setRecruitCount(recruitDocs.length);
+      setCrmCount(crmDocs.length);
+      setConnectionStatus({ recruit: recruitOk, crm: crmOk });
+
+      if (!recruitOk && !crmOk) {
+        const recruitError = recruitResult.status === "rejected" ? recruitResult.reason?.message : "";
+        const crmError = crmResult.status === "rejected" ? crmResult.reason?.message : "";
+        setError(recruitError || crmError || "Documents unavailable");
+      } else {
+        setError(null);
+      }
+
+      return deduped;
     },
     enabled: !!user?.email,
     staleTime: 0,
-    cacheTime: 0,
-    retry: 2,
-    retryDelay: 3000,
+    gcTime: 0,
+    retry: 1,
+    refetchOnWindowFocus: true
   });
 
   const filteredDocs = (() => {
@@ -382,9 +386,6 @@ export default function Documents() {
               {doc.document_name || doc.name || doc.file_name || 'Unnamed Document'}
             </p>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${doc.sourceColor || 'bg-gray-100 text-gray-700 border-gray-200'}`}>
-                {doc.sourceIcon || '📄'} {doc.sourceLabel || 'Unknown'}
-              </span>
               {(doc.uploaded_at || doc.created_at) && (
                 <span className="text-xs text-muted-foreground flex items-center gap-1">
                   <Calendar className="h-3 w-3" />
@@ -420,9 +421,11 @@ export default function Documents() {
     toast.info("Refreshing documents...");
     try {
       setError(null);
-      await refetch();
-      const total = allDocs.length;
-      toast.success(`Documents refreshed! Total: ${total}`);
+      const result = await refetch();
+      const refreshedDocs = result?.data || [];
+      const recruit = refreshedDocs.filter((doc) => doc.source === "recruit").length;
+      const crm = refreshedDocs.filter((doc) => doc.source === "crm").length;
+      toast.success(`Documents refreshed: ${refreshedDocs.length} total (${recruit} Recruit, ${crm} CRM)`);
     } catch (error) {
       toast.error("Failed to refresh documents");
     }
@@ -455,18 +458,6 @@ export default function Documents() {
           <p className="text-sm text-muted-foreground">
             {totalDocs} total documents
           </p>
-          <div className="flex items-center gap-4 mt-1 text-xs">
-            <span className={`flex items-center gap-1 px-2 py-0.5 rounded ${
-              connectionStatus.recruit ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
-            }`}>
-              {connectionStatus.recruit ? "✅" : "❌"} Recruit {connectionStatus.recruit ? "Connected" : "Offline"}
-            </span>
-            <span className={`flex items-center gap-1 px-2 py-0.5 rounded ${
-              connectionStatus.crm ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
-            }`}>
-              {connectionStatus.crm ? "✅" : "❌"} CRM {connectionStatus.crm ? "Connected" : "Offline"}
-            </span>
-          </div>
         </div>
         <div className="flex gap-2 flex-wrap">
           <div className="relative">
@@ -515,21 +506,18 @@ export default function Documents() {
         </div>
       )}
 
-      {/* CRM Warning - Only show if CRM is not connected but Recruit is */}
-      {!connectionStatus.crm && connectionStatus.recruit && (
+      {/* Generic document availability warning */}
+      {(!connectionStatus.crm || !connectionStatus.recruit) && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
           <div className="flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
-              <p className="text-sm font-medium text-amber-800">CRM Documents Unavailable</p>
-              <p className="text-xs text-amber-700 mt-0.5">
-                Unable to fetch CRM documents.
-              </p>
-              <button 
-                onClick={handleRefresh} 
+              <p className="text-sm font-medium text-amber-800">Documents unavailable</p>
+              <button
+                onClick={handleRefresh}
                 className="mt-2 text-xs bg-amber-100 hover:bg-amber-200 text-amber-800 px-3 py-1 rounded-lg font-medium transition-colors"
               >
-                Retry Connection
+                Retry
               </button>
             </div>
           </div>
@@ -556,16 +544,12 @@ export default function Documents() {
         )}
       </div>
 
-      {/* Source Info */}
+      {/* Document count */}
       <div className="bg-muted/30 rounded-lg p-3 border border-border">
         <div className="flex items-center gap-2 text-sm">
           <span className="font-medium">📌 Showing:</span>
           <span className="text-muted-foreground">
             {filteredDocs.length} document{filteredDocs.length !== 1 ? 's' : ''} found
-          </span>
-          <span className="text-xs text-muted-foreground ml-auto">
-            {connectionStatus.recruit ? '✅ Recruit' : '❌ Recruit'} · 
-            {connectionStatus.crm ? '✅ CRM' : '❌ CRM'}
           </span>
         </div>
       </div>
@@ -579,14 +563,14 @@ export default function Documents() {
             <WifiOff className="h-12 w-12 text-amber-500 mx-auto mb-3" />
           )}
           <p className="font-medium">
-            {connectionStatus.recruit || connectionStatus.crm ? "No documents found" : "Both sources are offline"}
+            {connectionStatus.recruit || connectionStatus.crm ? "No documents found" : "Documents unavailable"}
           </p>
           <p className="text-sm text-muted-foreground">
             {searchTerm 
               ? "Try adjusting your search criteria." 
               : connectionStatus.recruit || connectionStatus.crm 
-                ? "No documents available from either source."
-                : "Unable to connect to sources. Please try again later."}
+                ? "No documents are currently available."
+                : "Documents unavailable. Please try again later."}
           </p>
           {searchTerm && (
             <Button variant="outline" className="mt-4 gap-2" onClick={() => setSearchTerm("")}>
