@@ -88,6 +88,21 @@ const ga = (data, ...fieldNames) => {
   return null;
 };
 
+
+const isCRMChecklistComplete = (value) => {
+  if (value === true) return true;
+  if (typeof value === "number") return value === 1;
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return ["true", "yes", "1", "checked", "complete", "completed", "passed", "approved", "done"].includes(normalized);
+};
+
+// Backwards-compatible helper used by existing checklist and NCLEX code.
+// Keep one truth-value interpretation across every CRM-driven checkbox.
+const isTruthyField = isCRMChecklistComplete;
+
+const getCRMChecklistValue = (data, item) =>
+  ga(data, item.key, ...(item.aliases || []));
+
 // Zoho All Clear is a picklist. Deployment should unlock when ANY valid option is selected.
 const ALL_CLEAR_PICKLIST_OPTIONS = new Set([
   "yes",
@@ -122,7 +137,7 @@ const getArrivalDate = async () => {
     const token = localStorage.getItem("icp_auth_token");
     if (!token) return null;
 
-    const response = await fetch(`${API_BASE}/api/zoho/my-deals`, {
+    const response = await fetch(`${API_BASE}/api/zoho/my-deals?refresh=true&_=${Date.now()}`, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -181,7 +196,7 @@ const STAGES_CONFIG = [
   { id: 27, stage_name: "Cultural Adaptation & Integration", stage_category: "Immigration", stage_order: 27, days_from_start: 810 },
 
   // Deployment Stages (28-50)
-  { id: 28, stage_name: "Deployment & Skills Checklist", stage_category: "Deployment", stage_order: 28, days_from_start: 930 },
+  { id: 28, stage_name: "Deployment & Skills Checklist", stage_category: "Immigration", stage_order: 28, days_from_start: 930 },
   { id: 29, stage_name: "Submit Updated Work Status, Civil Docs & Licensing Credentials", stage_category: "Deployment", stage_order: 29, days_from_start: 935 },
   { id: 30, stage_name: "Submit Housing Form", stage_category: "Deployment", stage_order: 30, days_from_start: 940 },
   { id: 31, stage_name: "Submit R&L Checklist", stage_category: "Deployment", stage_order: 31, days_from_start: 945 },
@@ -206,9 +221,9 @@ const STAGES_CONFIG = [
   { id: 50, stage_name: "Submit Post-Arrival Documents", stage_category: "Deployment", stage_order: 50, days_from_start: 1040 },
 
   // Aftercare Stages (51-56)
-  { id: 51, stage_name: "Relocation Survey", stage_category: "Aftercare", stage_order: 51 },
-  { id: 52, stage_name: "30 Day Survey", stage_category: "Aftercare", stage_order: 52 },
-  { id: 53, stage_name: "90 Day Exit Call", stage_category: "Aftercare", stage_order: 53 },
+  { id: 51, stage_name: "Relocation Survey", stage_category: "Aftercare", stage_order: 51, days_from_arrival: 0 },
+  { id: 52, stage_name: "30 Day Survey", stage_category: "Aftercare", stage_order: 52, days_from_arrival: 30 },
+  { id: 53, stage_name: "90 Day Exit Call", stage_category: "Aftercare", stage_order: 53, days_from_arrival: 90 },
   { id: 54, stage_name: "Submit Active License", stage_category: "Aftercare", stage_order: 54 },
   { id: 55, stage_name: "Submit Orientation Start Date", stage_category: "Aftercare", stage_order: 55 },
   { id: 56, stage_name: "Submit Start Date on Floor Independently", stage_category: "Aftercare", stage_order: 56 },
@@ -344,17 +359,54 @@ const updateRecruitField = async (userEmail, stageName) => {
   }
 };
 
+const ICP_USRN_SUBPROCESS_CONFIG = [
+  { name: "Complete Pre-assessment", days: 5, field: "NCLEX_Pre_Exam", type: "picklist", accepted: ["1st Attempt Pass", "2nd Attempt Pass"] },
+  { name: "Program Prescreen", days: 10, field: "Prescreen_Status", type: "picklist", accepted: ["Attended"] },
+  { name: "Document Review", days: 24, field: "Documents_Submitted", type: "present" },
+  { name: "Educational Program Agreement", days: 24, field: "Sponsorship_Agreement", type: "boolean" },
+  { name: "Program Approval", days: 24, field: "Program_Status", type: "picklist", accepted: ["Approved"] },
+  { name: "Credential Evaluation Set-up", days: 27, field: "Credential_Service", type: "picklist", accepted: ["Paid by ICP", "Sponsored by ICP", "To be Sponsored by Infinity", "Paid by Infinity"] },
+  { name: "Credential Evaluation", days: 77, field: "Credentialing_Status", type: "picklist", accepted: ["Completed", "Complete", "Evaluation Completed"] },
+  { name: "Credential Evaluation Completed", days: 92, field: "Credential_Registration_Date", type: "present" },
+  { name: "Credentials Issued", days: 102, field: "Date_Report_Issued", type: "present" },
+  { name: "Board Registration", days: 120, field: "State_License_Board_of_Registration", type: "picklist", accepted: ["Paid by ICP", "Sponsored by ICP", "To be Sponsored by Infinity", "Paid by Infinity"] },
+  { name: "Board Approval", days: 127, field: "Board_Username", type: "present" },
+  { name: "Pearson Vue Registration", days: 150, field: "ATT_Received_Date", type: "present" },
+  { name: "Exam Registration", days: 165, field: "NCLEX_Exam_Date", type: "present" },
+  { name: "Exam Results", days: 195, field: "NCLEX_Status", type: "picklist", accepted: ["Passed"] },
+  { name: "Go back to Select Prescreen Time", days: 215, type: "navigation" },
+  { name: "Schedule time - booking app", days: 24, field: "Prescreen_Status", type: "picklist", accepted: ["Scheduled", "Attended"] },
+  { name: "Learn HUB enrollment", days: 27, field: "Learn_HUB_Enrollment", type: "present" },
+  { name: "Performance Check 1", days: 77, field: "Performance_Check_1", type: "complete" },
+  { name: "Performance Check 2", days: 102, field: "Performance_Check_2", type: "complete" },
+  { name: "Required Courses", days: 120, field: "Required_Courses", type: "complete" },
+  { name: "Performance Check 3", days: 127, field: "Performance_Check_3", type: "complete" },
+  { name: "ATT Received", days: 150, field: "ATT_Received_Date", type: "present" },
+  { name: "Performance Check 4", days: 165, field: "Performance_Check_4", type: "complete" },
+  { name: "Performance Check FINAL", days: 195, field: "Performance_Check_FINAL", type: "complete" },
+  { name: "Background Complete", days: 215, field: "Background_Complete", type: "complete" },
+];
+
+const normalizeCRMValue = (value) => String(value ?? "").trim().toLowerCase();
+const hasCRMValue = (value) => value !== undefined && value !== null && String(value).trim() !== "" && String(value).trim() !== "—";
+const isICPUSRNItemComplete = (item, data = {}) => {
+  if (!item?.field || item.type === "navigation") return false;
+  const value = ga(data, item.field, item.field.replace(/_/g, ""), item.field.charAt(0).toLowerCase() + item.field.slice(1));
+  if (item.type === "present") return hasCRMValue(value);
+  if (item.type === "boolean") return isTruthyField(value);
+  if (item.type === "complete") {
+    if (isTruthyField(value)) return true;
+    return ["complete", "completed", "passed", "done", "yes"].includes(normalizeCRMValue(value));
+  }
+  if (item.type === "picklist") {
+    const normalized = normalizeCRMValue(value);
+    return (item.accepted || []).some(option => normalizeCRMValue(option) === normalized);
+  }
+  return false;
+};
+
 const HIRING_SUBPROCESSES = {
-  "Transfer to ICP USRN School": [
-    ["Complete Pre-assessment",5],["Program Prescreen",10],["Document Review",24],["Educational Program Agreement",24],["Program Approval",24],["Credential Evaluation Set-up",27],["Credential Evaluation",77],["Credential Evaluation Completed",92],["Credentials Issued",102],["Board Registration",120],["Board Approval",127],["Pearson Vue Registration",150],["Exam Registration",165],["Exam Results",195],["Go back to Select Prescreen Time",215],
-    // Prescreen options are also shown here for candidates whose Application_Status
-    // is exactly "Transfer to ICP USRN school". The original Select Prescreen Time
-    // subprocess remains unchanged below.
-    ["Schedule time - booking app",24],["Learn HUB enrollment",27],["Performance Check 1",77],["Performance Check 2",102],["Required Courses",120],["Performance Check 3",127],["ATT Received",150],["Performance Check 4",165],["Performance Check FINAL",195],["Background Complete",215]
-  ],
-  "Select Prescreen Time": [
-    ["Schedule time - booking app",24],["Learn HUB enrollment",27],["Performance Check 1",77],["Performance Check 2",102],["Required Courses",120],["Performance Check 3",127],["ATT Received",150],["Performance Check 4",165],["Performance Check FINAL",195],["Background Complete",215]
-  ]
+  "Transfer to ICP USRN School": ICP_USRN_SUBPROCESS_CONFIG,
 };
 
 // NCLEX Roadmap Stages
@@ -594,19 +646,26 @@ const IMMIGRATION_STAGE_DETAILS = {
 // directly from CRM/Zoho fields and check themselves off automatically. The
 // stage as a whole is marked "Completed" once every item in the group is true.
 const FOUNDATIONS_PILLARS = [
-  { key: "Pillar_1_Clinical_Readiness", label: "Pillar 1 - Clinical Readiness" },
-  { key: "Pillar_2_Communication_Cultural_Integration", label: "Pillar 2 - Communication & Cultural Integration" },
-  { key: "Pillar_3_Personal_Transition_Success", label: "Pillar 3 - Personal Transition Success" },
-  { key: "Pillar_4_Career_Success_Pathway", label: "Pillar 4 - Career Success Pathway" },
-  { key: "Pillar_5_Patient_Centered_Care", label: "Pillar 5 - Patient Centered Care" },
+  { key: "Pillar_1_Clinical_Readiness", aliases: ["pillar1", "Pillar1ClinicalReadiness", "Pillar_1_Clinical_Readiness_Discovery_Class"], label: "Pillar 1 - Clinical Readiness" },
+  { key: "Pillar_2_Communication_Cultural_Integration", aliases: ["pillar2", "Pillar2CommunicationCulturalIntegration", "Pillar_2_Communication_and_Cultural_Integration"], label: "Pillar 2 - Communication & Cultural Integration" },
+  { key: "Pillar_3_Personal_Transition_Success", aliases: ["pillar3", "Pillar3PersonalTransitionSuccess"], label: "Pillar 3 - Personal Transition Success" },
+  { key: "Pillar_4_Career_Success_Pathway", aliases: ["pillar4", "Pillar4CareerSuccessPathway"], label: "Pillar 4 - Career Success Pathway" },
+  { key: "Pillar_5_Patient_Centered_Care", aliases: ["pillar5", "Pillar5PatientCenteredCare"], label: "Pillar 5 - Patient Centered Care" },
+];
+
+const LICENSURE_GENERAL_ITEMS = [
+  { key: "General_Licensure_Course", aliases: ["generalLicensureCourse", "General_Licensure", "Licensure_General", "General_Licensure_Complete"], label: "General Licensure Course" },
+  { key: "Live_English_Assessment_Course", aliases: ["liveEnglishAssessmentCourse", "Live_English_Assessment", "Live_English_Assessment_Complete", "English_Live_Assessment"], label: "Live English Assessment Course" },
+  { key: "Licensure_Documentation_Review", aliases: ["licensureDocumentationReview", "General_Licensure_Documentation_Review", "Licensure_Document_Review"], label: "Licensure Documentation Review" },
+  { key: "English_Assessment_Completed", aliases: ["englishAssessmentCompleted", "Live_English_Assessment_Completed", "English_Language_Assessment_Completed"], label: "English Assessment Completed" },
 ];
 
 const LICENSE_ENDORSEMENT_ITEMS = [
-  { key: "CES_Report_Discovery_Class", label: "CES Report - Discovery Class" },
-  { key: "Fingerprints_Discovery_Class", label: "Fingerprints - Discovery Class" },
-  { key: "Jurisprudence_Discovery_Class", label: "Jurisprudence - Discovery Class" },
-  { key: "Nursys_Discovery_Class", label: "Nursys - Discovery Class" },
-  { key: "Visascreen_Discovery_Class", label: "Visascreen - Discovery Class" },
+  { key: "CES_Report_Discovery_Class", aliases: ["cesReport", "CESReportDiscoveryClass", "CES_Report_Disc_Class"], label: "CES Report - Discovery Class" },
+  { key: "Fingerprints_Discovery_Class", aliases: ["fingerprints", "FingerprintsDiscoveryClass"], label: "Fingerprints - Discovery Class" },
+  { key: "Jurisprudence_Discovery_Class", aliases: ["jurisprudence", "JurisprudenceDiscoveryClass"], label: "Jurisprudence - Discovery Class" },
+  { key: "Nursys_Discovery_Class", aliases: ["nursys", "NursysDiscoveryClass"], label: "Nursys - Discovery Class" },
+  { key: "Visascreen_Discovery_Class", aliases: ["visascreen", "VisaScreen_Discovery_Class", "Visa_Screen_Discovery_Class"], label: "Visascreen - Discovery Class" },
 ];
 
 const CULTURAL_ADAPTATION_ITEMS = [
@@ -620,6 +679,7 @@ const CULTURAL_ADAPTATION_ITEMS = [
 // Maps an Immigration stage_name to the CRM checklist group that drives it
 const IMMIGRATION_CRM_CHECKLISTS = {
   "Foundations (Phases 1–3)": FOUNDATIONS_PILLARS,
+  "Licensure (General) & Live English Assessment": LICENSURE_GENERAL_ITEMS,
   "License Endorsement": LICENSE_ENDORSEMENT_ITEMS,
   "Cultural Adaptation & Integration": CULTURAL_ADAPTATION_ITEMS,
 };
@@ -711,9 +771,9 @@ const statusConfig = {
 };
 
 const riskConfig = {
-  "On Track": { icon: CheckCircle2, color: "text-emerald-500", label: "On Track" },
+  "Good Standing": { icon: CheckCircle2, color: "text-emerald-500", label: "Good Standing" },
   "At Risk": { icon: AlertTriangle, color: "text-amber-500", label: "At Risk" },
-  "Overdue": { icon: AlertCircle, color: "text-red-500", label: "Overdue" },
+  "Late": { icon: AlertCircle, color: "text-red-500", label: "Late" },
   "Late": { icon: Timer, color: "text-orange-500", label: "Late" },
 };
 
@@ -782,35 +842,30 @@ const CURRENCIES = [
   { code: "TOP", label: "Tongan Pa'anga", flag: "🇹🇴", symbol: "T$" },
 ];
 
-// Helper function to update pipeline stage status
-const updateStageStatus = (userEmail, stageName, setStages) => {
-  const savedStages = localStorage.getItem(`pipeline_${userEmail}`);
-  if (savedStages) {
-    const stages = JSON.parse(savedStages);
-    const updatedStages = stages.map(stage => {
-      if (stage.stage_name === stageName) {
-        return { 
-          ...stage, 
-          status: "Completed", 
-          completed_date: format(new Date(), "yyyy-MM-dd") 
-        };
-      }
-      return stage;
+// Helper function to update pipeline stage status in MongoDB.
+// Authentication tokens remain in localStorage, but pipeline progress never does.
+const updateStageStatus = async (userEmail, stageName, setStages, nextStatus = "Completed") => {
+  try {
+    const token = localStorage.getItem("icp_auth_token");
+    if (!token) throw new Error("Not authenticated");
+    const completedDate = nextStatus === "Completed" ? format(new Date(), "yyyy-MM-dd") : null;
+    const response = await fetch(`${API_BASE}/api/pipeline/update-stage`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ email: userEmail, stage_name: stageName, status: nextStatus, completed_date: completedDate })
     });
-    localStorage.setItem(`pipeline_${userEmail}`, JSON.stringify(updatedStages));
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Failed to save pipeline progress");
     if (setStages) {
-      setStages(updatedStages);
+      setStages(prev => prev.map(stage => stage.stage_name === stageName ? { ...stage, ...data.stage, status: nextStatus, completed_date: completedDate } : stage));
     }
-    
-    // Update Recruit fields for matching hiring stages
-    const mapping = HIRING_FIELD_MAPPINGS[stageName];
-    if (mapping) {
-      updateRecruitField(userEmail, stageName);
-    }
-    
+    if (nextStatus === "Completed" && HIRING_FIELD_MAPPINGS[stageName]) await updateRecruitField(userEmail, stageName);
     return true;
+  } catch (error) {
+    console.error(`[Pipeline] Failed to persist ${stageName}:`, error);
+    toast.error(error.message || "Could not save pipeline progress");
+    return false;
   }
-  return false;
 };
 
 // ============= Timing / sequential unlock helpers =============
@@ -1269,8 +1324,9 @@ const ContractView = ({ onClose, user, setStages }) => {
         throw new Error("Not authenticated");
       }
 
-      const response = await fetch(`${API_BASE}/api/zoho/my-deals`, {
+      const response = await fetch(`${API_BASE}/api/zoho/my-deals?refresh=true&_=${Date.now()}`, {
         method: "GET",
+        cache: "no-store",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json"
@@ -1352,7 +1408,7 @@ const ContractView = ({ onClose, user, setStages }) => {
       formData.append("document_type", "Contract");
       formData.append("candidate_email", user?.email || "");
 
-      const response = await fetch(`${API_BASE}/api/documents/upload-to-concierge`, {
+      const response = await fetch(`${API_BASE}/api/documents/upload-to-crm-and-recruit`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`
@@ -1679,7 +1735,7 @@ const ImmigrationCRMChecklistView = ({ stageName, onClose, user, setStages, stag
 
       const results = {};
       items.forEach(item => {
-        results[item.key] = isTruthyField(ga(userData, item.key));
+        results[item.key] = isCRMChecklistComplete(getCRMChecklistValue(userData, item));
       });
       setChecklist(results);
 
@@ -2824,6 +2880,19 @@ const WelcomeAppointments = ({ onClose, user, setStages }) => {
   );
 };
 
+const BEHAVIORAL_ASSESSMENT_QUESTIONS = [
+  "1. Select the 5 words that describe you best at work.",
+  "2. Select the 5 words that least describe you at work.",
+  "3. Rate the ten workplace statements from Strongly Disagree to Strongly Agree, including staying calm under pressure, comforting patients or families, double-checking work, routines, collaboration, adaptability, speaking up about safety, building trust, planning, and handling emotionally difficult situations.",
+  "4. A patient becomes agitated during a procedure. What is your first step?",
+  "5. You are short-staffed and under pressure. How do you prioritize?",
+  "6. A coworker is struggling with a task you are familiar with. What do you do?",
+  "7. During a busy shift, a patient becomes unresponsive while a family member demands attention. How do you respond?",
+  "8. Select all strategies you use to create and maintain work-life balance as a nurse.",
+  "9. Describe a specific situation in your nursing career where you demonstrated compassion.",
+  "10. Why did you choose to become a nurse?"
+];
+
 // Deployment Details Component
 const DeploymentDetails = ({ onClose, user, setStages }) => {
   const [uploading, setUploading] = useState({});
@@ -2879,7 +2948,7 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("document_name", `${key} - ${format(new Date(), "MMM d, yyyy")}`);
-      formData.append("document_type", "Deployment Requirement");
+      formData.append("document_type", key === "behaviorAssessment" ? "Behavioral Assessment" : "Deployment Requirement");
       formData.append("candidate_email", user?.email || "");
 
       const response = await fetch(`${API_BASE}/api/documents/upload-to-concierge`, {
@@ -3002,6 +3071,13 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
                   {label} <span className="text-red-500">*</span>
                 </p>
                 {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
+                {requirementKey === "behaviorAssessment" && (
+                  <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900 space-y-2">
+                    <p className="font-semibold">Behavioral Assessment form requirements</p>
+                    {BEHAVIORAL_ASSESSMENT_QUESTIONS.map((question) => <p key={question}>{question}</p>)}
+                    <p className="font-medium">Upload the completed three-page Behavioral Assessment report as a PDF.</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -3078,8 +3154,8 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
 
       <div className="bg-white rounded-lg p-3 border border-gray-200">
         <div className="flex justify-between text-xs text-muted-foreground mb-1">
-          <span>Progress</span>
-          <span>{progress.completed} / {progress.total}</span>
+          <span>{progress.total} required documents</span>
+          <span>{progress.completed} uploaded / {progress.total} total</span>
         </div>
         <div className="w-full bg-gray-200 rounded-full h-2">
           <div 
@@ -4727,6 +4803,7 @@ export default function Pipeline() {
   const [isCheckingNCLEX, setIsCheckingNCLEX] = useState(true);
   const [pipelineStartDate, setPipelineStartDate] = useState(null);
   const [applicationStatus, setApplicationStatus] = useState("");
+  const [icpUSRNCRMData, setICPUSRNCRMData] = useState({});
   const [portalAccessBlocked, setPortalAccessBlocked] = useState(false);
 
   useEffect(() => {
@@ -4770,6 +4847,7 @@ export default function Pipeline() {
       let submittedToImmigrationDate = null;
       let allClearDocumentaryComplete = false;
       let recruitApplicationStatus = "";
+      let icpUSRNData = {};
 
       if (token) {
         try {
@@ -4800,6 +4878,8 @@ export default function Pipeline() {
           if (response.ok) {
             const payload = await response.json();
             const userData = payload?.data || {};
+            setICPUSRNCRMData(userData);
+            icpUSRNData = userData;
             recruitApplicationStatus = ga(
               userData,
               "Application_Status",
@@ -4814,7 +4894,6 @@ export default function Pipeline() {
             setPortalAccessBlocked(accessIsBlocked);
             if (accessIsBlocked) {
               localStorage.removeItem("icp_auth_token");
-              localStorage.removeItem(`pipeline_${user.email}`);
               toast.error("Your candidate portal access is no longer active. Please contact Infinity Care Partners.");
               navigate("/login", { replace: true });
               return;
@@ -4864,7 +4943,14 @@ export default function Pipeline() {
       const received = dateReceivedRaw || new Date().toISOString();
       const start = new Date(received);
       setPipelineStartDate(Number.isNaN(start.getTime()) ? new Date() : start);
-      const saved = JSON.parse(localStorage.getItem(`pipeline_${user.email}`) || "[]");
+      let saved = [];
+      try {
+        const token = localStorage.getItem("icp_auth_token");
+        const savedResponse = await fetch(`${API_BASE}/api/pipeline/get?email=${encodeURIComponent(user.email)}`, { headers: { Authorization: `Bearer ${token}` } });
+        if (savedResponse.ok) saved = (await savedResponse.json()).stages || [];
+      } catch (error) {
+        console.warn("[Pipeline] Could not load saved database stages:", error);
+      }
       const savedByName = new Map(saved.map(x => [x.stage_name, x]));
       
       // Build stages with immigration details.
@@ -4878,7 +4964,7 @@ export default function Pipeline() {
         const isAppliedStage = stage.stage_name === "Applied";
         const isAssociatedStage = stage.stage_name === "Associated with Job";
         const isFirstImmigrationStage = stage.stage_category === "Immigration" && stage.stage_order === 21;
-        const isFirstDeploymentStage = stage.stage_category === "Deployment" && stage.stage_order === 28;
+        const isFirstDeploymentStage = stage.stage_category === "Deployment" && stage.stage_order === 29;
 
         let automaticStatus = null;
 
@@ -4970,18 +5056,97 @@ export default function Pipeline() {
       }
 
       if (showNCLEX) {
-        allStages = [...allStages, ...NCLEX_STAGES.map(stage => ({ 
-          ...stage, 
-          ...savedByName.get(stage.stage_name), 
-          candidate_email: user.email, 
-          status: savedByName.get(stage.stage_name)?.status || "Not Started", 
-          completed_date: savedByName.get(stage.stage_name)?.completed_date || null, 
-          stage_details: NCLEX_STAGE_DETAILS[stage.stage_name] || null 
-        }))];
+        const nclexStages = NCLEX_STAGES.map(stage => {
+          const savedStage = savedByName.get(stage.stage_name);
+          const trigger = ICP_USRN_SUBPROCESS_CONFIG.find(item => item.name === stage.stage_name);
+          const crmCompleted = trigger ? isICPUSRNItemComplete(trigger, icpUSRNData) : false;
+          return {
+            ...stage,
+            ...savedStage,
+            candidate_email: user.email,
+            status: crmCompleted ? "Completed" : (savedStage?.status || "Not Started"),
+            completed_date: crmCompleted ? (savedStage?.completed_date || format(new Date(), "yyyy-MM-dd")) : (savedStage?.completed_date || null),
+            synced_from_custom_module_1: crmCompleted,
+            stage_details: NCLEX_STAGE_DETAILS[stage.stage_name] || null
+          };
+        });
+        allStages = [...allStages, ...nclexStages];
+
+        // Persist CRM-driven NCLEX completions so progress survives refreshes/devices.
+        if (token && saved.length > 0) {
+          await Promise.allSettled(nclexStages.filter(stage => stage.synced_from_custom_module_1 && savedByName.get(stage.stage_name)?.status !== "Completed").map(stage =>
+            fetch(`${API_BASE}/api/pipeline/update-stage`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ email: user.email, stage_name: stage.stage_name, status: "Completed", completed_date: stage.completed_date })
+            })
+          ));
+        }
       }
       
+      // CRM is the source of truth for every Immigration course/checklist.
+      // Evaluate it during the main sync so the UI is correct without opening a modal.
+      const crmDrivenImmigrationUpdates = [];
+      allStages = allStages.map(stage => {
+        const checklist = IMMIGRATION_CRM_CHECKLISTS[stage.stage_name];
+        if (!checklist?.length) return stage;
+
+        const checklistResults = checklist.reduce((acc, item) => {
+          acc[item.key] = isCRMChecklistComplete(getCRMChecklistValue(icpUSRNData, item));
+          return acc;
+        }, {});
+        const completedCount = Object.values(checklistResults).filter(Boolean).length;
+        const allComplete = completedCount === checklist.length;
+
+        if (allComplete && stage.status !== "Completed") {
+          crmDrivenImmigrationUpdates.push({
+            stage_name: stage.stage_name,
+            completed_date: format(new Date(), "yyyy-MM-dd")
+          });
+        }
+
+        return {
+          ...stage,
+          crm_checklist: checklistResults,
+          crm_checklist_completed: completedCount,
+          crm_checklist_total: checklist.length,
+          status: allComplete ? "Completed" : stage.status,
+          completed_date: allComplete
+            ? (stage.completed_date || format(new Date(), "yyyy-MM-dd"))
+            : stage.completed_date,
+          synced_from_crm_checklist: true,
+        };
+      });
+
+      if (token && saved.length > 0 && crmDrivenImmigrationUpdates.length > 0) {
+        await Promise.allSettled(
+          crmDrivenImmigrationUpdates.map(item =>
+            fetch(`${API_BASE}/api/pipeline/update-stage`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                email: user.email,
+                stage_name: item.stage_name,
+                status: "Completed",
+                completed_date: item.completed_date
+              })
+            })
+          )
+        );
+      }
+
       setStages(allStages);
-      localStorage.setItem(`pipeline_${user.email}`, JSON.stringify(allStages));
+      if (saved.length === 0) {
+        const initResponse = await fetch(`${API_BASE}/api/pipeline/initialize`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ email: user.email, stages: allStages })
+        });
+        if (!initResponse.ok) console.warn("[Pipeline] Database initialization failed", await initResponse.text());
+      }
       setIsInitialized(true);
     } catch (error) {
       console.error("Automatic pipeline sync failed:", error);
@@ -4991,96 +5156,36 @@ export default function Pipeline() {
     }
   };
 
-  const loadStages = () => {
+  const loadStages = async () => {
     try {
-      const savedStages = localStorage.getItem(`pipeline_${user.email}`);
-      if (savedStages) {
-        const parsed = JSON.parse(savedStages);
-        if (parsed && parsed.length > 0) {
-          const hasBaseStages = parsed.some(stage => 
-            STAGES_CONFIG.some(newStage => newStage.stage_name === stage.stage_name)
-          );
-          if (hasBaseStages) {
-            if (showNCLEX) {
-              const hasNCLEXStages = parsed.some(stage => 
-                NCLEX_STAGES.some(nclexStage => nclexStage.stage_name === stage.stage_name)
-              );
-              if (!hasNCLEXStages) {
-                const nclexStages = NCLEX_STAGES.map((stage) => ({
-                  ...stage,
-                  candidate_email: user.email,
-                  status: "Not Started",
-                  completed_date: null,
-                  notes: null,
-                  target_date: null,
-                  stage_details: NCLEX_STAGE_DETAILS[stage.stage_name] || null
-                }));
-                const updatedStages = [...parsed, ...nclexStages];
-                setStages(updatedStages);
-                localStorage.setItem(`pipeline_${user.email}`, JSON.stringify(updatedStages));
-                setIsInitialized(true);
-                return;
-              }
-            }
-            setStages(parsed);
-            setIsInitialized(true);
-          } else {
-            localStorage.removeItem(`pipeline_${user.email}`);
-            setIsInitialized(false);
-            setStages([]);
-          }
-        }
-      }
+      const token = localStorage.getItem("icp_auth_token");
+      const response = await fetch(`${API_BASE}/api/pipeline/get?email=${encodeURIComponent(user.email)}`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to load pipeline");
+      const parsed = data.stages || [];
+      setStages(parsed);
+      setIsInitialized(parsed.length > 0);
     } catch (error) {
-      console.error("Error loading pipeline:", error);
-      localStorage.removeItem(`pipeline_${user.email}`);
+      console.error("Error loading pipeline from database:", error);
+      setStages([]);
+      setIsInitialized(false);
     }
   };
 
-  const handleInitialize = () => {
-    if (!user?.email) {
-      toast.error("User email not found");
-      return;
-    }
+  const handleInitialize = async () => {
+    if (!user?.email) return toast.error("User email not found");
     setIsLoading(true);
-    localStorage.removeItem(`pipeline_${user.email}`);
-    let allStages = STAGES_CONFIG.map((stage) => {
-      const baseStage = {
-        ...stage,
-        candidate_email: user.email,
-        status: "Not Started",
-        completed_date: null,
-        notes: null,
-        target_date: null
-      };
-      
-      if (stage.stage_category === "Immigration" && IMMIGRATION_STAGE_DETAILS[stage.stage_name]) {
-        baseStage.stage_details = IMMIGRATION_STAGE_DETAILS[stage.stage_name];
-      }
-      
-      return baseStage;
-    });
-    
-    if (showNCLEX) {
-      const nclexStages = NCLEX_STAGES.map((stage) => ({
-        ...stage,
-        candidate_email: user.email,
-        status: "Not Started",
-        completed_date: null,
-        notes: null,
-        target_date: null,
-        stage_details: NCLEX_STAGE_DETAILS[stage.stage_name] || null
-      }));
-      allStages = [...allStages, ...nclexStages];
-    }
-    
-    setStages(allStages);
-    localStorage.setItem(`pipeline_${user.email}`, JSON.stringify(allStages));
-    setTimeout(() => {
+    try {
+      let allStages = STAGES_CONFIG.map(stage => ({ ...stage, candidate_email: user.email, status: "Not Started", completed_date: null, notes: null, target_date: null, stage_details: stage.stage_category === "Immigration" ? IMMIGRATION_STAGE_DETAILS[stage.stage_name] || null : null }));
+      if (showNCLEX) allStages = [...allStages, ...NCLEX_STAGES.map(stage => ({ ...stage, candidate_email: user.email, status: "Not Started", completed_date: null, notes: null, target_date: null, stage_details: NCLEX_STAGE_DETAILS[stage.stage_name] || null }))];
+      const token = localStorage.getItem("icp_auth_token");
+      const response = await fetch(`${API_BASE}/api/pipeline/initialize`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ email: user.email, stages: allStages }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Pipeline initialization failed");
+      setStages(data.stages || allStages);
       setIsInitialized(true);
-      setIsLoading(false);
-      toast.success("Pipeline initialized successfully!");
-    }, 500);
+      toast.success("Pipeline initialized and saved in the database.");
+    } catch (error) { toast.error(error.message); } finally { setIsLoading(false); }
   };
 
   const openModal = (title, component) => {
@@ -5100,25 +5205,13 @@ export default function Pipeline() {
     });
   };
 
-  const cycleStatus = (stageId) => {
+  const cycleStatus = async (stageId) => {
     const order = ["Not Started", "In Progress", "Completed", "Blocked"];
-    const updatedStages = stages.map(stage => {
-      if (stage.id === stageId) {
-        const currentIndex = order.indexOf(stage.status);
-        const nextStatus = order[(currentIndex + 1) % order.length];
-        const updatedStage = { 
-          ...stage, 
-          status: nextStatus,
-          completed_date: nextStatus === "Completed" ? format(new Date(), "yyyy-MM-dd") : stage.completed_date
-        };
-        return updatedStage;
-      }
-      return stage;
-    });
-    setStages(updatedStages);
-    localStorage.setItem(`pipeline_${user.email}`, JSON.stringify(updatedStages));
-    const updatedStage = updatedStages.find(s => s.id === stageId);
-    toast.success(`${updatedStage.stage_name} marked as ${updatedStage.status}`);
+    const stage = stages.find(item => item.id === stageId || item._id === stageId);
+    if (!stage) return;
+    const nextStatus = order[(order.indexOf(stage.status) + 1) % order.length];
+    const saved = await updateStageStatus(user.email, stage.stage_name, setStages, nextStatus);
+    if (saved) toast.success(`${stage.stage_name} marked as ${nextStatus}`);
   };
 
   const getRiskStatus = (stage) => {
@@ -5134,9 +5227,9 @@ export default function Pipeline() {
       if (Number.isNaN(hiredDate.getTime())) return null;
       const deadline = addDays(hiredDate, 30);
       const hoursRemaining = (deadline.getTime() - Date.now()) / (1000 * 60 * 60);
-      if (hoursRemaining < 0) return "Overdue";
+      if (hoursRemaining < 0) return "Late";
       if (hoursRemaining <= 24) return "At Risk";
-      return "On Track";
+      return "Good Standing";
     }
 
     const targetHours = stage.hours_from_start ?? ((stage.days_from_start || 0) * 24);
@@ -5145,9 +5238,9 @@ export default function Pipeline() {
     const elapsedHours = Math.floor((Date.now() - start.getTime()) / (1000 * 60 * 60));
     const hoursRemaining = targetHours - elapsedHours;
     if (stage.completed_date) return null;
-    if (hoursRemaining < 0) return "Overdue";
+    if (hoursRemaining < 0) return "Late";
     if (hoursRemaining <= 24) return "At Risk";
-    return "On Track";
+    return "Good Standing";
   };
 
   const isStageClickable = (stageName) => {
@@ -5544,7 +5637,7 @@ export default function Pipeline() {
                       isLocked && "opacity-50",
                       isGate && "bg-blue-50/30 border-l-4 border-l-blue-400",
                       riskStatus === "At Risk" && "bg-yellow-50 border-l-4 border-l-yellow-400",
-                      riskStatus === "Overdue" && "bg-red-50 border-l-4 border-l-red-500"
+                      riskStatus === "Late" && "bg-red-50 border-l-4 border-l-red-500"
                     )}
                     onClick={() => canInteract && handleStageClick(stage)}
                   >
@@ -5585,11 +5678,26 @@ export default function Pipeline() {
                       </p>
                       {stage.stage_category === "Hiring" && HIRING_SUBPROCESSES[stage.stage_name] && (
                         <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-                          {HIRING_SUBPROCESSES[stage.stage_name].map(([name], subIndex) => (
-                            <div key={`${stage.stage_name}-${subIndex}`} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700">
-                              {name}
-                            </div>
-                          ))}
+                          {HIRING_SUBPROCESSES[stage.stage_name].map((item, subIndex) => {
+                            const complete = isICPUSRNItemComplete(item, icpUSRNCRMData);
+                            return (
+                              <div
+                                key={`${stage.stage_name}-${subIndex}`}
+                                className={cn(
+                                  "rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
+                                  complete
+                                    ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                                    : "border-slate-200 bg-slate-50 text-slate-700"
+                                )}
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <span>{item.name}</span>
+                                  {complete && <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />}
+                                </div>
+                                <div className={cn("mt-1 text-[10px]", complete ? "text-emerald-600" : "text-slate-400")}>Day {item.days}</div>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                       {stage.completed_date && (
@@ -5613,10 +5721,10 @@ export default function Pipeline() {
                     <div className="flex items-center gap-2 flex-shrink-0">
                       {showRisk && riskCfg && (
                         <span className={cn("text-xs px-2 py-0.5 rounded-full flex items-center gap-1", 
-                          riskStatus === "Overdue" && "bg-red-50 text-red-700 border border-red-200",
+                          riskStatus === "Late" && "bg-red-50 text-red-700 border border-red-200",
                           riskStatus === "At Risk" && "bg-amber-50 text-amber-700 border border-amber-200",
                           riskStatus === "Late" && "bg-orange-50 text-orange-700 border border-orange-200",
-                          riskStatus === "On Track" && "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                          riskStatus === "Good Standing" && "bg-emerald-50 text-emerald-700 border border-emerald-200"
                         )}>
                           <riskCfg.icon className="h-3 w-3" />
                           {riskCfg.label}
