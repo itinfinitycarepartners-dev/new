@@ -2319,77 +2319,120 @@ const LicenseEndorsementView = ({ onClose }) => {
   );
 };
 
-// Orientation Start View
-const OrientationStartView = ({ onClose }) => {
+// Candidate date submission form used by the two Aftercare date stages.
+const AftercareDateSubmissionView = ({ onClose, user, setStages, stageName, title, description, fieldLabel, dateType }) => {
+  const [selectedDate, setSelectedDate] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (!selectedDate) {
+      toast.error(`Please enter ${fieldLabel.toLowerCase()}.`);
+      return;
+    }
+
+    const chosen = new Date(`${selectedDate}T12:00:00`);
+    if (Number.isNaN(chosen.getTime())) {
+      toast.error("Please enter a valid date.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const token = localStorage.getItem("icp_auth_token");
+      if (!token) throw new Error("Not authenticated");
+
+      const response = await fetch(`${API_BASE}/api/aftercare/date-submission`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: user?.email,
+          stage_name: stageName,
+          date_type: dateType,
+          submitted_date: selectedDate,
+        }),
+      });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.success !== true) {
+        throw new Error(result.error || result.message || "The date could not be submitted.");
+      }
+
+      if (Array.isArray(result.stages)) setStages(result.stages);
+      else await updateStageStatus(user?.email, stageName, setStages);
+
+      toast.success(`${fieldLabel} submitted successfully.`);
+      setTimeout(onClose, 600);
+    } catch (error) {
+      toast.error(error.message || "The date could not be submitted.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
-    <div className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4">
       <div className="bg-rose-50 rounded-lg p-4 border border-rose-200">
         <h3 className="font-semibold text-rose-800 flex items-center gap-2">
           <CalendarIcon className="h-5 w-5" />
-          Orientation Start
+          {title}
         </h3>
-        <p className="text-sm text-muted-foreground mt-1">Track your orientation start date and requirements.</p>
+        <p className="text-sm text-muted-foreground mt-1">{description}</p>
       </div>
-      <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-3">
-        <div className="flex items-center justify-between py-2 border-b">
-          <span className="text-sm text-muted-foreground">Orientation Date</span>
-          <span className="text-sm font-medium">{format(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), "MMMM d, yyyy")}</span>
-        </div>
-        <div className="flex items-center justify-between py-2 border-b">
-          <span className="text-sm text-muted-foreground">Location</span>
-          <span className="text-sm font-medium">St. Mary's Medical Center</span>
-        </div>
-        <div className="flex items-center justify-between py-2">
-          <span className="text-sm text-muted-foreground">Time</span>
-          <span className="text-sm font-medium">8:00 AM - 5:00 PM</span>
-        </div>
+
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <label className="block text-sm font-medium text-gray-800 mb-2" htmlFor={dateType}>
+          {fieldLabel} <span className="text-red-500">*</span>
+        </label>
+        <input
+          id={dateType}
+          type="date"
+          value={selectedDate}
+          onChange={(event) => setSelectedDate(event.target.value)}
+          max="2100-12-31"
+          required
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-100"
+        />
+        <p className="mt-2 text-xs text-muted-foreground">
+          After submission, this date is saved in the database, the stage is checked off, and the ICP admin team can view it from the admin panel.
+        </p>
       </div>
+
       <div className="flex gap-2 justify-end">
-        <Button variant="outline" onClick={onClose}>Close</Button>
-        <Button className="bg-rose-600 hover:bg-rose-700">
-          <CalendarIcon className="h-4 w-4 mr-2" />
-          Add to Calendar
+        <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
+        <Button type="submit" className="bg-rose-600 hover:bg-rose-700" disabled={isSubmitting || !selectedDate}>
+          {isSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CalendarIcon className="h-4 w-4 mr-2" />}
+          {isSubmitting ? "Submitting..." : "Submit Date"}
         </Button>
       </div>
-    </div>
+    </form>
   );
 };
 
-// Orientation End View
-const OrientationEndView = ({ onClose }) => {
-  return (
-    <div className="space-y-4">
-      <div className="bg-rose-50 rounded-lg p-4 border border-rose-200">
-        <h3 className="font-semibold text-rose-800 flex items-center gap-2">
-          <Flag className="h-5 w-5" />
-          Orientation End
-        </h3>
-        <p className="text-sm text-muted-foreground mt-1">Track your orientation completion and next steps.</p>
-      </div>
-      <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-3">
-        <div className="flex items-center justify-between py-2 border-b">
-          <span className="text-sm text-muted-foreground">Completion Date</span>
-          <span className="text-sm font-medium">{format(new Date(Date.now() + 18 * 24 * 60 * 60 * 1000), "MMMM d, yyyy")}</span>
-        </div>
-        <div className="flex items-center justify-between py-2 border-b">
-          <span className="text-sm text-muted-foreground">Training Completed</span>
-          <span className="text-sm font-medium text-emerald-600">✓ Yes</span>
-        </div>
-        <div className="flex items-center justify-between py-2">
-          <span className="text-sm text-muted-foreground">Next Steps</span>
-          <span className="text-sm font-medium">Start Regular Schedule</span>
-        </div>
-      </div>
-      <div className="flex gap-2 justify-end">
-        <Button variant="outline" onClick={onClose}>Close</Button>
-        <Button className="bg-rose-600 hover:bg-rose-700">
-          <FileCheck className="h-4 w-4 mr-2" />
-          Verify Completion
-        </Button>
-      </div>
-    </div>
-  );
-};
+const OrientationStartView = (props) => (
+  <AftercareDateSubmissionView
+    {...props}
+    stageName="Submit Orientation Start Date"
+    dateType="orientation_start_date"
+    title="Submit Orientation Start Date"
+    fieldLabel="Orientation start date"
+    description="Enter the date your facility orientation started."
+  />
+);
+
+const OrientationEndView = (props) => (
+  <AftercareDateSubmissionView
+    {...props}
+    stageName="Submit Start Date on Floor Independently"
+    dateType="independent_floor_start_date"
+    title="Submit Start Date on Floor Independently"
+    fieldLabel="Independent floor start date"
+    description="Enter the first date you worked independently on the floor."
+  />
+);
 
 // Welcome Packet View
 const WelcomePacketView = ({ onClose }) => {
@@ -3105,8 +3148,8 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
       });
 
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || "Failed to submit Behavioral Assessment");
+      if (!response.ok || !data.success || data.attachmentVerified !== true) {
+        throw new Error(data.error || "The Behavioral Assessment PDF was not verified in CRM attachments");
       }
 
       setBehavioralSubmitted(true);
@@ -3249,13 +3292,27 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
         body: JSON.stringify(submissionData)
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to save deployment requirements");
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || data.message || "Failed to save deployment requirements");
       }
 
-      toast.success("All deployment requirements confirmed and documents uploaded!");
-      updateStageStatus(user?.email, "Submit Updated Work Status, Civil Docs & Licensing Credentials", setStages);
-      
+      if (setStages && data.stage) {
+        setStages(prev => prev.map(stage =>
+          stage.stage_name === "Submit Updated Work Status, Civil Docs & Licensing Credentials"
+            ? { ...stage, ...data.stage, status: "Completed" }
+            : stage
+        ));
+      } else {
+        const saved = await updateStageStatus(
+          user?.email,
+          "Submit Updated Work Status, Civil Docs & Licensing Credentials",
+          setStages
+        );
+        if (!saved) throw new Error("The checklist was saved, but the pipeline stage could not be completed");
+      }
+
+      toast.success("All deployment requirements were submitted successfully!");
       setTimeout(() => { onClose(); }, 1500);
     } catch (error) {
       console.error("Error submitting requirements:", error);
@@ -4460,7 +4517,16 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
         totalDueToICPRN: paymentData.totalReimbursement || totalPayments
       };
 
-      const encryptedPayload = await encryptSensitivePayload(payload, token);
+      let requestBody;
+      try {
+        const encryptedPayload = await encryptSensitivePayload(payload, token);
+        requestBody = { encryptedPayload };
+      } catch (encryptionError) {
+        // HTTPS/TLS still encrypts the request in transit. This fallback prevents
+        // browser Web Crypto or an expired ephemeral RSA key from blocking submission.
+        console.warn("[Reimbursement] App-layer encryption unavailable; using HTTPS secure payload:", encryptionError.message);
+        requestBody = { securePayload: payload };
+      }
 
       const response = await fetch(`${API_BASE}/api/crm/update-bank-details`, {
         method: "POST",
@@ -4470,7 +4536,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
           "Content-Type": "application/json",
           "Cache-Control": "no-store"
         },
-        body: JSON.stringify({ encryptedPayload })
+        body: JSON.stringify(requestBody)
       });
 
       const responseText = await response.text();
@@ -4482,7 +4548,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
         throw new Error("Server returned invalid response");
       }
       
-      if (!response.ok) {
+      if (!response.ok || data.success !== true) {
         throw new Error(data.error || data.message || "Failed to update bank details");
       }
       
@@ -5185,10 +5251,10 @@ export default function Pipeline() {
             icpUSRNData = userData;
             recruitApplicationStatus = ga(
               userData,
-              "Application_Status",
-              "applicationStatus",
+              "leadManagementStatus",
               "Lead_Management_Status",
-              "leadManagementStatus"
+              "Application_Status",
+              "applicationStatus"
             ) || "";
             setApplicationStatus(recruitApplicationStatus);
 
@@ -5394,6 +5460,33 @@ export default function Pipeline() {
           }
           return stage;
         });
+      }
+
+      // Documents Received is controlled by two file fields in the Recruit
+      // Candidates module. Both fields must contain a value before the stage
+      // is completed.
+      const proofOfNCLEX = ga(icpUSRNData, "Proof_of_NCLEX", "proofOfNCLEX");
+      const birthCertificate = ga(icpUSRNData, "Birth_Certificate", "birthCertificate");
+      const hasRecruitFileValue = (value) => {
+        if (value === undefined || value === null || value === false) return false;
+        if (Array.isArray(value)) return value.length > 0;
+        if (typeof value === "object") return Object.keys(value).length > 0;
+        const normalized = String(value).trim().toLowerCase();
+        return normalized !== "" && normalized !== "—" && normalized !== "none" && normalized !== "null";
+      };
+      const documentsReceivedComplete =
+        hasRecruitFileValue(proofOfNCLEX) && hasRecruitFileValue(birthCertificate);
+
+      if (documentsReceivedComplete) {
+        allStages = allStages.map(stage => stage.stage_name === "Documents Received"
+          ? {
+              ...stage,
+              status: "Completed",
+              completed_date: stage.completed_date || format(new Date(), "yyyy-MM-dd"),
+              synced_from_recruit_candidate_fields: ["Proof_of_NCLEX", "Birth_Certificate"],
+            }
+          : stage
+        );
       }
 
       if (showNCLEX) {
@@ -5721,10 +5814,10 @@ export default function Pipeline() {
           openModal("90 Day Survey", <NinetyDaySurvey onClose={closeModal} />);
           break;
         case "orientationStart":
-          openModal("Orientation Start", <OrientationStartView onClose={closeModal} />);
+          openModal("Submit Orientation Start Date", <OrientationStartView onClose={closeModal} user={user} setStages={setStages} />);
           break;
         case "orientationEnd":
-          openModal("Orientation End", <OrientationEndView onClose={closeModal} />);
+          openModal("Submit Start Date on Floor Independently", <OrientationEndView onClose={closeModal} user={user} setStages={setStages} />);
           break;
         // Immigration stages driven directly by CRM checklist fields
         case "foundations":

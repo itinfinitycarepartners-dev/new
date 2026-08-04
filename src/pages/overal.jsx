@@ -192,53 +192,138 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   const [profile, setProfile] = useState({});
   const [documents, setDocuments] = useState([]);
   const [pipeline, setPipeline] = useState([]);
+  const [adminDetails, setAdminDetails] = useState({});
   const [docActionError, setDocActionError] = useState(null);
   const [viewingDocId, setViewingDocId] = useState(null);
 
   useEffect(() => {
     if (!user) return;
+
     const fetchDetailedData = async () => {
       setLoading(true);
-      try {
-        const { adminToken } = getTokens();
-        const headers = { 
-          'Content-Type': 'application/json', 
-          'Authorization': `AdminBearer ${adminToken}` 
-        };
-        const emailParam = `?email=${encodeURIComponent(user.email)}`;
+      setDocActionError(null);
 
-        const [dealsRes, recruitDocsRes, crmDocsRes, pipelineRes] = await Promise.allSettled([
-          fetch(`${API_BASE}/api/zoho/my-deals${emailParam}`, { headers, credentials: 'include' }),
-          fetch(`${API_BASE}/api/recruit/documents${emailParam}`, { headers, credentials: 'include' }),
-          fetch(`${API_BASE}/api/documents/my-documents${emailParam}`, { headers, credentials: 'include' }),
-          fetch(`${API_BASE}/api/pipeline/get${emailParam}`, { headers, credentials: 'include' })
+      try {
+        const { adminToken, userToken } = getTokens();
+        const headers = {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          ...(adminToken ? {
+            'Authorization': `AdminBearer ${adminToken}`,
+            'x-admin-token': adminToken
+          } : {}),
+          ...(!adminToken && userToken ? { 'Authorization': `Bearer ${userToken}` } : {})
+        };
+
+        const email = encodeURIComponent(user.email);
+        const emailParam = `?email=${email}`;
+
+        // The admin endpoint is the source of truth for the candidate's full
+        // profile, MongoDB pipeline, submitted aftercare dates, and login history.
+        const [adminRes, recruitDocsRes, crmDocsRes] = await Promise.allSettled([
+          fetch(`${API_BASE}/api/admin/user/${email}`, {
+            headers,
+            credentials: 'include',
+            cache: 'no-store'
+          }),
+          fetch(`${API_BASE}/api/recruit/documents${emailParam}`, {
+            headers,
+            credentials: 'include',
+            cache: 'no-store'
+          }),
+          fetch(`${API_BASE}/api/documents/my-documents${emailParam}`, {
+            headers,
+            credentials: 'include',
+            cache: 'no-store'
+          })
         ]);
 
-        if (dealsRes.status === 'fulfilled' && dealsRes.value.ok) {
-          const d = await dealsRes.value.json();
-          setProfile(d.data || {}); 
+        if (adminRes.status === 'fulfilled' && adminRes.value.ok) {
+          const adminPayload = await adminRes.value.json();
+          const detail = adminPayload?.user || {};
+          setAdminDetails(detail);
+
+          const zoho = detail?.zohoData || {};
+          const latestDeal =
+            zoho?.latestDeal ||
+            zoho?.deal ||
+            (Array.isArray(zoho?.allDeals) ? zoho.allDeals[0] : {}) ||
+            {};
+
+          const candidate =
+            zoho?.candidate ||
+            zoho?.recruitCandidate ||
+            zoho?.candidateRecord ||
+            {};
+
+          // Merge every known source so the admin can see all available user data.
+          setProfile({
+            ...zoho,
+            ...latestDeal,
+            ...candidate,
+            candidateName: zoho.candidateName || candidate.Full_Name || candidate.Candidate_Name || detail.name,
+            email: zoho.email || candidate.Email || detail.email,
+            orientationStartDate:
+              detail?.submittedDates?.orientationStartDate ||
+              user.orientationStartDate ||
+              null,
+            independentFloorStartDate:
+              detail?.submittedDates?.independentFloorStartDate ||
+              user.independentFloorStartDate ||
+              null,
+          });
+
+          setPipeline(
+            Array.isArray(detail.pipelineStages)
+              ? detail.pipelineStages
+              : []
+          );
+        } else {
+          const status = adminRes.status === 'fulfilled' ? adminRes.value.status : 'network';
+          throw new Error(`Unable to load the complete admin record (${status}).`);
         }
 
         let allDocs = [];
-        if (recruitDocsRes.status === 'fulfilled' && recruitDocsRes.value.ok) {
-          const d = await recruitDocsRes.value.json();
-          if (d.documents) allDocs = [...allDocs, ...d.documents];
-        }
-        if (crmDocsRes.status === 'fulfilled' && crmDocsRes.value.ok) {
-          const d = await crmDocsRes.value.json();
-          if (d.documents) allDocs = [...allDocs, ...d.documents];
-        }
-        
-        const uniqueDocs = Array.from(new Map(allDocs.map(doc => [doc.attachment_id || doc.id, doc])).values());
-        setDocuments(uniqueDocs.sort((a,b) => new Date(b.uploaded_at||0) - new Date(a.uploaded_at||0)));
 
-        if (pipelineRes.status === 'fulfilled' && pipelineRes.value.ok) {
-          const p = await pipelineRes.value.json();
-          setPipeline(p.stages || []);
+        if (recruitDocsRes.status === 'fulfilled' && recruitDocsRes.value.ok) {
+          const data = await recruitDocsRes.value.json();
+          if (Array.isArray(data.documents)) {
+            allDocs.push(...data.documents.map(doc => ({ ...doc, source: doc.source || 'recruit' })));
+          }
         }
-      } catch (e) { console.error("Error fetching detailed candidate data:", e); }
-      setLoading(false);
+
+        if (crmDocsRes.status === 'fulfilled' && crmDocsRes.value.ok) {
+          const data = await crmDocsRes.value.json();
+          if (Array.isArray(data.documents)) {
+            allDocs.push(...data.documents.map(doc => ({ ...doc, source: doc.source || 'crm' })));
+          }
+        }
+
+        // Keep documents from CRM and Recruit separate even when Zoho reuses an ID.
+        const uniqueDocs = Array.from(
+          new Map(
+            allDocs.map((doc, index) => [
+              `${doc.source || 'unknown'}:${doc.attachment_id || doc.id || doc.document_id || index}`,
+              doc
+            ])
+          ).values()
+        );
+
+        setDocuments(
+          uniqueDocs.sort(
+            (a, b) =>
+              new Date(b.uploaded_at || b.Created_Time || 0) -
+              new Date(a.uploaded_at || a.Created_Time || 0)
+          )
+        );
+      } catch (error) {
+        console.error('Error fetching detailed candidate data:', error);
+        setDocActionError(error.message || 'Unable to load the candidate details.');
+      } finally {
+        setLoading(false);
+      }
     };
+
     fetchDetailedData();
   }, [user]);
 
@@ -277,6 +362,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     { id: 'pipeline', label: 'Candidate Pipeline', badge: pipeline.length },
     { id: 'documents', label: 'Candidate Documents', badge: documents.length },
     { id: 'deployment', label: 'Travel & Extras' },
+    { id: 'aftercare', label: 'Aftercare Dates' },
+    { id: 'allData', label: 'All User Information' },
     { id: 'overview', label: 'System Overview' },
   ];
 
@@ -360,7 +447,9 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                     <InfoRow label="Specialty" value={profile.professionalSpecialty} icon={HeartPulse} />
                     <InfoRow label="Education" value={profile.Education} icon={Award} />
                     <InfoRow label="Current Employer" value={profile.current_employer || profile.hospitalName} icon={Building2} />
-                    <InfoRow label="Application Status" value={profile.applicationStatus} icon={Briefcase} />
+                    <InfoRow label="Application Status" value={profile.applicationStatus || profile.Application_Status || profile.Lead_Management_Status} icon={Briefcase} />
+                    <InfoRow label="Proof of NCLEX" value={profile.Proof_of_NCLEX || profile.proofOfNCLEX} icon={FileCheck} />
+                    <InfoRow label="Birth Certificate" value={profile.Birth_Certificate || profile.birthCertificate} icon={FileText} />
                   </Section>
 
                   <Section title={<><Building className="w-5 h-5 text-purple-600" /> Interview & Hiring Details</>}>
@@ -572,23 +661,126 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                 </div>
               )}
 
-              {/* TAB 5: SYSTEM */}
+              {/* TAB 5: AFTERCARE DATES */}
+              {activeTab === 'aftercare' && (
+                <div className="space-y-6">
+                  <Section title={<><CalendarDays className="w-5 h-5 text-rose-600" /> Candidate-Submitted Aftercare Dates</>}>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1">
+                      <InfoRow
+                        label="Orientation Start Date"
+                        value={
+                          adminDetails?.submittedDates?.orientationStartDate ||
+                          profile.orientationStartDate ||
+                          user.orientationStartDate
+                        }
+                        isDate
+                        icon={Calendar}
+                      />
+                      <InfoRow
+                        label="Start Date on Floor Independently"
+                        value={
+                          adminDetails?.submittedDates?.independentFloorStartDate ||
+                          profile.independentFloorStartDate ||
+                          user.independentFloorStartDate
+                        }
+                        isDate
+                        icon={CalendarDays}
+                      />
+                    </div>
+                    <p className="mt-4 text-xs text-gray-500">
+                      These dates are entered by the candidate in the portal and saved to MongoDB.
+                      Their pipeline stages are completed only after the backend confirms the save.
+                    </p>
+                  </Section>
+
+                  <Section title={<><Activity className="w-5 h-5 text-purple-600" /> Pipeline Summary</>}>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="rounded-xl border bg-gray-50 p-4">
+                        <p className="text-xs text-gray-500">Completed stages</p>
+                        <p className="text-xl font-bold text-gray-900">
+                          {adminDetails?.pipelineProgress?.completed ?? completedCount}
+                          {' / '}
+                          {adminDetails?.pipelineProgress?.total ?? displayStages.length}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border bg-gray-50 p-4">
+                        <p className="text-xs text-gray-500">Overall progress</p>
+                        <p className="text-xl font-bold text-purple-700">
+                          {adminDetails?.pipelineProgress?.percentage ?? progressPct}%
+                        </p>
+                      </div>
+                      <div className="rounded-xl border bg-gray-50 p-4">
+                        <p className="text-xs text-gray-500">Current stage</p>
+                        <p className="text-sm font-bold text-gray-900 mt-1">
+                          {adminDetails?.pipelineProgress?.currentStage || user?.pipeline?.currentStage || 'Not started'}
+                        </p>
+                      </div>
+                    </div>
+                  </Section>
+                </div>
+              )}
+
+              {/* TAB 6: ALL USER INFORMATION */}
+              {activeTab === 'allData' && (
+                <div className="space-y-6">
+                  <Section title={<><Layers className="w-5 h-5 text-purple-600" /> Complete Candidate Record</>}>
+                    <p className="text-sm text-gray-500 mb-4">
+                      This table shows every non-empty field returned by the backend from the candidate's
+                      Recruit, CRM, account, session, and MongoDB records.
+                    </p>
+                    <div className="overflow-x-auto rounded-xl border border-gray-200">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-gray-500">Field</th>
+                            <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-gray-500">Value</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {Object.entries({
+                            ...user,
+                            ...adminDetails,
+                            ...profile,
+                          })
+                            .filter(([key, value]) => {
+                              if (['zohoData', 'pipelineStages', 'loginHistory', 'pipelineProgress', 'submittedDates', 'pipeline'].includes(key)) return false;
+                              return value !== undefined && value !== null && value !== '' && extractString(value) !== '—';
+                            })
+                            .sort(([a], [b]) => a.localeCompare(b))
+                            .map(([key, value]) => (
+                              <tr key={key} className="align-top">
+                                <td className="px-4 py-3 font-semibold text-gray-700 whitespace-nowrap">
+                                  {key.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2')}
+                                </td>
+                                <td className="px-4 py-3 text-gray-700 break-all whitespace-pre-wrap">
+                                  {extractString(value)}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </Section>
+                </div>
+              )}
+
+              {/* TAB 7: SYSTEM */}
               {activeTab === 'overview' && (
                 <div className="space-y-6">
                   <Section title={<><Shield className="w-5 h-5 text-gray-700" /> Identity & Security</>}>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1">
                       <InfoRow label="Registered Email" value={user.email} icon={Mail} />
-                      <InfoRow label="Latest IP Address" value={user.ip} icon={MapPin} />
-                      <InfoRow label="Platform/Device" value={`${user.platform || 'Web'} ${user.version && user.version !== '—' ? 'v' + user.version : ''}`} icon={Home} />
-                      <InfoRow label="Session Status" value={user.isActive ? '🟢 Active' : '🔴 Expired'} icon={RefreshCw} />
+                      <InfoRow label="Latest IP Address" value={adminDetails.ip || user.ip} icon={MapPin} />
+                      <InfoRow label="Platform/Device" value={`${adminDetails.platform || user.platform || 'Web'} ${(adminDetails.version || user.version) && (adminDetails.version || user.version) !== '—' ? 'v' + (adminDetails.version || user.version) : ''}`} icon={Home} />
+                      <InfoRow label="Session Status" value={(adminDetails.isActive ?? user.isActive) ? '🟢 Active' : '🔴 Expired'} icon={RefreshCw} />
                     </div>
                   </Section>
                   <Section title={<><Activity className="w-5 h-5 text-gray-700" /> Login Diagnostics</>}>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1">
-                      <InfoRow label="Session Created" value={user.sessionCreated} isTime icon={Calendar} />
-                      <InfoRow label="Last Login" value={user.lastLogin} isTime icon={Calendar} />
-                      <InfoRow label="Last Active Ping" value={user.lastActive} isTime icon={CalendarDays} />
-                      <InfoRow label="Expires At" value={user.sessionExpiry ? new Date(user.sessionExpiry).toISOString() : '—'} isTime icon={Clock} />
+                      <InfoRow label="Session Created" value={adminDetails.sessionCreated || user.sessionCreated} isTime icon={Calendar} />
+                      <InfoRow label="Last Login" value={adminDetails.loginHistory?.[0]?.timestamp || user.lastLogin} isTime icon={Calendar} />
+                      <InfoRow label="Last Active Ping" value={adminDetails.lastActive || user.lastActive} isTime icon={CalendarDays} />
+                      <InfoRow label="Expires At" value={(adminDetails.sessionExpiry || user.sessionExpiry) ? new Date(adminDetails.sessionExpiry || user.sessionExpiry).toISOString() : '—'} isTime icon={Clock} />
                     </div>
                   </Section>
                 </div>
@@ -742,13 +934,16 @@ const UsersTable = ({ users, onSelectUser, onMessageUser, onBroadcast }) => {
 
       <div className="bg-white rounded-xl border overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full min-w-[1450px]">
             <thead style={{ background: THEME.bg }}>
               <tr>
                 <th className="px-5 py-3 text-left text-xs font-bold uppercase text-gray-500">User Details</th>
                 <th className="px-5 py-3 text-left text-xs font-bold uppercase text-gray-500">Status</th>
+                <th className="px-5 py-3 text-left text-xs font-bold uppercase text-gray-500">Pipeline Progress</th>
+                <th className="px-5 py-3 text-left text-xs font-bold uppercase text-gray-500">Current Stage</th>
+                <th className="px-5 py-3 text-left text-xs font-bold uppercase text-gray-500">Orientation Start</th>
+                <th className="px-5 py-3 text-left text-xs font-bold uppercase text-gray-500">Independent Floor Date</th>
                 <th className="px-5 py-3 text-left text-xs font-bold uppercase text-gray-500">Last Login</th>
-                <th className="px-5 py-3 text-left text-xs font-bold uppercase text-gray-500">Expires</th>
                 <th className="px-5 py-3 text-right text-xs font-bold uppercase text-gray-500">Actions</th>
               </tr>
             </thead>
@@ -765,8 +960,19 @@ const UsersTable = ({ users, onSelectUser, onMessageUser, onBroadcast }) => {
                     </div>
                   </td>
                   <td className="px-5 py-3"><StatusBadge status={u.isActive ? 'active' : 'expired'} /></td>
-                  <td className="px-5 py-3 text-sm text-gray-600">{ET(u.lastLogin)}</td>
-                  <td className="px-5 py-3 text-sm text-gray-600">{u.sessionExpiry ? ET(new Date(u.sessionExpiry).toISOString()) : '—'}</td>
+                  <td className="px-5 py-3 min-w-[170px]">
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="font-semibold text-gray-700">{u.pipeline?.completed || 0}/{u.pipeline?.total || 0}</span>
+                      <span className="font-bold text-purple-700">{u.pipeline?.percentage || 0}%</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                      <div className="h-full bg-purple-600 rounded-full" style={{ width: `${Math.max(0, Math.min(100, u.pipeline?.percentage || 0))}%` }} />
+                    </div>
+                  </td>
+                  <td className="px-5 py-3 text-sm text-gray-700 min-w-[180px]">{u.pipeline?.currentStage || 'Not started'}</td>
+                  <td className="px-5 py-3 text-sm text-gray-600 whitespace-nowrap">{formatDate(u.orientationStartDate)}</td>
+                  <td className="px-5 py-3 text-sm text-gray-600 whitespace-nowrap">{formatDate(u.independentFloorStartDate)}</td>
+                  <td className="px-5 py-3 text-sm text-gray-600 whitespace-nowrap">{ET(u.lastLogin)}</td>
                   <td className="px-5 py-3 text-right">
                     <button onClick={(e) => { e.stopPropagation(); onSelectUser(u); }} className="p-2 hover:bg-white border border-transparent hover:border-gray-200 rounded-lg mr-2 shadow-sm transition"><Eye className="w-4 h-4" style={{ color: THEME.brand }} /></button>
                     <button onClick={(e) => { e.stopPropagation(); onMessageUser(u); }} className="p-2 hover:bg-white border border-transparent hover:border-gray-200 rounded-lg shadow-sm transition"><MessageSquare className="w-4 h-4" style={{ color: THEME.teal }} /></button>
@@ -775,7 +981,7 @@ const UsersTable = ({ users, onSelectUser, onMessageUser, onBroadcast }) => {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan="5" className="text-center py-10 text-gray-400 font-medium">No users found matching your criteria.</td>
+                  <td colSpan="9" className="text-center py-10 text-gray-400 font-medium">No users found matching your criteria.</td>
                 </tr>
               )}
             </tbody>
