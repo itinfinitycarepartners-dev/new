@@ -1435,6 +1435,7 @@ export default function Dashboard() {
               View all <ArrowRight className="h-3 w-3" />
             </Link>
           </div>
+          
           <div className="space-y-3">
             {recentMessages.map((msg, index) => (
               <Link 
@@ -1531,6 +1532,7 @@ export default function Dashboard() {
       </div>
 
       {/* Quick Action: New Message Button */}
+      
       <div className="fixed bottom-6 right-6 lg:bottom-8 lg:right-8 z-50">
         <Link
           to="/messages"

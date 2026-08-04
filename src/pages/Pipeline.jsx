@@ -107,8 +107,7 @@ const encryptSensitivePayload = async (payload, token) => {
     method: "GET",
     cache: "no-store",
     headers: {
-      Authorization: `Bearer ${token}`,
-      "Cache-Control": "no-store"
+      Authorization: `Bearer ${token}`
     }
   });
 
@@ -308,8 +307,6 @@ const STAGES_CONFIG = [
   { id: 55, stage_name: "Submit Orientation Start Date", stage_category: "Aftercare", stage_order: 55 },
   { id: 56, stage_name: "Submit Start Date on Floor Independently", stage_category: "Aftercare", stage_order: 56 },
 
-  // Stage 5 - Reimbursement/Expenses
-  { id: 57, stage_name: "Reimbursement/Expenses", stage_category: "Reimbursement", stage_order: 57 },
 ];
 
 // Zoho Recruit Lead Management Status (API: Application_Status) -> portal stage.
@@ -466,26 +463,36 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
   { name: "Credentials Issued", days: 102, field: "Date_Report_Issued", type: "present" },
   { name: "Board Registration", days: 120, field: "State_License_Board_of_Registration", type: "picklist", accepted: ["Paid by ICP", "Sponsored by ICP", "To be Sponsored by Infinity", "Paid by Infinity"] },
   { name: "Board Approval", days: 127, field: "Board_Username", type: "present" },
-  { name: "Pearson Vue Registration", days: 150, field: "ATT_Received_Date", type: "present" },
+  { name: "Performance Rating", days: 140, field: "Performance_Rating", type: "picklist", accepted: ["High", "Very High"], isGate: true },
+  { name: "Pearson Vue Registration", days: 150, field: "ATT_Received_Date", type: "present", requires: "Performance_Rating" },
   { name: "Exam Registration", days: 165, field: "NCLEX_Exam_Date", type: "present" },
   { name: "Exam Results", days: 195, field: "NCLEX_Status", type: "picklist", accepted: ["Passed"] },
-  { name: "Go back to Select Prescreen Time", days: 215, type: "navigation" },
+
   { name: "Schedule time - booking app", days: 24, field: "Prescreen_Status", type: "picklist", accepted: ["Scheduled", "Attended"] },
-  { name: "Learn HUB enrollment", days: 27, field: "Learn_HUB_Enrollment", type: "present" },
-  { name: "Performance Check 1", days: 77, field: "Performance_Check_1", type: "complete" },
-  { name: "Performance Check 2", days: 102, field: "Performance_Check_2", type: "complete" },
-  { name: "Required Courses", days: 120, field: "Required_Courses", type: "complete" },
-  { name: "Performance Check 3", days: 127, field: "Performance_Check_3", type: "complete" },
-  { name: "ATT Received", days: 150, field: "ATT_Received_Date", type: "present" },
-  { name: "Performance Check 4", days: 165, field: "Performance_Check_4", type: "complete" },
-  { name: "Performance Check FINAL", days: 195, field: "Performance_Check_FINAL", type: "complete" },
-  { name: "Background Complete", days: 215, field: "Background_Complete", type: "complete" },
+  { name: "Learn HUB enrollment", days: 27, field: "UWorld_Subscription_Date", type: "present" },
+  { name: "Performance Check 1", days: 77, field: "Assessment_1_6", type: "present" },
+  { name: "Performance Check 2", days: 102, field: "Assessment_2", type: "present" },
+  { name: "Performance Check 3", days: 127, field: "Assessment_3", type: "present" },
+  { name: "ATT Received", days: 150, field: "ATT_Received_Date", type: "present", requires: "Performance_Rating" },
+  { name: "Performance Check 4", days: 165, field: "Assessment_4", type: "present" },
+  { name: "Performance Check FINAL", days: 195, field: "Assessment_6", type: "present" },
+  { name: "Background Complete", days: 215, field: "Fingerprint_Status", type: "picklist", accepted: ["Complete"] }
 ];
 
 const normalizeCRMValue = (value) => String(value ?? "").trim().toLowerCase();
 const hasCRMValue = (value) => value !== undefined && value !== null && String(value).trim() !== "" && String(value).trim() !== "—";
 const isICPUSRNItemComplete = (item, data = {}) => {
   if (!item?.field || item.type === "navigation") return false;
+
+  if (item.requires) {
+    const prerequisite = ICP_USRN_SUBPROCESS_CONFIG.find(
+      candidate => candidate.field === item.requires
+    );
+    if (prerequisite && !isICPUSRNItemComplete(prerequisite, data)) {
+      return false;
+    }
+  }
+
   const value = ga(data, item.field, item.field.replace(/_/g, ""), item.field.charAt(0).toLowerCase() + item.field.slice(1));
   if (item.type === "present") return hasCRMValue(value);
   if (item.type === "boolean") return isTruthyField(value);
@@ -528,7 +535,6 @@ const NCLEX_PRESCREEN_STAGES = [
   { id: 202, stage_name: "Learn HUB Enrollment", stage_category: "NCLEX Prescreen", stage_order: 2 },
   { id: 203, stage_name: "Performance Check 1", stage_category: "NCLEX Prescreen", stage_order: 3 },
   { id: 204, stage_name: "Performance Check 2", stage_category: "NCLEX Prescreen", stage_order: 4 },
-  { id: 205, stage_name: "Required Courses", stage_category: "NCLEX Prescreen", stage_order: 5 },
   { id: 206, stage_name: "Performance Check 3", stage_category: "NCLEX Prescreen", stage_order: 6 },
   { id: 207, stage_name: "ATT Received", stage_category: "NCLEX Prescreen", stage_order: 7 },
   { id: 208, stage_name: "Performance Check FINAL", stage_category: "NCLEX Prescreen", stage_order: 8 },
@@ -1188,6 +1194,165 @@ const DOCUMENT_TYPES = [
   { value: "Reimbursement", label: "Reimbursement" },
   { value: "Other", label: "Other" }
 ];
+
+
+const HIRING_REQUIRED_DOCUMENTS = [
+  { key: "resume", label: "Resume", type: "Resume" },
+  { key: "employmentLetter", label: "Letter of Employment", type: "Letter of Employment" },
+  { key: "passportId", label: "Passport or Government ID", type: "Passport or ID" },
+  { key: "birthCertificate", label: "Birth Certificate", type: "Birth Certificate" },
+  { key: "license", label: "Professional License", type: "License" },
+  { key: "education", label: "Diploma or Degree", type: "Diploma or Degree" },
+  { key: "commitmentAgreement", label: "Commitment Agreement", type: "Commitment Agreement" },
+];
+
+const HiringRequiredDocumentsUpload = ({ onClose, user, setStages }) => {
+  const [files, setFiles] = useState(
+    Object.fromEntries(HIRING_REQUIRED_DOCUMENTS.map(item => [item.key, null]))
+  );
+  const [results, setResults] = useState({});
+  const [submitting, setSubmitting] = useState(false);
+
+  const allSelected = HIRING_REQUIRED_DOCUMENTS.every(item => files[item.key]);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (!allSelected) {
+      toast.error("Select all seven required Hiring documents.");
+      return;
+    }
+
+    setSubmitting(true);
+    const nextResults = {};
+
+    try {
+      for (const item of HIRING_REQUIRED_DOCUMENTS) {
+        try {
+          const response = await uploadDocument(
+            files[item.key],
+            item.label,
+            item.type,
+            "recruit",
+            user?.email,
+            { pipeline_section: "Hiring", requirement_key: item.key }
+          );
+
+          nextResults[item.key] = {
+            success: response.recruit?.success === true,
+            attachmentId: response.recruit?.attachment_id || null,
+            error: response.recruit?.error || null,
+          };
+        } catch (error) {
+          nextResults[item.key] = {
+            success: false,
+            error: error.message,
+          };
+        }
+      }
+
+      setResults(nextResults);
+      const failed = HIRING_REQUIRED_DOCUMENTS.filter(
+        item => !nextResults[item.key]?.success
+      );
+
+      if (failed.length) {
+        throw new Error(
+          `${failed.length} document(s) were not verified in Recruit.`
+        );
+      }
+
+      const token = localStorage.getItem("icp_auth_token");
+      const stageResponse = await fetch(`${API_BASE}/api/pipeline/update-stage`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: user?.email,
+          stage_name: "Documents Received",
+          status: "Completed",
+          completed_date: format(new Date(), "yyyy-MM-dd"),
+        }),
+      });
+
+      const stagePayload = await stageResponse.json().catch(() => ({}));
+      if (!stageResponse.ok) {
+        throw new Error(stagePayload.error || "Documents uploaded, but the stage could not be completed.");
+      }
+
+      setStages(prev =>
+        prev.map(stage =>
+          stage.stage_name === "Documents Received"
+            ? { ...stage, status: "Completed", completed_date: stagePayload.stage?.completed_date || new Date().toISOString() }
+            : stage
+        )
+      );
+
+      window.dispatchEvent(new CustomEvent("pipeline-updated", {
+        detail: { email: user?.email, stage_name: "Documents Received" }
+      }));
+
+      toast.success("All seven Hiring documents were attached to Recruit.");
+      setTimeout(onClose, 1200);
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-4">
+      <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+        All seven documents are required. They are uploaded to the candidate's Zoho Recruit record.
+      </div>
+
+      {HIRING_REQUIRED_DOCUMENTS.map(item => {
+        const result = results[item.key];
+        return (
+          <label key={item.key} className="block rounded-xl border p-4">
+            <span className="text-sm font-semibold">{item.label}</span>
+            <input
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+              disabled={submitting || result?.success}
+              onChange={event =>
+                setFiles(prev => ({
+                  ...prev,
+                  [item.key]: event.target.files?.[0] || null
+                }))
+              }
+              className="mt-2 block w-full text-sm"
+            />
+            <span className={`mt-2 block text-xs ${
+              result?.success ? "text-emerald-600" :
+              result?.error ? "text-red-600" :
+              files[item.key] ? "text-amber-600" : "text-muted-foreground"
+            }`}>
+              {result?.success
+                ? `Attached to Recruit${result.attachmentId ? ` · ID ${result.attachmentId}` : ""}`
+                : result?.error
+                  ? result.error
+                  : files[item.key]
+                    ? `Selected: ${files[item.key].name}`
+                    : "No file selected"}
+            </span>
+          </label>
+        );
+      })}
+
+      <div className="flex justify-end gap-3 border-t pt-4">
+        <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={!allSelected || submitting}>
+          {submitting ? "Uploading..." : "Submit All Documents"}
+        </Button>
+      </div>
+    </form>
+  );
+};
 
 // Generic Recruit Upload Component
 const RecruitUpload = ({ onClose, user, title, documentLabel, multiple = false, defaultDocumentType = "Other" }) => {
@@ -4489,9 +4654,7 @@ const RLChecklistView = ({ onClose, user, setStages }) => {
 };
 
 // ============= Reimbursement/Expenses Component (Aftercare) =============
-// Fetches payment schedule / bank details directly from the working
-// /api/zoho/my-deals endpoint using flexible field-name lookups (ga), instead
-// of relying on the previously-guessed /api/crm/reimbursement-data endpoint.
+// Loads the payment schedule and submission status securely.
 const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
   const [loading, setLoading] = useState(true);
   const [paymentData, setPaymentData] = useState({
@@ -4519,7 +4682,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
     fetchPaymentData();
   }, []);
 
-  const buildPaymentFromCRM = (userData, n) => ({
+  const buildPaymentRecord = (userData, n) => ({
     date: ga(userData, `Payment_${n}`, `Payment${n}`, `Payment_${n}_Date`, `Payment${n}Date`) || "",
     paid: isTruthyField(ga(userData, `Payment_${n}_Paid`, `Payment${n}Paid`, `Payment_${n}_paid`)),
     total: parseFloat(ga(userData, `Payment_${n}_Total`, `Payment${n}Total`, `Payment_${n}_total`)) || 0
@@ -4560,17 +4723,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
         totalReimbursement: parseFloat(reimbursementData.totalReimbursement) || 0
       });
 
-      const crmBankDetails = reimbursementData.bankDetails || {};
-      const hasBankDetails = !!crmBankDetails.accountNumber;
-      setIsSubmitted(hasBankDetails);
-
-      setBankDetails({
-        accountNumber: crmBankDetails.accountNumber || "",
-        accountName: crmBankDetails.accountName || "",
-        routingNumber: crmBankDetails.routingNumber || "",
-        bankName: crmBankDetails.bankName || "",
-        accountType: crmBankDetails.accountType || "Checking"
-      });
+      setIsSubmitted(reimbursementData.submitted === true);
 
     } catch (error) {
       console.error("Error fetching payment data:", error);
@@ -4636,31 +4789,56 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
         requestBody = { securePayload: payload };
       }
 
-      const response = await fetch(`${API_BASE}/api/crm/update-bank-details`, {
-        method: "POST",
-        cache: "no-store",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-          "Cache-Control": "no-store"
-        },
-        body: JSON.stringify(requestBody)
-      });
+      const submitRequest = async (body) => {
+        const response = await fetch(`${API_BASE}/api/crm/update-bank-details`, {
+          method: "POST",
+          cache: "no-store",
+          credentials: "include",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(body)
+        });
 
-      const responseText = await response.text();
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch (e) {
-        console.error("[Reimbursement] Failed to parse response:", responseText);
-        throw new Error("Server returned invalid response");
+        const responseText = await response.text();
+        let data;
+        try {
+          data = responseText ? JSON.parse(responseText) : {};
+        } catch {
+          console.error("[Reimbursement] Failed to parse response:", responseText);
+          throw new Error(`Server returned an invalid response (${response.status})`);
+        }
+
+        return { response, data };
+      };
+
+      let submission = await submitRequest(requestBody);
+
+      if (
+        (!submission.response.ok || submission.data.success !== true) &&
+        requestBody.encryptedPayload &&
+        /decrypt|secure connection|encrypted envelope|public key/i.test(
+          submission.data.error || submission.data.message || ""
+        )
+      ) {
+        console.warn("[Reimbursement] Retrying bank details securely over HTTPS/TLS.");
+        submission = await submitRequest({ securePayload: payload });
       }
-      
+
+      const { response, data } = submission;
       if (!response.ok || data.success !== true) {
-        throw new Error(data.error || data.message || "Failed to update bank details");
+        const details =
+          data.details && typeof data.details === "object"
+            ? ` ${JSON.stringify(data.details)}`
+            : "";
+
+        throw new Error(
+          `${data.error || data.message || `Failed to update bank details (${response.status})`}${details}`
+        );
       }
-      
-      toast.success("Bank details submitted successfully!");
+
+      toast.success("Payment details submitted successfully!");
       setIsSubmitted(true);
       updateStageStatus(user?.email, "Reimbursement/Expenses", setStages);
       
@@ -4671,7 +4849,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
     } catch (error) {
       console.error("Error submitting bank details:", error);
       setSubmitError(error.message);
-      toast.error(error.message || "Failed to submit bank details");
+      toast.error(error.message || "Failed to submit payment details");
     } finally {
       setIsSubmitting(false);
     }
@@ -4784,19 +4962,19 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <h3 className="font-semibold text-blue-800 flex items-center gap-2 mb-4">
           <CreditCard className="h-5 w-5" />
-          Upload Bank Details
+          Bank & Payment Details
         </h3>
         <p className="text-sm text-muted-foreground mb-4">
           Please provide your bank account details for reimbursement payment.
-          This information will be securely sent to CRM and stored in the <strong>Total Due to ICP/RN</strong> field.
+          Your payment information is encrypted during submission and is not displayed after it has been sent.
         </p>
         
         {isSubmitted ? (
           <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 text-center">
             <CheckCircle2 className="h-8 w-8 text-emerald-600 mx-auto mb-2" />
-            <p className="text-sm font-medium text-emerald-700">Bank Details Submitted Successfully!</p>
+            <p className="text-sm font-medium text-emerald-700">Payment Details Submitted Successfully!</p>
             <p className="text-xs text-emerald-600 mt-1">
-              Your bank details have been saved to the CRM.
+              Your payment information has been submitted successfully.
             </p>
             <Button 
               variant="outline" 
@@ -4884,7 +5062,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
             
             <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
               <p className="text-xs text-yellow-700">
-                ⚠️ Bank details will be sent to the CRM and stored securely.
+                Your payment information is encrypted during submission.
               </p>
             </div>
             
@@ -4894,7 +5072,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                 {isSubmitting ? (
                   <><Loader2 className="h-4 w-4 animate-spin" /> Submitting...</>
                 ) : (
-                  <><CheckCircle2 className="h-4 w-4" /> Submit Bank Details</>
+                  <><CheckCircle2 className="h-4 w-4" /> Submit</>
                 )}
               </Button>
             </div>
@@ -4904,12 +5082,6 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
 
       <div className="flex gap-2 justify-end pt-2 border-t border-border">
         <Button variant="outline" onClick={onClose}>Close</Button>
-        {isSubmitted && (
-          <Button className="gap-2 bg-emerald-600 hover:bg-emerald-700">
-            <CheckCircle2 className="h-4 w-4" />
-            View Submitted Details
-          </Button>
-        )}
       </div>
     </div>
   );
@@ -5280,6 +5452,7 @@ export default function Pipeline() {
   const [isCheckingNCLEX, setIsCheckingNCLEX] = useState(true);
   const [pipelineStartDate, setPipelineStartDate] = useState(null);
   const [applicationStatus, setApplicationStatus] = useState("");
+  const [reimbursementSubmitted, setReimbursementSubmitted] = useState(false);
   const [icpUSRNCRMData, setICPUSRNCRMData] = useState({});
   const [portalAccessBlocked, setPortalAccessBlocked] = useState(false);
 
@@ -5735,8 +5908,14 @@ export default function Pipeline() {
         const normalized = String(value).trim().toLowerCase();
         return normalized !== "" && normalized !== "—" && normalized !== "none" && normalized !== "null";
       };
+      const hiringDocumentsVerified = ga(
+        icpUSRNData,
+        "Hiring_Documents_Verified",
+        "hiringDocumentsVerified"
+      );
       const documentsReceivedComplete =
-        hasRecruitFileValue(proofOfNCLEX) && hasRecruitFileValue(birthCertificate);
+        (hasRecruitFileValue(proofOfNCLEX) && hasRecruitFileValue(birthCertificate)) ||
+        isTruthyField(hiringDocumentsVerified);
 
       if (documentsReceivedComplete) {
         allStages = allStages.map(stage => stage.stage_name === "Documents Received"
@@ -5750,28 +5929,28 @@ export default function Pipeline() {
         );
       }
 
-      if (showNCLEX || transferToICPUSRN) {
-        if (token && transferToICPUSRN) {
-          await Promise.allSettled(
-            ["Applied", "Associated with Job", "Transfer to ICP USRN School"].map(
-              (stageName) =>
-                fetch(`${API_BASE}/api/pipeline/update-stage`, {
-                  method: "POST",
-                  headers: {
-                    Authorization: `Bearer ${token}`,
-                    "Content-Type": "application/json"
-                  },
-                  body: JSON.stringify({
-                    email: user.email,
-                    stage_name: stageName,
-                    status: "Completed",
-                    completed_date: format(new Date(), "yyyy-MM-dd")
-                  })
+      if (token && transferToICPUSRN) {
+        await Promise.allSettled(
+          ["Applied", "Associated with Job", "Transfer to ICP USRN School"].map(
+            (stageName) =>
+              fetch(`${API_BASE}/api/pipeline/update-stage`, {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                  email: user.email,
+                  stage_name: stageName,
+                  status: "Completed",
+                  completed_date: format(new Date(), "yyyy-MM-dd")
                 })
-            )
-          );
-        }
+              })
+          )
+        );
+      }
 
+      if (false) {
         const nclexStages = NCLEX_STAGES.map(stage => {
           const savedStage = savedByName.get(stage.stage_name);
           const trigger = ICP_USRN_SUBPROCESS_CONFIG.find(item => item.name === stage.stage_name);
@@ -5893,7 +6072,8 @@ export default function Pipeline() {
     setIsLoading(true);
     try {
       let allStages = STAGES_CONFIG.map(stage => ({ ...stage, candidate_email: user.email, status: "Not Started", completed_date: null, notes: null, target_date: null, stage_details: stage.stage_category === "Immigration" ? IMMIGRATION_STAGE_DETAILS[stage.stage_name] || null : null }));
-      if (showNCLEX) allStages = [...allStages, ...NCLEX_STAGES.map(stage => ({ ...stage, candidate_email: user.email, status: "Not Started", completed_date: null, notes: null, target_date: null, stage_details: NCLEX_STAGE_DETAILS[stage.stage_name] || null }))];
+      // ICP USRN milestones are rendered as subprocess items under
+      // Transfer to ICP USRN School and are not additional main pipeline stages.
       const token = localStorage.getItem("icp_auth_token");
       const response = await fetch(`${API_BASE}/api/pipeline/initialize`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ email: user.email, stages: allStages }) });
       const data = await response.json();
@@ -6030,6 +6210,16 @@ export default function Pipeline() {
         case "prescreen":
           openModal("Prescreen - Upload Documents", <PrescreenUpload onClose={closeModal} user={user} />);
           break;
+        case "documents":
+          openModal(
+            "Required Hiring Documents",
+            <HiringRequiredDocumentsUpload
+              onClose={closeModal}
+              user={user}
+              setStages={setStages}
+            />
+          );
+          break;
         case "hired":
           openModal("Hired - Upload Documents", <HiredUpload onClose={closeModal} user={user} />);
           break;
@@ -6157,11 +6347,47 @@ export default function Pipeline() {
     normalizeApplicationStatus(applicationStatus) ===
     "transfer to icp usrn school";
 
-  const categories = ["Hiring"];
-  if (showNCLEX || transferToICPUSRN) {
-    categories.push("NCLEX Roadmap");
-  }
-  categories.push("Immigration", "Deployment", "Aftercare", "Reimbursement");
+  useEffect(() => {
+    if (!user?.email) return;
+
+    let cancelled = false;
+
+    const refreshReimbursementStatus = async () => {
+      try {
+        const token = localStorage.getItem("icp_auth_token");
+        if (!token) return;
+
+        const response = await fetch(
+          `${API_BASE}/api/reimbursement/status?email=${encodeURIComponent(user.email)}&_=${Date.now()}`,
+          {
+            cache: "no-store",
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          }
+        );
+
+        const data = await response.json().catch(() => ({}));
+        if (!cancelled && response.ok) {
+          setReimbursementSubmitted(data.submitted === true);
+        }
+      } catch (error) {
+        console.error("[Pipeline] Unable to load payment status:", error);
+      }
+    };
+
+    refreshReimbursementStatus();
+
+    const handleUpdate = () => refreshReimbursementStatus();
+    window.addEventListener("pipeline-updated", handleUpdate);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("pipeline-updated", handleUpdate);
+    };
+  }, [user?.email]);
+
+  const categories = ["Hiring", "Immigration", "Deployment", "Aftercare", "Reimbursement"];
   
   const displayStages = stages.filter(s => !s?.is_gate);
   const completedCount = displayStages.filter(s => s?.status === "Completed").length;
@@ -6315,7 +6541,28 @@ export default function Pipeline() {
       </div>
 
       {categories.map(cat => {
-        const catStages = displayStages.filter(s => s?.stage_category === cat).sort((a, b) => a.stage_order - b.stage_order);
+        const catStages = cat === "Reimbursement"
+          ? [{
+              id: "reimbursement-section",
+              stage_name: "Reimbursement/Expenses",
+              stage_category: "Reimbursement",
+              stage_order: 57,
+              status:
+                reimbursementSubmitted
+                  ? "Completed"
+                  : (
+                      stages.find(s => s?.stage_name === "Reimbursement/Expenses")?.status ||
+                      "Not Started"
+                    ),
+              completed_date:
+                stages.find(s => s?.stage_name === "Reimbursement/Expenses")?.completed_date ||
+                null,
+              non_counted_section: true
+            }]
+          : displayStages
+              .filter(s => s?.stage_category === cat)
+              .sort((a, b) => a.stage_order - b.stage_order);
+
         if (!catStages || catStages.length === 0) return null;
         const colors = categoryColors[cat];
         const catCompleted = catStages.filter(s => s?.status === "Completed").length;
@@ -6327,10 +6574,14 @@ export default function Pipeline() {
           <div key={cat} className="bg-card rounded-xl border border-border overflow-hidden">
             <div className={cn("px-5 py-3 flex items-center justify-between border-b border-border", colors.bg)}>
               <h2 className={cn("font-semibold text-sm", colors.text)}>
-                {isNCLEX ? "🎓" : `Stage ${categories.indexOf(cat) + 1}`} – {cat}
+                {cat === "Reimbursement"
+                  ? "Reimbursement"
+                  : (isNCLEX ? "🎓" : `Stage ${categories.indexOf(cat) + 1}`)} – {cat}
               </h2>
               <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full border", colors.bg, colors.text, colors.border)}>
-                {catCompleted}/{catStages.length} complete
+                {cat === "Reimbursement"
+                  ? "Separate submission section"
+                  : `${catCompleted}/${catStages.length} complete`}
               </span>
             </div>
             <div className="divide-y divide-border">
@@ -6345,7 +6596,9 @@ export default function Pipeline() {
                 const riskStatus = (isHiring || stage.days_from_start || stage.stage_name === "Immigration Call") && stage.status !== "Completed" ? getRiskStatus(stage) : null;
                 const riskCfg = riskStatus ? riskConfig[riskStatus] : null;
                 const showRisk = riskStatus && !stage.completed_date && (stage.days_from_start || stage.stage_name === "Immigration Call");
-                const unlocked = isStageUnlocked(stage, displayStages, pipelineStartDate);
+                const unlocked = stage.non_counted_section === true
+                  ? true
+                  : isStageUnlocked(stage, displayStages, pipelineStartDate);
                 const isLocked = !unlocked && stage.status !== "Completed";
                 const canInteract = (isClickable || isNCLEXStage || isImmigrationStage) && !isLocked;
                 
