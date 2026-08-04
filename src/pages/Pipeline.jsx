@@ -1140,13 +1140,13 @@ const CustomModal = ({ isOpen, onClose, title, children }) => {
   );
 };
 
-// Unified verified upload helper. All in-app uploads use this route so the
-// backend can attach the file to CRM, Recruit, or both and return per-system results.
+// Unified verified upload helper. Hiring uploads go to Recruit. Every upload
+// outside Hiring goes to CRM only. The backend enforces the same rule.
 const uploadDocument = async (
   file,
   documentName,
   documentType,
-  destination = "both",
+  destination = "crm",
   userEmail,
   extraFields = {}
 ) => {
@@ -1159,7 +1159,7 @@ const uploadDocument = async (
   formData.append("document_name", documentName || file.name);
   formData.append("document_type", documentType || "Document");
   formData.append("candidate_email", userEmail || "");
-  formData.append("destination", destination || "both");
+  formData.append("destination", destination || "crm");
   Object.entries(extraFields || {}).forEach(([key, value]) => {
     if (value !== undefined && value !== null) formData.append(key, String(value));
   });
@@ -1492,7 +1492,7 @@ const ContractView = ({ onClose, user, setStages }) => {
       formData.append("document_name", `Contract - ${format(new Date(), "MMM d, yyyy")}`);
       formData.append("document_type", "Contract");
       formData.append("candidate_email", user?.email || "");
-      formData.append("destination", "both");
+      formData.append("destination", "recruit");
 
       const response = await fetch(`${API_BASE}/api/documents/upload`, {
         method: "POST",
@@ -3735,14 +3735,32 @@ const HousingDetailsForm = ({ onClose, user, setStages }) => {
         throw new Error("Server returned an invalid response");
       }
 
-      if (!response.ok) {
-        throw new Error(data.message || `Failed with status ${response.status}`);
+      if (!response.ok || data.success !== true) {
+        const destinationDetails = [
+          data?.crm?.error || data?.attachments?.crm?.error,
+          data?.recruit?.error || data?.attachments?.recruit?.error
+        ].filter(Boolean).join(" | ");
+        throw new Error(
+          data.error || data.message || destinationDetails || `Failed with status ${response.status}`
+        );
       }
 
       console.log("[Housing] Submission successful:", data);
-      
-      toast.success("Housing details submitted successfully!");
-      updateStageStatus(user?.email, "Submit Housing Form", setStages);
+
+      const savedStage = data.stage;
+      if (savedStage) {
+        setStages(prev => prev.map(stage =>
+          stage.stage_name === "Submit Housing Form"
+            ? { ...stage, ...savedStage, status: "Completed" }
+            : stage
+        ));
+      } else {
+        await updateStageStatus(user?.email, "Submit Housing Form", setStages);
+      }
+
+      const crmSaved = data?.attachments?.crm?.success === true || data?.crm?.success === true;
+      if (!crmSaved) throw new Error("The housing form was not attached to CRM.");
+      toast.success("Housing form submitted and attached to CRM.");
       onClose();
     } catch (error) {
       console.error("[Housing] Error:", error);
@@ -4256,7 +4274,7 @@ const RLChecklistView = ({ onClose, user, setStages }) => {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || "R&L submission failed");
-      if (!data.crm?.success || !data.recruit?.success) throw new Error(data.error || "The form was not attached to both CRM and Recruit");
+      if (!data.crm?.success) throw new Error(data.error || "The form was not attached to CRM");
       toast.success("R&L form and supporting documents submitted successfully.");
       updateStageStatus(user?.email, "Submit R&L Checklist", setStages);
       setTimeout(onClose, 1000);
