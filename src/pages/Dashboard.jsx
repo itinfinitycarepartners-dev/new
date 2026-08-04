@@ -36,7 +36,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "../components/StatusBadge";
-import PipelineProgress from "../components/PipelineProgress";
 import StageContact from "../components/StageContact";
 import moment from "moment";
 import { useState, useEffect, useRef } from "react";
@@ -772,9 +771,13 @@ export default function Dashboard() {
   const [recentMessages, setRecentMessages] = useState([]);
   const [conversations, setConversations] = useState([]);
 
-  // Pipeline Countdown State
+  // Authoritative pipeline state loaded from the same MongoDB endpoint as Pipeline.jsx.
+  const [pipelineStages, setPipelineStages] = useState([]);
+  const [pipelineLoading, setPipelineLoading] = useState(true);
+  const [pipelineError, setPipelineError] = useState("");
   const [activeStage, setActiveStage] = useState(null);
   const [countdown, setCountdown] = useState({ text: "", color: "", icon: null });
+  const previousActiveStageRef = useRef(null);
 
   // Stage-action popup state — only fires once per page load/refresh
   const [showActionPopup, setShowActionPopup] = useState(false);
@@ -808,15 +811,46 @@ export default function Dashboard() {
   const pendingDocs = docs.filter(d => d.status === "Pending Review").length;
   const approvedDocs = docs.filter(d => d.status === "Approved").length;
 
+  // Use the exact stage records returned by /api/pipeline/get. Gates are workflow
+  // controls rather than candidate stages, so both the numerator and denominator
+  // exclude them. This keeps the Dashboard count aligned with the Pipeline page.
+  const visiblePipelineStages = pipelineStages.filter(stage => stage && stage.is_gate !== true);
+  const completedPipelineStages = visiblePipelineStages.filter(
+    stage => stage.status === "Completed" || stage.completed === true
+  );
+  const pipelineCompletedCount = completedPipelineStages.length;
+  const pipelineTotalCount = visiblePipelineStages.length;
+  const pipelineProgressPercent = pipelineTotalCount > 0
+    ? Math.round((pipelineCompletedCount / pipelineTotalCount) * 100)
+    : 0;
+
+  const pipelineCategorySummary = visiblePipelineStages.reduce((summary, stage) => {
+    const category = stage.stage_category || "Other";
+    if (!summary[category]) summary[category] = { total: 0, completed: 0 };
+    summary[category].total += 1;
+    if (stage.status === "Completed" || stage.completed === true) {
+      summary[category].completed += 1;
+    }
+    return summary;
+  }, {});
+
   useEffect(() => {
-    if (!user?.email) return;
+    if (!user?.email) {
+      setPipelineStages([]);
+      setActiveStage(null);
+      setPipelineLoading(false);
+      return;
+    }
 
     let cancelled = false;
+    let intervalId = null;
 
-    const updateCountdown = async () => {
+    const updatePipelineState = async () => {
       try {
         const token = localStorage.getItem("icp_auth_token");
-        if (!token) return;
+        if (!token) {
+          throw new Error("Authentication token is missing");
+        }
 
         const response = await fetch(
           `${API_BASE}/api/pipeline/get?email=${encodeURIComponent(user.email)}&_=${Date.now()}`,
@@ -826,43 +860,84 @@ export default function Dashboard() {
             headers: {
               Authorization: `Bearer ${token}`,
               "Content-Type": "application/json",
-              "Cache-Control": "no-cache",
+              "Cache-Control": "no-cache, no-store, must-revalidate",
+              Pragma: "no-cache",
+              Expires: "0",
             },
           }
         );
 
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.error || "Failed to load pipeline");
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.error || payload.message || "Failed to load pipeline");
+        }
 
-        const databaseStages = Array.isArray(payload.stages) ? payload.stages : [];
-        databaseStages.sort(
-          (a, b) => Number(a.stage_order || 0) - Number(b.stage_order || 0)
-        );
+        const databaseStages = Array.isArray(payload.stages)
+          ? [...payload.stages].sort(
+              (a, b) => Number(a.stage_order || 0) - Number(b.stage_order || 0)
+            )
+          : [];
 
-        const current = databaseStages.find(
-          stage => stage.status !== "Completed" && !stage.is_gate
-        );
+        if (cancelled) return;
+
+        setPipelineStages(databaseStages);
+        setPipelineError("");
+        setPipelineLoading(false);
+
+        const candidateStages = databaseStages.filter(stage => stage && stage.is_gate !== true);
+
+        // Prefer the backend-designated In Progress stage. If the backend has not
+        // set one yet, use the first incomplete, non-blocked stage.
+        const current =
+          candidateStages.find(stage => stage.status === "In Progress") ||
+          candidateStages.find(
+            stage =>
+              stage.status !== "Completed" &&
+              stage.completed !== true &&
+              stage.status !== "Blocked"
+          ) ||
+          candidateStages.find(
+            stage => stage.status !== "Completed" && stage.completed !== true
+          );
 
         if (!current) {
-          if (!cancelled) {
-            setActiveStage(null);
-            setCountdown({
-              text: "All stages completed",
-              standing: "Good Standing",
-              color: "text-emerald-700 bg-emerald-100 border-emerald-200",
-              icon: CheckCircle2,
-            });
-          }
+          setActiveStage(null);
+          previousActiveStageRef.current = null;
+          setCountdown({
+            text: "All stages completed",
+            standing: "Good Standing",
+            color: "text-emerald-700 bg-emerald-100 border-emerald-200",
+            icon: CheckCircle2,
+          });
           return;
         }
 
-        if (cancelled) return;
+        const stageIdentity = String(current._id || current.id || current.stage_name);
+        const stageChanged = previousActiveStageRef.current !== stageIdentity;
+
+        if (stageChanged) {
+          previousActiveStageRef.current = stageIdentity;
+
+          // A newly active stage must get a fresh notification/banner state and
+          // must use its own started_at/target_date returned by MongoDB.
+          hasShownPopupRef.current = false;
+          hasShownToastRef.current = false;
+          setShowActionPopup(false);
+          setBannerDismissed(
+            !!sessionStorage.getItem(
+              bannerDismissKey(user.email, current.stage_name)
+            )
+          );
+        }
+
         setActiveStage(current);
 
         const deadline = current.target_date ? new Date(current.target_date) : null;
         if (!deadline || Number.isNaN(deadline.getTime())) {
           setCountdown({
-            text: current.started_at ? "Timer is being calculated" : "Waiting for previous stage",
+            text: current.started_at
+              ? "Timer is being calculated"
+              : "Waiting for previous stage",
             standing: "Good Standing",
             color: "text-emerald-700 bg-emerald-100 border-emerald-200",
             icon: Clock,
@@ -871,10 +946,15 @@ export default function Dashboard() {
         }
 
         const result = formatCountdown(deadline, new Date());
-        const durationMs = Math.max(
-          HOUR_MS,
-          Number(current.duration_hours || 0) * HOUR_MS
-        );
+
+        let durationMs = Number(current.duration_hours || 0) * HOUR_MS;
+        if (!durationMs && current.started_at) {
+          const startedAt = new Date(current.started_at);
+          if (!Number.isNaN(startedAt.getTime())) {
+            durationMs = Math.max(HOUR_MS, deadline.getTime() - startedAt.getTime());
+          }
+        }
+        durationMs = Math.max(HOUR_MS, durationMs || HOUR_MS);
 
         let standing = "Good Standing";
         let color = "text-emerald-700 bg-emerald-100 border-emerald-200";
@@ -899,6 +979,8 @@ export default function Dashboard() {
       } catch (error) {
         console.error("[Dashboard] Error loading database pipeline:", error);
         if (!cancelled) {
+          setPipelineLoading(false);
+          setPipelineError(error.message || "Unable to load pipeline");
           setCountdown({
             text: "Unable to calculate timeline",
             standing: "Late",
@@ -909,19 +991,28 @@ export default function Dashboard() {
       }
     };
 
-    updateCountdown();
-    const intervalId = window.setInterval(updateCountdown, 30 * 1000);
-    const handlePipelineUpdate = () => updateCountdown();
-    const handleFocus = () => updateCountdown();
+    updatePipelineState();
+
+    // Five-second polling keeps the Dashboard synchronized even when a stage is
+    // completed in another tab or by a CRM/Recruit backend sync.
+    intervalId = window.setInterval(updatePipelineState, 5 * 1000);
+
+    const handlePipelineUpdate = () => updatePipelineState();
+    const handleFocus = () => updatePipelineState();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") updatePipelineState();
+    };
 
     window.addEventListener("pipeline-updated", handlePipelineUpdate);
     window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
+      if (intervalId) window.clearInterval(intervalId);
       window.removeEventListener("pipeline-updated", handlePipelineUpdate);
       window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [user?.email]);
 
@@ -1192,8 +1283,83 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Pipeline Progress */}
-      <PipelineProgress />
+      {/* Pipeline Progress — same MongoDB records and counts as Pipeline.jsx */}
+      <div className="bg-card rounded-xl border border-border p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="font-semibold flex items-center gap-2">
+              <ClipboardList className="h-4 w-4 text-primary" />
+              Pipeline Progress
+            </h2>
+            <p className="text-xs text-muted-foreground mt-1">
+              Synced directly from your saved pipeline progress.
+            </p>
+          </div>
+
+          <Link
+            to="/pipeline"
+            className="text-xs text-primary hover:underline flex items-center gap-1"
+          >
+            View pipeline <ArrowRight className="h-3 w-3" />
+          </Link>
+        </div>
+
+        {pipelineLoading ? (
+          <div className="mt-5 flex items-center gap-2 text-sm text-muted-foreground">
+            <Clock className="h-4 w-4 animate-pulse" />
+            Loading pipeline progress...
+          </div>
+        ) : pipelineError ? (
+          <div className="mt-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <AlertCircle className="h-4 w-4 inline mr-2" />
+            {pipelineError}
+          </div>
+        ) : (
+          <>
+            <div className="mt-5 flex items-end justify-between gap-4">
+              <div>
+                <p className="text-3xl font-bold tracking-tight">
+                  {pipelineCompletedCount}
+                  <span className="text-lg font-medium text-muted-foreground">
+                    {" "}/ {pipelineTotalCount}
+                  </span>
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  stages complete
+                </p>
+              </div>
+              <p className="text-lg font-bold text-primary">
+                {pipelineProgressPercent}%
+              </p>
+            </div>
+
+            <div className="mt-3 h-3 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-primary transition-all duration-500"
+                style={{ width: `${pipelineProgressPercent}%` }}
+              />
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+              {Object.entries(pipelineCategorySummary).map(
+                ([category, values]) => (
+                  <div
+                    key={category}
+                    className="rounded-lg border border-border bg-background/60 px-3 py-2"
+                  >
+                    <p className="truncate text-xs font-medium" title={category}>
+                      {category}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {values.completed}/{values.total} complete
+                    </p>
+                  </div>
+                )
+              )}
+            </div>
+          </>
+        )}
+      </div>
 
       {/* Stage Contact */}
       <StageContact />

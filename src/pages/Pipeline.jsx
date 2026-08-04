@@ -1010,51 +1010,44 @@ const isStageUnlocked = (stage, allStages, pipelineStartDate) => {
   return false;
 };
 
-// Helper to check if user is an NCLEX candidate
+// Helper to check if user is an NCLEX candidate.
+// The exact Recruit Lead Management Status "Transfer to ICP USRN School"
+// grants immediate access even if no Recruit attachment exists yet.
 const checkNCLEXAccess = async (email) => {
   try {
     const token = localStorage.getItem("icp_auth_token");
-    if (!token) {
-      console.log("[Pipeline] No auth token found");
-      return false;
-    }
+    if (!token) return false;
 
-    console.log("[Pipeline] Checking NCLEX access for:", email);
-    
-    const candidateResponse = await fetch(`${API_BASE}/api/recruit/documents?email=${encodeURIComponent(email)}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    let hasCandidate = false;
-    if (candidateResponse.ok) {
-      const candidateData = await candidateResponse.json();
-      hasCandidate = candidateData.documents && candidateData.documents.length > 0;
-      console.log("[Pipeline] Has Candidate:", hasCandidate);
-    }
-
-    if (!hasCandidate) {
-      console.log("[Pipeline] No Candidate found, NCLEX access denied");
-      return false;
-    }
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    };
 
     const dealsResponse = await fetch(`${API_BASE}/api/zoho/my-deals`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
+      headers,
+      cache: "no-store"
     });
 
+    let transferStatusSelected = false;
     let hasNCLEXFlag = false;
+
     if (dealsResponse.ok) {
       const dealsData = await dealsResponse.json();
-      console.log("[Pipeline] Deals data:", dealsData);
-      
       const userData = dealsData?.data || {};
-      
-      hasNCLEXFlag = 
+
+      const status =
+        userData.leadManagementStatus ||
+        userData.applicationStatus ||
+        userData.Application_Status ||
+        userData.Lead_Management_Status ||
+        "";
+
+      transferStatusSelected =
+        normalizeApplicationStatus(status) ===
+        "transfer to icp usrn school";
+
+      hasNCLEXFlag =
+        transferStatusSelected ||
         userData.isNCLEXCandidate === true ||
         userData.nclex_candidate === true ||
         userData.NCLEX_Candidate === true ||
@@ -1064,55 +1057,50 @@ const checkNCLEXAccess = async (email) => {
         userData.isNCLEX === true ||
         userData.nclex === true ||
         userData.NCLEX === true ||
-        (userData.Education && userData.Education.toLowerCase().includes('nclex')) ||
-        (userData.professionalSpecialty && userData.professionalSpecialty.toLowerCase().includes('nclex')) ||
-        (userData.applicationStatus && userData.applicationStatus.toLowerCase().includes('nclex'));
-      
-      if (!hasNCLEXFlag && dealsData?.data?.allDeals) {
-        hasNCLEXFlag = dealsData.data.allDeals.some(deal => 
-          deal.isNCLEXCandidate === true ||
-          deal.nclex_candidate === true ||
-          deal.NCLEX_Candidate === true ||
-          deal.customModule1 === true ||
-          deal.CustomModule1 === true ||
-          deal.isNCLEX === true ||
-          deal.nclex === true ||
-          (deal.Education && deal.Education && deal.Education.toLowerCase().includes('nclex')) ||
-          (deal.professionalSpecialty && deal.professionalSpecialty && deal.professionalSpecialty.toLowerCase().includes('nclex'))
-        );
-      }
+        String(userData.Education || "").toLowerCase().includes("nclex") ||
+        String(userData.professionalSpecialty || "").toLowerCase().includes("nclex");
 
-      console.log("[Pipeline] Has NCLEX Flag:", hasNCLEXFlag);
-    }
+      if (!hasNCLEXFlag && Array.isArray(userData.allDeals)) {
+        hasNCLEXFlag = userData.allDeals.some((deal) => {
+          const dealStatus =
+            deal.Lead_Management_Status ||
+            deal.Application_Status ||
+            deal.applicationStatus ||
+            "";
 
-    if (!hasNCLEXFlag) {
-      try {
-        const profileResponse = await fetch(`${API_BASE}/api/auth/profile`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
+          return (
+            normalizeApplicationStatus(dealStatus) ===
+              "transfer to icp usrn school" ||
+            deal.isNCLEXCandidate === true ||
+            deal.nclex_candidate === true ||
+            deal.NCLEX_Candidate === true ||
+            deal.customModule1 === true ||
+            deal.CustomModule1 === true ||
+            deal.isNCLEX === true ||
+            deal.nclex === true
+          );
         });
-        if (profileResponse.ok) {
-          const profileData = await profileResponse.json();
-          const profile = profileData?.data || {};
-          hasNCLEXFlag = 
-            profile.isNCLEXCandidate === true ||
-            profile.nclex_candidate === true ||
-            profile.customModule1 === true ||
-            profile.isNCLEX === true ||
-            (profile.professionalSpecialty && profile.professionalSpecialty.toLowerCase().includes('nclex'));
-          console.log("[Pipeline] Profile NCLEX flag:", hasNCLEXFlag);
-        }
-      } catch (e) {
-        console.log("[Pipeline] Could not check profile");
       }
     }
 
-    const result = hasCandidate && hasNCLEXFlag;
-    console.log("[Pipeline] Final NCLEX access result:", result);
-    return result;
+    if (transferStatusSelected) return true;
 
+    const candidateResponse = await fetch(
+      `${API_BASE}/api/recruit/documents?email=${encodeURIComponent(email)}`,
+      { headers, cache: "no-store" }
+    );
+
+    let hasCandidate = false;
+    if (candidateResponse.ok) {
+      const candidateData = await candidateResponse.json();
+      hasCandidate =
+        candidateData.candidateFound === true ||
+        candidateData.candidate_found === true ||
+        candidateData.hasCandidate === true ||
+        Array.isArray(candidateData.documents);
+    }
+
+    return hasCandidate && hasNCLEXFlag;
   } catch (error) {
     console.error("[Pipeline] Error checking NCLEX access:", error);
     return false;
@@ -3812,7 +3800,7 @@ const HousingDetailsForm = ({ onClose, user, setStages }) => {
           </div>
           <div>
             <label className="text-sm font-medium block mb-1">Email <span className="text-red-500">*</span></label>
-            <input type="email" name="email" value={formData.email} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" required readOnly />
+            <input type="email" name="email" value={formData.email} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" required />
           </div>
           <div>
             <label className="text-sm font-medium block mb-1">Current Phone Number <span className="text-red-500">*</span></label>
@@ -4207,14 +4195,126 @@ const HousingDetails = ({ onClose, user, setStages }) => {
   return <HousingDetailsForm onClose={onClose} user={user} setStages={setStages} />;
 };
 
+// Stable form controls must remain outside RLChecklistView.
+// Defining components inside a form causes React to create a new component type
+// on every keystroke, which unmounts the input and makes it lose focus.
+const RLFormInput = ({
+  label,
+  field,
+  value,
+  onChange,
+  type = "text",
+  required = false,
+  placeholder = "",
+  disabled = false
+}) => (
+  <label className="block">
+    <span className="text-sm font-medium text-gray-700">
+      {label}
+      {required && <span className="text-red-500"> *</span>}
+    </span>
+    <input
+      name={field}
+      type={type}
+      value={value ?? ""}
+      onChange={(event) => onChange(field, event.target.value)}
+      placeholder={placeholder}
+      disabled={disabled}
+      autoComplete="off"
+      className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:bg-gray-100"
+    />
+  </label>
+);
+
+const RLUploadGroup = ({
+  title,
+  field,
+  files,
+  onAddFiles,
+  onRemoveFile,
+  uploadResults = {},
+  required = false,
+  disabled = false
+}) => (
+  <div className="rounded-xl border border-gray-200 p-4 bg-white">
+    <div className="flex items-center justify-between gap-3">
+      <div>
+        <p className="text-sm font-semibold text-gray-800">
+          {title}
+          {required && <span className="text-red-500"> *</span>}
+        </p>
+      </div>
+
+      <label
+        className={`rounded-lg border px-3 py-2 text-xs font-semibold ${
+          disabled
+            ? "cursor-not-allowed bg-gray-100 text-gray-400"
+            : "cursor-pointer text-purple-700 hover:bg-purple-50"
+        }`}
+      >
+        Add files
+        <input
+          type="file"
+          multiple
+          className="hidden"
+          accept=".pdf,.jpg,.jpeg,.png"
+          disabled={disabled}
+          onChange={(event) => {
+            onAddFiles(field, event.target.files);
+            event.target.value = "";
+          }}
+        />
+      </label>
+    </div>
+
+    {files.length > 0 && (
+      <div className="mt-3 space-y-2">
+        {files.map((file, index) => (
+          <div
+            key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
+            className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-xs"
+          >
+            <div className="min-w-0 flex-1">
+              <span className="block truncate">{file.name}</span>
+              <span className={`mt-0.5 block text-[11px] font-medium ${
+                uploadResults[`${field}:${file.name}`]?.success
+                  ? "text-emerald-600"
+                  : uploadResults[`${field}:${file.name}`]?.error
+                    ? "text-red-600"
+                    : "text-amber-600"
+              }`}>
+                {uploadResults[`${field}:${file.name}`]?.success
+                  ? `Attached to CRM${uploadResults[`${field}:${file.name}`]?.attachmentId ? ` · ID ${uploadResults[`${field}:${file.name}`].attachmentId}` : ""}`
+                  : uploadResults[`${field}:${file.name}`]?.error
+                    ? `Attachment failed: ${uploadResults[`${field}:${file.name}`].error}`
+                    : "Selected — will be attached to the completed R&L form in CRM"}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => onRemoveFile(field, index)}
+              className="text-red-500 hover:text-red-700"
+              disabled={disabled || uploadResults[`${field}:${file.name}`]?.success}
+              aria-label={`Remove ${file.name}`}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+);
+
 // Complete Relocation & Logistics form based on the ICP candidate checklist.
 const RLChecklistView = ({ onClose, user, setStages }) => {
   const [submitting, setSubmitting] = useState(false);
-  const [photo, setPhoto] = useState(null);
   const [documents, setDocuments] = useState({
     vaccineCards: [], policeClearance: [], passports: [], nclexFee: [],
     nclexSchedule: [], englishExam: [], cesReport: [], visaScreenFee: []
   });
+  const [uploadResults, setUploadResults] = useState({});
+  const [submissionResult, setSubmissionResult] = useState(null);
   const [form, setForm] = useState({
     name: user?.displayName || user?.name || "", email: user?.email || "", employerName: "",
     birthDate: "", gender: "", phone: "", caseManager: "", preferredContact: [],
@@ -4223,42 +4323,36 @@ const RLChecklistView = ({ onClose, user, setStages }) => {
     carryOn: "0", boxes: "0", pets: "No", travelCash: "", carSeats: "No",
     phoneModelCarrier: "", simUnlocked: "", drivingPlan: "", carPurchasePlan: "",
     foundationsCompleted: "", spouseEmployment: "", relocationPolicyAccepted: false,
-    photoReleaseAccepted: false, relocationSignature: "", photoReleaseSignature: "",
-    dependents: [{ name: "", birthDate: "", gender: "", relationship: "", height: "", weight: "" }]
+    relocationSignature: "",
+    dependents: [{ clientId: "dependent-1", name: "", birthDate: "", gender: "", relationship: "", height: "", weight: "" }]
   });
 
   const setField = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
-  const addDependent = () => setForm(prev => ({ ...prev, dependents: [...prev.dependents, { name:"", birthDate:"", gender:"", relationship:"", height:"", weight:"" }] }));
+  const addDependent = () => setForm(prev => ({
+    ...prev,
+    dependents: [
+      ...prev.dependents,
+      {
+        clientId: `dependent-${Date.now()}-${prev.dependents.length}`,
+        name: "",
+        birthDate: "",
+        gender: "",
+        relationship: "",
+        height: "",
+        weight: ""
+      }
+    ]
+  }));
   const updateDependent = (i, key, value) => setForm(prev => ({ ...prev, dependents: prev.dependents.map((d, idx) => idx === i ? { ...d, [key]: value } : d) }));
   const removeDependent = (i) => setForm(prev => ({ ...prev, dependents: prev.dependents.filter((_, idx) => idx !== i) }));
   const addFiles = (key, list) => setDocuments(prev => ({ ...prev, [key]: [...prev[key], ...Array.from(list || [])] }));
   const removeFile = (key, i) => setDocuments(prev => ({ ...prev, [key]: prev[key].filter((_, idx) => idx !== i) }));
 
-  const required = ["name","email","employerName","birthDate","gender","phone","departureCity","drivingPlan","relocationSignature","photoReleaseSignature"];
-  const isComplete = required.every(k => String(form[k] || "").trim()) && form.relocationPolicyAccepted && form.photoReleaseAccepted;
-
-  const Input = ({ label, field, type="text", required=false, placeholder="" }) => (
-    <label className="block">
-      <span className="text-sm font-medium text-gray-700">{label}{required && <span className="text-red-500"> *</span>}</span>
-      <input type={type} value={form[field] || ""} onChange={e => setField(field, e.target.value)} placeholder={placeholder}
-        className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-purple-500 focus:ring-2 focus:ring-purple-100" />
-    </label>
-  );
-
-  const UploadGroup = ({ title, field, required=false }) => (
-    <div className="rounded-xl border border-gray-200 p-4 bg-white">
-      <div className="flex items-center justify-between gap-3">
-        <div><p className="text-sm font-semibold text-gray-800">{title}{required && <span className="text-red-500"> *</span>}</p></div>
-        <label className="cursor-pointer rounded-lg border px-3 py-2 text-xs font-semibold text-purple-700 hover:bg-purple-50">
-          Add files<input type="file" multiple className="hidden" accept=".pdf,.jpg,.jpeg,.png" onChange={e => { addFiles(field, e.target.files); e.target.value=''; }} />
-        </label>
-      </div>
-      {documents[field].length > 0 && <div className="mt-3 space-y-2">{documents[field].map((f,i)=><div key={`${f.name}-${i}`} className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-xs"><span className="truncate">{f.name}</span><button type="button" onClick={()=>removeFile(field,i)} className="text-red-500"><X className="h-4 w-4"/></button></div>)}</div>}
-    </div>
-  );
+  const required = ["name","email","employerName","birthDate","gender","phone","departureCity","drivingPlan","relocationSignature"];
+  const isComplete = required.every(k => String(form[k] || "").trim()) && form.relocationPolicyAccepted;
 
   const handleSubmit = async () => {
-    if (!isComplete) { toast.error("Complete all required fields, policy confirmations, and signatures."); return; }
+    if (!isComplete) { toast.error("Complete all required fields, the relocation policy confirmation, and signature."); return; }
     setSubmitting(true);
     try {
       const token = localStorage.getItem("icp_auth_token");
@@ -4266,7 +4360,6 @@ const RLChecklistView = ({ onClose, user, setStages }) => {
       const payload = new FormData();
       payload.append("candidate_email", user?.email || form.email);
       payload.append("form_data", JSON.stringify(form));
-      if (photo) payload.append("candidate_photo", photo);
       Object.entries(documents).forEach(([category, files]) => files.forEach(file => payload.append(`documents_${category}`, file)));
 
       const response = await fetch(`${API_BASE}/api/relocation-logistics/submit`, {
@@ -4274,10 +4367,38 @@ const RLChecklistView = ({ onClose, user, setStages }) => {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || "R&L submission failed");
-      if (!data.crm?.success) throw new Error(data.error || "The form was not attached to CRM");
-      toast.success("R&L form and supporting documents submitted successfully.");
-      updateStageStatus(user?.email, "Submit R&L Checklist", setStages);
-      setTimeout(onClose, 1000);
+      if (!data.crm?.success || data.crm?.verified !== true) {
+        throw new Error(data.error || "The completed R&L PDF was not verified in CRM");
+      }
+
+      const nextUploadResults = {};
+      (data.supporting || []).forEach((item) => {
+        nextUploadResults[`${item.field}:${item.name}`] = {
+          success: item.crm?.success === true && item.crm?.verified === true,
+          error: item.crm?.error || null,
+          attachmentId: item.crm?.attachment_id || null,
+        };
+      });
+      setUploadResults(nextUploadResults);
+      setSubmissionResult(data);
+
+      // The backend completes the stage and starts the next timer atomically.
+      // Refresh the complete pipeline from MongoDB instead of manually checking it.
+      window.dispatchEvent(new CustomEvent("pipeline-updated", {
+        detail: {
+          email: user?.email,
+          stage_name: "Submit R&L Checklist",
+          stage: data.stage || null
+        }
+      }));
+
+      toast.success(
+        `R&L form attached to CRM and stage completed. ${
+          (data.supporting || []).length
+        } supporting file(s) verified.`
+      );
+
+      setTimeout(onClose, 1800);
     } catch (error) { toast.error(error.message || "Unable to submit the R&L form"); }
     finally { setSubmitting(false); }
   };
@@ -4289,63 +4410,76 @@ const RLChecklistView = ({ onClose, user, setStages }) => {
     </div>
 
     <section className="rounded-xl border bg-white p-5 space-y-4">
-      <h4 className="font-bold text-gray-900">Candidate picture and general information</h4>
-      <label className="block rounded-xl border-2 border-dashed p-4 text-center cursor-pointer hover:border-purple-400">
-        <span className="text-sm text-gray-600">{photo ? photo.name : "Upload candidate picture"}</span>
-        <input type="file" accept="image/*" className="hidden" onChange={e=>setPhoto(e.target.files?.[0] || null)} />
-      </label>
+      <h4 className="font-bold text-gray-900">General information</h4>
       <div className="grid md:grid-cols-2 gap-4">
-        <Input label="Name" field="name" required/><Input label="U.S. Employer Name (work location)" field="employerName" required/>
-        <Input label="Birth Date" field="birthDate" type="date" required/><Input label="Gender" field="gender" required/>
-        <Input label="Candidate Email" field="email" type="email" required/><Input label="Phone Number" field="phone" required/>
-        <Input label="Case Manager" field="caseManager"/><Input label="Preferred Contact Method" field="preferredContactText" placeholder="Email, phone, Facebook..."/>
-        <Input label="Height (feet and inches)" field="height"/><Input label="Weight (lbs.)" field="weight" type="number"/>
-        <Input label="Clothing Size (tops + bottoms)" field="clothingSize"/><Input label="Resignation Period Required" field="resignationPeriod"/>
-        <Input label="Anticipated Last Day of Work" field="anticipatedLastDay" type="date"/>
+        <RLFormInput label="Name" field="name" required value={form.name} onChange={setField} /><RLFormInput label="U.S. Employer Name (work location)" field="employerName" required value={form.employerName} onChange={setField} />
+        <RLFormInput label="Birth Date" field="birthDate" type="date" required value={form.birthDate} onChange={setField} /><RLFormInput label="Gender" field="gender" required value={form.gender} onChange={setField} />
+        <RLFormInput label="Candidate Email" field="email" type="email" required value={form.email} onChange={setField} /><RLFormInput label="Phone Number" field="phone" required value={form.phone} onChange={setField} />
+        <RLFormInput label="Case Manager" field="caseManager" value={form.caseManager} onChange={setField} /><RLFormInput label="Preferred Contact Method" field="preferredContactText" placeholder="Email, phone, Facebook..." value={form.preferredContactText} onChange={setField} />
+        <RLFormInput label="Height (feet and inches)" field="height" value={form.height} onChange={setField} /><RLFormInput label="Weight (lbs.)" field="weight" type="number" value={form.weight} onChange={setField} />
+        <RLFormInput label="Clothing Size (tops + bottoms)" field="clothingSize" value={form.clothingSize} onChange={setField} /><RLFormInput label="Resignation Period Required" field="resignationPeriod" value={form.resignationPeriod} onChange={setField} />
+        <RLFormInput label="Anticipated Last Day of Work" field="anticipatedLastDay" type="date" value={form.anticipatedLastDay} onChange={setField} />
       </div>
-      <label className="block"><span className="text-sm font-medium">Tell us about you</span><textarea value={form.aboutYou} onChange={e=>setField('aboutYou',e.target.value)} rows={3} className="mt-1 w-full rounded-lg border px-3 py-2"/></label>
+      <label className="block"><span className="text-sm font-medium">Tell us about you</span><textarea name="aboutYou" value={form.aboutYou} onChange={e=>setField('aboutYou',e.target.value)} rows={3} disabled={submitting} className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-100 disabled:bg-gray-100"/></label>
     </section>
 
     <section className="rounded-xl border bg-white p-5 space-y-4">
       <div className="flex justify-between"><div><h4 className="font-bold">Dependent information</h4><p className="text-xs text-gray-500">Leave blank when relocating without dependents.</p></div><Button type="button" variant="outline" onClick={addDependent}>Add dependent</Button></div>
-      {form.dependents.map((d,i)=><div key={i} className="rounded-xl bg-gray-50 p-4 grid md:grid-cols-3 gap-3 relative">
+      {form.dependents.map((d,i)=><div key={d.clientId || `dependent-${i}`} className="rounded-xl bg-gray-50 p-4 grid md:grid-cols-3 gap-3 relative">
         {form.dependents.length>1&&<button type="button" onClick={()=>removeDependent(i)} className="absolute right-3 top-3 text-red-500"><X className="h-4 w-4"/></button>}
-        {[["Name as on passport","name","text"],["Date of Birth","birthDate","date"],["Gender","gender","text"],["Relationship","relationship","text"],["Height","height","text"],["Weight (lbs.)","weight","number"]].map(([label,key,type])=><label key={key}><span className="text-xs font-medium">{label}</span><input type={type} value={d[key]} onChange={e=>updateDependent(i,key,e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"/></label>)}
+        {[["Name as on passport","name","text"],["Date of Birth","birthDate","date"],["Gender","gender","text"],["Relationship","relationship","text"],["Height","height","text"],["Weight (lbs.)","weight","number"]].map(([label,key,type])=><label key={key}><span className="text-xs font-medium">{label}</span><input name={`dependent-${i}-${key}`} type={type} value={d[key] ?? ""} onChange={e=>updateDependent(i,key,e.target.value)} disabled={submitting} autoComplete="off" className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-100 disabled:bg-gray-100"/></label>)}
       </div>)}
     </section>
 
     <section className="rounded-xl border bg-white p-5 space-y-4">
       <h4 className="font-bold">Travel and arrival planning</h4>
       <div className="grid md:grid-cols-2 gap-4">
-        <Input label="Departure city and country / closest international airport" field="departureCity" required/>
-        <Input label="Will anyone travel in a wheelchair?" field="wheelchair"/>
-        <Input label="Checked Bags" field="checkedBags" type="number"/><Input label="Personal Carry On" field="carryOn" type="number"/>
-        <Input label="Boxes" field="boxes" type="number"/><Input label="Traveling with pets?" field="pets"/>
-        <Input label="Travel Cash ($), excluding reimbursement" field="travelCash" type="number"/><Input label="Car seats or boosters needed?" field="carSeats"/>
-        <Input label="Cell Phone Model + Carrier" field="phoneModelCarrier"/><Input label="Is the SIM card unlocked?" field="simUnlocked"/>
-        <Input label="Car Purchasing Plan Post Arrival" field="carPurchasePlan"/><Input label="Foundation Relias classes completed?" field="foundationsCompleted"/>
+        <RLFormInput label="Departure city and country / closest international airport" field="departureCity" required value={form.departureCity} onChange={setField} />
+        <RLFormInput label="Will anyone travel in a wheelchair?" field="wheelchair" value={form.wheelchair} onChange={setField} />
+        <RLFormInput label="Checked Bags" field="checkedBags" type="number" value={form.checkedBags} onChange={setField} /><RLFormInput label="Personal Carry On" field="carryOn" type="number" value={form.carryOn} onChange={setField} />
+        <RLFormInput label="Boxes" field="boxes" type="number" value={form.boxes} onChange={setField} /><RLFormInput label="Traveling with pets?" field="pets" value={form.pets} onChange={setField} />
+        <RLFormInput label="Travel Cash ($), excluding reimbursement" field="travelCash" type="number" value={form.travelCash} onChange={setField} /><RLFormInput label="Car seats or boosters needed?" field="carSeats" value={form.carSeats} onChange={setField} />
+        <RLFormInput label="Cell Phone Model + Carrier" field="phoneModelCarrier" value={form.phoneModelCarrier} onChange={setField} /><RLFormInput label="Is the SIM card unlocked?" field="simUnlocked" value={form.simUnlocked} onChange={setField} />
+        <RLFormInput label="Car Purchasing Plan Post Arrival" field="carPurchasePlan" value={form.carPurchasePlan} onChange={setField} /><RLFormInput label="Foundation Relias classes completed?" field="foundationsCompleted" value={form.foundationsCompleted} onChange={setField} />
       </div>
-      <label className="block"><span className="text-sm font-medium">Immediate driving plan after arrival <span className="text-red-500">*</span></span><textarea value={form.drivingPlan} onChange={e=>setField('drivingPlan',e.target.value)} rows={3} className="mt-1 w-full rounded-lg border px-3 py-2"/></label>
-      <label className="block"><span className="text-sm font-medium">Employment plans for spouse or adult children</span><textarea value={form.spouseEmployment} onChange={e=>setField('spouseEmployment',e.target.value)} rows={3} className="mt-1 w-full rounded-lg border px-3 py-2"/></label>
+      <label className="block"><span className="text-sm font-medium">Immediate driving plan after arrival <span className="text-red-500">*</span></span><textarea name="drivingPlan" value={form.drivingPlan} onChange={e=>setField('drivingPlan',e.target.value)} rows={3} disabled={submitting} className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-100 disabled:bg-gray-100"/></label>
+      <label className="block"><span className="text-sm font-medium">Employment plans for spouse or adult children</span><textarea name="spouseEmployment" value={form.spouseEmployment} onChange={e=>setField('spouseEmployment',e.target.value)} rows={3} disabled={submitting} className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-100 disabled:bg-gray-100"/></label>
     </section>
 
     <section className="space-y-3">
       <h4 className="font-bold">Candidate documents needed</h4>
       <div className="grid md:grid-cols-2 gap-3">
-        <UploadGroup title="COVID-19 Vaccine Cards" field="vaccineCards"/><UploadGroup title="Current Police Clearance / NBI (all adults)" field="policeClearance"/>
-        <UploadGroup title="Passports for everyone traveling" field="passports"/><UploadGroup title="NCLEX Fee Receipt" field="nclexFee"/>
-        <UploadGroup title="NCLEX Schedule / Registration" field="nclexSchedule"/><UploadGroup title="English Exam Receipt or Result" field="englishExam"/>
-        <UploadGroup title="CES Report for Employer State" field="cesReport"/><UploadGroup title="Visa Screen Fee Receipt" field="visaScreenFee"/>
+        <RLUploadGroup title="COVID-19 Vaccine Cards" field="vaccineCards" files={documents.vaccineCards} onAddFiles={addFiles} onRemoveFile={removeFile} disabled={submitting} uploadResults={uploadResults} /><RLUploadGroup title="Current Police Clearance / NBI (all adults)" field="policeClearance" files={documents.policeClearance} onAddFiles={addFiles} onRemoveFile={removeFile} disabled={submitting} uploadResults={uploadResults} />
+        <RLUploadGroup title="Passports for everyone traveling" field="passports" files={documents.passports} onAddFiles={addFiles} onRemoveFile={removeFile} disabled={submitting} uploadResults={uploadResults} /><RLUploadGroup title="NCLEX Fee Receipt" field="nclexFee" files={documents.nclexFee} onAddFiles={addFiles} onRemoveFile={removeFile} disabled={submitting} uploadResults={uploadResults} />
+        <RLUploadGroup title="NCLEX Schedule / Registration" field="nclexSchedule" files={documents.nclexSchedule} onAddFiles={addFiles} onRemoveFile={removeFile} disabled={submitting} uploadResults={uploadResults} /><RLUploadGroup title="English Exam Receipt or Result" field="englishExam" files={documents.englishExam} onAddFiles={addFiles} onRemoveFile={removeFile} disabled={submitting} uploadResults={uploadResults} />
+        <RLUploadGroup title="CES Report for Employer State" field="cesReport" files={documents.cesReport} onAddFiles={addFiles} onRemoveFile={removeFile} disabled={submitting} uploadResults={uploadResults} /><RLUploadGroup title="Visa Screen Fee Receipt" field="visaScreenFee" files={documents.visaScreenFee} onAddFiles={addFiles} onRemoveFile={removeFile} disabled={submitting} uploadResults={uploadResults} />
       </div>
     </section>
 
     <section className="rounded-xl border bg-white p-5 space-y-4">
       <h4 className="font-bold">Policies and signatures</h4>
-      <label className="flex gap-3"><input type="checkbox" checked={form.relocationPolicyAccepted} onChange={e=>setField('relocationPolicyAccepted',e.target.checked)}/><span className="text-sm">I have read and accept the Candidate Relocation Travel Policy.</span></label>
-      <Input label="Signature for Relocation Policy" field="relocationSignature" required/>
-      <label className="flex gap-3"><input type="checkbox" checked={form.photoReleaseAccepted} onChange={e=>setField('photoReleaseAccepted',e.target.checked)}/><span className="text-sm">I have read and accept the Photo and Video Release Form.</span></label>
-      <Input label="Signature for Photo Release" field="photoReleaseSignature" required/>
+      <label className="flex gap-3"><input type="checkbox" checked={form.relocationPolicyAccepted} disabled={submitting} onChange={e=>setField('relocationPolicyAccepted',e.target.checked)}/><span className="text-sm">I have read and accept the Candidate Relocation Travel Policy.</span></label>
+      <RLFormInput label="Signature for Relocation Policy" field="relocationSignature" required value={form.relocationSignature} onChange={setField} />
     </section>
+
+    {submissionResult?.success && (
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+        <div className="flex items-start gap-3">
+          <CheckCircle2 className="mt-0.5 h-5 w-5 text-emerald-600" />
+          <div>
+            <p className="text-sm font-semibold text-emerald-800">
+              R&L checklist attached and pipeline stage completed
+            </p>
+            <p className="mt-1 text-xs text-emerald-700">
+              PDF: {submissionResult.pdf_filename}
+              {submissionResult.crm?.attachment_id
+                ? ` · CRM attachment ID: ${submissionResult.crm.attachment_id}`
+                : ""}
+            </p>
+          </div>
+        </div>
+      </div>
+    )}
 
     <div className="sticky bottom-0 bg-white border-t py-4 flex justify-end gap-3">
       <Button variant="outline" onClick={onClose} disabled={submitting}>Cancel</Button>
@@ -5233,6 +5367,9 @@ export default function Pipeline() {
             setApplicationStatus(recruitApplicationStatus);
 
             const normalizedStatus = normalizeApplicationStatus(recruitApplicationStatus);
+            if (normalizedStatus === "transfer to icp usrn school") {
+              setShowNCLEX(true);
+            }
             const accessIsBlocked = PORTAL_BLOCKED_APPLICATION_STATUSES.has(normalizedStatus);
             setPortalAccessBlocked(accessIsBlocked);
             if (accessIsBlocked) {
@@ -5362,40 +5499,190 @@ export default function Pipeline() {
         return baseStage;
       });
       
-      // The ICP USRN School transfer step is conditional and only appears when
-      // Recruit's Application_Status is exactly "Transfer to ICP USRN school".
-      if (!shouldShowICPUSRNTransfer(recruitApplicationStatus)) {
-        allStages = allStages.filter(stage => stage.stage_name !== "Transfer to ICP USRN School");
-      }
+      const transferToICPUSRN =
+        shouldShowICPUSRNTransfer(recruitApplicationStatus);
 
-      // Reflect Recruit Lead Management Status in the portal pipeline. Previous
-      // hiring stages are completed and the mapped current stage is in progress.
-      const mappedHiringStage = getMappedHiringStage(recruitApplicationStatus);
-      if (mappedHiringStage) {
-        const mappedConfig = STAGES_CONFIG.find(stage => stage.stage_name === mappedHiringStage);
-        const mappedOrder = mappedConfig?.stage_order;
-        allStages = allStages.map(stage => {
-          if (stage.stage_category !== "Hiring" || mappedOrder == null) return stage;
-          if (stage.stage_order < mappedOrder) {
+      if (transferToICPUSRN) {
+        // This is a separate Recruit branch. The three qualification outcome
+        // stages do not apply and must not appear or count toward progress.
+        allStages = allStages.filter(
+          (stage) =>
+            ![
+              "Not Qualified - to close",
+              "Qualified - Match",
+              "Qualified Candidate Pool"
+            ].includes(stage.stage_name)
+        );
+
+        allStages = allStages.map((stage) => {
+          if (
+            [
+              "Applied",
+              "Associated with Job",
+              "Transfer to ICP USRN School"
+            ].includes(stage.stage_name)
+          ) {
             return {
               ...stage,
               status: "Completed",
-              completed_date: stage.completed_date || format(new Date(), "yyyy-MM-dd"),
+              completed_date:
+                stage.completed_date || format(new Date(), "yyyy-MM-dd"),
               synced_from_application_status: true,
+              transfer_to_nclex_branch: true,
+              recruit_application_status: recruitApplicationStatus
             };
           }
-          if (stage.stage_name === mappedHiringStage) {
-            const terminal = ["Not Qualified - to close", "Qualified Candidate Pool", "Hired"].includes(mappedHiringStage);
-            return {
-              ...stage,
-              status: terminal ? "Completed" : "In Progress",
-              completed_date: terminal ? (stage.completed_date || format(new Date(), "yyyy-MM-dd")) : null,
-              synced_from_application_status: true,
-              recruit_application_status: recruitApplicationStatus,
-            };
-          }
+
           return stage;
         });
+
+        setShowNCLEX(true);
+      } else {
+        allStages = allStages.filter(
+          (stage) =>
+            stage.stage_name !== "Transfer to ICP USRN School"
+        );
+
+        const mappedHiringStage =
+          getMappedHiringStage(recruitApplicationStatus);
+
+        if (mappedHiringStage) {
+          const mappedConfig = STAGES_CONFIG.find(
+            (stage) => stage.stage_name === mappedHiringStage
+          );
+          const mappedOrder = mappedConfig?.stage_order;
+
+          allStages = allStages.map((stage) => {
+            if (
+              stage.stage_category !== "Hiring" ||
+              mappedOrder == null
+            ) {
+              return stage;
+            }
+
+            if (stage.stage_order < mappedOrder) {
+              return {
+                ...stage,
+                status: "Completed",
+                completed_date:
+                  stage.completed_date || format(new Date(), "yyyy-MM-dd"),
+                synced_from_application_status: true
+              };
+            }
+
+            if (stage.stage_name === mappedHiringStage) {
+              const terminal = [
+                "Not Qualified - to close",
+                "Qualified Candidate Pool",
+                "Hired"
+              ].includes(mappedHiringStage);
+
+              return {
+                ...stage,
+                status: terminal ? "Completed" : "In Progress",
+                completed_date: terminal
+                  ? stage.completed_date || format(new Date(), "yyyy-MM-dd")
+                  : null,
+                synced_from_application_status: true,
+                recruit_application_status: recruitApplicationStatus
+              };
+            }
+
+            return stage;
+          });
+        }
+      }
+
+      // CRM Deal fields control the two embassy-related Deployment stages.
+      // Confirmation of Eligibility to Proceed completes only when the visible
+      // Embassy Eligibility Status picklist value is exactly "Eligible".
+      const embassyEligibilityStatus = ga(
+        icpUSRNData,
+        "State_Licensure_Requirements",
+        "stateLicensureRequirements",
+        "Embassy Eligibility Status",
+        "embassyEligibilityStatus"
+      );
+      const embassyInterviewDate = ga(
+        icpUSRNData,
+        "Embassy_Interview",
+        "embassyInterview",
+        "Embassy Interview Date",
+        "embassyInterviewDate"
+      );
+
+      const eligibilityComplete =
+        String(embassyEligibilityStatus || "").trim().toLowerCase() === "eligible";
+      const embassyInterviewComplete =
+        embassyInterviewDate !== undefined &&
+        embassyInterviewDate !== null &&
+        String(embassyInterviewDate).trim() !== "" &&
+        String(embassyInterviewDate).trim() !== "—";
+
+      const crmDeploymentUpdates = [];
+
+      allStages = allStages.map(stage => {
+        if (stage.stage_name === "Confirmation of Eligibility to Proceed") {
+          if (eligibilityComplete && stage.status !== "Completed") {
+            crmDeploymentUpdates.push({
+              stage_name: stage.stage_name,
+              completed_date: format(new Date(), "yyyy-MM-dd")
+            });
+          }
+
+          return {
+            ...stage,
+            crm_field_label: "Embassy Eligibility Status",
+            crm_field_value: embassyEligibilityStatus || null,
+            synced_from_crm_field: "State_Licensure_Requirements",
+            status: eligibilityComplete ? "Completed" : stage.status,
+            completed_date: eligibilityComplete
+              ? (stage.completed_date || format(new Date(), "yyyy-MM-dd"))
+              : stage.completed_date,
+          };
+        }
+
+        if (stage.stage_name === "Embassy Interview Scheduled") {
+          if (embassyInterviewComplete && stage.status !== "Completed") {
+            crmDeploymentUpdates.push({
+              stage_name: stage.stage_name,
+              completed_date: String(embassyInterviewDate).slice(0, 10)
+            });
+          }
+
+          return {
+            ...stage,
+            crm_field_label: "Embassy Interview Date",
+            crm_field_value: embassyInterviewDate || null,
+            synced_from_crm_field: "Embassy_Interview",
+            status: embassyInterviewComplete ? "Completed" : stage.status,
+            completed_date: embassyInterviewComplete
+              ? String(embassyInterviewDate).slice(0, 10)
+              : stage.completed_date,
+          };
+        }
+
+        return stage;
+      });
+
+      if (token && saved.length > 0 && crmDeploymentUpdates.length > 0) {
+        await Promise.allSettled(
+          crmDeploymentUpdates.map(item =>
+            fetch(`${API_BASE}/api/pipeline/update-stage`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                email: user.email,
+                stage_name: item.stage_name,
+                status: "Completed",
+                completed_date: item.completed_date
+              })
+            })
+          )
+        );
       }
 
       // Candidate-module API fields control the contract stages independently of
@@ -5463,7 +5750,28 @@ export default function Pipeline() {
         );
       }
 
-      if (showNCLEX) {
+      if (showNCLEX || transferToICPUSRN) {
+        if (token && transferToICPUSRN) {
+          await Promise.allSettled(
+            ["Applied", "Associated with Job", "Transfer to ICP USRN School"].map(
+              (stageName) =>
+                fetch(`${API_BASE}/api/pipeline/update-stage`, {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json"
+                  },
+                  body: JSON.stringify({
+                    email: user.email,
+                    stage_name: stageName,
+                    status: "Completed",
+                    completed_date: format(new Date(), "yyyy-MM-dd")
+                  })
+                })
+            )
+          );
+        }
+
         const nclexStages = NCLEX_STAGES.map(stage => {
           const savedStage = savedByName.get(stage.stage_name);
           const trigger = ICP_USRN_SUBPROCESS_CONFIG.find(item => item.name === stage.stage_name);
@@ -5845,10 +6153,15 @@ export default function Pipeline() {
     }
   };
 
-  const categories = ["Hiring", "Immigration", "Deployment", "Aftercare", "Reimbursement"];
-  if (showNCLEX) {
+  const transferToICPUSRN =
+    normalizeApplicationStatus(applicationStatus) ===
+    "transfer to icp usrn school";
+
+  const categories = ["Hiring"];
+  if (showNCLEX || transferToICPUSRN) {
     categories.push("NCLEX Roadmap");
   }
+  categories.push("Immigration", "Deployment", "Aftercare", "Reimbursement");
   
   const displayStages = stages.filter(s => !s?.is_gate);
   const completedCount = displayStages.filter(s => s?.status === "Completed").length;
