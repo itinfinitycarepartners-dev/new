@@ -320,49 +320,324 @@ const normalizeApplicationStatus = (value) => String(value || "")
   .replace(/\s+/g, " ");
 
 const APPLICATION_STATUS_STAGE_MAP = new Map([
-  ["applied", "Applied"],
-  ["associated", "Associated with Job"],
-  ["qualifications & verification", "Qualified - Match"],
   ["transfer to icp usrn school", "Transfer to ICP USRN School"],
-  ["qualified-match", "Qualified - Match"],
-  ["qualified candidate pool", "Qualified Candidate Pool"],
-  ["qualified-candidate pool", "Qualified Candidate Pool"],
 
-  // Lead Management Status options supplied by Recruit.
-  // When the status is Prescreen Scheduled, Select Prescreen Time is treated as
-  // completed and Prescreen Scheduled becomes the current stage.
+  ["qualified-match", "Qualified - Match"],
+  ["qualified match", "Qualified - Match"],
+
+  ["qualified-candidate pool", "Qualified Candidate Pool"],
+  ["qualified candidate pool", "Qualified Candidate Pool"],
+
+  ["prescreen", "Select Prescreen Time"],
   ["prescreen scheduled", "Prescreen Scheduled"],
   ["prescreen complete", "Prescreen Completed"],
-  ["client documents & video provided", "Client Documents & Video Provided"],
+
+  ["assessment", "Client Documents & Video Provided"],
+  ["assessment complete", "Pending Interview Selection"],
+
+  ["interview", "Pending Interview Selection"],
   ["pending interview selection", "Pending Interview Selection"],
-  ["interview scheduled", "Interview Scheduled"],
   ["interview-scheduled", "Interview Scheduled"],
+  ["interview scheduled", "Interview Scheduled"],
   ["interview attended", "Interview Attended"],
+
+  ["offered", "Offer Made"],
   ["offer made", "Offer Made"],
   ["offer accepted", "Offer Accepted"],
   ["offer declined", "Offer Declined"],
-  ["documents received", "Documents Received"],
+
   ["hired", "Hired"],
 
-  // Backwards-compatible Recruit values.
-  ["prescreen", "Select Prescreen Time"],
-  ["assessment", "Client Documents & Video Provided"],
-  ["assessment complete", "Pending Interview Selection"],
-  ["no-show", "Interview Scheduled"],
-  ["offered", "Offer Made"],
+  // Existing values retained for records already using them.
+  ["applied", "Applied"],
+  ["associated", "Associated with Job"],
+  ["documents received", "Documents Received"],
   ["unqualified", "Not Qualified - to close"],
+  ["not qualified-to close", "Not Qualified - to close"],
+  ["not qualified - to close", "Not Qualified - to close"],
 ]);
 
 const PORTAL_BLOCKED_APPLICATION_STATUSES = new Set([
   "unqualified",
   "not qualified-to close",
   "not qualified - to close",
-  "qualified-candidate pool",
-  "qualified candidate pool",
 ]);
 
 const getMappedHiringStage = (applicationStatus) =>
-  APPLICATION_STATUS_STAGE_MAP.get(normalizeApplicationStatus(applicationStatus)) || null;
+  APPLICATION_STATUS_STAGE_MAP.get(
+    normalizeApplicationStatus(applicationStatus)
+  ) || null;
+
+// Explicit progression for each Lead Management Status. Only stages named here
+// are changed. This prevents Prescreen Scheduled, Assessment, or Interview from
+// completing unrelated Client Interview stages.
+const HIRING_STATUS_PROGRESS = {
+  "applied": {
+    completed: ["Applied"],
+    current: null
+  },
+
+  "associated": {
+    completed: ["Applied", "Associated with Job"],
+    current: null
+  },
+
+  "transfer to icp usrn school": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Transfer to ICP USRN School"
+    ],
+    current: null
+  },
+
+  "qualified-match": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Qualified - Match"
+    ],
+    current: null
+  },
+
+  "qualified match": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Qualified - Match"
+    ],
+    current: null
+  },
+
+  "qualified-candidate pool": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Qualified Candidate Pool"
+    ],
+    current: null
+  },
+
+  "qualified candidate pool": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Qualified Candidate Pool"
+    ],
+    current: null
+  },
+
+  "prescreen": {
+    completed: ["Applied", "Associated with Job"],
+    current: "Select Prescreen Time"
+  },
+
+  "prescreen scheduled": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Select Prescreen Time"
+    ],
+    current: "Prescreen Scheduled"
+  },
+
+  "prescreen complete": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Select Prescreen Time",
+      "Prescreen Scheduled",
+      "Prescreen Completed"
+    ],
+    current: null
+  },
+
+  "assessment": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Select Prescreen Time",
+      "Prescreen Scheduled",
+      "Prescreen Completed"
+    ],
+    current: "Client Documents & Video Provided"
+  },
+
+  "assessment complete": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Select Prescreen Time",
+      "Prescreen Scheduled",
+      "Prescreen Completed",
+      "Client Documents & Video Provided"
+    ],
+    current: "Pending Interview Selection"
+  },
+
+  "interview": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Select Prescreen Time",
+      "Prescreen Scheduled",
+      "Prescreen Completed",
+      "Client Documents & Video Provided"
+    ],
+    current: "Pending Interview Selection"
+  },
+
+  "pending interview selection": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Select Prescreen Time",
+      "Prescreen Scheduled",
+      "Prescreen Completed",
+      "Client Documents & Video Provided"
+    ],
+    current: "Pending Interview Selection"
+  },
+
+  "interview-scheduled": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Select Prescreen Time",
+      "Prescreen Scheduled",
+      "Prescreen Completed",
+      "Client Documents & Video Provided",
+      "Pending Interview Selection"
+    ],
+    current: "Interview Scheduled"
+  },
+
+  "interview scheduled": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Select Prescreen Time",
+      "Prescreen Scheduled",
+      "Prescreen Completed",
+      "Client Documents & Video Provided",
+      "Pending Interview Selection"
+    ],
+    current: "Interview Scheduled"
+  },
+
+  "interview attended": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Select Prescreen Time",
+      "Prescreen Scheduled",
+      "Prescreen Completed",
+      "Client Documents & Video Provided",
+      "Pending Interview Selection",
+      "Interview Scheduled",
+      "Interview Attended"
+    ],
+    current: null
+  },
+
+  "offered": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Select Prescreen Time",
+      "Prescreen Scheduled",
+      "Prescreen Completed",
+      "Client Documents & Video Provided",
+      "Pending Interview Selection",
+      "Interview Scheduled",
+      "Interview Attended"
+    ],
+    current: "Offer Made"
+  },
+
+  "offer made": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Select Prescreen Time",
+      "Prescreen Scheduled",
+      "Prescreen Completed",
+      "Client Documents & Video Provided",
+      "Pending Interview Selection",
+      "Interview Scheduled",
+      "Interview Attended",
+      "Offer Made"
+    ],
+    current: null
+  },
+
+  "offer accepted": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Select Prescreen Time",
+      "Prescreen Scheduled",
+      "Prescreen Completed",
+      "Client Documents & Video Provided",
+      "Pending Interview Selection",
+      "Interview Scheduled",
+      "Interview Attended",
+      "Offer Made",
+      "Offer Accepted"
+    ],
+    current: null
+  },
+
+  "offer declined": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Offer Declined"
+    ],
+    current: null
+  },
+
+  "documents received": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Select Prescreen Time",
+      "Prescreen Scheduled",
+      "Prescreen Completed",
+      "Client Documents & Video Provided",
+      "Pending Interview Selection",
+      "Interview Scheduled",
+      "Interview Attended",
+      "Offer Made",
+      "Offer Accepted",
+      "Employment Contract Sent",
+      "Employment Contract Signed",
+      "Documents Received"
+    ],
+    current: null
+  },
+
+  "hired": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Select Prescreen Time",
+      "Prescreen Scheduled",
+      "Prescreen Completed",
+      "Client Documents & Video Provided",
+      "Pending Interview Selection",
+      "Interview Scheduled",
+      "Interview Attended",
+      "Offer Made",
+      "Offer Accepted",
+      "Employment Contract Sent",
+      "Employment Contract Signed",
+      "Documents Received",
+      "Hired"
+    ],
+    current: null
+  }
+};
 
 const shouldShowICPUSRNTransfer = (applicationStatus) =>
   normalizeApplicationStatus(applicationStatus) === "transfer to icp usrn school";
@@ -5716,51 +5991,46 @@ export default function Pipeline() {
             stage.stage_name !== "Transfer to ICP USRN School"
         );
 
+        const normalizedHiringStatus =
+          normalizeApplicationStatus(recruitApplicationStatus);
+        const hiringProgress =
+          HIRING_STATUS_PROGRESS[normalizedHiringStatus] || null;
         const mappedHiringStage =
           getMappedHiringStage(recruitApplicationStatus);
 
-        if (mappedHiringStage) {
-          const mappedConfig = STAGES_CONFIG.find(
-            (stage) => stage.stage_name === mappedHiringStage
+        if (hiringProgress || mappedHiringStage === "Not Qualified - to close") {
+          const completedStages = new Set(
+            hiringProgress?.completed || ["Applied", "Associated with Job", "Not Qualified - to close"]
           );
-          const mappedOrder = mappedConfig?.stage_order;
+          const currentStage =
+            hiringProgress?.current || null;
 
           allStages = allStages.map((stage) => {
-            if (
-              stage.stage_category !== "Hiring" ||
-              mappedOrder == null
-            ) {
-              return stage;
-            }
+            if (stage.stage_category !== "Hiring") return stage;
 
-            if (stage.stage_order < mappedOrder) {
+            if (completedStages.has(stage.stage_name)) {
               return {
                 ...stage,
                 status: "Completed",
                 completed_date:
                   stage.completed_date || format(new Date(), "yyyy-MM-dd"),
-                synced_from_application_status: true
-              };
-            }
-
-            if (stage.stage_name === mappedHiringStage) {
-              const terminal = [
-                "Not Qualified - to close",
-                "Qualified Candidate Pool",
-                "Hired"
-              ].includes(mappedHiringStage);
-
-              return {
-                ...stage,
-                status: terminal ? "Completed" : "In Progress",
-                completed_date: terminal
-                  ? stage.completed_date || format(new Date(), "yyyy-MM-dd")
-                  : null,
                 synced_from_application_status: true,
                 recruit_application_status: recruitApplicationStatus
               };
             }
 
+            if (currentStage === stage.stage_name) {
+              return {
+                ...stage,
+                status: "In Progress",
+                completed_date: null,
+                synced_from_application_status: true,
+                recruit_application_status: recruitApplicationStatus
+              };
+            }
+
+            // Prescreen Scheduled must not advance Client Documents or any
+            // Interview stage. Leave all non-listed stages exactly as saved.
             return stage;
           });
         }
