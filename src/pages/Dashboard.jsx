@@ -765,6 +765,28 @@ function StageActionPopup({ stage, guide, onDismiss }) {
   );
 }
 
+const isPipelineStageComplete = (stage) => {
+  if (!stage) return false;
+
+  const normalizedStatus = String(
+    stage.status ||
+    stage.stage_status ||
+    stage.pipeline_status ||
+    ""
+  ).trim().toLowerCase();
+
+  return (
+    normalizedStatus === "completed" ||
+    normalizedStatus === "complete" ||
+    stage.completed === true ||
+    stage.is_completed === true ||
+    stage.isComplete === true ||
+    Boolean(stage.completed_date) ||
+    Boolean(stage.completedAt) ||
+    Boolean(stage.date_completed)
+  );
+};
+
 export default function Dashboard() {
   const { user } = useAuth();
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
@@ -816,7 +838,7 @@ export default function Dashboard() {
   // exclude them. This keeps the Dashboard count aligned with the Pipeline page.
   const visiblePipelineStages = pipelineStages.filter(stage => stage && stage.is_gate !== true);
   const completedPipelineStages = visiblePipelineStages.filter(
-    stage => stage.status === "Completed" || stage.completed === true
+    isPipelineStageComplete
   );
   const pipelineCompletedCount = completedPipelineStages.length;
   const pipelineTotalCount = visiblePipelineStages.length;
@@ -828,7 +850,7 @@ export default function Dashboard() {
     const category = stage.stage_category || "Other";
     if (!summary[category]) summary[category] = { total: 0, completed: 0 };
     summary[category].total += 1;
-    if (stage.status === "Completed" || stage.completed === true) {
+    if (isPipelineStageComplete(stage)) {
       summary[category].completed += 1;
     }
     return summary;
@@ -877,24 +899,36 @@ export default function Dashboard() {
 
         if (cancelled) return;
 
-        setPipelineStages(databaseStages);
+        const normalizedStages = databaseStages.map((stage) => ({
+          ...stage,
+          status: isPipelineStageComplete(stage)
+            ? "Completed"
+            : (stage.status || "Not Started")
+        }));
+
+        setPipelineStages(normalizedStages);
         setPipelineError("");
         setPipelineLoading(false);
 
-        const candidateStages = databaseStages.filter(stage => stage && stage.is_gate !== true);
+        const candidateStages = normalizedStages.filter(
+          stage => stage && stage.is_gate !== true
+        );
 
         // Prefer the backend-designated In Progress stage. If the backend has not
         // set one yet, use the first incomplete, non-blocked stage.
         const current =
-          candidateStages.find(stage => stage.status === "In Progress") ||
           candidateStages.find(
             stage =>
-              stage.status !== "Completed" &&
-              stage.completed !== true &&
-              stage.status !== "Blocked"
+              !isPipelineStageComplete(stage) &&
+              String(stage.status || "").trim().toLowerCase() === "in progress"
           ) ||
           candidateStages.find(
-            stage => stage.status !== "Completed" && stage.completed !== true
+            stage =>
+              !isPipelineStageComplete(stage) &&
+              String(stage.status || "").trim().toLowerCase() !== "blocked"
+          ) ||
+          candidateStages.find(
+            stage => !isPipelineStageComplete(stage)
           );
 
         if (!current) {
@@ -1323,6 +1357,9 @@ export default function Dashboard() {
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
                   stages complete
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Counted from saved status and completion dates
                 </p>
               </div>
               <p className="text-lg font-bold text-primary">
