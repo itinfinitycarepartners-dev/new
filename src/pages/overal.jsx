@@ -247,7 +247,6 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
           const latestDeal =
             zoho?.latestDeal ||
             zoho?.deal ||
-            (Array.isArray(zoho?.allDeals) ? zoho.allDeals[0] : {}) ||
             {};
 
           const candidate =
@@ -363,7 +362,6 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     { id: 'documents', label: 'Candidate Documents', badge: documents.length },
     { id: 'deployment', label: 'Travel & Extras' },
     { id: 'aftercare', label: 'Aftercare Dates' },
-    { id: 'allData', label: 'All User Information' },
     { id: 'overview', label: 'System Overview' },
   ];
 
@@ -720,51 +718,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                 </div>
               )}
 
-              {/* TAB 6: ALL USER INFORMATION */}
-              {activeTab === 'allData' && (
-                <div className="space-y-6">
-                  <Section title={<><Layers className="w-5 h-5 text-purple-600" /> Complete Candidate Record</>}>
-                    <p className="text-sm text-gray-500 mb-4">
-                      This table shows every non-empty field returned by the backend from the candidate's
-                      Recruit, CRM, account, session, and MongoDB records.
-                    </p>
-                    <div className="overflow-x-auto rounded-xl border border-gray-200">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-gray-500">Field</th>
-                            <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-gray-500">Value</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {Object.entries({
-                            ...user,
-                            ...adminDetails,
-                            ...profile,
-                          })
-                            .filter(([key, value]) => {
-                              if (['zohoData', 'pipelineStages', 'loginHistory', 'pipelineProgress', 'submittedDates', 'pipeline'].includes(key)) return false;
-                              return value !== undefined && value !== null && value !== '' && extractString(value) !== '—';
-                            })
-                            .sort(([a], [b]) => a.localeCompare(b))
-                            .map(([key, value]) => (
-                              <tr key={key} className="align-top">
-                                <td className="px-4 py-3 font-semibold text-gray-700 whitespace-nowrap">
-                                  {key.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2')}
-                                </td>
-                                <td className="px-4 py-3 text-gray-700 break-all whitespace-pre-wrap">
-                                  {extractString(value)}
-                                </td>
-                              </tr>
-                            ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </Section>
-                </div>
-              )}
-
-              {/* TAB 7: SYSTEM */}
+              {/* TAB 6: SYSTEM */}
               {activeTab === 'overview' && (
                 <div className="space-y-6">
                   <Section title={<><Shield className="w-5 h-5 text-gray-700" /> Identity & Security</>}>
@@ -1002,16 +956,33 @@ const MessagingPanel = ({ users, initialTarget }) => {
 
   useEffect(() => { if (initialTarget?.email) setSelected(initialTarget.email); }, [initialTarget]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  useEffect(() => {
+    if (!selected) return;
+    const loadHistory = async () => {
+      try {
+        const { adminToken, userToken } = getTokens();
+        const headers = {
+          'Accept': 'application/json',
+          ...(adminToken ? { 'x-admin-token': adminToken, 'Authorization': `AdminBearer ${adminToken}` } : {}),
+          ...(!adminToken && userToken ? { 'Authorization': `Bearer ${userToken}` } : {})
+        };
+        const res = await fetch(`${API_BASE}/api/messaging/history?email=${encodeURIComponent(selected)}`, { headers, credentials:'include', cache:'no-store' });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) setMessages(prev => ({ ...prev, [selected]: data.messages || [] }));
+      } catch (error) { console.error('Message history error:', error); }
+    };
+    loadHistory();
+  }, [selected]);
 
   const sendMessage = async () => {
     if (!input.trim() || !selected || loading) return;
     setLoading(true);
     try {
       const { userToken, adminToken } = getTokens();
-      const headers = { 
-        'Content-Type': 'application/json', 
-        ...(userToken ? { 'Authorization': `Bearer ${userToken}` } : {}),
-        ...(adminToken ? { 'x-admin-token': adminToken } : {})
+      const headers = {
+        'Content-Type': 'application/json',
+        ...(adminToken ? { 'x-admin-token': adminToken, 'Authorization': `AdminBearer ${adminToken}` } : {}),
+        ...(!adminToken && userToken ? { 'Authorization': `Bearer ${userToken}` } : {})
       };
 
       const res = await fetch(`${API_BASE}/api/messaging/send`, {
@@ -1028,7 +999,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
       const data = await res.json();
 
       if (data.success) {
-        const msg = { id: Date.now().toString(), from: 'admin', text: input.trim(), time: new Date().toISOString() };
+        const msg = data.message || { id: Date.now().toString(), from: 'admin', text: input.trim(), time: new Date().toISOString() };
         setMessages(prev => ({ ...prev, [selected]: [...(prev[selected] || []), msg] }));
         setInput('');
       } else {

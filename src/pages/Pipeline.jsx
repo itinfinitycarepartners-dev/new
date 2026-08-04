@@ -1140,55 +1140,45 @@ const CustomModal = ({ isOpen, onClose, title, children }) => {
   );
 };
 
-// Upload function with document type
-const uploadDocument = async (file, documentName, documentType, destination, userEmail) => {
+// Unified verified upload helper. All in-app uploads use this route so the
+// backend can attach the file to CRM, Recruit, or both and return per-system results.
+const uploadDocument = async (
+  file,
+  documentName,
+  documentType,
+  destination = "both",
+  userEmail,
+  extraFields = {}
+) => {
   const token = localStorage.getItem("icp_auth_token");
   if (!token) throw new Error("Not authenticated");
+  if (!file) throw new Error("No file selected");
 
   const formData = new FormData();
   formData.append("file", file);
-  formData.append("document_name", documentName);
-  formData.append("document_type", documentType);
-  formData.append("candidate_email", userEmail);
-
-  let endpoint;
-  if (destination === "recruit") {
-    endpoint = `${API_BASE}/api/recruit/upload-document`;
-  } else {
-    endpoint = `${API_BASE}/api/documents/upload-to-concierge`;
-  }
-
-  console.log(`[Upload] Sending to ${destination}:`, {
-    endpoint,
-    documentName,
-    documentType,
-    fileSize: file.size,
-    fileName: file.name
+  formData.append("document_name", documentName || file.name);
+  formData.append("document_type", documentType || "Document");
+  formData.append("candidate_email", userEmail || "");
+  formData.append("destination", destination || "both");
+  Object.entries(extraFields || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) formData.append(key, String(value));
   });
 
-  const response = await fetch(endpoint, {
+  const response = await fetch(`${API_BASE}/api/documents/upload`, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`
-    },
-    body: formData
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
   });
 
-  console.log(`[Upload] Response status:`, response.status);
-  
-  const responseText = await response.text();
-  console.log(`[Upload] Response text:`, responseText);
-  
-  let data;
-  try {
-    data = JSON.parse(responseText);
-  } catch (e) {
-    console.error("[Upload] Failed to parse JSON:", e);
-    throw new Error(`Server returned invalid response: ${responseText.substring(0, 100)}`);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.success !== true) {
+    const details = [data.error, data.crm?.error, data.recruit?.error].filter(Boolean).join(" | ");
+    throw new Error(details || "Document upload failed");
   }
 
-  if (!response.ok) {
-    throw new Error(data.error || data.message || `Upload failed with status ${response.status}`);
+  if (destination === "both" && (!data.crm?.success || !data.recruit?.success)) {
+    const failed = !data.crm?.success ? "CRM" : "Recruit";
+    throw new Error(`${failed} did not accept the document. ${data[failed.toLowerCase()]?.error || "Please retry."}`);
   }
 
   return data;
@@ -1502,8 +1492,9 @@ const ContractView = ({ onClose, user, setStages }) => {
       formData.append("document_name", `Contract - ${format(new Date(), "MMM d, yyyy")}`);
       formData.append("document_type", "Contract");
       formData.append("candidate_email", user?.email || "");
+      formData.append("destination", "both");
 
-      const response = await fetch(`${API_BASE}/api/documents/upload-to-crm-and-recruit`, {
+      const response = await fetch(`${API_BASE}/api/documents/upload`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`
@@ -4198,186 +4189,151 @@ const HousingDetails = ({ onClose, user, setStages }) => {
   return <HousingDetailsForm onClose={onClose} user={user} setStages={setStages} />;
 };
 
-// R&L Checklist View
+// Complete Relocation & Logistics form based on the ICP candidate checklist.
 const RLChecklistView = ({ onClose, user, setStages }) => {
-  const [uploading, setUploading] = useState({});
-  const [requirements, setRequirements] = useState({
-    rlChecklist: { confirmed: false, file: null, fileName: "" },
-    housingChecklist: { confirmed: false, file: null, fileName: "" },
-    updatedResume: { confirmed: false, file: null, fileName: "" },
-    certificateOfEmployment: { confirmed: false, file: null, fileName: "" },
+  const [submitting, setSubmitting] = useState(false);
+  const [photo, setPhoto] = useState(null);
+  const [documents, setDocuments] = useState({
+    vaccineCards: [], policeClearance: [], passports: [], nclexFee: [],
+    nclexSchedule: [], englishExam: [], cesReport: [], visaScreenFee: []
+  });
+  const [form, setForm] = useState({
+    name: user?.displayName || user?.name || "", email: user?.email || "", employerName: "",
+    birthDate: "", gender: "", phone: "", caseManager: "", preferredContact: [],
+    height: "", weight: "", clothingSize: "", aboutYou: "", resignationPeriod: "",
+    anticipatedLastDay: "", departureCity: "", wheelchair: "No", checkedBags: "0",
+    carryOn: "0", boxes: "0", pets: "No", travelCash: "", carSeats: "No",
+    phoneModelCarrier: "", simUnlocked: "", drivingPlan: "", carPurchasePlan: "",
+    foundationsCompleted: "", spouseEmployment: "", relocationPolicyAccepted: false,
+    photoReleaseAccepted: false, relocationSignature: "", photoReleaseSignature: "",
+    dependents: [{ name: "", birthDate: "", gender: "", relationship: "", height: "", weight: "" }]
   });
 
-  const toggleRequirement = (key) => {
-    setRequirements(prev => ({
-      ...prev,
-      [key]: {
-        ...prev[key],
-        confirmed: !prev[key].confirmed
-      }
-    }));
-  };
+  const setField = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
+  const addDependent = () => setForm(prev => ({ ...prev, dependents: [...prev.dependents, { name:"", birthDate:"", gender:"", relationship:"", height:"", weight:"" }] }));
+  const updateDependent = (i, key, value) => setForm(prev => ({ ...prev, dependents: prev.dependents.map((d, idx) => idx === i ? { ...d, [key]: value } : d) }));
+  const removeDependent = (i) => setForm(prev => ({ ...prev, dependents: prev.dependents.filter((_, idx) => idx !== i) }));
+  const addFiles = (key, list) => setDocuments(prev => ({ ...prev, [key]: [...prev[key], ...Array.from(list || [])] }));
+  const removeFile = (key, i) => setDocuments(prev => ({ ...prev, [key]: prev[key].filter((_, idx) => idx !== i) }));
 
-  const handleFileUpload = async (key, file) => {
-    if (!file) return;
-    setUploading(prev => ({ ...prev, [key]: true }));
-    setRequirements(prev => ({
-      ...prev,
-      [key]: {
-        ...prev[key],
-        file: file,
-        fileName: file.name,
-        confirmed: true
-      }
-    }));
-    toast.success(`"${file.name}" uploaded successfully!`);
-    setUploading(prev => ({ ...prev, [key]: false }));
-  };
+  const required = ["name","email","employerName","birthDate","gender","phone","departureCity","drivingPlan","relocationSignature","photoReleaseSignature"];
+  const isComplete = required.every(k => String(form[k] || "").trim()) && form.relocationPolicyAccepted && form.photoReleaseAccepted;
 
-  const removeFile = (key) => {
-    setRequirements(prev => ({
-      ...prev,
-      [key]: {
-        ...prev[key],
-        file: null,
-        fileName: "",
-        confirmed: false
-      }
-    }));
-  };
+  const Input = ({ label, field, type="text", required=false, placeholder="" }) => (
+    <label className="block">
+      <span className="text-sm font-medium text-gray-700">{label}{required && <span className="text-red-500"> *</span>}</span>
+      <input type={type} value={form[field] || ""} onChange={e => setField(field, e.target.value)} placeholder={placeholder}
+        className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-purple-500 focus:ring-2 focus:ring-purple-100" />
+    </label>
+  );
 
-  const allRequirementsMet = () => {
-    return Object.values(requirements).every(req => req.confirmed === true);
-  };
-
-  const handleSubmit = async () => {
-    if (!allRequirementsMet()) {
-      toast.error("Please confirm and upload all required documents.");
-      return;
-    }
-    toast.success("R&L Checklist submitted successfully!");
-    updateStageStatus(user?.email, "Submit R&L Checklist", setStages);
-    setTimeout(() => onClose(), 1500);
-  };
-
-  const RequirementCheckbox = ({ label, requirementKey, description }) => {
-    const req = requirements[requirementKey] || { confirmed: false, file: null, fileName: "" };
-    const isChecked = req.confirmed || false;
-    
-    return (
-      <div className="bg-white rounded-lg border border-gray-200 hover:border-emerald-300 transition-all overflow-hidden">
-        <div className="p-3">
-          <div className="flex items-start gap-3">
-            <div className="flex-shrink-0 mt-0.5 cursor-pointer" onClick={() => toggleRequirement(requirementKey)}>
-              <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
-                isChecked ? 'bg-emerald-500 border-emerald-500' : 'border-gray-300 bg-white'
-              }`}>
-                {isChecked && <CheckCircle2 className="h-4 w-4 text-white" />}
-              </div>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="cursor-pointer" onClick={() => toggleRequirement(requirementKey)}>
-                <p className={`text-sm font-medium ${isChecked ? 'text-gray-500 line-through' : 'text-gray-800'}`}>
-                  {label} <span className="text-red-500">*</span>
-                </p>
-                {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-3 pt-3 border-t border-gray-100">
-            {req.fileName ? (
-              <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <FileText className="h-4 w-4 text-green-600 flex-shrink-0" />
-                  <span className="text-xs text-green-700 truncate">{req.fileName}</span>
-                  <span className="text-xs text-green-600 font-medium ml-1">✓ Uploaded</span>
-                </div>
-                <button type="button" onClick={() => removeFile(requirementKey)} className="text-red-500 hover:text-red-700 flex-shrink-0 ml-2">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            ) : (
-              <div className="relative">
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-3 text-center hover:border-emerald-400 transition-colors bg-gray-50/50">
-                  <div className="flex items-center justify-center gap-3 flex-wrap">
-                    <Upload className="h-4 w-4 text-gray-400" />
-                    <span className="text-sm text-gray-500">Upload {label}</span>
-                    <span className="text-xs text-gray-400">(PDF, JPG, PNG, max 10MB)</span>
-                    <input 
-                      type="file" 
-                      className="absolute inset-0 opacity-0 cursor-pointer"
-                      onChange={(e) => {
-                        if (e.target.files && e.target.files[0]) {
-                          handleFileUpload(requirementKey, e.target.files[0]);
-                        }
-                        e.target.value = '';
-                      }}
-                      accept=".pdf,.jpg,.jpeg,.png"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+  const UploadGroup = ({ title, field, required=false }) => (
+    <div className="rounded-xl border border-gray-200 p-4 bg-white">
+      <div className="flex items-center justify-between gap-3">
+        <div><p className="text-sm font-semibold text-gray-800">{title}{required && <span className="text-red-500"> *</span>}</p></div>
+        <label className="cursor-pointer rounded-lg border px-3 py-2 text-xs font-semibold text-purple-700 hover:bg-purple-50">
+          Add files<input type="file" multiple className="hidden" accept=".pdf,.jpg,.jpeg,.png" onChange={e => { addFiles(field, e.target.files); e.target.value=''; }} />
+        </label>
       </div>
-    );
-  };
-
-  const getProgress = () => {
-    const total = Object.keys(requirements).length;
-    const completed = Object.values(requirements).filter(req => req.confirmed === true).length;
-    return { total, completed, percentage: (completed / total) * 100 };
-  };
-
-  const progress = getProgress();
-
-  return (
-    <div className="space-y-4 max-h-[calc(90vh-80px)] overflow-y-auto pr-2">
-      <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-        <h3 className="font-semibold text-blue-800 flex items-center gap-2">
-          <ClipboardList className="h-5 w-5" />
-          R&L Checklist
-        </h3>
-        <p className="text-sm text-muted-foreground mt-1">Complete and submit your Relocation & Logistics requirements.</p>
-      </div>
-
-      <div className="bg-white rounded-lg p-3 border border-gray-200">
-        <div className="flex justify-between text-xs text-muted-foreground mb-1">
-          <span>Progress</span>
-          <span>{progress.completed} / {progress.total}</span>
-        </div>
-        <div className="w-full bg-gray-200 rounded-full h-2">
-          <div 
-            className="bg-emerald-500 h-2 rounded-full transition-all duration-500"
-            style={{ width: `${Math.min(progress.percentage, 100)}%` }}
-          />
-        </div>
-        {allRequirementsMet() && (
-          <div className="mt-2 text-xs text-emerald-600 font-medium flex items-center gap-1">
-            <CheckCircle2 className="h-3 w-3" />
-            All requirements confirmed and documents uploaded!
-          </div>
-        )}
-      </div>
-
-      <div className="space-y-3">
-        <RequirementCheckbox requirementKey="rlChecklist" label="Updated R&L Checklist" description="Current relocation and logistics requirements" />
-        <RequirementCheckbox requirementKey="housingChecklist" label="Updated ICP Housing Checklist" description="Current housing preferences and requirements" />
-        <RequirementCheckbox requirementKey="updatedResume" label="Updated Resume" description="Current resume with most recent experience" />
-        <RequirementCheckbox requirementKey="certificateOfEmployment" label="Certificate of Employment" description="Most recent COE from current employer" />
-      </div>
-
-      <div className="flex gap-2 justify-end pt-4 border-t border-border">
-        <Button variant="outline" onClick={onClose}>Close</Button>
-        <Button onClick={handleSubmit} disabled={!allRequirementsMet()} className="gap-2">
-          <CheckCircle2 className="h-4 w-4" />
-          Confirm & Submit
-        </Button>
-      </div>
+      {documents[field].length > 0 && <div className="mt-3 space-y-2">{documents[field].map((f,i)=><div key={`${f.name}-${i}`} className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-xs"><span className="truncate">{f.name}</span><button type="button" onClick={()=>removeFile(field,i)} className="text-red-500"><X className="h-4 w-4"/></button></div>)}</div>}
     </div>
   );
+
+  const handleSubmit = async () => {
+    if (!isComplete) { toast.error("Complete all required fields, policy confirmations, and signatures."); return; }
+    setSubmitting(true);
+    try {
+      const token = localStorage.getItem("icp_auth_token");
+      if (!token) throw new Error("Not authenticated");
+      const payload = new FormData();
+      payload.append("candidate_email", user?.email || form.email);
+      payload.append("form_data", JSON.stringify(form));
+      if (photo) payload.append("candidate_photo", photo);
+      Object.entries(documents).forEach(([category, files]) => files.forEach(file => payload.append(`documents_${category}`, file)));
+
+      const response = await fetch(`${API_BASE}/api/relocation-logistics/submit`, {
+        method: "POST", headers: { Authorization: `Bearer ${token}` }, body: payload
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || "R&L submission failed");
+      if (!data.crm?.success || !data.recruit?.success) throw new Error(data.error || "The form was not attached to both CRM and Recruit");
+      toast.success("R&L form and supporting documents submitted successfully.");
+      updateStageStatus(user?.email, "Submit R&L Checklist", setStages);
+      setTimeout(onClose, 1000);
+    } catch (error) { toast.error(error.message || "Unable to submit the R&L form"); }
+    finally { setSubmitting(false); }
+  };
+
+  return <div className="space-y-6 max-h-[calc(90vh-90px)] overflow-y-auto pr-2">
+    <div className="rounded-xl border border-purple-200 bg-purple-50 p-5">
+      <h3 className="text-lg font-bold text-purple-900">Relocation + Logistics Checklist</h3>
+      <p className="text-sm text-purple-700 mt-1">To be completed by the candidate. Contact your Project Manager with questions.</p>
+    </div>
+
+    <section className="rounded-xl border bg-white p-5 space-y-4">
+      <h4 className="font-bold text-gray-900">Candidate picture and general information</h4>
+      <label className="block rounded-xl border-2 border-dashed p-4 text-center cursor-pointer hover:border-purple-400">
+        <span className="text-sm text-gray-600">{photo ? photo.name : "Upload candidate picture"}</span>
+        <input type="file" accept="image/*" className="hidden" onChange={e=>setPhoto(e.target.files?.[0] || null)} />
+      </label>
+      <div className="grid md:grid-cols-2 gap-4">
+        <Input label="Name" field="name" required/><Input label="U.S. Employer Name (work location)" field="employerName" required/>
+        <Input label="Birth Date" field="birthDate" type="date" required/><Input label="Gender" field="gender" required/>
+        <Input label="Candidate Email" field="email" type="email" required/><Input label="Phone Number" field="phone" required/>
+        <Input label="Case Manager" field="caseManager"/><Input label="Preferred Contact Method" field="preferredContactText" placeholder="Email, phone, Facebook..."/>
+        <Input label="Height (feet and inches)" field="height"/><Input label="Weight (lbs.)" field="weight" type="number"/>
+        <Input label="Clothing Size (tops + bottoms)" field="clothingSize"/><Input label="Resignation Period Required" field="resignationPeriod"/>
+        <Input label="Anticipated Last Day of Work" field="anticipatedLastDay" type="date"/>
+      </div>
+      <label className="block"><span className="text-sm font-medium">Tell us about you</span><textarea value={form.aboutYou} onChange={e=>setField('aboutYou',e.target.value)} rows={3} className="mt-1 w-full rounded-lg border px-3 py-2"/></label>
+    </section>
+
+    <section className="rounded-xl border bg-white p-5 space-y-4">
+      <div className="flex justify-between"><div><h4 className="font-bold">Dependent information</h4><p className="text-xs text-gray-500">Leave blank when relocating without dependents.</p></div><Button type="button" variant="outline" onClick={addDependent}>Add dependent</Button></div>
+      {form.dependents.map((d,i)=><div key={i} className="rounded-xl bg-gray-50 p-4 grid md:grid-cols-3 gap-3 relative">
+        {form.dependents.length>1&&<button type="button" onClick={()=>removeDependent(i)} className="absolute right-3 top-3 text-red-500"><X className="h-4 w-4"/></button>}
+        {[["Name as on passport","name","text"],["Date of Birth","birthDate","date"],["Gender","gender","text"],["Relationship","relationship","text"],["Height","height","text"],["Weight (lbs.)","weight","number"]].map(([label,key,type])=><label key={key}><span className="text-xs font-medium">{label}</span><input type={type} value={d[key]} onChange={e=>updateDependent(i,key,e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"/></label>)}
+      </div>)}
+    </section>
+
+    <section className="rounded-xl border bg-white p-5 space-y-4">
+      <h4 className="font-bold">Travel and arrival planning</h4>
+      <div className="grid md:grid-cols-2 gap-4">
+        <Input label="Departure city and country / closest international airport" field="departureCity" required/>
+        <Input label="Will anyone travel in a wheelchair?" field="wheelchair"/>
+        <Input label="Checked Bags" field="checkedBags" type="number"/><Input label="Personal Carry On" field="carryOn" type="number"/>
+        <Input label="Boxes" field="boxes" type="number"/><Input label="Traveling with pets?" field="pets"/>
+        <Input label="Travel Cash ($), excluding reimbursement" field="travelCash" type="number"/><Input label="Car seats or boosters needed?" field="carSeats"/>
+        <Input label="Cell Phone Model + Carrier" field="phoneModelCarrier"/><Input label="Is the SIM card unlocked?" field="simUnlocked"/>
+        <Input label="Car Purchasing Plan Post Arrival" field="carPurchasePlan"/><Input label="Foundation Relias classes completed?" field="foundationsCompleted"/>
+      </div>
+      <label className="block"><span className="text-sm font-medium">Immediate driving plan after arrival <span className="text-red-500">*</span></span><textarea value={form.drivingPlan} onChange={e=>setField('drivingPlan',e.target.value)} rows={3} className="mt-1 w-full rounded-lg border px-3 py-2"/></label>
+      <label className="block"><span className="text-sm font-medium">Employment plans for spouse or adult children</span><textarea value={form.spouseEmployment} onChange={e=>setField('spouseEmployment',e.target.value)} rows={3} className="mt-1 w-full rounded-lg border px-3 py-2"/></label>
+    </section>
+
+    <section className="space-y-3">
+      <h4 className="font-bold">Candidate documents needed</h4>
+      <div className="grid md:grid-cols-2 gap-3">
+        <UploadGroup title="COVID-19 Vaccine Cards" field="vaccineCards"/><UploadGroup title="Current Police Clearance / NBI (all adults)" field="policeClearance"/>
+        <UploadGroup title="Passports for everyone traveling" field="passports"/><UploadGroup title="NCLEX Fee Receipt" field="nclexFee"/>
+        <UploadGroup title="NCLEX Schedule / Registration" field="nclexSchedule"/><UploadGroup title="English Exam Receipt or Result" field="englishExam"/>
+        <UploadGroup title="CES Report for Employer State" field="cesReport"/><UploadGroup title="Visa Screen Fee Receipt" field="visaScreenFee"/>
+      </div>
+    </section>
+
+    <section className="rounded-xl border bg-white p-5 space-y-4">
+      <h4 className="font-bold">Policies and signatures</h4>
+      <label className="flex gap-3"><input type="checkbox" checked={form.relocationPolicyAccepted} onChange={e=>setField('relocationPolicyAccepted',e.target.checked)}/><span className="text-sm">I have read and accept the Candidate Relocation Travel Policy.</span></label>
+      <Input label="Signature for Relocation Policy" field="relocationSignature" required/>
+      <label className="flex gap-3"><input type="checkbox" checked={form.photoReleaseAccepted} onChange={e=>setField('photoReleaseAccepted',e.target.checked)}/><span className="text-sm">I have read and accept the Photo and Video Release Form.</span></label>
+      <Input label="Signature for Photo Release" field="photoReleaseSignature" required/>
+    </section>
+
+    <div className="sticky bottom-0 bg-white border-t py-4 flex justify-end gap-3">
+      <Button variant="outline" onClick={onClose} disabled={submitting}>Cancel</Button>
+      <Button onClick={handleSubmit} disabled={submitting || !isComplete}>{submitting ? <><Loader2 className="h-4 w-4 animate-spin mr-2"/>Submitting...</> : "Submit"}</Button>
+    </div>
+  </div>;
 };
 
 // ============= Reimbursement/Expenses Component (Aftercare) =============
