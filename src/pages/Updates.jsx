@@ -59,6 +59,16 @@ const FIELD_LABELS = {
   final_destination_arrival: "Final Destination Arrival",
   finalflightairline: "Final Flight Airline",
   finalflightnumber: "Final Flight Number",
+  leadManagementStatus: "Lead Management Status",
+  State_Licensure_Requirements: "Embassy Eligibility Status",
+  Embassy_Interview: "Embassy Interview Date",
+  Visa_Status: "Visa Status",
+  IELTS_Complete: "English Exam Type",
+  IELTS_Scheduled_Exam_Date_if_applicable: "English Expiry Date",
+  Completed_BON_Requirements: "Completed BON Requirements",
+  Assessments_Completed: "Assessments Completed",
+  Assignments_Completed: "Assignments Completed",
+  Performance_Rating: "Performance Rating",
   fligtnumber1: "Flight Number 1",
   fligtnumber2: "Flight Number 2",
   fligtnumber3: "Flight Number 3",
@@ -99,11 +109,11 @@ export default function Updates() {
         return;
       }
 
-      const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://deploy-3or5.onrender.com';
-      const res = await fetch(`${BASE_URL}/api/zoho/my-deals`, {
+      const BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://fictional-carnival-3inv.onrender.com";
+      const res = await fetch(`${BASE_URL}/api/zoho/my-deals?refresh=true&_=${Date.now()}`, {
         headers: { 
           Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
+          "Content-Type": "application/json"
         }
       });
       

@@ -43,7 +43,7 @@ export default function Messages() {
       }
 
       const response = await fetch(
-        `${API_BASE}/api/messaging/broadcast`,
+        `${API_BASE}/api/messaging/user-broadcast`,
         {
           method: "POST",
           credentials: "omit",
