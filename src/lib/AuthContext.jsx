@@ -42,17 +42,23 @@ export const AuthProvider = ({ children }) => {
       }
     } catch (e) {
       console.error('[Auth] Failed to load candidate data:', e);
-      
-      // If the token is invalid, clear it
-      if (e?.status === 401 || e?.status === 403 || e?.sessionExpired) {
-        console.log('[Auth] Token invalid, clearing...');
+
+      const explicitSessionExpiry =
+        e?.sessionExpired === true ||
+        e?.data?.sessionExpired === true ||
+        e?.data?.tokenExpired === true ||
+        e?.data?.invalidToken === true ||
+        e?.data?.code === 'TOKEN_EXPIRED' ||
+        e?.data?.code === 'INVALID_TOKEN';
+
+      if (explicitSessionExpiry) {
         tokenStorage.clear();
         setIsAuthenticated(false);
         setUser(null);
         localStorage.removeItem('icp_user_email');
         localStorage.removeItem('icp_user_name');
       }
-      
+
       throw e;
     }
   }, []);
@@ -127,22 +133,43 @@ export const AuthProvider = ({ children }) => {
     } catch (err) {
       console.error('[Auth] Session check error:', err);
       
-      // Check if it's an authentication error
-      if (err?.status === 401 || err?.status === 403 || err?.sessionExpired || 
-          err?.message?.includes('token') || err?.message?.includes('expired')) {
-        console.log('[Auth] Authentication error, clearing token');
+      const explicitSessionExpiry =
+        err?.sessionExpired === true ||
+        err?.data?.sessionExpired === true ||
+        err?.data?.tokenExpired === true ||
+        err?.data?.invalidToken === true ||
+        err?.data?.code === 'TOKEN_EXPIRED' ||
+        err?.data?.code === 'INVALID_TOKEN';
+
+      if (explicitSessionExpiry) {
         tokenStorage.clear();
         localStorage.removeItem('icp_user_email');
         localStorage.removeItem('icp_user_name');
         setIsAuthenticated(false);
         setUser(null);
         setCandidateData(null);
-        setAuthError({ type: 'auth_required', message: err.message || 'Authentication required' });
+        setAuthError({
+          type: 'auth_required',
+          message: err.message || 'Your session has expired'
+        });
       } else {
-        // Network or other error - keep the token but mark as not authenticated
-        console.log('[Auth] Network error, keeping token but marking as not authenticated');
-        setIsAuthenticated(false);
-        setAuthError({ type: 'network_error', message: err.message || 'Network error' });
+        const storedEmail = localStorage.getItem('icp_user_email') || '';
+        const storedName =
+          localStorage.getItem('icp_user_name') ||
+          storedEmail.split('@')[0] ||
+          'Candidate';
+
+        console.log('[Auth] Temporary API failure; preserving login');
+        setUser((previous) => previous || {
+          email: storedEmail,
+          full_name: storedName
+        });
+        setIsAuthenticated(true);
+        setAuthError({
+          type: 'temporary_error',
+          message: err.message || 'Some candidate information is temporarily unavailable'
+        });
+        initMessaging(token);
       }
     } finally {
       setIsLoadingAuth(false);
@@ -213,13 +240,22 @@ export const AuthProvider = ({ children }) => {
       // Return the token for the login component
       return token;
     } catch (err) {
-      console.error('[Auth] loginSuccess error:', err);
-      // If something goes wrong, clear everything
-      tokenStorage.clear();
-      localStorage.removeItem('icp_user_email');
-      localStorage.removeItem('icp_user_name');
-      setIsAuthenticated(false);
-      setUser(null);
+      console.error('[Auth] loginSuccess post-login error:', err);
+
+      const storedToken = tokenStorage.get();
+      if (storedToken) {
+        setIsAuthenticated(true);
+        setUser((previous) => previous || {
+          email,
+          full_name: name || email.split('@')[0]
+        });
+        setAuthError({
+          type: 'temporary_error',
+          message: err.message || 'Some account information is temporarily unavailable'
+        });
+        return storedToken;
+      }
+
       throw err;
     }
   }, [loadCandidateData]);

@@ -5,7 +5,11 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { messaging, websocket, tokenStorage } from '@/api/icpClient';
 import { formatDistanceToNow } from 'date-fns';
 
-export default function ConversationList() {
+export default function ConversationList({
+  allowDirectMessaging = false,
+  allowBroadcastMessaging = false,
+  hideStartChat = true
+}) {
   const navigate = useNavigate();
   const { conversationId: selectedId } = useParams();
   const [conversations, setConversations] = useState([]);
@@ -26,6 +30,10 @@ export default function ConversationList() {
   const [newMessageContent, setNewMessageContent] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
   const [sendingReply, setSendingReply] = useState(false);
+  const [activeConversationTab, setActiveConversationTab] = useState("admin");
+  const [showStartChat, setShowStartChat] = useState(false);
+  const [newRecipientEmail, setNewRecipientEmail] = useState("");
+  const [startingChat, setStartingChat] = useState(false);
   
   const isAtBottomRef = useRef(true); 
   const loadingMessagesRef = useRef(false);
@@ -240,6 +248,48 @@ export default function ConversationList() {
       setSendingMessage(false);
     }
   }, [newMessageContent, selectedId, getUserName]);
+
+
+  const startChat = async () => {
+    if (!newRecipientEmail.trim()) return;
+    setStartingChat(true);
+    try {
+      const token = tokenStorage.get();
+      const response = await fetch(
+        `${import.meta.env.VITE_API_BASE_URL || "https://fictional-carnival-3inv.onrender.com"}/api/messaging/start-conversation`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ recipientEmail: newRecipientEmail.trim() })
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Unable to start chat");
+      setShowStartChat(false);
+      setNewRecipientEmail("");
+      navigate(`/messages/${data.conversation._id}`);
+      const refreshed = await messaging.getConversations();
+      if (refreshed.success) setConversations(refreshed.conversations || []);
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setStartingChat(false);
+    }
+  };
+
+  const isBroadcastConversation = (conversation) =>
+    conversation?.type === "broadcast" ||
+    conversation?.groupName?.toLowerCase().includes("broadcast") ||
+    conversation?.groupName?.toLowerCase().includes("announcement");
+
+  const visibleConversations = conversations.filter(conversation =>
+    activeConversationTab === "broadcast"
+      ? isBroadcastConversation(conversation)
+      : !isBroadcastConversation(conversation)
+  );
 
   const toggleThread = (messageId) => {
     setExpandedThreads(prev => {
@@ -510,7 +560,7 @@ export default function ConversationList() {
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {conversations.map((conversation) => {
+              {visibleConversations.map((conversation) => {
                 const name = getConversationName(conversation);
                 const preview = getLastMessagePreview(conversation);
                 const timeAgo = getTimeAgo(conversation.lastMessageAt);
@@ -581,20 +631,58 @@ export default function ConversationList() {
                 <div ref={messagesEndRef} className="h-1" />
               </div>
 
-              <div className="p-4 border-t border-slate-200 bg-white flex-shrink-0">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text" placeholder="Type a message..." value={newMessageContent} onChange={(e) => setNewMessageContent(e.target.value)}
-                    className="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
-                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                    disabled={sendingMessage}
-                  />
-                  <button
-                    onClick={sendMessage} disabled={!newMessageContent.trim() || sendingMessage}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${!newMessageContent.trim() || sendingMessage ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700 text-white'}`}
-                  >{sendingMessage ? 'Sending...' : 'Send'}</button>
+              {(
+                selectedConversation?.type === "broadcast"
+                  ? allowBroadcastMessaging
+                  : allowDirectMessaging
+              ) ? (
+                <div className="p-4 border-t border-slate-200 bg-white flex-shrink-0">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="Type a message..."
+                      value={newMessageContent}
+                      onChange={(e) =>
+                        setNewMessageContent(e.target.value)
+                      }
+                      className="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
+                      onKeyDown={(e) => {
+                        if (
+                          e.key === "Enter" &&
+                          !e.shiftKey
+                        ) {
+                          e.preventDefault();
+                          sendMessage();
+                        }
+                      }}
+                      disabled={sendingMessage}
+                    />
+                    <button
+                      onClick={sendMessage}
+                      disabled={
+                        !newMessageContent.trim() ||
+                        sendingMessage
+                      }
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        !newMessageContent.trim() ||
+                        sendingMessage
+                          ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                          : "bg-purple-600 hover:bg-purple-700 text-white"
+                      }`}
+                    >
+                      {sendingMessage
+                        ? "Sending..."
+                        : "Send"}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="border-t border-slate-200 bg-white p-4 text-center text-sm text-slate-500">
+                  {selectedConversation?.type === "broadcast"
+                    ? "Use the New Broadcast button to send a message to all users."
+                    : "Direct replies are not available for user accounts."}
+                </div>
+              )}
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center text-slate-400">

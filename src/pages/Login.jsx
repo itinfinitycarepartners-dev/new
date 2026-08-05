@@ -1,7 +1,7 @@
 //@ts-nocheck
 // Login.jsx - Fixed with proper password step navigation
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,10 +15,11 @@ const API_BASE = "https://fictional-carnival-3inv.onrender.com";
 export default function Login() {
   const { loginSuccess, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // ─── State ──────────────────────────────────────────────────────────────
 // User login state
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(location.state?.email || "");
   const [password, setPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -27,7 +28,6 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
-  const [debugInfo, setDebugInfo] = useState("");
 // ─── If already authenticated, redirect ──────────────────────────────
   useEffect(() => {
     if (isAuthenticated) {
@@ -36,13 +36,20 @@ export default function Login() {
     }
   }, [isAuthenticated, navigate]);
 
+  useEffect(() => {
+    if (location.state?.passwordReset) {
+      setInfo("Your password has been reset. Sign in with your new password.");
+      setStep("password");
+      navigate("/login", { replace: true, state: {} });
+    }
+  }, [location.state, navigate]);
+
   // ─── User Login Handlers ──────────────────────────────────────────────
   const handleCheckEmail = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError("");
     setInfo("");
-    setDebugInfo("");
 
     const enteredEmail = email.trim();
 
@@ -70,7 +77,6 @@ export default function Login() {
 
       const data = await response.json();
       console.log("[Login] Check email response:", data);
-      setDebugInfo(`Response: ${JSON.stringify(data, null, 2)}`);
 
       if (data.success) {
         if (data.requiresOTP) {
@@ -286,11 +292,6 @@ export default function Login() {
         {info && (
           <p className="text-sm text-emerald-700 bg-emerald-50 p-3 rounded-lg mb-4">
             {info}
-          </p>
-        )}
-        {debugInfo && (
-          <p className="text-xs text-gray-500 bg-gray-100 p-2 rounded mb-4">
-            {debugInfo}
           </p>
         )}
 

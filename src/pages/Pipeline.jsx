@@ -1,4 +1,4 @@
-// @ts-nocheck
+ // @ts-nocheck
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { 
@@ -293,7 +293,7 @@ const STAGES_CONFIG = [
   { id: 43, stage_name: "Confirm Final Transportation Plan", stage_category: "Deployment", stage_order: 43, days_from_start: 1005 },
   { id: 44, stage_name: "Attend Facility/RN Pre-Arrival Call", stage_category: "Deployment", stage_order: 44, days_from_start: 1010 },
   { id: 45, stage_name: "Flights Booked", stage_category: "Deployment", stage_order: 45, days_from_start: 1015 },
-  { id: 46, stage_name: "ICP Welcome Packet & Itinerary", stage_category: "Deployment", stage_order: 46, days_from_start: 1020 },
+  { id: 46, stage_name: "ICP Welcome Packet", stage_category: "Deployment", stage_order: 46, days_from_start: 1020 },
   { id: 47, stage_name: "Connect with Concierge", stage_category: "Deployment", stage_order: 47, days_from_start: 1025 },
   { id: 48, stage_name: "Reimbursement/Advance Payment Report Released", stage_category: "Deployment", stage_order: 48, days_from_start: 1030 },
   { id: 49, stage_name: "Communicate During Travel", stage_category: "Deployment", stage_order: 49, days_from_start: 1035 },
@@ -729,15 +729,16 @@ const updateRecruitField = async (userEmail, stageName) => {
 const ICP_USRN_SUBPROCESS_CONFIG = [
   { name: "Complete Pre-assessment", days: 5, field: "NCLEX_Pre_Exam", type: "picklist", accepted: ["1st Attempt Pass", "2nd Attempt Pass"] },
   { name: "Program Prescreen", days: 10, field: "Prescreen_Status", type: "picklist", accepted: ["Attended"] },
+  { name: "Required Document Upload", days: 10, field: "Hiring_Documents_Verified", type: "boolean", action: "usrnDocuments" },
   { name: "Document Review", days: 24, field: "Documents_Submitted", type: "present" },
   { name: "Educational Program Agreement", days: 24, field: "Sponsorship_Agreement", type: "boolean" },
   { name: "Program Approval", days: 24, field: "Program_Status", type: "picklist", accepted: ["Approved"] },
-  { name: "Credential Evaluation Set-up", days: 27, field: "Credential_Service", type: "picklist", accepted: ["Paid by ICP", "Sponsored by ICP", "To be Sponsored by Infinity", "Paid by Infinity"] },
+  { name: "Credential Evaluation Set-up", days: 27, field: "Credential_Service", type: "picklist", accepted: ["Paid by ICP", "Paid by Infinity", "Paid and completed by candidate"] },
   { name: "Credential Evaluation", days: 77, field: "Credentialing_Status", type: "picklist", accepted: ["Completed", "Complete", "Evaluation Completed"] },
   { name: "Credential Evaluation Completed", days: 92, field: "Credential_Registration_Date", type: "present" },
   { name: "Credentials Issued", days: 102, field: "Date_Report_Issued", type: "present" },
   { name: "Board Registration", days: 120, field: "State_License_Board_of_Registration", type: "picklist", accepted: ["Paid by ICP", "Sponsored by ICP", "To be Sponsored by Infinity", "Paid by Infinity"] },
-  { name: "Board Approval", days: 127, field: "Board_Username", type: "present" },
+  { name: "Board Approval", days: 127, field: "Completed_BON_Requirements", type: "picklist", accepted: ["BON Approval"] },
   { name: "Performance Rating", days: 140, field: "Performance_Rating", type: "picklist", accepted: ["High", "Very High"], isGate: true },
   { name: "Pearson Vue Registration", days: 150, field: "ATT_Received_Date", type: "present", requires: "Performance_Rating" },
   { name: "Exam Registration", days: 165, field: "NCLEX_Exam_Date", type: "present" },
@@ -1112,6 +1113,7 @@ const CLICKABLE_STAGES = {
   "Download Deploymate App": { clickable: true, type: "view", viewType: "downloadApp" },
   "Join ICP Pre-Arrival Support Group": { clickable: true, type: "view", viewType: "supportGroup" },
   "Flights Booked": { clickable: true, type: "view", viewType: "flight" },
+  "ICP Welcome Packet": { clickable: true, type: "view", viewType: "welcomePacket" },
   "ICP Welcome Packet & Itinerary": { clickable: true, type: "view", viewType: "welcomePacket" },
   "Connect with Concierge": { clickable: true, type: "view", viewType: "concierge" },
   "Reimbursement/Advance Payment Report Released": { clickable: true, type: "view", viewType: "reimbursement" },
@@ -1127,6 +1129,7 @@ const CLICKABLE_STAGES = {
 
   // Stage 5 - Reimbursement/Expenses
   "Reimbursement/Expenses": { clickable: true, type: "view", viewType: "reimbursementExpenses" },
+  "Upload New Documents": { clickable: true, type: "view", viewType: "immigrationRenewal" },
 };
 
 const categoryColors = {
@@ -1244,48 +1247,129 @@ const updateStageStatus = async (userEmail, stageName, setStages, nextStatus = "
   }
 };
 
-// ============= Timing / sequential unlock helpers =============
-// A stage is "unlocked" (interactable) if:
-//   1) it auto-completes, or is already completed, OR
-//   2) the immediately preceding stage (by global stage_order, ignoring
-//      gates/NCLEX) is Completed, OR
-//   3) enough time has elapsed since the pipeline start date (Date_Received)
-//      to reach that stage's target hours/days.
-const getStageTimingTargetHours = (stage) => {
-  if (!stage) return null;
-  if (stage.hours_from_start !== undefined && stage.hours_from_start !== null) return stage.hours_from_start;
-  if (stage.days_from_start !== undefined && stage.days_from_start !== null) return stage.days_from_start * 24;
-  return null;
+// ============= Sequential unlock helpers =============
+const isPipelineStageComplete = (candidate) => {
+  if (!candidate) return false;
+
+  const normalizedStatus = String(
+    candidate.status ||
+    candidate.stage_status ||
+    candidate.pipeline_status ||
+    ""
+  ).trim().toLowerCase();
+
+  return (
+    normalizedStatus === "completed" ||
+    normalizedStatus === "complete" ||
+    candidate.completed === true ||
+    candidate.is_completed === true ||
+    candidate.isComplete === true ||
+    Boolean(candidate.completed_date) ||
+    Boolean(candidate.completedAt) ||
+    Boolean(candidate.date_completed)
+  );
 };
 
 const getSequencedMainStages = (allStages) => {
   return (allStages || [])
-    .filter(s => s && !s.is_gate && s.stage_category !== "NCLEX Roadmap" && s.stage_category !== "NCLEX Prescreen")
-    .sort((a, b) => a.stage_order - b.stage_order);
+    .filter(stage =>
+      stage &&
+      stage.is_gate !== true &&
+      stage.hidden !== true &&
+      stage.is_hidden !== true &&
+      stage.stage_category !== "NCLEX Roadmap" &&
+      stage.stage_category !== "NCLEX Prescreen"
+    )
+    .sort((first, second) => {
+      const firstOrder = Number(first.stage_order ?? first.order ?? 0);
+      const secondOrder = Number(second.stage_order ?? second.order ?? 0);
+
+      if (firstOrder !== secondOrder) {
+        return firstOrder - secondOrder;
+      }
+
+      return String(first.stage_name || "").localeCompare(
+        String(second.stage_name || "")
+      );
+    });
 };
 
-const isStageUnlocked = (stage, allStages, pipelineStartDate) => {
+const isSamePipelineStage = (first, second) =>
+  Boolean(
+    first &&
+    second &&
+    (
+      (first._id && second._id && String(first._id) === String(second._id)) ||
+      (first.id !== undefined && second.id !== undefined && String(first.id) === String(second.id)) ||
+      (
+        first.stage_name === second.stage_name &&
+        first.stage_category === second.stage_category
+      )
+    )
+  );
+
+const isStageUnlocked = (stage, allStages) => {
   if (!stage) return false;
-  if (stage.auto_complete_on_email) return true;
-  if (stage.crm_unlocked === true) return true;
-  if (stage.status === "Completed") return true;
 
-  const sequenced = getSequencedMainStages(allStages);
-  const idx = sequenced.findIndex(s => s.id === stage.id);
+  if (
+    stage.non_counted_section === true ||
+    stage.conditional_section === true
+  ) {
+    return true;
+  }
 
-  // First stage in the whole sequence is always unlocked
-  if (idx <= 0) return true;
+  const sequencedStages = getSequencedMainStages(allStages);
+  const currentIndex = sequencedStages.findIndex(candidate =>
+    isSamePipelineStage(candidate, stage)
+  );
 
-  const prevStage = sequenced[idx - 1];
-  if (prevStage && prevStage.status === "Completed") return true;
+  if (currentIndex < 0) return false;
+  if (currentIndex === 0) return true;
 
-  const targetHours = getStageTimingTargetHours(stage);
-  if (targetHours != null && pipelineStartDate) {
-    const start = new Date(pipelineStartDate);
-    if (!Number.isNaN(start.getTime())) {
-      const elapsedHours = (Date.now() - start.getTime()) / (1000 * 60 * 60);
-      if (elapsedHours >= targetHours) return true;
+  const isReachedStage = candidate => {
+    if (!candidate) return false;
+
+    const normalizedStatus = String(
+      candidate.status ||
+      candidate.stage_status ||
+      candidate.pipeline_status ||
+      ""
+    ).trim().toLowerCase();
+
+    return (
+      isPipelineStageComplete(candidate) ||
+      normalizedStatus === "in progress" ||
+      normalizedStatus === "current" ||
+      candidate.unlocked === true ||
+      candidate.is_unlocked === true ||
+      candidate.crm_unlocked === true ||
+      candidate.recruit_unlocked === true ||
+      Boolean(candidate.started_at) ||
+      Boolean(candidate.startedAt)
+    );
+  };
+
+  // Find the furthest point the candidate has reached. This can be a normal
+  // candidate stage or a CRM/Recruit-triggered stage in the middle.
+  let furthestReachedIndex = 0;
+
+  sequencedStages.forEach((candidate, index) => {
+    if (isReachedStage(candidate)) {
+      furthestReachedIndex = Math.max(furthestReachedIndex, index);
     }
+  });
+
+  // Every stage at or before the furthest reached stage must remain accessible.
+  if (currentIndex <= furthestReachedIndex) {
+    return true;
+  }
+
+  // The stage immediately after the furthest reached stage opens only when
+  // that reached stage is actually complete.
+  if (currentIndex === furthestReachedIndex + 1) {
+    return isPipelineStageComplete(
+      sequencedStages[furthestReachedIndex]
+    );
   }
 
   return false;
@@ -1401,7 +1485,7 @@ const CustomModal = ({ isOpen, onClose, title, children }) => {
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
+        <div data-modal-scroll-body className="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
           {children}
         </div>
       </div>
@@ -1515,6 +1599,8 @@ const HiringRequiredDocumentsUpload = ({ onClose, user, setStages }) => {
           nextResults[item.key] = {
             success: response.recruit?.success === true,
             attachmentId: response.recruit?.attachment_id || null,
+            savedName: response.document_name || item.label,
+            approvalStatus: "pending",
             error: response.recruit?.error || null,
           };
         } catch (error) {
@@ -1536,37 +1622,22 @@ const HiringRequiredDocumentsUpload = ({ onClose, user, setStages }) => {
         );
       }
 
-      const token = localStorage.getItem("icp_auth_token");
-      const stageResponse = await fetch(`${API_BASE}/api/pipeline/update-stage`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email: user?.email,
-          stage_name: "Documents Received",
-          status: "Completed",
-          completed_date: format(new Date(), "yyyy-MM-dd"),
-        }),
-      });
-
-      const stagePayload = await stageResponse.json().catch(() => ({}));
-      if (!stageResponse.ok) {
-        throw new Error(stagePayload.error || "Documents uploaded, but the stage could not be completed.");
-      }
-
       setStages(prev =>
         prev.map(stage =>
-          stage.stage_name === "Documents Received"
-            ? { ...stage, status: "Completed", completed_date: stagePayload.stage?.completed_date || new Date().toISOString() }
+          ["Required Document Upload", "Documents Received"].includes(
+            stage.stage_name
+          )
+            ? {
+                ...stage,
+                approval_status: "pending",
+                status:
+                  stage.status === "Completed"
+                    ? "Completed"
+                    : "In Progress"
+              }
             : stage
         )
       );
-
-      window.dispatchEvent(new CustomEvent("pipeline-updated", {
-        detail: { email: user?.email, stage_name: "Documents Received" }
-      }));
 
       toast.success("All seven Hiring documents were attached to Recruit.");
       setTimeout(onClose, 1200);
@@ -1606,11 +1677,11 @@ const HiringRequiredDocumentsUpload = ({ onClose, user, setStages }) => {
               files[item.key] ? "text-amber-600" : "text-muted-foreground"
             }`}>
               {result?.success
-                ? `Attached to Recruit${result.attachmentId ? ` · ID ${result.attachmentId}` : ""}`
+                ? `${result.savedName || item.label} submitted · Pending admin approval`
                 : result?.error
                   ? result.error
                   : files[item.key]
-                    ? `Selected: ${files[item.key].name}`
+                    ? `Selected as ${item.label}: ${files[item.key].name}`
                     : "No file selected"}
             </span>
           </label>
@@ -1623,6 +1694,146 @@ const HiringRequiredDocumentsUpload = ({ onClose, user, setStages }) => {
         </Button>
         <Button type="submit" disabled={!allSelected || submitting}>
           {submitting ? "Uploading..." : "Submit All Documents"}
+        </Button>
+      </div>
+    </form>
+  );
+};
+
+
+const EXPIRING_DOCUMENT_WINDOW_DAYS = 60;
+
+const parseCRMDate = (value) => {
+  if (!value || value === "—") return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const getDocumentExpiryState = (value, now = new Date()) => {
+  const expiry = parseCRMDate(value);
+  if (!expiry) return { visible: false, expired: false, daysRemaining: null, expiry: null };
+  const daysRemaining = Math.ceil((expiry.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
+  return {
+    visible: daysRemaining <= EXPIRING_DOCUMENT_WINDOW_DAYS,
+    expired: daysRemaining < 0,
+    daysRemaining,
+    expiry
+  };
+};
+
+const ImmigrationRenewalUpload = ({
+  onClose,
+  user,
+  expiringDocuments,
+  onSubmitted
+}) => {
+  const [files, setFiles] = useState({});
+  const [newDates, setNewDates] = useState({});
+  const [submitting, setSubmitting] = useState(false);
+  const [results, setResults] = useState({});
+
+  const required = expiringDocuments.filter(item => item.visible);
+  const ready = required.every(item => files[item.key] && newDates[item.key]);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (!ready) {
+      toast.error("Select each replacement document and its new expiry date.");
+      return;
+    }
+
+    setSubmitting(true);
+    const nextResults = {};
+
+    try {
+      const token = localStorage.getItem("icp_auth_token");
+      const formData = new FormData();
+      formData.append("candidate_email", user?.email || "");
+
+      required.forEach(item => {
+        formData.append(`file_${item.key}`, files[item.key]);
+        formData.append(`expiry_${item.key}`, newDates[item.key]);
+      });
+
+      const response = await fetch(`${API_BASE}/api/immigration/renew-documents`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "The replacement documents could not be submitted.");
+      }
+
+      (data.documents || []).forEach(item => {
+        nextResults[item.key] = item;
+      });
+      setResults(nextResults);
+      toast.success("Replacement documents submitted successfully.");
+      onSubmitted?.(data);
+      window.dispatchEvent(new CustomEvent("pipeline-updated", {
+        detail: { email: user?.email, section: "Upload New Documents" }
+      }));
+      setTimeout(onClose, 1000);
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-4">
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+        Upload a replacement only for documents that are expired or within {EXPIRING_DOCUMENT_WINDOW_DAYS} days of expiry.
+      </div>
+
+      {required.map(item => (
+        <div key={item.key} className="rounded-xl border p-4">
+          <p className="font-semibold">{item.label}</p>
+          <p className={`mt-1 text-xs ${item.expired ? "text-red-600" : "text-amber-600"}`}>
+            {item.expired
+              ? `Expired ${Math.abs(item.daysRemaining)} day(s) ago`
+              : `Expires in ${item.daysRemaining} day(s)`}
+          </p>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <input
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png"
+              disabled={submitting || results[item.key]?.success}
+              onChange={event => setFiles(prev => ({
+                ...prev,
+                [item.key]: event.target.files?.[0] || null
+              }))}
+              className="block w-full text-sm"
+            />
+            <input
+              type="date"
+              value={newDates[item.key] || ""}
+              disabled={submitting || results[item.key]?.success}
+              onChange={event => setNewDates(prev => ({
+                ...prev,
+                [item.key]: event.target.value
+              }))}
+              className="rounded-lg border px-3 py-2 text-sm"
+            />
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            {results[item.key]?.success
+              ? "Replacement attached successfully"
+              : files[item.key]
+                ? `Selected: ${files[item.key].name}`
+                : "No replacement selected"}
+          </p>
+        </div>
+      ))}
+
+      <div className="flex justify-end gap-2 border-t pt-4">
+        <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+        <Button type="submit" disabled={!ready || submitting}>
+          {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          Submit Replacements
         </Button>
       </div>
     </form>
@@ -2853,36 +3064,1096 @@ const OrientationEndView = (props) => (
   />
 );
 
-// Welcome Packet View
-const WelcomePacketView = ({ onClose }) => {
+
+const DEPLOYMENT_CRM_STAGE_RULES = {
+  "Confirmation of Eligibility to Proceed": {
+    label: "Embassy Eligibility Status",
+    field: "State_Licensure_Requirements",
+    complete: value => String(value || "").trim().toLowerCase() === "eligible"
+  },
+  "Embassy Interview Scheduled": {
+    label: "Embassy Interview Date",
+    field: "Embassy_Interview",
+    complete: value => Boolean(value && String(value).trim() !== "—")
+  },
+  "Schedule Medical Exam": {
+    label: "Medical Exam Date",
+    field: "R_L_Checklist_Initiated",
+    complete: value => Boolean(value && String(value).trim() !== "—")
+  },
+  "Schedule Biometrics Appointment": {
+    label: "Finger Printing",
+    field: "Finger_Printing",
+    complete: value => ["completed", "post arrival- completed", "post arrival - completed"].includes(String(value || "").trim().toLowerCase()),
+    allowContinue: value => String(value || "").trim().toLowerCase() === "post arrival"
+  },
+  "Confirm Scheduled Arrival Date": {
+    label: "Scheduled Arrival Date",
+    field: "ETA",
+    complete: value => Boolean(value && String(value).trim() !== "—")
+  },
+  "Attend Housing and Transportation Call": {
+    label: "Housing Call",
+    field: "Final_Housing_Confirmation_Call",
+    complete: value => Boolean(value && String(value).trim() !== "—")
+  },
+  "Confirm Final Transportation Plan": {
+    label: "Final Transportation Plan",
+    field: "Final_Transportation_Plan",
+    complete: value => Boolean(value && String(value).trim() !== "—")
+  },
+  "Connect with Concierge": {
+    label: "Concierge",
+    fields: ["Concierge_Name1", "Concierge_Phone"],
+    complete: value => Boolean(value?.Concierge_Name1 && value?.Concierge_Phone)
+  },
+  "Communicate During Travel": {
+    label: "Final Destination Arrival",
+    field: "Flight_Arrival_Time",
+    complete: value => Boolean(value && String(value).trim() !== "—")
+  }
+};
+
+const DeploymentCRMStatusView = ({
+  stage,
+  status,
+  onClose,
+  user,
+  setStages
+}) => {
+  const rule = DEPLOYMENT_CRM_STAGE_RULES[stage.stage_name];
+  const value = rule?.fields
+    ? Object.fromEntries(rule.fields.map(field => [field, status?.[field]]))
+    : status?.[rule?.field];
+  const complete = rule?.complete?.(value) === true;
+  const postArrival = rule?.allowContinue?.(value) === true;
+  const [saving, setSaving] = useState(false);
+
+  const confirm = async () => {
+    if (!complete && !postArrival) return;
+    setSaving(true);
+    try {
+      const token = localStorage.getItem("icp_auth_token");
+      const response = await fetch(`${API_BASE}/api/pipeline/acknowledge-field-stage`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          email: user?.email,
+          stage_name: stage.stage_name,
+          allow_continue: postArrival
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Unable to update the stage.");
+
+      if (complete) {
+        setStages(prev => prev.map(item =>
+          item.stage_name === stage.stage_name
+            ? { ...item, status: "Completed", completed_date: data.stage?.completed_date || new Date().toISOString() }
+            : item
+        ));
+      }
+      window.dispatchEvent(new CustomEvent("pipeline-updated", {
+        detail: { email: user?.email, stage_name: stage.stage_name }
+      }));
+      toast.success(postArrival ? "Marked to be completed after arrival." : "Stage completed.");
+      onClose();
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <div className="bg-emerald-50 rounded-lg p-4 border border-emerald-200">
-        <h3 className="font-semibold text-emerald-800 flex items-center gap-2">
-          <FileText className="h-5 w-5" />
-          ICP Welcome Packet & Itinerary
-        </h3>
-        <p className="text-sm text-muted-foreground mt-1">Shared 7 days before arrival with relocation itinerary.</p>
+      <div className="rounded-xl border p-4">
+        <p className="text-sm font-semibold">{rule?.label || stage.stage_name}</p>
+        {rule?.fields ? (
+          <div className="mt-3 space-y-2">
+            {rule.fields.map(field => (
+              <div key={field} className="flex justify-between gap-4 text-sm">
+                <span>{field === "Concierge_Name1" ? "Concierge Name" : "Concierge Phone"}</span>
+                <span className="font-medium">{status?.[field] || "Not available"}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-sm font-medium">{value || "Not available"}</p>
+        )}
       </div>
-      <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-3">
-        <div className="flex items-center justify-between py-2 border-b">
-          <span className="text-sm text-muted-foreground">Timeline</span>
-          <span className="text-sm font-medium">7 days before arrival</span>
+
+      {postArrival && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
+          This item is scheduled to be done post arrival. You may continue.
         </div>
-        <div className="flex items-center justify-between py-2 border-b">
-          <span className="text-sm text-muted-foreground">Contents</span>
-          <span className="text-sm font-medium">Itinerary, Contacts, Checklist</span>
+      )}
+      {!complete && !postArrival && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+          This stage is not complete yet.
         </div>
-        <div className="flex items-center justify-between py-2">
-          <span className="text-sm text-muted-foreground">Status</span>
-          <span className="text-sm font-medium text-amber-600">⏳ Pending</span>
-        </div>
-      </div>
-      <div className="flex gap-2 justify-end">
+      )}
+
+      <div className="flex justify-end gap-2">
         <Button variant="outline" onClick={onClose}>Close</Button>
-        <Button className="gap-2 bg-emerald-600 hover:bg-emerald-700">
-          <FileText className="h-4 w-4" />
-          View Packet
+        <Button onClick={confirm} disabled={saving || (!complete && !postArrival)}>
+          {saving ? "Saving..." : postArrival ? "Continue" : "Confirm"}
+        </Button>
+      </div>
+    </div>
+  );
+};
+
+// Welcome Packet View
+const WelcomePacketView = ({ onClose, user, setStages }) => {
+  const [loading, setLoading] = useState(true);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [acknowledging, setAcknowledging] = useState(false);
+  const [error, setError] = useState("");
+  const [locationServices, setLocationServices] = useState({
+    destination: "",
+    bank: null,
+    socialSecurity: null,
+    bankSearchUrl: "",
+    socialSecuritySearchUrl: "",
+    source: ""
+  });
+  const [packet, setPacket] = useState({
+    recipientName: "",
+    preferredName: "",
+    lastName: "",
+    welcomeDate: "",
+    departureDate: "",
+    departureAirport: "",
+    layoverLocation: "",
+    portOfEntry: "",
+    arrivalDate: "",
+    arrivalAirport: "",
+    totalParty: "",
+    childrenAges: "",
+    totalBagCount: "",
+    conciergeName: "",
+    conciergePhone: "",
+    conciergeEmail: "",
+    employerName: "",
+    employerAddress: "",
+    employerContact: "",
+    employerPhone: "",
+    employerEmail: "",
+    employerWebsite: "",
+    uniformRequirement: "",
+    stateLicenseRequired: "",
+    boardOfNursing: "",
+    boardAddress: "",
+    boardPhone: "",
+    housingAddress: "",
+    propertyManager: "",
+    propertyManagerPhone: "",
+    moveInDate: "",
+    rentCost: "",
+    securityDeposit: "",
+    firstMonthRent: "",
+    electric: "",
+    waterSewer: "",
+    gas: "",
+    otherUtilities: "",
+    destinationCity: "",
+    destinationState: "",
+    destinationZip: ""
+  });
+
+  const pick = (source, ...keys) => {
+    for (const key of keys) {
+      const value = source?.[key];
+      if (
+        value !== undefined &&
+        value !== null &&
+        String(value).trim() !== "" &&
+        String(value).trim() !== "—"
+      ) {
+        return value;
+      }
+    }
+    return "";
+  };
+
+  const formatPacketDate = (value) => {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "long",
+      day: "numeric"
+    });
+  };
+
+  const fetchLocationServices = async (destination) => {
+    if (!destination) return;
+
+    setLookupLoading(true);
+    try {
+      const token = localStorage.getItem("icp_auth_token");
+      const response = await fetch(
+        `${API_BASE}/api/welcome-packet/location-services?destination=${encodeURIComponent(destination)}&_=${Date.now()}`,
+        {
+          method: "GET",
+          cache: "no-store",
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
+      );
+
+      const data = await response.json().catch(() => ({}));
+      if (response.ok && data.success) {
+        setLocationServices({
+          destination: data.destination || destination,
+          bank: data.bank || null,
+          socialSecurity: data.socialSecurity || null,
+          bankSearchUrl: data.bankSearchUrl || "",
+          socialSecuritySearchUrl: data.socialSecuritySearchUrl || "",
+          source: data.source || ""
+        });
+      }
+    } catch (lookupError) {
+      console.error("[Welcome Packet] Location lookup failed:", lookupError);
+    } finally {
+      setLookupLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadPacket = async () => {
+      setLoading(true);
+      setError("");
+
+      try {
+        const token = localStorage.getItem("icp_auth_token");
+        if (!token) {
+          throw new Error("Your session has expired. Please sign in again.");
+        }
+
+        const response = await fetch(
+          `${API_BASE}/api/welcome-packet/data?_=${Date.now()}`,
+          {
+            method: "GET",
+            cache: "no-store",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json"
+            }
+          }
+        );
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(
+            data.error ||
+            data.message ||
+            `Unable to load the welcome packet (${response.status})`
+          );
+        }
+
+        const packetResponse = data.data || {};
+        const deal =
+          packetResponse.candidate ||
+          packetResponse.deal ||
+          packetResponse ||
+          data.user ||
+          {};
+
+        if (packetResponse.locationServices) {
+          setLocationServices({
+            destination:
+              packetResponse.locationServices.destination || "",
+            bank:
+              packetResponse.locationServices.bank || null,
+            socialSecurity:
+              packetResponse.locationServices.socialSecurity || null,
+            bankSearchUrl:
+              packetResponse.locationServices.bankSearchUrl || "",
+            socialSecuritySearchUrl:
+              packetResponse.locationServices.socialSecuritySearchUrl || "",
+            source:
+              packetResponse.locationServices.source || ""
+          });
+        }
+        const preferredName = pick(
+          deal,
+          "preferredName",
+          "Preferred_Name",
+          "Candidate_First_Name",
+          "First_Name"
+        );
+        const lastName = pick(
+          deal,
+          "lastName",
+          "Last_Name",
+          "Candidate_Last_Name"
+        );
+        const destinationCity = pick(
+          deal,
+          "destinationCity",
+          "Destination_City",
+          "City",
+          "housingCity",
+          "Housing_City",
+          "Facility_City"
+        );
+        const destinationState = pick(
+          deal,
+          "destinationState",
+          "Destination_State",
+          "State",
+          "housingState",
+          "Housing_State",
+          "Facility_State",
+          "State_of_Employment"
+        );
+        const destinationZip = pick(
+          deal,
+          "destinationZip",
+          "Destination_Zip",
+          "Zip_Code",
+          "Housing_Zip",
+          "Facility_Zip"
+        );
+        const housingAddress = pick(
+          deal,
+          "US_Mailing_Address", "housingAddress", "Housing_Address"
+        );
+        const employerAddress = pick(
+          deal,
+          "employerAddress",
+          "Employer_Address",
+          "Facility_Address",
+          "facilityAddress",
+          "Work_Address"
+        );
+
+        const normalizedEntryPort = String(
+          pick(deal, "entryport", "Port_of_Entry_in_US") || ""
+        ).trim().toLowerCase();
+
+        const layover1 = pick(
+          deal,
+          "layover1location",
+          "Layover_1_Location"
+        );
+        const layover2 = pick(
+          deal,
+          "layover2location",
+          "Layover_2_Location"
+        );
+        const layover3 = pick(
+          deal,
+          "layover3location",
+          "Layover_3_Location"
+        );
+        const flightNumber4 = pick(
+          deal,
+          "fligtnumber4",
+          "Flight_Number_4"
+        );
+
+        const differsFromEntryPort = value =>
+          value &&
+          value !== "—" &&
+          String(value).trim().toLowerCase() !== normalizedEntryPort;
+
+        const resolvedArrivalAirport =
+          (
+            flightNumber4 &&
+            flightNumber4 !== "—" &&
+            differsFromEntryPort(layover3)
+          )
+            ? layover3
+            : differsFromEntryPort(layover3)
+              ? layover3
+              : differsFromEntryPort(layover2)
+                ? layover2
+                : differsFromEntryPort(layover1)
+                  ? layover1
+                  : pick(
+                      deal,
+                      "Arrival_Airport",
+                      "Final_Arrival_Airport",
+                      "entryport"
+                    );
+
+        const nextPacket = {
+          recipientName:
+            pick(deal, "candidateName", "Candidate_Name", "Full_Name") ||
+            [preferredName, lastName].filter(Boolean).join(" "),
+          preferredName,
+          lastName,
+          welcomeDate: formatPacketDate(new Date()),
+          departureDate: formatPacketDate(
+            pick(deal, "departureDate", "initial_departure_time", "Initial_Departure_Time", "Departure_Time")
+          ),
+          departureAirport: pick(
+            deal,
+            "departcity",
+            "Departure_City1",
+            "departureCity",
+            "Departure_Airport"
+          ),
+          layoverLocation: [
+            pick(deal, "layover1location", "Layover_1_Location"),
+            pick(deal, "layover2location", "Layover_2_Location"),
+            pick(deal, "layover3location", "Layover_3_Location")
+          ]
+            .filter(value => value && value !== "—")
+            .join(" → "),
+          portOfEntry: pick(
+            deal,
+            "entryport",
+            "Port_of_Entry_in_US",
+            "portOfEntry"
+          ),
+          arrivalDate: formatPacketDate(
+            pick(
+              deal,
+              "arrivalDate",
+              "final_destination_arrival_raw",
+              "Final_Destination_Arrival",
+              "Final_Arrival",
+              "final_destination_arrival"
+            )
+          ),
+          arrivalAirport: resolvedArrivalAirport,
+          totalParty: pick(
+            deal,
+            "Total_in_Party",
+            "totalParty",
+            "Travel_Party_Total"
+          ),
+          childrenAges: pick(
+            deal,
+            "Ages_of_Children",
+            "childrenAges",
+            "Children_Ages"
+          ),
+          totalBagCount: pick(
+            deal,
+            "Total_Bag_Count",
+            "totalBagCount",
+            "Bag_Count"
+          ),
+          conciergeName: pick(
+            deal,
+            "conciergeName",
+            "Concierge_Name",
+            "Concierge_Name1"
+          ),
+          conciergePhone: pick(
+            deal,
+            "conciergePhone",
+            "Concierge_Phone",
+            "Concierge_Phone1"
+          ),
+          conciergeEmail: pick(
+            deal,
+            "conciergeEmail",
+            "Concierge_Email",
+            "Concierge_Email1"
+          ),
+          employerName: pick(
+            deal,
+            "Account_Name", "employerName", "Facility_Name"
+          ),
+          employerAddress:
+            pick(
+              deal,
+              "internetEmployerAddress",
+              "employerAddress",
+              "Employer_Address",
+              "Facility_Address",
+              "facilityAddress",
+              "Work_Address"
+            ) || employerAddress,
+          employerContact: pick(
+            deal,
+            "employerContact",
+            "Employer_Contact",
+            "Facility_Contact",
+            "Contact_Person"
+          ),
+          employerPhone: pick(
+            deal,
+            "internetEmployerPhone",
+            "employerPhone",
+            "Employer_Phone",
+            "Facility_Phone",
+            "facilityPhone"
+          ),
+          employerEmail: pick(
+            deal,
+            "employerEmail",
+            "Employer_Email",
+            "Facility_Email"
+          ),
+          employerWebsite: pick(
+            deal,
+            "internetEmployerWebsite",
+            "employerWebsite",
+            "Employer_Website",
+            "Facility_Website"
+          ),
+          uniformRequirement: pick(
+            deal,
+            "uniformRequirement",
+            "Uniform_Requirement",
+            "Uniform_Requirements",
+            "Scrub_Color"
+          ),
+          stateLicenseRequired: pick(
+            deal,
+            "stateLicenseRequired",
+            "NVC_DS_260_Status", "Endorsement_State"
+          ),
+          boardOfNursing: pick(
+            deal,
+            "boardOfNursing",
+            "Hotel_Status", "Initial_License_State"
+          ),
+          boardAddress: pick(
+            deal,
+            "boardAddress",
+            "Board_of_Nursing_Address",
+            "BON_Address"
+          ),
+          boardPhone: pick(
+            deal,
+            "boardPhone",
+            "Board_of_Nursing_Phone",
+            "BON_Phone"
+          ),
+          housingAddress,
+          propertyManager: pick(
+            deal,
+            "propertyManager",
+            "Property_Manager",
+            "Property_Manager_Name"
+          ),
+          propertyManagerPhone: pick(
+            deal,
+            "propertyManagerPhone",
+            "Property_Manager_Phone"
+          ),
+          moveInDate: formatPacketDate(
+            pick(
+              deal,
+              "Move_in_Date_Time1",
+              "Move_In_Date",
+              "moveInDate"
+            )
+          ),
+          rentCost: pick(
+            deal,
+            "Monthly_rent",
+            "Rent_Cost",
+            "Cost_of_Rent_Month",
+            "rentCost"
+          ),
+          securityDeposit: pick(
+            deal,
+            "securityDeposit",
+            "Security_Deposit"
+          ),
+          firstMonthRent: pick(
+            deal,
+            "firstMonthRent",
+            "First_Month_Rent"
+          ),
+          electric: pick(deal, "Utilities", "utilities"),
+          waterSewer: pick(deal, "Utilities", "utilities"),
+          gas: pick(deal, "Utilities", "utilities"),
+          otherUtilities: pick(deal, "Other_Utilities", "otherUtilities"),
+          destinationCity,
+          destinationState,
+          destinationZip
+        };
+
+        if (cancelled) return;
+
+        setPacket(nextPacket);
+
+        const destination = [
+          nextPacket.housingAddress || nextPacket.employerAddress,
+          destinationCity,
+          destinationState,
+          destinationZip
+        ]
+          .filter(Boolean)
+          .join(", ");
+
+        if (
+          !packetResponse.locationServices?.bank &&
+          !packetResponse.locationServices?.socialSecurity
+        ) {
+          fetchLocationServices(destination);
+        }
+      } catch (loadError) {
+        console.error("[Welcome Packet] Load failed:", loadError);
+        if (!cancelled) {
+          setError(
+            loadError.message ||
+            "The welcome packet could not be loaded."
+          );
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    loadPacket();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.email]);
+
+  const acknowledgePacket = async () => {
+    setAcknowledging(true);
+    try {
+      const token = localStorage.getItem("icp_auth_token");
+      const stageName =
+        "ICP Welcome Packet";
+
+      let response = await fetch(`${API_BASE}/api/pipeline/update-stage`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          email: user?.email,
+          stage_name: stageName,
+          status: "Completed",
+          completed_date: format(new Date(), "yyyy-MM-dd")
+        })
+      });
+
+      // Existing candidates may still have the old stage name saved.
+      if (response.status === 404) {
+        response = await fetch(`${API_BASE}/api/pipeline/update-stage`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            email: user?.email,
+            stage_name: "ICP Welcome Packet & Itinerary",
+            status: "Completed",
+            completed_date: format(new Date(), "yyyy-MM-dd")
+          })
+        });
+      }
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || "Unable to acknowledge the packet.");
+      }
+
+      setStages?.(prev =>
+        prev.map(stage =>
+          ["ICP Welcome Packet", "ICP Welcome Packet & Itinerary"].includes(
+            stage.stage_name
+          )
+            ? {
+                ...stage,
+                stage_name: "ICP Welcome Packet",
+                status: "Completed",
+                completed_date:
+                  data.stage?.completed_date || new Date().toISOString()
+              }
+            : stage
+        )
+      );
+
+      window.dispatchEvent(
+        new CustomEvent("pipeline-updated", {
+          detail: {
+            email: user?.email,
+            stage_name: "ICP Welcome Packet"
+          }
+        })
+      );
+
+      toast.success("Welcome packet acknowledged.");
+      setTimeout(onClose, 700);
+    } catch (acknowledgeError) {
+      toast.error(acknowledgeError.message);
+    } finally {
+      setAcknowledging(false);
+    }
+  };
+
+  const printPacket = () => window.print();
+
+  const DisplayValue = ({ value }) => (
+    <span className="font-medium text-gray-900">
+      {value || "Not available"}
+    </span>
+  );
+
+  const InfoRow = ({ label, value }) => (
+    <div className="grid grid-cols-[minmax(130px,0.45fr)_1fr] gap-3 border-b py-2 text-sm last:border-b-0">
+      <span className="font-semibold text-gray-600">{label}</span>
+      <DisplayValue value={value} />
+    </div>
+  );
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[260px] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-purple-600" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">
+          <AlertCircle className="mr-2 inline h-4 w-4" />
+          {error}
+        </div>
+        <div className="flex justify-end">
+          <Button variant="outline" onClick={onClose}>Close</Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 print:space-y-4">
+      <section className="rounded-2xl border border-purple-200 bg-white p-6 text-center">
+        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-purple-700">
+          Compassionate · Experienced · Committed
+        </p>
+        <h2 className="mt-3 text-3xl font-bold text-purple-800">
+          Infinity Care Partners
+        </h2>
+        <p className="mt-2 text-lg font-semibold uppercase tracking-[0.25em]">
+          Welcome Packet
+        </p>
+      </section>
+
+      <section className="rounded-xl border bg-white p-5">
+        <h3 className="text-xl font-bold text-purple-800">
+          Welcome to America!
+        </h3>
+        <p className="mt-3 text-sm text-gray-600">{packet.welcomeDate}</p>
+        <p className="mt-4 text-sm leading-6 text-gray-700">
+          Dear {packet.recipientName || "Candidate"},
+        </p>
+        <p className="mt-3 text-sm leading-6 text-gray-700">
+          Congratulations on this exciting new chapter in your life! On behalf
+          of Infinity Care Partners, we are thrilled to welcome you as you begin
+          your transition to the United States. We are honored that you have
+          chosen us to support you in achieving your American Dream.
+        </p>
+        <p className="mt-3 text-sm leading-6 text-gray-700">
+          This welcome packet provides guidance to help you navigate your
+          relocation and transition into your new role.
+        </p>
+        <p className="mt-4 text-sm font-medium text-gray-700">
+          Kind regards,<br />The Infinity Care Partners Team
+        </p>
+      </section>
+
+      <section className="rounded-xl border bg-white p-5">
+        <h3 className="mb-3 flex items-center gap-2 font-bold text-purple-800">
+          <Plane className="h-5 w-5" />
+          Plan Your Travel
+        </h3>
+        <div className="grid gap-x-6 md:grid-cols-2">
+          <InfoRow label="Departure Date" value={packet.departureDate} />
+          <InfoRow label="Departure Airport" value={packet.departureAirport} />
+          <InfoRow label="Layover Location" value={packet.layoverLocation} />
+          <InfoRow label="Port of Entry" value={packet.portOfEntry} />
+          <InfoRow label="Arrival Date" value={packet.arrivalDate} />
+          <InfoRow label="Arrival Airport" value={packet.arrivalAirport} />
+          <InfoRow label="Total in Party" value={packet.totalParty} />
+          <InfoRow label="Ages of Children" value={packet.childrenAges} />
+          <InfoRow label="Total Bag Count" value={packet.totalBagCount} />
+          <InfoRow label="Concierge Name" value={packet.conciergeName} />
+          <InfoRow label="Concierge Phone" value={packet.conciergePhone} />
+          <InfoRow label="Concierge Email" value={packet.conciergeEmail} />
+        </div>
+        <p className="mt-4 rounded-lg bg-red-50 p-3 text-xs font-semibold text-red-700">
+          Please remember to turn in your VISA Packet to Customs or Border
+          Control at your Port of Entry.
+        </p>
+      </section>
+
+      <section className="rounded-xl border bg-white p-5">
+        <h3 className="mb-3 flex items-center gap-2 font-bold text-purple-800">
+          <Building className="h-5 w-5" />
+          Facility Information
+        </h3>
+        <InfoRow label="Employer Name" value={packet.employerName} />
+        <InfoRow label="Address" value={packet.employerAddress} />
+        <InfoRow label="Contact" value={packet.employerContact} />
+        <InfoRow label="Phone" value={packet.employerPhone} />
+        <InfoRow label="Email" value={packet.employerEmail} />
+        <InfoRow label="Website" value={packet.employerWebsite} />
+        <InfoRow label="Uniform Requirement" value={packet.uniformRequirement} />
+
+        <h4 className="mt-5 font-bold text-gray-900">Work Expectations</h4>
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-700">
+          <li>
+            Coordinate with your employer before travelling outside the
+            employer’s city.
+          </li>
+          <li>Integrate, learn, ask questions, and work as part of the team.</li>
+          <li>Questions are encouraged and expected from your new team.</li>
+        </ul>
+
+        <h4 className="mt-5 font-bold text-gray-900">Tasks Post Arrival</h4>
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-700">
+          <li>Employer: drug test, background check, and onboarding.</li>
+          <li>
+            Candidate: complete license endorsement, HR documents, and training.
+          </li>
+          <li>
+            Keep your case manager updated when Social Security and resident
+            documents arrive.
+          </li>
+        </ul>
+      </section>
+
+      <section className="rounded-xl border bg-white p-5">
+        <h3 className="mb-3 flex items-center gap-2 font-bold text-purple-800">
+          <Award className="h-5 w-5" />
+          Licensure
+        </h3>
+        <InfoRow
+          label="State of License Required"
+          value={packet.stateLicenseRequired}
+        />
+        <InfoRow label="Board of Nursing" value={packet.boardOfNursing} />
+        <InfoRow label="Address" value={packet.boardAddress} />
+        <InfoRow label="Phone" value={packet.boardPhone} />
+
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div className="rounded-lg bg-gray-50 p-3">
+            <p className="text-sm font-bold">Required Pre-Arrival</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+              <li>Credentials sent to the Board of Nursing</li>
+              <li>NURSYS verification of license</li>
+              <li>Application endorsement where required</li>
+            </ul>
+          </div>
+          <div className="rounded-lg bg-gray-50 p-3">
+            <p className="text-sm font-bold">Required Post-Arrival</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+              <li>Obtain resident photo identification</li>
+              <li>Complete required background check or fingerprinting</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-xl border bg-white p-5">
+        <h3 className="mb-3 flex items-center gap-2 font-bold text-purple-800">
+          <Home className="h-5 w-5" />
+          Housing Information
+        </h3>
+        <InfoRow label="Address" value={packet.housingAddress} />
+        <InfoRow label="Property Manager" value={packet.propertyManager} />
+        <InfoRow label="Phone" value={packet.propertyManagerPhone} />
+        <InfoRow label="Move-In Date" value={packet.moveInDate} />
+        <InfoRow label="Cost of Rent / Month" value={packet.rentCost} />
+        <InfoRow label="Security Deposit" value={packet.securityDeposit} />
+        <InfoRow label="First Month Rent" value={packet.firstMonthRent} />
+
+        <h4 className="mt-5 font-bold text-gray-900">Utilities</h4>
+        <InfoRow label="Electric" value={packet.electric} />
+        <InfoRow label="Water / Sewer" value={packet.waterSewer} />
+        <InfoRow label="Gas" value={packet.gas} />
+        <InfoRow label="Other" value={packet.otherUtilities} />
+
+        <div className="mt-4 rounded-lg bg-gray-50 p-3 text-sm">
+          <p className="font-semibold">Furniture rental options</p>
+          <p className="mt-1">CORT Home and Office Furniture Rentals</p>
+          <p>Aaron’s Rent to Own Furniture, Electronics, and Appliances</p>
+        </div>
+      </section>
+
+      <section className="rounded-xl border bg-white p-5">
+        <h3 className="mb-3 flex items-center gap-2 font-bold text-purple-800">
+          <Banknote className="h-5 w-5" />
+          Banking Information
+        </h3>
+
+        {lookupLoading ? (
+          <p className="text-sm text-gray-500">Finding a nearby bank...</p>
+        ) : (
+          <>
+            <InfoRow
+              label="Local Bank"
+              value={locationServices.bank?.name}
+            />
+            <InfoRow
+              label="Address"
+              value={locationServices.bank?.address}
+            />
+            <InfoRow
+              label="Phone"
+              value={locationServices.bank?.phone}
+            />
+            {locationServices.bankSearchUrl && (
+              <a
+                href={locationServices.bankSearchUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-purple-700 hover:underline"
+              >
+                Search nearby banks <ExternalLink className="h-4 w-4" />
+              </a>
+            )}
+          </>
+        )}
+
+        <h4 className="mt-5 font-bold">Setting Up Your Account</h4>
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-700">
+          <li>Consider opening both checking and savings accounts.</li>
+          <li>
+            Return to the bank with your Social Security card when it arrives.
+          </li>
+          <li>
+            Ask about a beginner credit card to begin building credit history.
+          </li>
+          <li>Set up the bank’s mobile application to monitor your account.</li>
+        </ul>
+
+        <h4 className="mt-5 font-bold">The 50 / 30 / 20 Budget Rule</h4>
+        <div className="mt-2 grid gap-3 md:grid-cols-3">
+          <div className="rounded-lg bg-gray-50 p-3 text-sm">
+            <strong>50% Needs</strong>
+            <p className="mt-1">Rent, utilities, groceries, insurance, and minimum debt payments.</p>
+          </div>
+          <div className="rounded-lg bg-gray-50 p-3 text-sm">
+            <strong>30% Wants</strong>
+            <p className="mt-1">Dining, hobbies, entertainment, subscriptions, and leisure.</p>
+          </div>
+          <div className="rounded-lg bg-gray-50 p-3 text-sm">
+            <strong>20% Savings</strong>
+            <p className="mt-1">Emergency funds, retirement, investments, and extra debt payments.</p>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-xl border bg-white p-5">
+        <h3 className="mb-3 flex items-center gap-2 font-bold text-purple-800">
+          <CreditCard className="h-5 w-5" />
+          Social Security Information
+        </h3>
+
+        {lookupLoading ? (
+          <p className="text-sm text-gray-500">
+            Finding the nearest Social Security office...
+          </p>
+        ) : (
+          <>
+            <InfoRow
+              label="Local Office"
+              value={locationServices.socialSecurity?.name}
+            />
+            <InfoRow
+              label="Address"
+              value={locationServices.socialSecurity?.address}
+            />
+            <InfoRow
+              label="Phone"
+              value={locationServices.socialSecurity?.phone}
+            />
+            {locationServices.socialSecuritySearchUrl && (
+              <a
+                href={locationServices.socialSecuritySearchUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-purple-700 hover:underline"
+              >
+                Find the official local office <ExternalLink className="h-4 w-4" />
+              </a>
+            )}
+          </>
+        )}
+
+        <h4 className="mt-5 font-bold">Process</h4>
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-700">
+          <li>
+            Keep your case manager informed when your Social Security and
+            resident cards arrive.
+          </li>
+          <li>
+            Use a copy for your Board of Nursing and employer when required.
+          </li>
+          <li>
+            Contact the local office for errors, delays, or a card not received
+            within the expected period.
+          </li>
+        </ul>
+
+        <h4 className="mt-5 font-bold">Protecting Your Social Security Card</h4>
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-700">
+          <li>Do not share the number except with trusted required entities.</li>
+          <li>Do not laminate the card.</li>
+          <li>Sign the card and store it in a secure location.</li>
+          <li>Do not routinely carry the original card in your wallet.</li>
+        </ul>
+      </section>
+
+      <section className="rounded-xl border bg-white p-5">
+        <h3 className="mb-3 flex items-center gap-2 font-bold text-purple-800">
+          <ClipboardList className="h-5 w-5" />
+          Recommended Shopping List
+        </h3>
+        <div className="grid gap-4 md:grid-cols-4">
+          {[
+            ["Bedroom", ["Mattress", "Pillows", "Linens", "Extra blanket"]],
+            ["Bathroom", ["Towels", "Shower curtain", "Soap", "Toilet paper"]],
+            ["Kitchen", ["Dishes", "Utensils", "Pots and pans", "Groceries"]],
+            ["Cleaning", ["Laundry detergent", "Paper towels", "Broom or mop", "Surface cleaner"]]
+          ].map(([title, items]) => (
+            <div key={title} className="rounded-lg bg-gray-50 p-3">
+              <p className="text-sm font-bold">{title}</p>
+              <ul className="mt-2 list-disc pl-5 text-sm">
+                {items.map(item => <li key={item}>{item}</li>)}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <div className="flex flex-wrap justify-end gap-2 border-t pt-4 print:hidden">
+        <Button variant="outline" onClick={onClose}>Close</Button>
+        <Button variant="outline" onClick={printPacket} className="gap-2">
+          <Printer className="h-4 w-4" />
+          Print Packet
+        </Button>
+        <Button
+          onClick={acknowledgePacket}
+          disabled={acknowledging}
+          className="gap-2 bg-purple-700 hover:bg-purple-800"
+        >
+          {acknowledging ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <CheckCircle2 className="h-4 w-4" />
+          )}
+          Acknowledge Packet
         </Button>
       </div>
     </div>
@@ -3510,8 +4781,20 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
   const [behavioralSubmitting, setBehavioralSubmitting] = useState(false);
   const [behavioralSubmitted, setBehavioralSubmitted] = useState(false);
 
+  const preserveBehavioralScroll = (callback) => {
+    const modalBody = document.querySelector("[data-modal-scroll-body]") ||
+      document.querySelector(".overflow-y-auto");
+    const scrollTop = modalBody?.scrollTop || 0;
+    callback();
+    requestAnimationFrame(() => {
+      if (modalBody) modalBody.scrollTop = scrollTop;
+    });
+  };
+
   const updateBehavioralField = (field, value) => {
-    setBehavioralAssessment(prev => ({ ...prev, [field]: value }));
+    preserveBehavioralScroll(() => {
+      setBehavioralAssessment(prev => ({ ...prev, [field]: value }));
+    });
   };
 
   const toggleBehavioralArrayValue = (field, value, maxSelections = null) => {
@@ -3802,7 +5085,7 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
                   {BEHAVIORAL_STATEMENTS.map(statement => (
                     <div key={statement}>
                       <label className="text-xs text-gray-700 block mb-1">{statement}</label>
-                      <select className="w-full border rounded-md px-3 py-2 text-sm bg-white" value={behavioralAssessment.statements[statement]} onChange={(e) => setBehavioralAssessment(prev => ({ ...prev, statements: { ...prev.statements, [statement]: e.target.value } }))} disabled={behavioralSubmitted}>
+                      <select className="w-full border rounded-md px-3 py-2 text-sm bg-white" value={behavioralAssessment.statements[statement]} onChange={(e) => preserveBehavioralScroll(() => setBehavioralAssessment(prev => ({ ...prev, statements: { ...prev.statements, [statement]: e.target.value } })))} disabled={behavioralSubmitted}>
                         <option value="">Select response</option>
                         {BEHAVIORAL_AGREEMENT_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}
                       </select>
@@ -4850,7 +6133,16 @@ const RLChecklistView = ({ onClose, user, setStages }) => {
     </div>
 
     <section className="rounded-xl border bg-white p-5 space-y-4">
-      <h4 className="font-bold text-gray-900">General information</h4>
+      <div className="grid gap-4 border-b pb-4 md:grid-cols-[180px_1fr] md:items-center">
+        <div className="rounded-lg bg-purple-50 p-4 text-center">
+          <div className="text-xl font-bold text-purple-800">ICP</div>
+          <div className="text-xs font-semibold text-purple-600">Infinity Care Partners</div>
+        </div>
+        <div>
+          <h4 className="text-xl font-bold text-gray-900">Relocation & Logistics Form</h4>
+          <p className="mt-1 text-sm text-gray-500">General information and relocation preparation</p>
+        </div>
+      </div>
       <div className="grid md:grid-cols-2 gap-4">
         <RLFormInput label="Name" field="name" required value={form.name} onChange={setField} /><RLFormInput label="U.S. Employer Name (work location)" field="employerName" required value={form.employerName} onChange={setField} />
         <RLFormInput label="Birth Date" field="birthDate" type="date" required value={form.birthDate} onChange={setField} /><RLFormInput label="Gender" field="gender" required value={form.gender} onChange={setField} />
@@ -5727,6 +7019,9 @@ export default function Pipeline() {
   const [isCheckingNCLEX, setIsCheckingNCLEX] = useState(true);
   const [pipelineStartDate, setPipelineStartDate] = useState(null);
   const [applicationStatus, setApplicationStatus] = useState("");
+  const [expiringImmigrationDocs, setExpiringImmigrationDocs] = useState([]);
+  const [deploymentFieldStatus, setDeploymentFieldStatus] = useState({});
+  const [acknowledgedDeploymentStages, setAcknowledgedDeploymentStages] = useState(new Set());
   const [reimbursementSubmitted, setReimbursementSubmitted] = useState(false);
   const [icpUSRNCRMData, setICPUSRNCRMData] = useState({});
   const [portalAccessBlocked, setPortalAccessBlocked] = useState(false);
@@ -6039,20 +7334,17 @@ export default function Pipeline() {
       // CRM Deal fields control the two embassy-related Deployment stages.
       // Confirmation of Eligibility to Proceed completes only when the visible
       // Embassy Eligibility Status picklist value is exactly "Eligible".
-      const embassyEligibilityStatus = ga(
-        icpUSRNData,
-        "State_Licensure_Requirements",
-        "stateLicensureRequirements",
-        "Embassy Eligibility Status",
-        "embassyEligibilityStatus"
-      );
-      const embassyInterviewDate = ga(
-        icpUSRNData,
-        "Embassy_Interview",
-        "embassyInterview",
-        "Embassy Interview Date",
-        "embassyInterviewDate"
-      );
+      const embassyEligibilityStatus =
+        icpUSRNData?.State_Licensure_Requirements ??
+        icpUSRNData?.stateLicensureRequirements ??
+        deploymentFieldStatus?.State_Licensure_Requirements ??
+        "";
+
+      const embassyInterviewDate =
+        icpUSRNData?.Embassy_Interview ??
+        icpUSRNData?.embassyInterview ??
+        deploymentFieldStatus?.Embassy_Interview ??
+        "";
 
       const eligibilityComplete =
         String(embassyEligibilityStatus || "").trim().toLowerCase() === "eligible";
@@ -6108,7 +7400,7 @@ export default function Pipeline() {
         return stage;
       });
 
-      if (token && saved.length > 0 && crmDeploymentUpdates.length > 0) {
+      if (token && crmDeploymentUpdates.length > 0) {
         await Promise.allSettled(
           crmDeploymentUpdates.map(item =>
             fetch(`${API_BASE}/api/pipeline/update-stage`, {
@@ -6418,6 +7710,19 @@ export default function Pipeline() {
   };
 
   const handleStageClick = (stage) => {
+    if (DEPLOYMENT_CRM_STAGE_RULES[stage.stage_name]) {
+      openModal(
+        stage.stage_name,
+        <DeploymentCRMStatusView
+          stage={stage}
+          status={deploymentFieldStatus}
+          onClose={closeModal}
+          user={user}
+          setStages={setStages}
+        />
+      );
+      return;
+    }
     const action = getStageAction(stage.stage_name);
     
     if (!action || !action.clickable) {
@@ -6543,8 +7848,22 @@ export default function Pipeline() {
         case "supportGroup":
           openModal("ICP Pre-Arrival Support Group", <SupportGroupView onClose={closeModal} />);
           break;
+        case "immigrationRenewal":
+          openModal(
+            "Upload New Documents",
+            <ImmigrationRenewalUpload
+              onClose={closeModal}
+              user={user}
+              expiringDocuments={expiringImmigrationDocs}
+              onSubmitted={() => setExpiringImmigrationDocs([])}
+            />
+          );
+          break;
         case "welcomePacket":
-          openModal("ICP Welcome Packet & Itinerary", <WelcomePacketView onClose={closeModal} />);
+          openModal(
+            "ICP Welcome Packet",
+            <WelcomePacketView onClose={closeModal} user={user} setStages={setStages} />
+          );
           break;
         case "relocationSurvey":
           openModal("Relocation Survey", <RelocationSurvey onClose={closeModal} />);
@@ -6654,6 +7973,113 @@ export default function Pipeline() {
     return () => {
       cancelled = true;
       window.removeEventListener("pipeline-updated", handleUpdate);
+    };
+  }, [user?.email]);
+
+
+  useEffect(() => {
+    if (!user?.email) return;
+    let cancelled = false;
+
+    const loadExpiryAndDeploymentStatus = async () => {
+      try {
+        const token = localStorage.getItem("icp_auth_token");
+        const response = await fetch(
+          `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(user.email)}&_=${Date.now()}`,
+          {
+            cache: "no-store",
+            headers: { Authorization: `Bearer ${token}` }
+          }
+        );
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || cancelled) return;
+
+        setDeploymentFieldStatus(data.deployment || {});
+
+        const english = getDocumentExpiryState(data.expiry?.english);
+        const visa = getDocumentExpiryState(data.expiry?.visaScreen);
+        setExpiringImmigrationDocs([
+          { key: "english", label: "English Document", apiName: "IELTS_Scheduled_Exam_Date_if_applicable", ...english },
+          { key: "visaScreen", label: "Visa Screen Document", apiName: "Visa_Screen_Exp_Date", ...visa }
+        ].filter(item => item.visible));
+      } catch (error) {
+        console.error("[Pipeline] Field status load failed:", error);
+      }
+    };
+
+    loadExpiryAndDeploymentStatus();
+    const interval = window.setInterval(loadExpiryAndDeploymentStatus, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [user?.email]);
+
+
+  useEffect(() => {
+    if (!user?.email) return;
+
+    let cancelled = false;
+
+    const loadRequiredDocumentApproval = async () => {
+      try {
+        const token = localStorage.getItem("icp_auth_token");
+        if (!token) return;
+
+        const response = await fetch(
+          `${API_BASE}/api/documents/required-approval-status?email=${encodeURIComponent(user.email)}&_=${Date.now()}`,
+          {
+            cache: "no-store",
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          }
+        );
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || cancelled) return;
+
+        setStages(prev =>
+          prev.map(stage =>
+            ["Required Document Upload", "Documents Received"].includes(
+              stage.stage_name
+            )
+              ? {
+                  ...stage,
+                  approval_status: data.complete
+                    ? "approved"
+                    : data.rejected > 0
+                      ? "rejected"
+                      : data.submitted > 0
+                        ? "pending"
+                        : null,
+                  status: data.complete
+                    ? "Completed"
+                    : stage.status,
+                  completed_date: data.complete
+                    ? (stage.completed_date || new Date().toISOString())
+                    : stage.completed_date
+                }
+              : stage
+          )
+        );
+      } catch (error) {
+        console.error(
+          "[Pipeline] Required document approval status failed:",
+          error
+        );
+      }
+    };
+
+    loadRequiredDocumentApproval();
+    const interval = window.setInterval(
+      loadRequiredDocumentApproval,
+      15_000
+    );
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
     };
   }, [user?.email]);
 
@@ -6811,7 +8237,7 @@ export default function Pipeline() {
       </div>
 
       {categories.map(cat => {
-        const catStages = cat === "Reimbursement"
+        const baseCategoryStages = cat === "Reimbursement"
           ? [{
               id: "reimbursement-section",
               stage_name: "Reimbursement/Expenses",
@@ -6833,9 +8259,23 @@ export default function Pipeline() {
               .filter(s => s?.stage_category === cat)
               .sort((a, b) => a.stage_order - b.stage_order);
 
+        const catStages = [
+          ...baseCategoryStages,
+          ...(cat === "Immigration" && expiringImmigrationDocs.length > 0
+            ? [{
+                id: "upload-new-documents",
+                stage_name: "Upload New Documents",
+                stage_category: "Immigration",
+                stage_order: 999,
+                status: "In Progress",
+                conditional_section: true
+              }]
+            : [])
+        ];
+
         if (!catStages || catStages.length === 0) return null;
         const colors = categoryColors[cat];
-        const catCompleted = catStages.filter(s => s?.status === "Completed").length;
+        const catCompleted = catStages.filter(isPipelineStageComplete).length;
         const isNCLEX = cat === "NCLEX Roadmap";
         const isHiring = cat === "Hiring";
         const isImmigration = cat === "Immigration";
@@ -6868,8 +8308,8 @@ export default function Pipeline() {
                 const showRisk = riskStatus && !stage.completed_date && (stage.days_from_start || stage.stage_name === "Immigration Call");
                 const unlocked = stage.non_counted_section === true
                   ? true
-                  : isStageUnlocked(stage, displayStages, pipelineStartDate);
-                const isLocked = !unlocked && stage.status !== "Completed";
+                  : isStageUnlocked(stage, displayStages);
+                const isLocked = !unlocked && !isPipelineStageComplete(stage);
                 const canInteract = (isClickable || isNCLEXStage || isImmigrationStage) && !isLocked;
                 
                 return (
@@ -6903,7 +8343,7 @@ export default function Pipeline() {
                     <div className="flex-1 min-w-0">
                       <p className={cn(
                         "text-sm font-medium",
-                        stage.status === "Completed" && "line-through text-muted-foreground",
+                        isPipelineStageComplete(stage) && "line-through text-muted-foreground",
                         canInteract && "text-primary hover:underline",
                         isGate && "text-blue-700"
                       )}>
@@ -6938,7 +8378,7 @@ export default function Pipeline() {
                                   <span>{item.name}</span>
                                   {complete && <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />}
                                 </div>
-                                <div className={cn("mt-1 text-[10px]", complete ? "text-emerald-600" : "text-slate-400")}>Day {item.days}</div>
+                                <div className={cn("mt-1 text-[10px]", complete ? "text-emerald-600" : "text-slate-400")}></div>
                               </div>
                             );
                           })}

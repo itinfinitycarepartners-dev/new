@@ -846,6 +846,14 @@ export default function Dashboard() {
     ? Math.round((pipelineCompletedCount / pipelineTotalCount) * 100)
     : 0;
 
+  const recruitmentStages = visiblePipelineStages.filter(stage =>
+    ["Hiring", "Recruitment"].includes(
+      stage.stage_category || stage.category
+    )
+  );
+  const completedRecruitmentStages =
+    recruitmentStages.filter(isPipelineStageComplete).length;
+
   const pipelineCategorySummary = visiblePipelineStages.reduce((summary, stage) => {
     const category = stage.stage_category || "Other";
     if (!summary[category]) summary[category] = { total: 0, completed: 0 };
@@ -1373,6 +1381,22 @@ export default function Dashboard() {
                 style={{ width: `${pipelineProgressPercent}%` }}
               />
             </div>
+
+            {recruitmentStages.length > 0 && (
+              <div className="mt-4 rounded-lg border border-border bg-background/60 px-3 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold">
+                    Recruitment / Hiring
+                  </p>
+                  <p className="text-sm font-bold text-primary">
+                    {completedRecruitmentStages}/{recruitmentStages.length}
+                  </p>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Synced from Recruit Lead Management Status and saved pipeline stages.
+                </p>
+              </div>
+            )}
 
             <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
               {Object.entries(pipelineCategorySummary).map(

@@ -235,9 +235,7 @@ export default function Documents() {
           method: "GET",
           cache: "no-store",
           headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-            "Cache-Control": "no-cache"
+            Authorization: `Bearer ${token}`
           }
         });
 
@@ -273,8 +271,8 @@ export default function Documents() {
         crmDocs = crmResult.value?.documents || [];
       }
 
-      // Compatibility fallback for older backends that only expose /api/documents/all.
-      if (!recruitOk || !crmOk) {
+      // CRM and Recruit are the only document sources.
+      if (false && (!recruitOk || !crmOk)) {
         try {
           const unified = await request("/api/documents/all");
           const unifiedDocs = unified?.documents || [];
@@ -342,8 +340,7 @@ export default function Documents() {
       const term = searchTerm.toLowerCase();
       docs = docs.filter(doc => 
         (doc.document_name || '').toLowerCase().includes(term) ||
-        (doc.sourceLabel || '').toLowerCase().includes(term) ||
-        (doc.source || '').toLowerCase().includes(term)
+        (doc.document_type || '').toLowerCase().includes(term)
       );
     }
     

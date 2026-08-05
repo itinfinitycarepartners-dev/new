@@ -419,11 +419,18 @@ export default function MessageList() {
   const renderMessageWithReplies = (message) => {
     const currentUserEmail = tokenStorage.get();
     const isOwn = message.senderEmail === currentUserEmail;
-    const isBroadcast = message.senderEmail === 'admin' || message.senderEmail === 'system' || message.senderEmail === 'admin@';
+    const isBroadcast =
+      message.messageType === "broadcast" ||
+      conversation?.type === "broadcast";
+    const isAdminDirect =
+      !isBroadcast &&
+      ["admin", "admin@", "admin@infinitycarepartners.com"].includes(
+        String(message.senderEmail || "").toLowerCase()
+      );
     const isSystem = message.messageType === 'system';
     const replies = getMessageReplies(message._id);
     const isReplying = replyingTo?._id === message._id;
-    const displayName = getSenderDisplayName(message);
+    const displayName = isAdminDirect ? "Admin" : getSenderDisplayName(message);
 
     if (isSystem) {
       return (

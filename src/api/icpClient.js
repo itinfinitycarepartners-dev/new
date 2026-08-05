@@ -97,9 +97,15 @@ async function apiFetch(path, options = {}) {
       err.data = data;
       err.sessionExpired = data.sessionExpired || false;
       
-      // If token is invalid, clear it
-      if (res.status === 401 || res.status === 403 || data.sessionExpired) {
-        console.warn('[API] Auth error detected, clearing token');
+      const explicitSessionExpiry =
+        data.sessionExpired === true ||
+        data.tokenExpired === true ||
+        data.invalidToken === true ||
+        data.code === 'TOKEN_EXPIRED' ||
+        data.code === 'INVALID_TOKEN';
+
+      if (explicitSessionExpiry) {
+        console.warn('[API] Backend confirmed session expiry; clearing token');
         tokenStorage.clear();
         localStorage.removeItem('icp_user_email');
         localStorage.removeItem('icp_user_name');
@@ -142,8 +148,17 @@ export const auth = {
     apiFetch('/api/auth/forgot-password', { method: 'POST', body: { email } }),
 
   /** Reset password with OTP */
-  resetPassword: (email, otp, newPassword, confirmPassword) =>
-    apiFetch('/api/auth/reset-password', { method: 'POST', body: { email, otp, newPassword, confirmPassword } }),
+  resetPassword: (emailOrPayload, otp, newPassword, confirmPassword) => {
+    const body =
+      emailOrPayload && typeof emailOrPayload === 'object'
+        ? emailOrPayload
+        : { email: emailOrPayload, otp, newPassword, confirmPassword };
+
+    return apiFetch('/api/auth/reset-password', {
+      method: 'POST',
+      body
+    });
+  },
 
   /** Resend OTP */
   resendOTP: (email) =>
@@ -227,7 +242,11 @@ export const documents = {
         const err = new Error(data.message || data.error || `Upload failed (${res.status})`);
         err.status = res.status;
         err.data = data;
-        if (res.status === 401 || res.status === 403) {
+        if (
+          data.sessionExpired === true ||
+          data.tokenExpired === true ||
+          data.invalidToken === true
+        ) {
           tokenStorage.clear();
         }
         throw err;
@@ -259,7 +278,11 @@ export const recruit = {
         const err = new Error(data.message || data.error || `Upload failed (${res.status})`);
         err.status = res.status;
         err.data = data;
-        if (res.status === 401 || res.status === 403) {
+        if (
+          data.sessionExpired === true ||
+          data.tokenExpired === true ||
+          data.invalidToken === true
+        ) {
           tokenStorage.clear();
         }
         throw err;
@@ -319,7 +342,11 @@ export const rlForms = {
         const err = new Error(data.message || data.error || `Submission failed (${res.status})`);
         err.status = res.status;
         err.data = data;
-        if (res.status === 401 || res.status === 403) {
+        if (
+          data.sessionExpired === true ||
+          data.tokenExpired === true ||
+          data.invalidToken === true
+        ) {
           tokenStorage.clear();
         }
         throw err;

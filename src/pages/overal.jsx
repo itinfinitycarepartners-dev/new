@@ -195,6 +195,12 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   const [adminDetails, setAdminDetails] = useState({});
   const [docActionError, setDocActionError] = useState(null);
   const [viewingDocId, setViewingDocId] = useState(null);
+  const [documentApprovals, setDocumentApprovals] = useState({
+    documents: {},
+    required: [],
+    complete: false
+  });
+  const [approvalBusyKey, setApprovalBusyKey] = useState(null);
 
   useEffect(() => {
     if (!user) return;
@@ -220,7 +226,12 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
         // The admin endpoint is the source of truth for the candidate's full
         // profile, MongoDB pipeline, submitted aftercare dates, and login history.
-        const [adminRes, recruitDocsRes, crmDocsRes] = await Promise.allSettled([
+        const [
+          adminRes,
+          recruitDocsRes,
+          crmDocsRes,
+          approvalsRes
+        ] = await Promise.allSettled([
           fetch(`${API_BASE}/api/admin/user/${email}`, {
             headers,
             credentials: 'include',
@@ -232,6 +243,11 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
             cache: 'no-store'
           }),
           fetch(`${API_BASE}/api/documents/my-documents${emailParam}`, {
+            headers,
+            credentials: 'include',
+            cache: 'no-store'
+          }),
+          fetch(`${API_BASE}/api/admin/document-approvals/${email}`, {
             headers,
             credentials: 'include',
             cache: 'no-store'
@@ -247,6 +263,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
           const latestDeal =
             zoho?.latestDeal ||
             zoho?.deal ||
+            (Array.isArray(zoho?.allDeals) ? zoho.allDeals[0] : {}) ||
             {};
 
           const candidate =
@@ -308,6 +325,19 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
           ).values()
         );
 
+        if (
+          approvalsRes.status === 'fulfilled' &&
+          approvalsRes.value.ok
+        ) {
+          const approvalPayload =
+            await approvalsRes.value.json();
+          setDocumentApprovals({
+            documents: approvalPayload.documents || {},
+            required: approvalPayload.required || [],
+            complete: approvalPayload.complete === true
+          });
+        }
+
         setDocuments(
           uniqueDocs.sort(
             (a, b) =>
@@ -354,6 +384,101 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     }
   };
 
+
+  const updateDocumentApproval = async (
+    requirementKey,
+    action
+  ) => {
+    setApprovalBusyKey(requirementKey);
+    setDocActionError(null);
+
+    try {
+      const reason =
+        action === "reject"
+          ? window.prompt(
+              "Enter the reason the candidate must replace this document:"
+            ) || ""
+          : "";
+
+      if (action === "reject" && !reason.trim()) {
+        setApprovalBusyKey(null);
+        return;
+      }
+
+      const { adminToken, userToken } = getTokens();
+      const headers = {
+        "Content-Type": "application/json",
+        ...(adminToken
+          ? {
+              Authorization: `AdminBearer ${adminToken}`,
+              "x-admin-token": adminToken
+            }
+          : userToken
+            ? { Authorization: `Bearer ${userToken}` }
+            : {})
+      };
+
+      const response = await fetch(
+        `${API_BASE}/api/admin/document-approvals/${encodeURIComponent(user.email)}/${encodeURIComponent(requirementKey)}`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers,
+          body: JSON.stringify({
+            action,
+            reason
+          })
+        }
+      );
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+          `Unable to ${action} the document`
+        );
+      }
+
+      setDocumentApprovals(previous => ({
+        ...previous,
+        documents: {
+          ...previous.documents,
+          [requirementKey]: {
+            ...(previous.documents?.[requirementKey] || {}),
+            approval_status:
+              action === "approve"
+                ? "approved"
+                : "rejected",
+            rejection_reason:
+              action === "reject" ? reason : null
+          }
+        },
+        complete: data.complete === true
+      }));
+
+      setPipeline(previous =>
+        previous.map(stage =>
+          data.complete &&
+          ["Required Document Upload", "Documents Received"].includes(
+            stage.stage_name
+          )
+            ? {
+                ...stage,
+                status: "Completed",
+                completed_date:
+                  data.stage?.completed_date ||
+                  new Date().toISOString()
+              }
+            : stage
+        )
+      );
+    } catch (error) {
+      setDocActionError(error.message);
+    } finally {
+      setApprovalBusyKey(null);
+    }
+  };
+
   if (!user) return null;
 
   const tabs = [
@@ -362,6 +487,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     { id: 'documents', label: 'Candidate Documents', badge: documents.length },
     { id: 'deployment', label: 'Travel & Extras' },
     { id: 'aftercare', label: 'Aftercare Dates' },
+    { id: 'allData', label: 'All User Information' },
     { id: 'overview', label: 'System Overview' },
   ];
 
@@ -553,6 +679,99 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
               {/* TAB 3: DOCUMENTS */}
               {activeTab === 'documents' && (
+              <div className="space-y-5">
+                <Section title="Required Document Approval">
+                  <div className="space-y-3">
+                    {documentApprovals.required.map(requirement => {
+                      const submitted =
+                        documentApprovals.documents?.[requirement.key];
+                      const approvalStatus =
+                        submitted?.approval_status || "not submitted";
+
+                      return (
+                        <div
+                          key={requirement.key}
+                          className="flex flex-col gap-3 rounded-xl border p-4 md:flex-row md:items-center md:justify-between"
+                        >
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">
+                              {requirement.label}
+                            </p>
+                            <p className="mt-1 text-xs text-gray-500">
+                              {submitted?.document_name ||
+                                "Not submitted"}
+                            </p>
+                            <p
+                              className={`mt-1 text-xs font-semibold ${
+                                approvalStatus === "approved"
+                                  ? "text-emerald-600"
+                                  : approvalStatus === "rejected"
+                                    ? "text-red-600"
+                                    : approvalStatus === "pending"
+                                      ? "text-amber-600"
+                                      : "text-gray-500"
+                              }`}
+                            >
+                              {approvalStatus
+                                .replace(/_/g, " ")
+                                .replace(/\b\w/g, character =>
+                                  character.toUpperCase()
+                                )}
+                            </p>
+                            {submitted?.rejection_reason && (
+                              <p className="mt-1 text-xs text-red-600">
+                                {submitted.rejection_reason}
+                              </p>
+                            )}
+                          </div>
+
+                          {submitted?.verified && (
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateDocumentApproval(
+                                    requirement.key,
+                                    "approve"
+                                  )
+                                }
+                                disabled={
+                                  approvalBusyKey === requirement.key ||
+                                  approvalStatus === "approved"
+                                }
+                                className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateDocumentApproval(
+                                    requirement.key,
+                                    "reject"
+                                  )
+                                }
+                                disabled={
+                                  approvalBusyKey === requirement.key
+                                }
+                                className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {documentApprovals.complete && (
+                      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">
+                        All required documents are approved. The pipeline section is complete.
+                      </div>
+                    )}
+                  </div>
+                </Section>
+
                 <div className="space-y-4">
                   {docActionError && (
                     <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 flex items-center gap-2">
@@ -603,6 +822,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                     </div>
                   )}
                 </div>
+              </div>
               )}
 
               {/* TAB 4: DEPLOYMENT */}
@@ -718,7 +938,51 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                 </div>
               )}
 
-              {/* TAB 6: SYSTEM */}
+              {/* TAB 6: ALL USER INFORMATION */}
+              {activeTab === 'allData' && (
+                <div className="space-y-6">
+                  <Section title={<><Layers className="w-5 h-5 text-purple-600" /> Complete Candidate Record</>}>
+                    <p className="text-sm text-gray-500 mb-4">
+                      This table shows every non-empty field returned by the backend from the candidate's
+                      Recruit, CRM, account, session, and MongoDB records.
+                    </p>
+                    <div className="overflow-x-auto rounded-xl border border-gray-200">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-gray-500">Field</th>
+                            <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-gray-500">Value</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {Object.entries({
+                            ...user,
+                            ...adminDetails,
+                            ...profile,
+                          })
+                            .filter(([key, value]) => {
+                              if (['zohoData', 'pipelineStages', 'loginHistory', 'pipelineProgress', 'submittedDates', 'pipeline'].includes(key)) return false;
+                              return value !== undefined && value !== null && value !== '' && extractString(value) !== '—';
+                            })
+                            .sort(([a], [b]) => a.localeCompare(b))
+                            .map(([key, value]) => (
+                              <tr key={key} className="align-top">
+                                <td className="px-4 py-3 font-semibold text-gray-700 whitespace-nowrap">
+                                  {key.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2')}
+                                </td>
+                                <td className="px-4 py-3 text-gray-700 break-all whitespace-pre-wrap">
+                                  {extractString(value)}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </Section>
+                </div>
+              )}
+
+              {/* TAB 7: SYSTEM */}
               {activeTab === 'overview' && (
                 <div className="space-y-6">
                   <Section title={<><Shield className="w-5 h-5 text-gray-700" /> Identity & Security</>}>
@@ -956,33 +1220,16 @@ const MessagingPanel = ({ users, initialTarget }) => {
 
   useEffect(() => { if (initialTarget?.email) setSelected(initialTarget.email); }, [initialTarget]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
-  useEffect(() => {
-    if (!selected) return;
-    const loadHistory = async () => {
-      try {
-        const { adminToken, userToken } = getTokens();
-        const headers = {
-          'Accept': 'application/json',
-          ...(adminToken ? { 'x-admin-token': adminToken, 'Authorization': `AdminBearer ${adminToken}` } : {}),
-          ...(!adminToken && userToken ? { 'Authorization': `Bearer ${userToken}` } : {})
-        };
-        const res = await fetch(`${API_BASE}/api/messaging/history?email=${encodeURIComponent(selected)}`, { headers, credentials:'include', cache:'no-store' });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && data.success) setMessages(prev => ({ ...prev, [selected]: data.messages || [] }));
-      } catch (error) { console.error('Message history error:', error); }
-    };
-    loadHistory();
-  }, [selected]);
 
   const sendMessage = async () => {
     if (!input.trim() || !selected || loading) return;
     setLoading(true);
     try {
       const { userToken, adminToken } = getTokens();
-      const headers = {
-        'Content-Type': 'application/json',
-        ...(adminToken ? { 'x-admin-token': adminToken, 'Authorization': `AdminBearer ${adminToken}` } : {}),
-        ...(!adminToken && userToken ? { 'Authorization': `Bearer ${userToken}` } : {})
+      const headers = { 
+        'Content-Type': 'application/json', 
+        ...(userToken ? { 'Authorization': `Bearer ${userToken}` } : {}),
+        ...(adminToken ? { 'x-admin-token': adminToken } : {})
       };
 
       const res = await fetch(`${API_BASE}/api/messaging/send`, {
@@ -999,7 +1246,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
       const data = await res.json();
 
       if (data.success) {
-        const msg = data.message || { id: Date.now().toString(), from: 'admin', text: input.trim(), time: new Date().toISOString() };
+        const msg = { id: Date.now().toString(), from: 'admin', text: input.trim(), time: new Date().toISOString() };
         setMessages(prev => ({ ...prev, [selected]: [...(prev[selected] || []), msg] }));
         setInput('');
       } else {
