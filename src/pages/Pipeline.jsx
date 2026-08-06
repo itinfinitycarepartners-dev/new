@@ -1630,7 +1630,6 @@ const isPipelineStageComplete = (candidate) => {
 const HIRING_FORWARD_ORDER = [
   "Applied",
   "Associated with Job",
-  "Transfer to ICP USRN School",
   "Qualified - Match",
   "Select Prescreen Time",
   "Prescreen Scheduled",
@@ -8434,45 +8433,24 @@ export default function Pipeline() {
   const [finalArrivalDate, setFinalArrivalDate] = useState(null);
 
   useEffect(() => {
-    const refreshNCLEXAccess = async () => {
+    const checkNCLEXAccess = async () => {
       if (!user?.email) {
         setIsCheckingNCLEX(false);
         return;
       }
-
       try {
         setIsCheckingNCLEX(true);
-
-        const hasAccess =
-          await checkNCLEXAccess(
-            user.email
-          );
-
-        setShowNCLEX(previous =>
-          previous || hasAccess
-        );
-
-        console.log(
-          "[Pipeline] NCLEX access:",
-          hasAccess
-        );
+        const hasAccess = await checkNCLEXAccess(user.email);
+        setShowNCLEX(hasAccess);
+        console.log("[Pipeline] NCLEX access:", hasAccess);
       } catch (error) {
-        console.error(
-          "[Pipeline] Error checking NCLEX access:",
-          error
-        );
-
-        // Do not hide an already-open NCLEX branch because of a temporary
-        // request failure.
-        setShowNCLEX(previous =>
-          previous
-        );
+        console.error("[Pipeline] Error checking NCLEX access:", error);
+        setShowNCLEX(false);
       } finally {
         setIsCheckingNCLEX(false);
       }
     };
-
-    refreshNCLEXAccess();
+    checkNCLEXAccess();
   }, [user?.email]);
 
   useEffect(() => {
@@ -8903,22 +8881,10 @@ export default function Pipeline() {
       });
       
       const transferToICPUSRN =
-        normalizeApplicationStatus(
-          recruitApplicationStatus
-        ) ===
-          "transfer to icp usrn school" ||
         shouldShowICPUSRNTransfer(
           recruitApplicationStatus
         ) ||
-        savedTransferReached ||
-        saved.some(stage =>
-          [
-            "NCLEX Roadmap",
-            "NCLEX Prescreen"
-          ].includes(
-            stage.stage_category
-          )
-        );
+        savedTransferReached;
 
       if (transferToICPUSRN) {
         // This is a separate Recruit branch. The three qualification outcome
@@ -8943,11 +8909,9 @@ export default function Pipeline() {
             return {
               ...stage,
               status: "Completed",
-              completed:
-                true,
-              is_completed:
-                true,
               completed_date:
+                backendDocumentsStatus
+                  ?.completed_date ||
                 stage.completed_date ||
                 savedByName.get(
                   stage.stage_name
@@ -10260,45 +10224,18 @@ export default function Pipeline() {
       "Transfer to ICP USRN School"
     );
 
-  const transferStatusSelected =
-    normalizeApplicationStatus(
-      applicationStatus
-    ) ===
-    "transfer to icp usrn school";
-
-  const savedNCLEXStageExists =
-    stages.some(stage =>
-      [
-        "NCLEX Roadmap",
-        "NCLEX Prescreen"
-      ].includes(
-        stage?.stage_category
-      )
-    );
-
   const nclexBranchVisible =
     showNCLEX ||
-    transferStatusSelected ||
-    transferStage
-      ?.nclex_branch_visible ===
+    transferStage?.nclex_branch_visible ===
       true ||
     isPipelineStageComplete(
       transferStage
-    ) ||
-    savedNCLEXStageExists;
+    );
 
   const nclexProgress =
     transferStage
       ?.nclex_saved_progress ||
     {};
-
-  useEffect(() => {
-    if (nclexBranchVisible) {
-      setShowNCLEX(true);
-    }
-  }, [
-    nclexBranchVisible
-  ]);
 
   const regularDisplayStages =
     stages.filter(stage => {
