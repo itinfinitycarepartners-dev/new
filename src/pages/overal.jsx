@@ -760,7 +760,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                           : "bg-amber-50 text-amber-700"
                                     }`}
                                   >
-                                    {doc.approval_status === "approved"
+                                    {doc.already_approved === true ||
+                                      doc.approval_status === "approved"
                                       ? "Approved"
                                       : doc.approval_status === "rejected"
                                         ? "Rejected"
@@ -799,6 +800,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                 disabled={
                                   approvalBusyKey ===
                                     doc.approval_key ||
+                                  doc.already_approved ===
+                                    true ||
                                   doc.approval_status ===
                                     "approved"
                                 }

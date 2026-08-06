@@ -6153,18 +6153,64 @@ const HousingDetailsForm = ({ onClose, user, setStages }) => {
 
       console.log("[Housing] Submission successful:", data);
 
-      const savedStage = data.stage;
-      if (savedStage) {
-        setStages(prev => prev.map(stage =>
-          stage.stage_name === "Submit Housing Form"
-            ? { ...stage, ...savedStage, status: "Completed" }
-            : stage
-        ));
-      } else {
-        await updateStageStatus(user?.email, "Submit Housing Form", setStages);
-      }
+      const completedAt =
+        data.stage
+          ?.completed_date ||
+        data.stage
+          ?.completed_at ||
+        new Date()
+          .toISOString();
 
-      const crmSaved = data?.attachments?.crm?.success === true || data?.crm?.success === true;
+      setStages(previous =>
+        previous.map(stage =>
+          stage.stage_name ===
+            "Submit Housing Form"
+            ? {
+                ...stage,
+                ...(data.stage ||
+                  {}),
+                status:
+                  "Completed",
+                completed:
+                  true,
+                is_completed:
+                  true,
+                completed_date:
+                  completedAt,
+                completed_at:
+                  completedAt,
+                timing_status:
+                  "Good Standing"
+              }
+            : stage
+        )
+      );
+
+      window.dispatchEvent(
+        new CustomEvent(
+          "pipeline-updated",
+          {
+            detail: {
+              email:
+                data.canonical_email ||
+                user?.email,
+              stage_name:
+                "Submit Housing Form",
+              status:
+                "Completed",
+              stage:
+                data.stage ||
+                null
+            }
+          }
+        )
+      );
+
+      const crmSaved =
+        data?.attachments?.crm
+          ?.success === true ||
+        data?.crm?.success ===
+          true;
       if (!crmSaved) throw new Error("The housing form was not attached to CRM.");
       toast.success("Housing form submitted and attached to CRM.");
       onClose();
@@ -7120,15 +7166,66 @@ const RLChecklistView = ({ onClose, user, setStages }) => {
       setUploadResults(nextUploadResults);
       setSubmissionResult(data);
 
-      // The backend completes the stage and starts the next timer atomically.
-      // Refresh the complete pipeline from MongoDB instead of manually checking it.
-      window.dispatchEvent(new CustomEvent("pipeline-updated", {
-        detail: {
-          email: user?.email,
-          stage_name: "Submit R&L Checklist",
-          stage: data.stage || null
-        }
-      }));
+      const completedAt =
+        data.stage
+          ?.completed_date ||
+        data.stage
+          ?.completed_at ||
+        new Date()
+          .toISOString();
+
+      setStages(previous =>
+        previous.map(stage =>
+          [
+            "Submit R&L Checklist",
+            "Submit R&L Form",
+            "Complete R&L Form",
+            "R&L Form"
+          ].includes(
+            stage.stage_name
+          )
+            ? {
+                ...stage,
+                ...(data.stage ||
+                  {}),
+                stage_name:
+                  stage.stage_name,
+                status:
+                  "Completed",
+                completed:
+                  true,
+                is_completed:
+                  true,
+                completed_date:
+                  completedAt,
+                completed_at:
+                  completedAt,
+                timing_status:
+                  "Good Standing"
+              }
+            : stage
+        )
+      );
+
+      window.dispatchEvent(
+        new CustomEvent(
+          "pipeline-updated",
+          {
+            detail: {
+              email:
+                data.canonical_email ||
+                user?.email,
+              stage_name:
+                "Submit R&L Checklist",
+              status:
+                "Completed",
+              stage:
+                data.stage ||
+                null
+            }
+          }
+        )
+      );
 
       toast.success(
         `R&L form attached to CRM and stage completed. ${
@@ -8249,6 +8346,7 @@ export default function Pipeline() {
       let resolvedFinalArrivalDate = null;
       let backendAftercareGateOpen = false;
       let directFieldStatus = {};
+      let directComputedStageStatus = {};
 
       if (token) {
         try {
@@ -8413,9 +8511,14 @@ export default function Pipeline() {
               ...(fieldPayload.recruit || {})
             };
 
-            setDeploymentFieldStatus(
-              directFieldStatus
-            );
+            directComputedStageStatus =
+              fieldPayload.stageStatus || {};
+
+            setDeploymentFieldStatus({
+              ...directFieldStatus,
+              __stageStatus:
+                directComputedStageStatus
+            });
 
             icpUSRNData = {
               ...icpUSRNData,
@@ -8674,6 +8777,8 @@ export default function Pipeline() {
               ...stage,
               status: "Completed",
               completed_date:
+                backendDocumentsStatus
+                  ?.completed_date ||
                 stage.completed_date ||
                 savedByName.get(
                   stage.stage_name
@@ -8911,13 +9016,24 @@ export default function Pipeline() {
         sourceFieldValues.birthCertificate ??
         null;
 
+      const backendDocumentsStatus =
+        directComputedStageStatus[
+          "Documents Received"
+        ];
+
       const documentsReceivedComplete =
-        hasRecruitCandidateFieldValue(
-          proofOfNCLEX
-        ) &&
-        hasRecruitCandidateFieldValue(
-          birthCertificate
-        );
+        typeof backendDocumentsStatus
+          ?.completed === "boolean"
+          ? backendDocumentsStatus
+              .completed
+          : (
+              hasRecruitCandidateFieldValue(
+                proofOfNCLEX
+              ) &&
+              hasRecruitCandidateFieldValue(
+                birthCertificate
+              )
+            );
 
       allStages = allStages.map(stage => {
         if (
@@ -9826,8 +9942,24 @@ export default function Pipeline() {
 
         setDeploymentFieldStatus({
           ...(data.deployment || {}),
-          ...(data.recruit || {})
+          ...(data.recruit || {}),
+          __stageStatus:
+            data.stageStatus || {}
         });
+
+        window.dispatchEvent(
+          new CustomEvent(
+            "crm-recruit-updated",
+            {
+              detail: {
+                source:
+                  "field-status",
+                stageStatus:
+                  data.stageStatus || {}
+              }
+            }
+          )
+        );
 
         const english = getDocumentExpiryState(data.expiry?.english);
         const visa = getDocumentExpiryState(data.expiry?.visaScreen);
