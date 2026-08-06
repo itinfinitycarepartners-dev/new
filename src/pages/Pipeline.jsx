@@ -1422,7 +1422,13 @@ const CLICKABLE_STAGES = {
   "Hired": { clickable: true, type: "upload", uploadType: "hired", destination: "recruit" },
 
   // Immigration/Licensure stages - Clickable for details
-  "Immigration Call": { clickable: true, type: "view", viewType: "immigrationCall" },
+  "Immigration Call": {
+    clickable: true,
+    type: "crmChecklist",
+    fields: [
+      "Immigration_Pathway_Discovery_Call"
+    ]
+  },
   "Foundations (Phases 1–3)": { clickable: true, type: "view", viewType: "foundations" },
   "Licensure (General) & Live English Assessment": { clickable: true, type: "view", viewType: "licensureGeneral" },
   "English Practice & Development": { clickable: true, type: "view", viewType: "englishPractice" },
@@ -1618,6 +1624,163 @@ const isPipelineStageComplete = (candidate) => {
     Boolean(candidate.date_completed)
   );
 };
+const HIRING_FORWARD_ORDER = [
+  "Applied",
+  "Associated with Job",
+  "Qualified - Match",
+  "Select Prescreen Time",
+  "Prescreen Scheduled",
+  "Prescreen Completed",
+  "Client Documents & Video Provided",
+  "Pending Interview Selection",
+  "Interview Scheduled",
+  "Interview Attended",
+  "Offer Made",
+  "Offer Accepted",
+  "Hired",
+  "Employment Contract Sent",
+  "Employment Contract Signed",
+  "Documents Received"
+];
+
+const restoreForwardOnlyHiringStages = ({
+  stages,
+  savedByName,
+  applicationStatus
+}) => {
+  const completedNames = new Set();
+
+  stages.forEach(stage => {
+    const saved =
+      savedByName.get(stage.stage_name);
+
+    if (
+      isPipelineStageComplete(stage) ||
+      isPipelineStageComplete(saved)
+    ) {
+      completedNames.add(stage.stage_name);
+    }
+  });
+
+  const normalized =
+    normalizeApplicationStatus(
+      applicationStatus
+    );
+
+  const progress =
+    HIRING_STATUS_PROGRESS[normalized];
+
+  for (
+    const name of
+    progress?.completed || []
+  ) {
+    completedNames.add(name);
+  }
+
+  const mapped =
+    getMappedHiringStage(
+      applicationStatus
+    );
+
+  if (mapped) {
+    completedNames.add(mapped);
+  }
+
+  let furthestIndex = -1;
+
+  completedNames.forEach(name => {
+    const index =
+      HIRING_FORWARD_ORDER.indexOf(name);
+
+    if (index > furthestIndex) {
+      furthestIndex = index;
+    }
+  });
+
+  for (
+    let index = 0;
+    index <= furthestIndex;
+    index += 1
+  ) {
+    const name =
+      HIRING_FORWARD_ORDER[index];
+
+    if (name !== "Documents Received") {
+      completedNames.add(name);
+    }
+  }
+
+  return stages.map(stage => {
+    if (
+      stage.stage_category !== "Hiring"
+    ) {
+      return stage;
+    }
+
+    if (
+      stage.stage_name ===
+      "Documents Received"
+    ) {
+      return stage;
+    }
+
+    const saved =
+      savedByName.get(stage.stage_name);
+
+    if (
+      completedNames.has(stage.stage_name)
+    ) {
+      return {
+        ...stage,
+        ...saved,
+        status: "Completed",
+        completed: true,
+        is_completed: true,
+        completed_date:
+          saved?.completed_date ||
+          saved?.completed_at ||
+          stage.completed_date ||
+          stage.completed_at ||
+          new Date().toISOString(),
+        unlocked: true,
+        is_locked: false,
+        restored_from_history: true
+      };
+    }
+
+    if (
+      progress?.current ===
+      stage.stage_name
+    ) {
+      return {
+        ...stage,
+        status: "In Progress",
+        unlocked: true,
+        is_locked: false
+      };
+    }
+
+    const orderIndex =
+      HIRING_FORWARD_ORDER.indexOf(
+        stage.stage_name
+      );
+
+    if (
+      orderIndex >= 0 &&
+      orderIndex <= furthestIndex + 1
+    ) {
+      return {
+        ...stage,
+        unlocked: true,
+        is_locked: false
+      };
+    }
+
+    return stage;
+  });
+};
+
+
 
 const getSequencedMainStages = (allStages) => {
   return (allStages || [])
@@ -8646,7 +8809,7 @@ export default function Pipeline() {
             applicationsPresenceKnown &&
             !savedStage
           ) {
-            automaticStatus = "Not Started";
+            automaticStatus = null;
           }
         } else if (isAssociatedStage) {
           if (applicationsFound && candidatesFound) {
@@ -8656,7 +8819,7 @@ export default function Pipeline() {
             candidatesPresenceKnown &&
             !savedStage
           ) {
-            automaticStatus = "Not Started";
+            automaticStatus = null;
           }
         } else if (isFirstImmigrationStage && submittedToImmigrationDate) {
           automaticStatus = savedStage?.status === "Completed" ? "Completed" : "In Progress";
@@ -9371,84 +9534,27 @@ export default function Pipeline() {
           : stage
       );
 
-      const currentQualificationOutcome =
-        getEffectiveQualificationOutcome(
-          recruitApplicationStatus
-        );
-
-      const qualificationStageNames = [
-        "Qualified - Match",
-        "Qualified Candidate Pool",
-        "Not Qualified - to close"
-      ];
-
-      // MongoDB history remains authoritative for completed Hiring stages.
-      // Live Recruit data may advance stages, but a temporary incomplete
-      // Recruit response must not erase stages already completed.
-      allStages = allStages.map(stage => {
-        if (
-          stage.stage_category !==
-          "Hiring"
-        ) {
-          return stage;
-        }
-
-        const savedStage =
-          savedByName.get(
-            stage.stage_name
-          );
-
-        const savedCompleted =
-          isPipelineStageComplete(
-            savedStage
-          );
-
-        // This field-controlled stage is intentionally adaptive and may revert.
-        if (
-          stage.stage_name ===
-          "Documents Received"
-        ) {
-          return stage;
-        }
-
-        // Only the currently selected qualification outcome should remain.
-        if (
-          qualificationStageNames.includes(
-            stage.stage_name
-          )
-        ) {
-          if (
-            currentQualificationOutcome &&
-            stage.stage_name !==
-              currentQualificationOutcome
-          ) {
-            return stage;
-          }
-        }
-
-        if (!savedCompleted) {
-          return stage;
-        }
-
-        return {
-          ...stage,
-          status: "Completed",
-          completed: true,
-          is_completed: true,
-          completed_date:
-            savedStage.completed_date ||
-            savedStage.completedAt ||
-            stage.completed_date ||
-            null,
-          restored_from_database:
-            true
-        };
-      });
+      allStages =
+        restoreForwardOnlyHiringStages({
+          stages: allStages,
+          savedByName,
+          applicationStatus:
+            recruitApplicationStatus
+        });
 
       setStages(allStages);
+      const hasRecruitCheckpoint =
+        Boolean(
+          recruitApplicationStatus &&
+          normalizeApplicationStatus(
+            recruitApplicationStatus
+          ) !== "new candidate"
+        );
+
       if (
         savedPipelineLoadedSuccessfully &&
-        saved.length === 0
+        saved.length === 0 &&
+        !hasRecruitCheckpoint
       ) {
         const initResponse = await fetch(`${API_BASE}/api/pipeline/initialize`, {
           method: "POST",
