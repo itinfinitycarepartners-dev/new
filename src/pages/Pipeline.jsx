@@ -1,6 +1,3 @@
-
-
-
 // @ts-nocheck
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/AuthContext";
@@ -188,6 +185,39 @@ const isCRMChecklistComplete = (value) => {
 // Keep one truth-value interpretation across every CRM-driven checkbox.
 const isTruthyField = isCRMChecklistComplete;
 
+const hasRecruitCandidateFieldValue = value => {
+  if (
+    value === undefined ||
+    value === null ||
+    value === false
+  ) {
+    return false;
+  }
+
+  if (Array.isArray(value)) {
+    return value.some(item =>
+      hasRecruitCandidateFieldValue(item)
+    );
+  }
+
+  if (typeof value === "object") {
+    return Object.keys(value).length > 0;
+  }
+
+  const normalized = String(value)
+    .trim()
+    .toLowerCase();
+
+  return ![
+    "",
+    "—",
+    "none",
+    "null",
+    "undefined",
+    "not available"
+  ].includes(normalized);
+};
+
 const getCRMChecklistValue = (data, item) =>
   ga(data, item.key, ...(item.aliases || []));
 
@@ -329,42 +359,39 @@ const normalizeApplicationStatus = (value) => String(value || "")
   .replace(/\s+/g, " ");
 
 const APPLICATION_STATUS_STAGE_MAP = new Map([
+  ["new candidate", "Applied"],
+  ["applied", "Applied"],
+  ["associated", "Associated with Job"],
+  ["qualifications & verification", "Associated with Job"],
+  ["qualifications and verification", "Associated with Job"],
   ["transfer to icp usrn school", "Transfer to ICP USRN School"],
-
   ["qualified-match", "Qualified - Match"],
   ["qualified match", "Qualified - Match"],
-
   ["qualified-candidate pool", "Qualified Candidate Pool"],
   ["qualified candidate pool", "Qualified Candidate Pool"],
-
   ["prescreen", "Select Prescreen Time"],
   ["prescreen scheduled", "Prescreen Scheduled"],
   ["prescreen complete", "Prescreen Completed"],
-
   ["assessment", "Client Documents & Video Provided"],
   ["assessment complete", "Pending Interview Selection"],
-
   ["interview", "Pending Interview Selection"],
   ["pending interview selection", "Pending Interview Selection"],
   ["interview-scheduled", "Interview Scheduled"],
   ["interview scheduled", "Interview Scheduled"],
   ["interview attended", "Interview Attended"],
-
+  ["no-show", "Interview Scheduled"],
   ["offered", "Offer Made"],
   ["offer made", "Offer Made"],
   ["offer accepted", "Offer Accepted"],
   ["offer declined", "Offer Declined"],
-
-  ["contract sent", "Employment Contract Sent"],
   ["hired", "Hired"],
-
-  // Existing values retained for records already using them.
-  ["applied", "Applied"],
-  ["associated", "Associated with Job"],
+  ["contract sent", "Employment Contract Sent"],
+  ["employer offer sent", "Employment Contract Sent"],
+  ["contract signed", "Employment Contract Signed"],
   ["documents received", "Documents Received"],
   ["unqualified", "Not Qualified - to close"],
   ["not qualified-to close", "Not Qualified - to close"],
-  ["not qualified - to close", "Not Qualified - to close"],
+  ["not qualified - to close", "Not Qualified - to close"]
 ]);
 
 const PORTAL_BLOCKED_APPLICATION_STATUSES = new Set([
@@ -382,16 +409,26 @@ const getMappedHiringStage = (applicationStatus) =>
 // are changed. This prevents Prescreen Scheduled, Assessment, or Interview from
 // completing unrelated Client Interview stages.
 const HIRING_STATUS_PROGRESS = {
+  "new candidate": {
+    completed: [],
+    current: "Applied"
+  },
   "applied": {
     completed: ["Applied"],
     current: null
   },
-
   "associated": {
     completed: ["Applied", "Associated with Job"],
     current: null
   },
-
+  "qualifications & verification": {
+    completed: ["Applied", "Associated with Job"],
+    current: null
+  },
+  "qualifications and verification": {
+    completed: ["Applied", "Associated with Job"],
+    current: null
+  },
   "transfer to icp usrn school": {
     completed: [
       "Applied",
@@ -400,7 +437,6 @@ const HIRING_STATUS_PROGRESS = {
     ],
     current: null
   },
-
   "qualified-match": {
     completed: [
       "Applied",
@@ -409,7 +445,6 @@ const HIRING_STATUS_PROGRESS = {
     ],
     current: null
   },
-
   "qualified match": {
     completed: [
       "Applied",
@@ -418,7 +453,6 @@ const HIRING_STATUS_PROGRESS = {
     ],
     current: null
   },
-
   "qualified-candidate pool": {
     completed: [
       "Applied",
@@ -427,7 +461,6 @@ const HIRING_STATUS_PROGRESS = {
     ],
     current: null
   },
-
   "qualified candidate pool": {
     completed: [
       "Applied",
@@ -436,21 +469,19 @@ const HIRING_STATUS_PROGRESS = {
     ],
     current: null
   },
-
   "prescreen": {
     completed: ["Applied", "Associated with Job"],
     current: "Select Prescreen Time"
   },
-
   "prescreen scheduled": {
     completed: [
       "Applied",
       "Associated with Job",
-      "Select Prescreen Time"
+      "Select Prescreen Time",
+      "Prescreen Scheduled"
     ],
-    current: "Prescreen Scheduled"
+    current: null
   },
-
   "prescreen complete": {
     completed: [
       "Applied",
@@ -461,7 +492,6 @@ const HIRING_STATUS_PROGRESS = {
     ],
     current: null
   },
-
   "assessment": {
     completed: [
       "Applied",
@@ -472,7 +502,6 @@ const HIRING_STATUS_PROGRESS = {
     ],
     current: "Client Documents & Video Provided"
   },
-
   "assessment complete": {
     completed: [
       "Applied",
@@ -484,7 +513,6 @@ const HIRING_STATUS_PROGRESS = {
     ],
     current: "Pending Interview Selection"
   },
-
   "interview": {
     completed: [
       "Applied",
@@ -496,7 +524,6 @@ const HIRING_STATUS_PROGRESS = {
     ],
     current: "Pending Interview Selection"
   },
-
   "pending interview selection": {
     completed: [
       "Applied",
@@ -508,7 +535,6 @@ const HIRING_STATUS_PROGRESS = {
     ],
     current: "Pending Interview Selection"
   },
-
   "interview-scheduled": {
     completed: [
       "Applied",
@@ -517,11 +543,11 @@ const HIRING_STATUS_PROGRESS = {
       "Prescreen Scheduled",
       "Prescreen Completed",
       "Client Documents & Video Provided",
-      "Pending Interview Selection"
+      "Pending Interview Selection",
+      "Interview Scheduled"
     ],
-    current: "Interview Scheduled"
+    current: null
   },
-
   "interview scheduled": {
     completed: [
       "Applied",
@@ -530,11 +556,11 @@ const HIRING_STATUS_PROGRESS = {
       "Prescreen Scheduled",
       "Prescreen Completed",
       "Client Documents & Video Provided",
-      "Pending Interview Selection"
+      "Pending Interview Selection",
+      "Interview Scheduled"
     ],
-    current: "Interview Scheduled"
+    current: null
   },
-
   "interview attended": {
     completed: [
       "Applied",
@@ -549,7 +575,19 @@ const HIRING_STATUS_PROGRESS = {
     ],
     current: null
   },
-
+  "no-show": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Select Prescreen Time",
+      "Prescreen Scheduled",
+      "Prescreen Completed",
+      "Client Documents & Video Provided",
+      "Pending Interview Selection",
+      "Interview Scheduled"
+    ],
+    current: null
+  },
   "offered": {
     completed: [
       "Applied",
@@ -564,7 +602,6 @@ const HIRING_STATUS_PROGRESS = {
     ],
     current: "Offer Made"
   },
-
   "offer made": {
     completed: [
       "Applied",
@@ -580,7 +617,6 @@ const HIRING_STATUS_PROGRESS = {
     ],
     current: null
   },
-
   "offer accepted": {
     completed: [
       "Applied",
@@ -597,54 +633,22 @@ const HIRING_STATUS_PROGRESS = {
     ],
     current: null
   },
-
   "offer declined": {
     completed: [
       "Applied",
       "Associated with Job",
+      "Select Prescreen Time",
+      "Prescreen Scheduled",
+      "Prescreen Completed",
+      "Client Documents & Video Provided",
+      "Pending Interview Selection",
+      "Interview Scheduled",
+      "Interview Attended",
+      "Offer Made",
       "Offer Declined"
     ],
     current: null
   },
-
-  "contract sent": {
-    completed: [
-      "Applied",
-      "Associated with Job",
-      "Select Prescreen Time",
-      "Prescreen Scheduled",
-      "Prescreen Completed",
-      "Client Documents & Video Provided",
-      "Pending Interview Selection",
-      "Interview Scheduled",
-      "Interview Attended",
-      "Offer Made",
-      "Offer Accepted",
-      "Employment Contract Sent"
-    ],
-    current: null
-  },
-
-  "documents received": {
-    completed: [
-      "Applied",
-      "Associated with Job",
-      "Select Prescreen Time",
-      "Prescreen Scheduled",
-      "Prescreen Completed",
-      "Client Documents & Video Provided",
-      "Pending Interview Selection",
-      "Interview Scheduled",
-      "Interview Attended",
-      "Offer Made",
-      "Offer Accepted",
-      "Employment Contract Sent",
-      "Employment Contract Signed",
-      "Documents Received"
-    ],
-    current: null
-  },
-
   "hired": {
     completed: [
       "Applied",
@@ -658,10 +662,62 @@ const HIRING_STATUS_PROGRESS = {
       "Interview Attended",
       "Offer Made",
       "Offer Accepted",
-      "Employment Contract Sent",
-      "Employment Contract Signed",
-      "Documents Received",
       "Hired"
+    ],
+    current: null
+  },
+  "contract sent": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Select Prescreen Time",
+      "Prescreen Scheduled",
+      "Prescreen Completed",
+      "Client Documents & Video Provided",
+      "Pending Interview Selection",
+      "Interview Scheduled",
+      "Interview Attended",
+      "Offer Made",
+      "Offer Accepted",
+      "Hired",
+      "Employment Contract Sent"
+    ],
+    current: null
+  },
+  "employer offer sent": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Select Prescreen Time",
+      "Prescreen Scheduled",
+      "Prescreen Completed",
+      "Client Documents & Video Provided",
+      "Pending Interview Selection",
+      "Interview Scheduled",
+      "Interview Attended",
+      "Offer Made",
+      "Offer Accepted",
+      "Hired",
+      "Employment Contract Sent"
+    ],
+    current: null
+  },
+  "contract signed": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Select Prescreen Time",
+      "Prescreen Scheduled",
+      "Prescreen Completed",
+      "Client Documents & Video Provided",
+      "Pending Interview Selection",
+      "Interview Scheduled",
+      "Interview Attended",
+      "Offer Made",
+      "Offer Accepted",
+      "Hired",
+      "Employment Contract Sent",
+      "Employment Contract Signed"
     ],
     current: null
   }
@@ -755,30 +811,168 @@ const updateRecruitField = async (userEmail, stageName) => {
 };
 
 const ICP_USRN_SUBPROCESS_CONFIG = [
-  { name: "Complete Pre-assessment", days: 5, field: "NCLEX_Pre_Exam", type: "picklist", accepted: ["1st Attempt Pass", "2nd Attempt Pass"] },
-  { name: "Program Prescreen", days: 10, field: "Prescreen_Status", type: "picklist", accepted: ["Attended"] },
-  { name: "Required Document Upload", days: 10, field: "Hiring_Documents_Verified", type: "boolean", action: "usrnDocuments" },
-  { name: "Document Review", days: 24, field: "Documents_Submitted", type: "present" },
-  { name: "Educational Program Agreement", days: 24, field: "Sponsorship_Agreement", type: "boolean" },
-  { name: "Program Approval", days: 24, field: "Program_Status", type: "picklist", accepted: ["Approved"] },
-  { name: "Credential Evaluation Set-up", days: 27, field: "Credential_Service", type: "picklist", accepted: ["Paid by ICP", "Paid by Infinity", "Paid and completed by candidate"] },
-  { name: "Credential Evaluation Completed", days: 92, field: "Credential_Registration_Date", type: "present" },
-  { name: "CES Report Issued", days: 102, field: "Date_Report_Issued", type: "present" },
-  { name: "Board Registration", days: 120, field: "State_License_Board_of_Registration", type: "picklist", accepted: ["Paid by ICP", "Sponsored by ICP", "To be Sponsored by Infinity", "Paid by Infinity"] },
-  { name: "Board Approval", days: 127, field: "Completed_BON_Requirements", type: "picklist", accepted: ["BON Approval"] },
-  { name: "Performance Check 1", days: 102, type: "performanceMilestone", assessmentsRequired: 2, assignmentsRequired: 6 },
-  { name: "Performance Check 2", days: 127, type: "performanceMilestone", assessmentsRequired: 4, assignmentsRequired: 15 },
-  { name: "Performance Check 3", days: 150, type: "performanceMilestone", assessmentsRequired: 5, assignmentsRequired: 15 },
-  { name: "Performance Check FINAL", days: 165, type: "performanceMilestone", assessmentsRequired: 6, assignmentsRequired: 15, ratingRequired: true },
-  { name: "Performance Rating", days: 140, field: "Performance_Rating", type: "picklist", accepted: ["High", "Very High"], isGate: true },
-  { name: "Pearson Vue Registration", days: 150, field: "ATT_Received_Date", type: "present", requires: "Performance_Rating" },
-  { name: "Exam Registration", days: 165, field: "NCLEX_Exam_Date", type: "present" },
-  { name: "Exam Results", days: 195, field: "NCLEX_Status", type: "picklist", accepted: ["Passed"] },
-
-  { name: "Schedule time - booking app", days: 24, field: "Prescreen_Status", type: "picklist", accepted: ["Scheduled", "Attended"] },
-  { name: "Learn HUB enrollment", days: 27, field: "UWorld_Subscription_Date", type: "present" },
-  { name: "ATT Received", days: 150, field: "ATT_Received_Date", type: "present", requires: "Performance_Rating" },
-  { name: "Background Complete", days: 215, field: "Fingerprint_Status", type: "picklist", accepted: ["Complete"] }
+  {
+    name: "Complete Pre-assessment",
+    days: 5,
+    field: "NCLEX_Pre_Exam",
+    type: "picklist",
+    accepted: [
+      "1st Attempt Pass",
+      "2nd Attempt Pass"
+    ]
+  },
+  {
+    name: "Program Prescreen",
+    days: 10,
+    field: "Prescreen_Status",
+    type: "picklist",
+    accepted: ["Attended"]
+  },
+  {
+    name: "Required Document Upload",
+    days: 10,
+    field: "Hiring_Documents_Verified",
+    type: "boolean",
+    action: "usrnDocuments"
+  },
+  {
+    name: "Document Review",
+    days: 24,
+    field: "Documents_Submitted",
+    type: "present"
+  },
+  {
+    name: "Educational Program Agreement",
+    days: 24,
+    field: "Sponsorship_Agreement",
+    type: "boolean"
+  },
+  {
+    name: "Program Approval",
+    days: 24,
+    field: "Program_Status",
+    type: "picklist",
+    accepted: ["Approved"]
+  },
+  {
+    name: "Schedule time - booking app",
+    days: 24,
+    field: "Prescreen_Status",
+    type: "picklist",
+    accepted: [
+      "Scheduled",
+      "Attended"
+    ]
+  },
+  {
+    name: "Credential Evaluation Set-up",
+    days: 27,
+    field: "Credential_Service",
+    type: "picklist",
+    accepted: [
+      "Paid by ICP",
+      "Paid by Infinity",
+      "Paid and completed by candidate"
+    ]
+  },
+  {
+    name: "Learn HUB enrollment",
+    days: 27,
+    field: "UWorld_Subscription_Date",
+    type: "present"
+  },
+  {
+    name: "Credential Evaluation Completed",
+    days: 92,
+    field: "Credential_Registration_Date",
+    type: "present"
+  },
+  {
+    name: "CES Report Issued",
+    days: 102,
+    field: "Date_Report_Issued",
+    type: "present"
+  },
+  {
+    name: "Performance Check 1",
+    days: 102,
+    type: "performanceMilestone",
+    assessmentsRequired: 2,
+    assignmentsRequired: 6
+  },
+  {
+    name: "Board Registration",
+    days: 120,
+    field: "State_License_Board_of_Registration",
+    type: "picklist",
+    accepted: [
+      "Paid by ICP",
+      "Sponsored by ICP",
+      "To be Sponsored by Infinity",
+      "Paid by Infinity"
+    ]
+  },
+  {
+    name: "Performance Check 2",
+    days: 120,
+    type: "performanceMilestone",
+    assessmentsRequired: 4,
+    assignmentsRequired: 15
+  },
+  {
+    name: "Board Approval",
+    days: 127,
+    field: "Completed_BON_Requirements",
+    type: "picklist",
+    accepted: ["BON Approval"]
+  },
+  {
+    name: "Pearson Vue Registration",
+    days: 140,
+    field: "Pearson_Vue_Registration",
+    type: "present"
+  },
+  {
+    name: "Performance Check 3",
+    days: 145,
+    type: "performanceMilestone",
+    assessmentsRequired: 5,
+    assignmentsRequired: 15
+  },
+  {
+    name: "ATT Received",
+    days: 150,
+    field: "ATT_Received_Date",
+    type: "present"
+  },
+  {
+    name: "Performance Check FINAL",
+    days: 155,
+    type: "performanceMilestone",
+    assessmentsRequired: 6,
+    assignmentsRequired: 15,
+    ratingRequired: true
+  },
+  {
+    name: "Exam Registration",
+    days: 165,
+    field: "NCLEX_Exam_Date",
+    type: "present"
+  },
+  {
+    name: "Exam Results",
+    days: 195,
+    field: "NCLEX_Status",
+    type: "picklist",
+    accepted: ["Passed"]
+  },
+  {
+    name: "Background Complete",
+    days: 215,
+    field: "Fingerprint_Status",
+    type: "picklist",
+    accepted: ["Complete"]
+  }
 ];
 
 const normalizeCRMValue = (value) => String(value ?? "").trim().toLowerCase();
@@ -1453,25 +1647,87 @@ const isStageUnlocked = (stage, allStages) => {
 // grants immediate access even if no Recruit attachment exists yet.
 const checkNCLEXAccess = async (email) => {
   try {
-    const token = localStorage.getItem("icp_auth_token");
-    if (!token) return false;
+    const token =
+      localStorage.getItem("icp_auth_token");
+
+    if (!token || !email) {
+      return false;
+    }
 
     const headers = {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json"
+      Authorization: `Bearer ${token}`
     };
 
-    const dealsResponse = await fetch(`${API_BASE}/api/zoho/my-deals`, {
-      headers,
-      cache: "no-store"
-    });
+    // Database history is the first source of truth. Once the candidate has
+    // reached Transfer to ICP USRN School, later Recruit status changes must
+    // not hide the NCLEX branch or its completed milestones.
+    try {
+      const pipelineResponse = await fetch(
+        `${API_BASE}/api/pipeline/get?email=${encodeURIComponent(email)}&_=${Date.now()}`,
+        {
+          headers,
+          cache: "no-store"
+        }
+      );
+
+      const pipelineData = await pipelineResponse
+        .json()
+        .catch(() => ({}));
+
+      if (pipelineResponse.ok) {
+        const savedStages = Array.isArray(
+          pipelineData.stages
+        )
+          ? pipelineData.stages
+          : [];
+
+        const savedTransferReached =
+          savedStages.some(stage =>
+            stage.stage_name ===
+              "Transfer to ICP USRN School" &&
+            isPipelineStageComplete(stage)
+          );
+
+        const savedNCLEXProgress =
+          savedStages.some(stage =>
+            [
+              "NCLEX Roadmap",
+              "NCLEX Prescreen"
+            ].includes(stage.stage_category)
+          );
+
+        if (
+          savedTransferReached ||
+          savedNCLEXProgress
+        ) {
+          return true;
+        }
+      }
+    } catch (pipelineError) {
+      console.warn(
+        "[Pipeline] Saved NCLEX access check failed:",
+        pipelineError.message
+      );
+    }
+
+    const dealsResponse = await fetch(
+      `${API_BASE}/api/zoho/my-deals?_=${Date.now()}`,
+      {
+        headers,
+        cache: "no-store"
+      }
+    );
 
     let transferStatusSelected = false;
     let hasNCLEXFlag = false;
 
     if (dealsResponse.ok) {
       const dealsData = await dealsResponse.json();
-      const userData = dealsData?.data || {};
+      const userData =
+        dealsData?.user ||
+        dealsData?.data?.user ||
+        dealsData?.data ||
+        {};
 
       const status =
         userData.leadManagementStatus ||
@@ -1495,52 +1751,55 @@ const checkNCLEXAccess = async (email) => {
         userData.isNCLEX === true ||
         userData.nclex === true ||
         userData.NCLEX === true ||
-        String(userData.Education || "").toLowerCase().includes("nclex") ||
-        String(userData.professionalSpecialty || "").toLowerCase().includes("nclex");
+        String(
+          userData.Education || ""
+        )
+          .toLowerCase()
+          .includes("nclex") ||
+        String(
+          userData.professionalSpecialty || ""
+        )
+          .toLowerCase()
+          .includes("nclex");
 
-      if (!hasNCLEXFlag && Array.isArray(userData.allDeals)) {
-        hasNCLEXFlag = userData.allDeals.some((deal) => {
-          const dealStatus =
-            deal.Lead_Management_Status ||
-            deal.Application_Status ||
-            deal.applicationStatus ||
-            "";
+      if (
+        !hasNCLEXFlag &&
+        Array.isArray(userData.allDeals)
+      ) {
+        hasNCLEXFlag =
+          userData.allDeals.some(deal => {
+            const dealStatus =
+              deal.Lead_Management_Status ||
+              deal.Application_Status ||
+              deal.applicationStatus ||
+              "";
 
-          return (
-            normalizeApplicationStatus(dealStatus) ===
-              "transfer to icp usrn school" ||
-            deal.isNCLEXCandidate === true ||
-            deal.nclex_candidate === true ||
-            deal.NCLEX_Candidate === true ||
-            deal.customModule1 === true ||
-            deal.CustomModule1 === true ||
-            deal.isNCLEX === true ||
-            deal.nclex === true
-          );
-        });
+            return (
+              normalizeApplicationStatus(
+                dealStatus
+              ) ===
+                "transfer to icp usrn school" ||
+              deal.isNCLEXCandidate === true ||
+              deal.nclex_candidate === true ||
+              deal.NCLEX_Candidate === true ||
+              deal.customModule1 === true ||
+              deal.CustomModule1 === true ||
+              deal.isNCLEX === true ||
+              deal.nclex === true
+            );
+          });
       }
     }
 
-    if (transferStatusSelected) return true;
-
-    const candidateResponse = await fetch(
-      `${API_BASE}/api/recruit/documents?email=${encodeURIComponent(email)}`,
-      { headers, cache: "no-store" }
+    return (
+      transferStatusSelected ||
+      hasNCLEXFlag
     );
-
-    let hasCandidate = false;
-    if (candidateResponse.ok) {
-      const candidateData = await candidateResponse.json();
-      hasCandidate =
-        candidateData.candidateFound === true ||
-        candidateData.candidate_found === true ||
-        candidateData.hasCandidate === true ||
-        Array.isArray(candidateData.documents);
-    }
-
-    return hasCandidate && hasNCLEXFlag;
   } catch (error) {
-    console.error("[Pipeline] Error checking NCLEX access:", error);
+    console.error(
+      "[Pipeline] NCLEX access check failed:",
+      error
+    );
     return false;
   }
 };
@@ -7727,10 +7986,11 @@ export default function Pipeline() {
       const token = localStorage.getItem("icp_auth_token");
       let dateReceivedRaw = null;
       let recruitModulePresence = {
-        applications: false,
-        candidates: false,
-        customModule1: false,
+        applications: null,
+        candidates: null,
+        customModule1: null
       };
+      let recruitSnapshotLoaded = false;
       let submittedToImmigrationDate = null;
       let allClearDocumentaryComplete = false;
       let recruitApplicationStatus = "";
@@ -7773,6 +8033,7 @@ export default function Pipeline() {
               {};
             setICPUSRNCRMData(userData);
             icpUSRNData = userData;
+            recruitSnapshotLoaded = true;
             const rawFinalArrival =
               userData.Flight_Arrival_Time ||
               userData.flightArrivalTime ||
@@ -7819,17 +8080,37 @@ export default function Pipeline() {
                 )
               : [];
 
-            recruitModulePresence = {
-              applications:
-                userData?.recruitModulePresence?.applications === true ||
-                sourceModules.includes("applications"),
-              candidates:
-                userData?.recruitModulePresence?.candidates === true ||
-                sourceModules.includes("candidates"),
-              customModule1:
-                userData?.recruitModulePresence?.customModule1 === true ||
-                sourceModules.includes("custommodule1"),
-            };
+            const backendPresence =
+              userData?.recruitModulePresence || {};
+            const hasPresencePayload =
+              Object.prototype.hasOwnProperty.call(
+                backendPresence,
+                "applications"
+              ) ||
+              Object.prototype.hasOwnProperty.call(
+                backendPresence,
+                "candidates"
+              ) ||
+              sourceModules.length > 0;
+
+            recruitModulePresence = hasPresencePayload
+              ? {
+                  applications:
+                    backendPresence.applications === true ||
+                    sourceModules.includes("applications"),
+                  candidates:
+                    backendPresence.candidates === true ||
+                    sourceModules.includes("candidates"),
+                  customModule1:
+                    backendPresence.customModule1 === true ||
+                    sourceModules.includes("custommodule1") ||
+                    sourceModules.includes("nclex program")
+                }
+              : {
+                  applications: null,
+                  candidates: null,
+                  customModule1: null
+                };
 
             if (!dateReceivedRaw) {
               dateReceivedRaw =
@@ -7898,20 +8179,91 @@ export default function Pipeline() {
       const start = new Date(received);
       setPipelineStartDate(Number.isNaN(start.getTime()) ? new Date() : start);
       let saved = [];
+      let savedPipelineLoadedSuccessfully = false;
       try {
-        const token = localStorage.getItem("icp_auth_token");
-        const savedResponse = await fetch(`${API_BASE}/api/pipeline/get?email=${encodeURIComponent(user.email)}`, { headers: { Authorization: `Bearer ${token}` } });
-        if (savedResponse.ok) saved = (await savedResponse.json()).stages || [];
+        const token =
+          localStorage.getItem("icp_auth_token");
+        const savedResponse = await fetch(
+          `${API_BASE}/api/pipeline/get?email=${encodeURIComponent(user.email)}&_=${Date.now()}`,
+          {
+            cache: "no-store",
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          }
+        );
+        const savedPayload =
+          await savedResponse.json().catch(() => ({}));
+        if (savedResponse.ok) {
+          saved = Array.isArray(savedPayload.stages)
+            ? savedPayload.stages
+            : [];
+          savedPipelineLoadedSuccessfully = true;
+        }
       } catch (error) {
-        console.warn("[Pipeline] Could not load saved database stages:", error);
+        console.warn(
+          "[Pipeline] Could not load saved database stages:",
+          error
+        );
       }
-      const savedByName = new Map(saved.map(x => [x.stage_name, x]));
+      const savedByName = new Map(
+        saved.map(stage => [
+          stage.stage_name,
+          stage
+        ])
+      );
+
+      const savedNCLEXProgress = saved
+        .filter(stage =>
+          [
+            "NCLEX Roadmap",
+            "NCLEX Prescreen"
+          ].includes(stage.stage_category) ||
+          ICP_USRN_SUBPROCESS_CONFIG.some(
+            item =>
+              item.name ===
+              stage.stage_name
+          )
+        )
+        .reduce((progress, stage) => {
+          progress[stage.stage_name] = {
+            status: stage.status,
+            completed:
+              isPipelineStageComplete(stage),
+            completed_date:
+              stage.completed_date || null
+          };
+          return progress;
+        }, {});
+
+      const savedTransferStage =
+        savedByName.get(
+          "Transfer to ICP USRN School"
+        );
+
+      const savedTransferReached =
+        isPipelineStageComplete(
+          savedTransferStage
+        ) ||
+        Object.keys(
+          savedNCLEXProgress
+        ).length > 0;
+
+      if (savedTransferReached) {
+        setShowNCLEX(true);
+      }
       
       // Build stages with immigration details.
       // The first two hiring stages are controlled only by Recruit module presence:
       // Applied -> Applications; Associated with Job -> Applications + Candidates.
-      const applicationsFound = recruitModulePresence.applications === true;
-      const candidatesFound = recruitModulePresence.candidates === true;
+      const applicationsFound =
+        recruitModulePresence.applications === true;
+      const candidatesFound =
+        recruitModulePresence.candidates === true;
+      const applicationsPresenceKnown =
+        recruitModulePresence.applications !== null;
+      const candidatesPresenceKnown =
+        recruitModulePresence.candidates !== null;
 
       let allStages = STAGES_CONFIG.map(stage => {
         const savedStage = savedByName.get(stage.stage_name);
@@ -7923,10 +8275,24 @@ export default function Pipeline() {
         let automaticStatus = null;
 
         if (isAppliedStage) {
-          automaticStatus = applicationsFound ? "Completed" : "Not Started";
+          if (applicationsFound) {
+            automaticStatus = "Completed";
+          } else if (
+            applicationsPresenceKnown &&
+            !savedStage
+          ) {
+            automaticStatus = "Not Started";
+          }
         } else if (isAssociatedStage) {
-          automaticStatus =
-            applicationsFound && candidatesFound ? "Completed" : "Not Started";
+          if (applicationsFound && candidatesFound) {
+            automaticStatus = "Completed";
+          } else if (
+            applicationsPresenceKnown &&
+            candidatesPresenceKnown &&
+            !savedStage
+          ) {
+            automaticStatus = "Not Started";
+          }
         } else if (isFirstImmigrationStage && submittedToImmigrationDate) {
           automaticStatus = savedStage?.status === "Completed" ? "Completed" : "In Progress";
         } else if (isFirstDeploymentStage && allClearDocumentaryComplete) {
@@ -7950,19 +8316,29 @@ export default function Pipeline() {
                 ? new Date().toISOString()
                 : null,
           status:
-            automaticStatus !== null
-              ? automaticStatus
-              : stage.auto_complete_on_email && user.email
-                ? "Completed"
-                : savedStage?.status || "Not Started",
+            savedStage?.status === "Completed" ||
+            savedStage?.completed === true ||
+            savedStage?.is_completed === true ||
+            Boolean(savedStage?.completed_date)
+              ? "Completed"
+              : automaticStatus !== null
+                ? automaticStatus
+                : stage.auto_complete_on_email && user.email
+                  ? "Completed"
+                  : savedStage?.status || "Not Started",
           completed_date:
-            automaticStatus !== null
-              ? isAutomaticallyCompleted
-                ? savedStage?.completed_date || format(new Date(), "yyyy-MM-dd")
-                : null
-              : stage.auto_complete_on_email && user.email
-                ? savedStage?.completed_date || format(new Date(), "yyyy-MM-dd")
-                : savedStage?.completed_date || null,
+            savedStage?.completed_date ||
+            (
+              savedStage?.status === "Completed" ||
+              savedStage?.completed === true ||
+              savedStage?.is_completed === true
+                ? format(new Date(), "yyyy-MM-dd")
+                : automaticStatus !== null && isAutomaticallyCompleted
+                  ? format(new Date(), "yyyy-MM-dd")
+                  : stage.auto_complete_on_email && user.email
+                    ? format(new Date(), "yyyy-MM-dd")
+                    : null
+            ),
         };
         
         // Add immigration stage details if available
@@ -7974,7 +8350,10 @@ export default function Pipeline() {
       });
       
       const transferToICPUSRN =
-        shouldShowICPUSRNTransfer(recruitApplicationStatus);
+        shouldShowICPUSRNTransfer(
+          recruitApplicationStatus
+        ) ||
+        savedTransferReached;
 
       if (transferToICPUSRN) {
         // This is a separate Recruit branch. The three qualification outcome
@@ -8000,7 +8379,20 @@ export default function Pipeline() {
               ...stage,
               status: "Completed",
               completed_date:
-                stage.completed_date || format(new Date(), "yyyy-MM-dd"),
+                stage.completed_date ||
+                savedByName.get(
+                  stage.stage_name
+                )?.completed_date ||
+                (
+                  stage.stage_name ===
+                    "Transfer to ICP USRN School"
+                    ? savedTransferStage?.completed_date
+                    : null
+                ) ||
+                format(
+                  new Date(),
+                  "yyyy-MM-dd"
+                ),
               synced_from_application_status: true,
               transfer_to_nclex_branch: true,
               recruit_application_status: recruitApplicationStatus
@@ -8012,10 +8404,24 @@ export default function Pipeline() {
 
         setShowNCLEX(true);
       } else {
-        allStages = allStages.filter(
-          (stage) =>
-            stage.stage_name !== "Transfer to ICP USRN School"
-        );
+        const savedTransferStage =
+          savedByName.get("Transfer to ICP USRN School");
+        const transferWasPreviouslyReached =
+          savedTransferStage?.status === "Completed" ||
+          savedTransferStage?.completed === true ||
+          Boolean(savedTransferStage?.completed_date);
+
+        if (
+          recruitSnapshotLoaded &&
+          recruitApplicationStatus &&
+          !transferWasPreviouslyReached
+        ) {
+          allStages = allStages.filter(
+            stage =>
+              stage.stage_name !==
+              "Transfer to ICP USRN School"
+          );
+        }
 
         const normalizedHiringStatus =
           normalizeApplicationStatus(recruitApplicationStatus);
@@ -8024,7 +8430,13 @@ export default function Pipeline() {
         const mappedHiringStage =
           getMappedHiringStage(recruitApplicationStatus);
 
-        if (hiringProgress || mappedHiringStage === "Not Qualified - to close") {
+        if (
+          recruitApplicationStatus &&
+          (
+            hiringProgress ||
+            mappedHiringStage === "Not Qualified - to close"
+          )
+        ) {
           const completedStages = new Set(
             hiringProgress?.completed || ["Applied", "Associated with Job", "Not Qualified - to close"]
           );
@@ -8060,6 +8472,39 @@ export default function Pipeline() {
             return stage;
           });
         }
+      }
+
+      const hiringStagesToPersist = allStages
+        .filter(stage =>
+          stage.stage_category === "Hiring" &&
+          stage.synced_from_application_status === true &&
+          ["Completed", "In Progress"].includes(stage.status)
+        );
+
+      if (token && hiringStagesToPersist.length > 0) {
+        await Promise.allSettled(
+          hiringStagesToPersist.map(stage =>
+            fetch(`${API_BASE}/api/pipeline/update-stage`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                email: user.email,
+                stage_name: stage.stage_name,
+                status: stage.status,
+                completed_date:
+                  stage.status === "Completed"
+                    ? (
+                        stage.completed_date ||
+                        new Date().toISOString()
+                      )
+                    : null
+              })
+            })
+          )
+        );
       }
 
       // CRM Deal fields control the two embassy-related Deployment stages.
@@ -8151,66 +8596,110 @@ export default function Pipeline() {
         );
       }
 
-      // Candidate-module API fields control the contract stages independently of
-      // Lead Management Status. Recruit is the source of truth for these values.
-      const contractOnFile = isTruthyField(
-        ga(icpUSRNData, "Contract_on_file", "contractOnFile")
-      );
-      const contractSignedDate = ga(
+      // Exact Recruit Candidates-module field synchronization. Database
+      // completion always remains visible even when Recruit is unavailable.
+      const proofOfNCLEX = ga(
         icpUSRNData,
-        "Contract_Signed_Date",
-        "contractSignedDate"
+        "Proof_of_NCLEX",
+        "proofOfNCLEX"
       );
-      const hasContractSignedDate =
-        contractSignedDate !== undefined &&
-        contractSignedDate !== null &&
-        String(contractSignedDate).trim() !== "" &&
-        String(contractSignedDate).trim() !== "—";
 
-      if (contractOnFile || hasContractSignedDate) {
-        allStages = allStages.map(stage => {
-          if (stage.stage_name === "Employment Contract Signed" && hasContractSignedDate) {
-            return {
-              ...stage,
-              status: "Completed",
-              completed_date: String(contractSignedDate).slice(0, 10),
-              synced_from_recruit_candidate_field: "Contract_Signed_Date",
-            };
-          }
-          return stage;
-        });
-      }
-
-      // Documents Received is controlled by two file fields in the Recruit
-      // Candidates module. Both fields must contain a value before the stage
-      // is completed.
-      const proofOfNCLEX = ga(icpUSRNData, "Proof_of_NCLEX", "proofOfNCLEX");
-      const birthCertificate = ga(icpUSRNData, "Birth_Certificate", "birthCertificate");
-      const hasRecruitFileValue = (value) => {
-        if (value === undefined || value === null || value === false) return false;
-        if (Array.isArray(value)) return value.length > 0;
-        if (typeof value === "object") return Object.keys(value).length > 0;
-        const normalized = String(value).trim().toLowerCase();
-        return normalized !== "" && normalized !== "—" && normalized !== "none" && normalized !== "null";
-      };
-      const hiringDocumentsVerified = ga(
+      const birthCertificate = ga(
         icpUSRNData,
-        "Hiring_Documents_Verified",
-        "hiringDocumentsVerified"
+        "Birth_Certificate",
+        "birthCertificate"
       );
+
       const documentsReceivedComplete =
-        (hasRecruitFileValue(proofOfNCLEX) && hasRecruitFileValue(birthCertificate)) ||
-        isTruthyField(hiringDocumentsVerified);
+        hasRecruitCandidateFieldValue(
+          proofOfNCLEX
+        ) &&
+        hasRecruitCandidateFieldValue(
+          birthCertificate
+        );
 
-      if (documentsReceivedComplete) {
-        allStages = allStages.map(stage => stage.stage_name === "Documents Received"
-          ? {
-              ...stage,
-              status: "Completed",
-              completed_date: stage.completed_date || format(new Date(), "yyyy-MM-dd"),
-              synced_from_recruit_candidate_fields: ["Proof_of_NCLEX", "Birth_Certificate"],
-            }
-          : stage
+      allStages = allStages.map(stage => {
+        const savedStage =
+          savedByName.get(
+            stage.stage_name
+          );
+
+        const savedComplete =
+          isPipelineStageComplete(
+            savedStage
+          );
+
+        if (
+          stage.stage_name ===
+            "Documents Received" &&
+          (
+            savedComplete ||
+            documentsReceivedComplete
+          )
+        ) {
+          return {
+            ...stage,
+            status: "Completed",
+            completed: true,
+            is_completed: true,
+            completed_date:
+              savedStage
+                ?.completed_date ||
+              stage.completed_date ||
+              format(
+                new Date(),
+                "yyyy-MM-dd"
+              ),
+            synced_from_recruit_candidate_fields:
+              [
+                "Proof_of_NCLEX",
+                "Birth_Certificate"
+              ]
+          };
+        }
+
+        return stage;
+      });
+
+      const exactHiringStages =
+        allStages.filter(stage =>
+          [
+            "Documents Received"
+          ].includes(
+            stage.stage_name
+          ) &&
+          isPipelineStageComplete(stage)
+        );
+
+      if (
+        token &&
+        exactHiringStages.length > 0
+      ) {
+        await Promise.allSettled(
+          exactHiringStages.map(stage =>
+            fetch(
+              `${API_BASE}/api/pipeline/update-stage`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization:
+                    `Bearer ${token}`,
+                  "Content-Type":
+                    "application/json"
+                },
+                body: JSON.stringify({
+                  email:
+                    user.email,
+                  stage_name:
+                    stage.stage_name,
+                  status:
+                    "Completed",
+                  completed_date:
+                    stage.completed_date
+                })
+              }
+            )
+          )
         );
       }
 
@@ -8403,8 +8892,25 @@ export default function Pipeline() {
         };
       });
 
+      allStages = allStages.map(stage =>
+        stage.stage_name ===
+          "Transfer to ICP USRN School"
+          ? {
+              ...stage,
+              nclex_saved_progress:
+                savedNCLEXProgress,
+              nclex_branch_visible:
+                transferToICPUSRN ||
+                savedTransferReached
+            }
+          : stage
+      );
+
       setStages(allStages);
-      if (saved.length === 0) {
+      if (
+        savedPipelineLoadedSuccessfully &&
+        saved.length === 0
+      ) {
         const initResponse = await fetch(`${API_BASE}/api/pipeline/initialize`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -9008,7 +9514,34 @@ export default function Pipeline() {
 
   const categories = ["Hiring", "Immigration", "Deployment", "Aftercare", "Reimbursement"];
   
-  const displayStages = stages.filter(s => !s?.is_gate);
+  const normalizedCurrentApplicationStatus =
+    normalizeApplicationStatus(
+      applicationStatus
+    );
+
+  const displayStages = stages.filter(stage => {
+    if (stage?.is_gate) return false;
+
+    if (
+      normalizedCurrentApplicationStatus ===
+        "offer accepted" &&
+      stage.stage_name ===
+        "Offer Declined"
+    ) {
+      return false;
+    }
+
+    if (
+      normalizedCurrentApplicationStatus ===
+        "offer declined" &&
+      stage.stage_name ===
+        "Offer Accepted"
+    ) {
+      return false;
+    }
+
+    return true;
+  });
   const completedCount = displayStages.filter(s => s?.status === "Completed").length;
   const totalCount = displayStages.length;
   const progressPct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
@@ -9283,10 +9816,29 @@ export default function Pipeline() {
                           </span>
                         )}
                       </p>
-                      {stage.stage_category === "Hiring" && HIRING_SUBPROCESSES[stage.stage_name] && (
+                      {stage.stage_name ===
+                        "Transfer to ICP USRN School" &&
+                        HIRING_SUBPROCESSES[
+                          stage.stage_name
+                        ] &&
+                        (
+                          showNCLEX ||
+                          stage.nclex_branch_visible
+                        ) && (
                         <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
                           {HIRING_SUBPROCESSES[stage.stage_name].map((item, subIndex) => {
-                            const complete = isICPUSRNItemComplete(item, icpUSRNCRMData);
+                            const savedItem =
+                              stage
+                                .nclex_saved_progress
+                                ?.[item.name];
+
+                            const complete =
+                              savedItem?.completed ===
+                                true ||
+                              isICPUSRNItemComplete(
+                                item,
+                                icpUSRNCRMData
+                              );
                             return (
                               <div
                                 key={`${stage.stage_name}-${subIndex}`}
@@ -9301,7 +9853,23 @@ export default function Pipeline() {
                                   <span>{item.name}</span>
                                   {complete && <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />}
                                 </div>
-                                <div className={cn("mt-1 text-[10px]", complete ? "text-emerald-600" : "text-slate-400")}></div>
+                                <div
+                                  className={cn(
+                                    "mt-1 text-[10px]",
+                                    complete
+                                      ? "text-emerald-600"
+                                      : "text-slate-400"
+                                  )}
+                                >
+                                  {savedItem?.completed_date
+                                    ? `Completed ${format(
+                                        new Date(
+                                          savedItem.completed_date
+                                        ),
+                                        "MMM d, yyyy"
+                                      )}`
+                                    : ""}
+                                </div>
                               </div>
                             );
                           })}
