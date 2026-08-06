@@ -195,11 +195,6 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   const [adminDetails, setAdminDetails] = useState({});
   const [docActionError, setDocActionError] = useState(null);
   const [viewingDocId, setViewingDocId] = useState(null);
-  const [documentApprovals, setDocumentApprovals] = useState({
-    documents: {},
-    required: [],
-    complete: false
-  });
   const [approvalBusyKey, setApprovalBusyKey] = useState(null);
 
   useEffect(() => {
@@ -228,26 +223,14 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
         // profile, MongoDB pipeline, submitted aftercare dates, and login history.
         const [
           adminRes,
-          recruitDocsRes,
-          crmDocsRes,
-          approvalsRes
+          documentsRes
         ] = await Promise.allSettled([
           fetch(`${API_BASE}/api/admin/user/${email}`, {
             headers,
             credentials: 'include',
             cache: 'no-store'
           }),
-          fetch(`${API_BASE}/api/recruit/documents${emailParam}`, {
-            headers,
-            credentials: 'include',
-            cache: 'no-store'
-          }),
-          fetch(`${API_BASE}/api/documents/my-documents${emailParam}`, {
-            headers,
-            credentials: 'include',
-            cache: 'no-store'
-          }),
-          fetch(`${API_BASE}/api/admin/document-approvals/${email}`, {
+          fetch(`${API_BASE}/api/admin/documents/${email}`, {
             headers,
             credentials: 'include',
             cache: 'no-store'
@@ -301,48 +284,40 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
         let allDocs = [];
 
-        if (recruitDocsRes.status === 'fulfilled' && recruitDocsRes.value.ok) {
-          const data = await recruitDocsRes.value.json();
-          if (Array.isArray(data.documents)) {
-            allDocs.push(...data.documents.map(doc => ({ ...doc, source: doc.source || 'recruit' })));
-          }
-        }
-
-        if (crmDocsRes.status === 'fulfilled' && crmDocsRes.value.ok) {
-          const data = await crmDocsRes.value.json();
-          if (Array.isArray(data.documents)) {
-            allDocs.push(...data.documents.map(doc => ({ ...doc, source: doc.source || 'crm' })));
-          }
-        }
-
-        // Keep documents from CRM and Recruit separate even when Zoho reuses an ID.
-        const uniqueDocs = Array.from(
-          new Map(
-            allDocs.map((doc, index) => [
-              `${doc.source || 'unknown'}:${doc.attachment_id || doc.id || doc.document_id || index}`,
-              doc
-            ])
-          ).values()
-        );
-
         if (
-          approvalsRes.status === 'fulfilled' &&
-          approvalsRes.value.ok
+          documentsRes.status === 'fulfilled' &&
+          documentsRes.value.ok
         ) {
-          const approvalPayload =
-            await approvalsRes.value.json();
-          setDocumentApprovals({
-            documents: approvalPayload.documents || {},
-            required: approvalPayload.required || [],
-            complete: approvalPayload.complete === true
-          });
+          const data =
+            await documentsRes.value.json();
+
+          if (Array.isArray(data.documents)) {
+            allDocs = data.documents;
+          }
+        } else {
+          const status =
+            documentsRes.status === 'fulfilled'
+              ? documentsRes.value.status
+              : 'network';
+
+          console.warn(
+            `Unable to load the complete document list (${status}).`
+          );
         }
 
         setDocuments(
-          uniqueDocs.sort(
+          allDocs.sort(
             (a, b) =>
-              new Date(b.uploaded_at || b.Created_Time || 0) -
-              new Date(a.uploaded_at || a.Created_Time || 0)
+              new Date(
+                b.uploaded_at ||
+                b.Created_Time ||
+                0
+              ) -
+              new Date(
+                a.uploaded_at ||
+                a.Created_Time ||
+                0
+              )
           )
         );
       } catch (error) {
@@ -365,10 +340,25 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       const { adminToken } = getTokens();
       const headers = { 'Authorization': `AdminBearer ${adminToken}` };
       const emailParam = `?email=${encodeURIComponent(user.email)}`;
-      const res = await fetch(`${API_BASE}/api/documents/download/${encodeURIComponent(docId)}${emailParam}`, {
-        headers,
-        credentials: 'include'
-      });
+      const sourceParam =
+        `&source=${encodeURIComponent(
+          doc.source || ""
+        )}`;
+
+      const fieldParam =
+        doc.crm_field_api_name
+          ? `&field=${encodeURIComponent(
+              doc.crm_field_api_name
+            )}`
+          : "";
+
+      const res = await fetch(
+        `${API_BASE}/api/documents/download/${encodeURIComponent(docId)}${emailParam}${sourceParam}${fieldParam}`,
+        {
+          headers,
+          credentials: 'include'
+        }
+      );
       if (!res.ok) {
         throw new Error(`Server returned ${res.status}`);
       }
@@ -386,94 +376,142 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
 
   const updateDocumentApproval = async (
-    requirementKey,
+    doc,
     action
   ) => {
-    setApprovalBusyKey(requirementKey);
+    const approvalKey =
+      doc.approval_key ||
+      [
+        doc.source || "unknown",
+        doc.crm_field_api_name || "",
+        doc.attachment_id ||
+          doc.id ||
+          doc.document_id ||
+          ""
+      ].join(":");
+
+    if (!approvalKey) {
+      setDocActionError(
+        "This document has no approval identifier."
+      );
+      return;
+    }
+
+    const reason =
+      action === "reject"
+        ? window.prompt(
+            "Reason for rejecting this document:"
+          ) || ""
+        : "";
+
+    if (
+      action === "reject" &&
+      !reason.trim()
+    ) {
+      return;
+    }
+
+    setApprovalBusyKey(approvalKey);
     setDocActionError(null);
 
     try {
-      const reason =
-        action === "reject"
-          ? window.prompt(
-              "Enter the reason the candidate must replace this document:"
-            ) || ""
-          : "";
-
-      if (action === "reject" && !reason.trim()) {
-        setApprovalBusyKey(null);
-        return;
-      }
-
-      const { adminToken, userToken } = getTokens();
-      const headers = {
-        "Content-Type": "application/json",
-        ...(adminToken
-          ? {
-              Authorization: `AdminBearer ${adminToken}`,
-              "x-admin-token": adminToken
-            }
-          : userToken
-            ? { Authorization: `Bearer ${userToken}` }
-            : {})
-      };
+      const { adminToken } = getTokens();
 
       const response = await fetch(
-        `${API_BASE}/api/admin/document-approvals/${encodeURIComponent(user.email)}/${encodeURIComponent(requirementKey)}`,
+        `${API_BASE}/api/admin/documents/${encodeURIComponent(
+          user.email
+        )}/${encodeURIComponent(
+          approvalKey
+        )}/approval`,
         {
           method: "POST",
+          headers: {
+            Authorization:
+              `AdminBearer ${adminToken}`,
+            "x-admin-token":
+              adminToken,
+            "Content-Type":
+              "application/json"
+          },
           credentials: "include",
-          headers,
           body: JSON.stringify({
             action,
-            reason
+            reason,
+            document: {
+              attachment_id:
+                doc.attachment_id ||
+                doc.id ||
+                null,
+              document_name:
+                doc.document_name ||
+                doc.File_Name ||
+                "Document",
+              source:
+                doc.source ||
+                "unknown",
+              crm_field_api_name:
+                doc.crm_field_api_name ||
+                null,
+              uploaded_at:
+                doc.uploaded_at ||
+                null
+            }
           })
         }
       );
 
-      const data = await response.json().catch(() => ({}));
+      const data = await response
+        .json()
+        .catch(() => ({}));
+
       if (!response.ok) {
         throw new Error(
           data.error ||
-          `Unable to ${action} the document`
+          "Unable to update document approval."
         );
       }
 
-      setDocumentApprovals(previous => ({
-        ...previous,
-        documents: {
-          ...previous.documents,
-          [requirementKey]: {
-            ...(previous.documents?.[requirementKey] || {}),
-            approval_status:
-              action === "approve"
-                ? "approved"
-                : "rejected",
-            rejection_reason:
-              action === "reject" ? reason : null
-          }
-        },
-        complete: data.complete === true
-      }));
+      setDocuments(previous =>
+        previous.map(item => {
+          const itemKey =
+            item.approval_key ||
+            [
+              item.source ||
+                "unknown",
+              item.crm_field_api_name ||
+                "",
+              item.attachment_id ||
+                item.id ||
+                item.document_id ||
+                ""
+            ].join(":");
 
-      setPipeline(previous =>
-        previous.map(stage =>
-          data.complete &&
-          ["Required Document Upload", "Documents Received"].includes(
-            stage.stage_name
-          )
+          return itemKey === approvalKey
             ? {
-                ...stage,
-                status: "Completed",
-                completed_date:
-                  data.stage?.completed_date ||
-                  new Date().toISOString()
+                ...item,
+                approval_key:
+                  approvalKey,
+                approval_status:
+                  action === "approve"
+                    ? "approved"
+                    : "rejected",
+                approved_at:
+                  action === "approve"
+                    ? new Date().toISOString()
+                    : null,
+                rejection_reason:
+                  action === "reject"
+                    ? reason
+                    : null
               }
-            : stage
-        )
+            : item;
+        })
       );
     } catch (error) {
-      setDocActionError(error.message);
+      setDocActionError(
+        error.message ||
+        "Unable to update document approval."
+      );
     } finally {
       setApprovalBusyKey(null);
     }
@@ -680,98 +718,6 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
               {/* TAB 3: DOCUMENTS */}
               {activeTab === 'documents' && (
               <div className="space-y-5">
-                <Section title="Required Document Approval">
-                  <div className="space-y-3">
-                    {documentApprovals.required.map(requirement => {
-                      const submitted =
-                        documentApprovals.documents?.[requirement.key];
-                      const approvalStatus =
-                        submitted?.approval_status || "not submitted";
-
-                      return (
-                        <div
-                          key={requirement.key}
-                          className="flex flex-col gap-3 rounded-xl border p-4 md:flex-row md:items-center md:justify-between"
-                        >
-                          <div>
-                            <p className="text-sm font-semibold text-gray-900">
-                              {requirement.label}
-                            </p>
-                            <p className="mt-1 text-xs text-gray-500">
-                              {submitted?.document_name ||
-                                "Not submitted"}
-                            </p>
-                            <p
-                              className={`mt-1 text-xs font-semibold ${
-                                approvalStatus === "approved"
-                                  ? "text-emerald-600"
-                                  : approvalStatus === "rejected"
-                                    ? "text-red-600"
-                                    : approvalStatus === "pending"
-                                      ? "text-amber-600"
-                                      : "text-gray-500"
-                              }`}
-                            >
-                              {approvalStatus
-                                .replace(/_/g, " ")
-                                .replace(/\b\w/g, character =>
-                                  character.toUpperCase()
-                                )}
-                            </p>
-                            {submitted?.rejection_reason && (
-                              <p className="mt-1 text-xs text-red-600">
-                                {submitted.rejection_reason}
-                              </p>
-                            )}
-                          </div>
-
-                          {submitted?.verified && (
-                            <div className="flex gap-2">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  updateDocumentApproval(
-                                    requirement.key,
-                                    "approve"
-                                  )
-                                }
-                                disabled={
-                                  approvalBusyKey === requirement.key ||
-                                  approvalStatus === "approved"
-                                }
-                                className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
-                              >
-                                Approve
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  updateDocumentApproval(
-                                    requirement.key,
-                                    "reject"
-                                  )
-                                }
-                                disabled={
-                                  approvalBusyKey === requirement.key
-                                }
-                                className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
-                              >
-                                Reject
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-
-                    {documentApprovals.complete && (
-                      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">
-                        All required documents are approved. The pipeline section is complete.
-                      </div>
-                    )}
-                  </div>
-                </Section>
-
                 <div className="space-y-4">
                   {docActionError && (
                     <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 flex items-center gap-2">
@@ -805,17 +751,79 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                   <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-md ${doc.source === 'recruit' ? 'bg-blue-50 text-blue-700' : 'bg-green-50 text-green-700'}`}>
                                     {doc.source === 'recruit' ? 'Recruit' : 'CRM'}
                                   </span>
+                                  <span
+                                    className={`text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-md ${
+                                      doc.approval_status === "approved"
+                                        ? "bg-emerald-50 text-emerald-700"
+                                        : doc.approval_status === "rejected"
+                                          ? "bg-red-50 text-red-700"
+                                          : "bg-amber-50 text-amber-700"
+                                    }`}
+                                  >
+                                    {doc.approval_status === "approved"
+                                      ? "Approved"
+                                      : doc.approval_status === "rejected"
+                                        ? "Rejected"
+                                        : "Pending approval"}
+                                  </span>
                                 </div>
+                                {doc.rejection_reason && (
+                                  <p className="mt-2 text-xs text-red-600">
+                                    {doc.rejection_reason}
+                                  </p>
+                                )}
                               </div>
                             </div>
-                            <button
-                              onClick={() => handleViewDocument(doc)}
-                              disabled={isViewing}
-                              className="p-3 bg-gray-50 hover:bg-gray-100 border rounded-xl text-gray-600 transition shadow-sm disabled:opacity-50"
-                              title="View Document"
-                            >
-                              {isViewing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Eye className="w-5 h-5" />}
-                            </button>
+                            <div className="flex shrink-0 flex-col gap-2">
+                              <button
+                                onClick={() =>
+                                  handleViewDocument(doc)
+                                }
+                                disabled={isViewing}
+                                className="rounded-lg border bg-gray-50 p-2.5 text-gray-600 transition hover:bg-gray-100 disabled:opacity-50"
+                                title="View Document"
+                              >
+                                {isViewing
+                                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                                  : <Eye className="h-4 w-4" />}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateDocumentApproval(
+                                    doc,
+                                    "approve"
+                                  )
+                                }
+                                disabled={
+                                  approvalBusyKey ===
+                                    doc.approval_key ||
+                                  doc.approval_status ===
+                                    "approved"
+                                }
+                                className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                              >
+                                Approve
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateDocumentApproval(
+                                    doc,
+                                    "reject"
+                                  )
+                                }
+                                disabled={
+                                  approvalBusyKey ===
+                                    doc.approval_key
+                                }
+                                className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                              >
+                                Reject
+                              </button>
+                            </div>
                           </div>
                         )
                       })}
@@ -961,7 +969,17 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                             ...profile,
                           })
                             .filter(([key, value]) => {
-                              if (['zohoData', 'pipelineStages', 'loginHistory', 'pipelineProgress', 'submittedDates', 'pipeline'].includes(key)) return false;
+                              if ([
+                                'zohoData',
+                                'allDeals',
+                                'deals',
+                                'latestDeal',
+                                'pipelineStages',
+                                'loginHistory',
+                                'pipelineProgress',
+                                'submittedDates',
+                                'pipeline'
+                              ].includes(key)) return false;
                               return value !== undefined && value !== null && value !== '' && extractString(value) !== '—';
                             })
                             .sort(([a], [b]) => a.localeCompare(b))

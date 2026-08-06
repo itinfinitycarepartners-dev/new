@@ -1,194 +1,566 @@
 // @ts-nocheck
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useQueryClient
+} from "@tanstack/react-query";
 import { useAuth } from "@/lib/AuthContext";
-import { 
-  FileText, Upload, Loader2, X, CheckCircle, AlertCircle, 
-  Clock, Search, Eye, ArrowLeft, Calendar, RefreshCw, 
-  FolderOpen, WifiOff, File, Download, ExternalLink 
+import {
+  FileText,
+  Loader2,
+  X,
+  AlertCircle,
+  Search,
+  Eye,
+  ArrowLeft,
+  Calendar,
+  RefreshCw,
+  FolderOpen,
+  Image as ImageIcon,
+  FileArchive,
+  FileSpreadsheet,
+  FileType2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { useState, useEffect } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState
+} from "react";
 
 const API_BASE = (() => {
   try {
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL) {
+    if (
+      typeof import.meta !== "undefined" &&
+      import.meta.env &&
+      import.meta.env.VITE_API_BASE_URL
+    ) {
       return import.meta.env.VITE_API_BASE_URL;
     }
-  } catch (e) {
-    // Fall through to default
+  } catch {
+    // Use deployed API fallback.
   }
+
   return "https://fictional-carnival-3inv.onrender.com";
 })();
 
-// PDF Viewer Modal Component
-function PDFViewerModal({ doc, isOpen, onClose }) {
-  const [loading, setLoading] = useState(true);
-  const [pdfUrl, setPdfUrl] = useState(null);
-  const [error, setError] = useState(null);
-  const token = localStorage.getItem("icp_auth_token");
-  
-  useEffect(() => {
-    if (isOpen && doc && doc.attachment_id) {
-      setLoading(true);
-      setError(null);
-      fetchPDF();
-    }
-  }, [isOpen, doc]);
+const getAuthToken = () =>
+  localStorage.getItem("icp_auth_token") || "";
 
-  const fetchPDF = async () => {
-    try {
-      let url = `${API_BASE}/api/documents/download/${doc.attachment_id}?token=${token}`;
-      if (doc.source) {
-        url += `&source=${doc.source}`;
-      }
-      
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Failed to fetch document: ${response.status}`);
-      }
-      
-      const contentType = response.headers.get('content-type');
-      
-      if (contentType && contentType.includes('application/json')) {
-        const data = await response.json();
-        if (data.base64) {
-          const byteCharacters = atob(data.base64);
-          const byteNumbers = new Array(byteCharacters.length);
-          for (let i = 0; i < byteCharacters.length; i++) {
-            byteNumbers[i] = byteCharacters.charCodeAt(i);
-          }
-          const byteArray = new Uint8Array(byteNumbers);
-          const blob = new Blob([byteArray], { type: 'application/pdf' });
-          const url = URL.createObjectURL(blob);
-          setPdfUrl(url);
-        } else {
-          throw new Error('Invalid document data');
-        }
-      } else {
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        setPdfUrl(url);
-      }
-      
-      setLoading(false);
-    } catch (error) {
-      console.error('Error fetching PDF:', error);
-      setError(error.message);
-      setLoading(false);
-    }
+const normalizeDocument = (document, index) => {
+  const attachmentId =
+    document.attachment_id ||
+    document.id ||
+    document.attachment_Id ||
+    document.document_id ||
+    document._id ||
+    "";
+
+  return {
+    ...document,
+    attachment_id: String(attachmentId),
+    document_name:
+      document.document_name ||
+      document.File_Name ||
+      document.name ||
+      document.file_name ||
+      document.original_name ||
+      `Document ${index + 1}`,
+    document_type:
+      document.document_type ||
+      document.File_Type ||
+      document.file_type ||
+      "Document",
+    uploaded_at:
+      document.uploaded_at ||
+      document.Created_Time ||
+      document.created_at ||
+      document.Modified_Time ||
+      null,
+    source:
+      String(document.source || "crm")
+        .trim()
+        .toLowerCase(),
+    approval_status:
+      document.approval_status || "approved"
   };
+};
+
+const getDocumentKey = document =>
+  document.approval_key ||
+  [
+    document.source || "unknown",
+    document.crm_field_api_name || "",
+    document.attachment_id ||
+      document.id ||
+      document.document_id ||
+      document.document_name
+  ].join(":");
+
+const getFileExtension = documentName => {
+  const name = String(documentName || "");
+  const index = name.lastIndexOf(".");
+
+  return index >= 0
+    ? name.slice(index + 1).toLowerCase()
+    : "";
+};
+
+const inferContentCategory = (
+  contentType,
+  documentName
+) => {
+  const type = String(contentType || "")
+    .toLowerCase();
+
+  const extension =
+    getFileExtension(documentName);
+
+  if (
+    type.includes("application/pdf") ||
+    extension === "pdf"
+  ) {
+    return "pdf";
+  }
+
+  if (
+    type.startsWith("image/") ||
+    [
+      "png",
+      "jpg",
+      "jpeg",
+      "gif",
+      "webp",
+      "bmp",
+      "svg"
+    ].includes(extension)
+  ) {
+    return "image";
+  }
+
+  if (
+    type.includes("text/") ||
+    [
+      "txt",
+      "csv",
+      "json",
+      "xml",
+      "md"
+    ].includes(extension)
+  ) {
+    return "text";
+  }
+
+  return "other";
+};
+
+const getDocumentIcon = document => {
+  const extension =
+    getFileExtension(
+      document.document_name
+    );
+
+  if (
+    [
+      "png",
+      "jpg",
+      "jpeg",
+      "gif",
+      "webp",
+      "bmp",
+      "svg"
+    ].includes(extension)
+  ) {
+    return ImageIcon;
+  }
+
+  if (
+    [
+      "xls",
+      "xlsx",
+      "csv"
+    ].includes(extension)
+  ) {
+    return FileSpreadsheet;
+  }
+
+  if (
+    [
+      "zip",
+      "rar",
+      "7z"
+    ].includes(extension)
+  ) {
+    return FileArchive;
+  }
+
+  if (
+    [
+      "doc",
+      "docx",
+      "rtf"
+    ].includes(extension)
+  ) {
+    return FileType2;
+  }
+
+  return FileText;
+};
+
+function DocumentViewerModal({
+  doc,
+  isOpen,
+  onClose
+}) {
+  const [loading, setLoading] =
+    useState(false);
+  const [objectUrl, setObjectUrl] =
+    useState("");
+  const [contentType, setContentType] =
+    useState("");
+  const [category, setCategory] =
+    useState("");
+  const [textContent, setTextContent] =
+    useState("");
+  const [error, setError] =
+    useState("");
 
   useEffect(() => {
-    return () => {
-      if (pdfUrl) {
-        URL.revokeObjectURL(pdfUrl);
+    if (!isOpen || !doc) {
+      return undefined;
+    }
+
+    let active = true;
+    let createdUrl = "";
+
+    const fetchDocument = async () => {
+      setLoading(true);
+      setError("");
+      setObjectUrl("");
+      setTextContent("");
+      setContentType("");
+      setCategory("");
+
+      try {
+        const token = getAuthToken();
+
+        if (!token) {
+          throw new Error(
+            "Your session has expired. Please sign in again."
+          );
+        }
+
+        if (!doc.attachment_id) {
+          throw new Error(
+            "This document has no attachment identifier."
+          );
+        }
+
+        const query = new URLSearchParams();
+
+        if (doc.source) {
+          query.set(
+            "source",
+            doc.source
+          );
+        }
+
+        if (doc.crm_field_api_name) {
+          query.set(
+            "field",
+            doc.crm_field_api_name
+          );
+        }
+
+        query.set("_", String(Date.now()));
+
+        const response = await fetch(
+          `${API_BASE}/api/documents/download/${encodeURIComponent(
+            doc.attachment_id
+          )}?${query.toString()}`,
+          {
+            method: "GET",
+            cache: "no-store",
+            headers: {
+              Authorization:
+                `Bearer ${token}`
+            }
+          }
+        );
+
+        if (!response.ok) {
+          const payload = await response
+            .clone()
+            .json()
+            .catch(() => ({}));
+
+          throw new Error(
+            payload.error ||
+            payload.message ||
+            `Document request failed (${response.status}).`
+          );
+        }
+
+        const responseType =
+          response.headers.get(
+            "content-type"
+          ) || "";
+
+        let blob;
+
+        if (
+          responseType.includes(
+            "application/json"
+          )
+        ) {
+          const payload =
+            await response.json();
+
+          if (!payload.base64) {
+            throw new Error(
+              "The server did not return document content."
+            );
+          }
+
+          const bytes = Uint8Array.from(
+            atob(payload.base64),
+            character =>
+              character.charCodeAt(0)
+          );
+
+          blob = new Blob(
+            [bytes],
+            {
+              type:
+                payload.contentType ||
+                payload.content_type ||
+                doc.file_type ||
+                "application/octet-stream"
+            }
+          );
+        } else {
+          blob = await response.blob();
+        }
+
+        if (!active) return;
+
+        const resolvedType =
+          blob.type ||
+          responseType ||
+          doc.file_type ||
+          doc.document_type ||
+          "application/octet-stream";
+
+        const resolvedCategory =
+          inferContentCategory(
+            resolvedType,
+            doc.document_name
+          );
+
+        setContentType(resolvedType);
+        setCategory(resolvedCategory);
+
+        if (
+          resolvedCategory === "text"
+        ) {
+          setTextContent(
+            await blob.text()
+          );
+        } else {
+          createdUrl =
+            URL.createObjectURL(blob);
+          setObjectUrl(createdUrl);
+        }
+      } catch (requestError) {
+        console.error(
+          "[Documents] Viewer error:",
+          requestError
+        );
+
+        if (active) {
+          setError(
+            requestError.message ||
+            "The document could not be loaded."
+          );
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
       }
     };
-  }, [pdfUrl]);
 
-  if (!isOpen || !doc) return null;
+    fetchDocument();
+
+    return () => {
+      active = false;
+
+      if (createdUrl) {
+        URL.revokeObjectURL(
+          createdUrl
+        );
+      }
+    };
+  }, [
+    isOpen,
+    doc?.attachment_id,
+    doc?.source,
+    doc?.crm_field_api_name
+  ]);
+
+  if (!isOpen || !doc) {
+    return null;
+  }
+
+  const DocumentIcon =
+    getDocumentIcon(doc);
 
   return (
-    <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl flex flex-col w-full max-w-6xl max-h-[90vh]">
-        <div className="flex items-center justify-between p-4 border-b bg-gray-50 rounded-t-xl">
-          <div className="flex items-center gap-3">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-3 md:p-5">
+      <div className="flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b bg-gray-50 p-4">
+          <div className="flex min-w-0 items-center gap-3">
             <button
+              type="button"
               onClick={onClose}
-              className="p-2 hover:bg-gray-200 rounded-lg transition-colors flex items-center gap-2"
+              className="flex items-center gap-2 rounded-lg p-2 transition-colors hover:bg-gray-200"
             >
               <ArrowLeft className="h-5 w-5" />
-              <span className="text-sm font-medium hidden sm:inline">Back to Documents</span>
+              <span className="hidden text-sm font-medium sm:inline">
+                Back to Documents
+              </span>
             </button>
-            <div className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-primary" />
-              <h3 className="font-semibold truncate max-w-[200px] sm:max-w-[400px]">
-                {doc.document_name || 'Document'}
+
+            <div className="flex min-w-0 items-center gap-2">
+              <DocumentIcon className="h-5 w-5 shrink-0 text-primary" />
+              <h3 className="truncate font-semibold">
+                {doc.document_name}
               </h3>
             </div>
           </div>
+
           <button
+            type="button"
             onClick={onClose}
-            className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
+            className="rounded-lg p-2 transition-colors hover:bg-gray-200"
+            aria-label="Close document viewer"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
-        
-        <div className="px-4 py-2 bg-gray-50 border-b flex flex-wrap items-center gap-3 text-sm">
-          <span className="text-gray-600">
-            📄 {doc.document_name || 'Unnamed Document'}
+
+        <div className="flex flex-wrap items-center gap-3 border-b bg-gray-50 px-4 py-2 text-xs text-gray-500">
+          <span className="font-medium text-gray-700">
+            {doc.document_type ||
+              "Document"}
           </span>
-          {(doc.uploaded_at || doc.created_at) && (
-            <span className="text-xs text-gray-500">
-              Uploaded: {new Date(doc.uploaded_at || doc.created_at).toLocaleDateString()}
+
+          {doc.source && (
+            <span className="rounded-full border bg-white px-2 py-1 uppercase">
+              {doc.source}
             </span>
           )}
-          <span className="text-xs text-gray-400 ml-auto flex items-center gap-1">
-            <Eye className="h-3 w-3" />
-            View-only - PDF
-          </span>
-        </div>
-        
-        <div className="flex-1 p-2 bg-gray-100" style={{ minHeight: '500px' }}>
-          {loading ? (
-            <div className="flex flex-col items-center justify-center h-full">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <p className="mt-4 text-sm text-gray-500">Loading PDF document...</p>
-            </div>
-          ) : error ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-500">
-              <AlertCircle className="h-12 w-12 mb-2 text-red-500" />
-              <p className="text-red-500 font-medium">Failed to load document</p>
-              <p className="text-sm text-gray-400 mt-1">{error}</p>
-              <button
-                onClick={() => {
-                  setLoading(true);
-                  setError(null);
-                  fetchPDF();
-                }}
-                className="mt-4 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
-              >
-                Try Again
-              </button>
-            </div>
-          ) : pdfUrl ? (
-            <embed
-              src={pdfUrl}
-              type="application/pdf"
-              className="w-full h-full rounded-lg"
-              style={{ minHeight: '500px' }}
-            />
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full text-gray-500">
-              <FileText className="h-12 w-12 mb-2" />
-              <p>Unable to display PDF document</p>
-            </div>
+
+          {doc.crm_field_api_name && (
+            <span className="rounded-full border bg-white px-2 py-1">
+              {doc.crm_field_api_name}
+            </span>
+          )}
+
+          {doc.uploaded_at && (
+            <span className="ml-auto">
+              {new Date(
+                doc.uploaded_at
+              ).toLocaleDateString()}
+            </span>
           )}
         </div>
-        
-        <div className="p-3 border-t bg-gray-50 rounded-b-xl">
-          <div className="flex items-center justify-between text-xs text-gray-500">
-            <div className="flex items-center gap-2">
-              <Eye className="h-3 w-3" />
-              <span>View-only mode - PDF document cannot be downloaded</span>
+
+        <div className="min-h-[520px] flex-1 overflow-auto bg-gray-100 p-2">
+          {loading && (
+            <div className="flex min-h-[520px] flex-col items-center justify-center">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="mt-3 text-sm text-gray-500">
+                Loading document...
+              </p>
             </div>
-            <div className="flex items-center gap-4">
-              <button
-                onClick={onClose}
-                className="text-primary hover:underline font-medium"
-              >
-                Close Document
-              </button>
+          )}
+
+          {!loading && error && (
+            <div className="flex min-h-[520px] flex-col items-center justify-center px-6 text-center">
+              <AlertCircle className="h-12 w-12 text-red-500" />
+              <p className="mt-3 font-semibold text-red-600">
+                Failed to load document
+              </p>
+              <p className="mt-1 max-w-xl text-sm text-gray-500">
+                {error}
+              </p>
             </div>
-          </div>
+          )}
+
+          {!loading &&
+            !error &&
+            category === "pdf" &&
+            objectUrl && (
+              <iframe
+                src={`${objectUrl}#toolbar=1&navpanes=0`}
+                title={doc.document_name}
+                className="min-h-[70vh] w-full rounded-lg border-0 bg-white"
+              />
+            )}
+
+          {!loading &&
+            !error &&
+            category === "image" &&
+            objectUrl && (
+              <div className="flex min-h-[520px] items-center justify-center rounded-lg bg-white p-4">
+                <img
+                  src={objectUrl}
+                  alt={doc.document_name}
+                  className="max-h-[72vh] max-w-full object-contain"
+                />
+              </div>
+            )}
+
+          {!loading &&
+            !error &&
+            category === "text" && (
+              <pre className="min-h-[520px] whitespace-pre-wrap rounded-lg bg-white p-5 text-sm text-gray-800">
+                {textContent}
+              </pre>
+            )}
+
+          {!loading &&
+            !error &&
+            category === "other" &&
+            objectUrl && (
+              <div className="flex min-h-[520px] flex-col items-center justify-center rounded-lg bg-white px-6 text-center">
+                <DocumentIcon className="h-14 w-14 text-gray-400" />
+                <p className="mt-4 font-semibold text-gray-800">
+                  Preview is not available for this file type.
+                </p>
+                <p className="mt-2 max-w-lg text-sm text-gray-500">
+                  The document was loaded successfully, but this browser cannot display {contentType || "this format"} inside the portal.
+                </p>
+                <a
+                  href={objectUrl}
+                  download={doc.document_name}
+                  className="mt-5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
+                >
+                  Download Document
+                </a>
+              </div>
+            )}
+        </div>
+
+        <div className="flex justify-end border-t bg-gray-50 p-3">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+          >
+            Close Document
+          </Button>
         </div>
       </div>
     </div>
@@ -197,402 +569,521 @@ function PDFViewerModal({ doc, isOpen, onClose }) {
 
 export default function Documents() {
   const { user } = useAuth();
-  const queryClient = useQueryClient();
-  const [showViewer, setShowViewer] = useState(false);
-  const [selectedDoc, setSelectedDoc] = useState(null);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [sortBy, setSortBy] = useState("date_desc");
-  const [connectionStatus, setConnectionStatus] = useState({ crm: false, recruit: false });
-  const [recruitCount, setRecruitCount] = useState(0);
-  const [crmCount, setCrmCount] = useState(0);
-  const [error, setError] = useState(null);
+  const queryClient =
+    useQueryClient();
 
-  // ============================================
-  // FETCH DOCUMENTS FROM BOTH SOURCES INDEPENDENTLY
-  // ============================================
-  const { data: allDocs = [], isLoading, refetch } = useQuery({
-    queryKey: ["all-documents", user?.email],
-    queryFn: async () => {
-      if (!user?.email) {
-        setConnectionStatus({ recruit: false, crm: false });
-        setRecruitCount(0);
-        setCrmCount(0);
-        setError("No user email found");
-        return [];
-      }
+  const [
+    showViewer,
+    setShowViewer
+  ] = useState(false);
 
-      const token = localStorage.getItem("icp_auth_token");
-      if (!token) {
-        setConnectionStatus({ recruit: false, crm: false });
-        setRecruitCount(0);
-        setCrmCount(0);
-        setError("Authentication token not found");
-        return [];
-      }
+  const [
+    selectedDoc,
+    setSelectedDoc
+  ] = useState(null);
 
-      const request = async (path) => {
-        const response = await fetch(`${API_BASE}${path}?refresh=true&_=${Date.now()}`, {
-          method: "GET",
-          cache: "no-store",
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        });
+  const [
+    searchTerm,
+    setSearchTerm
+  ] = useState("");
 
-        if (response.status === 403) {
-          const blocked = await response.clone().json().catch(() => ({}));
-          if (blocked.portalAccessBlocked) {
-            localStorage.removeItem("icp_auth_token");
-            window.location.assign("/login");
-          }
-        }
+  const [
+    sortBy,
+    setSortBy
+  ] = useState("date_desc");
 
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(payload.error || payload.message || `Request failed (${response.status})`);
-        }
-        return payload;
-      };
-
-      const [recruitResult, crmResult] = await Promise.allSettled([
-        request("/api/documents/recruit-documents"),
-        request("/api/documents/crm-documents")
-      ]);
-
-      let recruitDocs = [];
-      let crmDocs = [];
-      let recruitOk = recruitResult.status === "fulfilled";
-      let crmOk = crmResult.status === "fulfilled";
-
-      if (recruitOk) {
-        recruitDocs = recruitResult.value?.documents || [];
-      }
-      if (crmOk) {
-        crmDocs = crmResult.value?.documents || [];
-      }
-
-      // CRM and Recruit are the only document sources.
-      if (false && (!recruitOk || !crmOk)) {
-        try {
-          const unified = await request("/api/documents/all");
-          const unifiedDocs = unified?.documents || [];
-          if (!recruitOk) {
-            recruitDocs = unifiedDocs.filter((doc) => doc.source === "recruit");
-            recruitOk = unified?.connected?.recruit === true || recruitDocs.length > 0;
-          }
-          if (!crmOk) {
-            crmDocs = unifiedDocs.filter((doc) => doc.source === "crm");
-            crmOk = unified?.connected?.crm === true || crmDocs.length > 0;
-          }
-        } catch (fallbackError) {
-          console.warn("[Documents] Unified fallback failed:", fallbackError.message);
-        }
-      }
-
-      const normalize = (doc, source, index) => ({
-        ...doc,
-        source,
-        attachment_id: doc.attachment_id || doc.id || doc.attachment_Id || doc._id,
-        document_name: doc.document_name || doc.File_Name || doc.name || doc.file_name || `Document ${index + 1}`,
-        uploaded_at: doc.uploaded_at || doc.Created_Time || doc.created_at || new Date().toISOString()
-      });
-
-      const combined = [
-        ...recruitDocs.map((doc, index) => normalize(doc, "recruit", index)),
-        ...crmDocs.map((doc, index) => normalize(doc, "crm", index))
-      ];
-
-      // Prevent accidental duplicates within the same source while preserving
-      // documents that exist separately in Recruit and CRM.
-      const seen = new Set();
-      const deduped = combined.filter((doc) => {
-        const key = `${doc.source}:${doc.attachment_id || doc.document_name}:${doc.uploaded_at || ""}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-
-      setRecruitCount(recruitDocs.length);
-      setCrmCount(crmDocs.length);
-      setConnectionStatus({ recruit: recruitOk, crm: crmOk });
-
-      if (!recruitOk && !crmOk) {
-        const recruitError = recruitResult.status === "rejected" ? recruitResult.reason?.message : "";
-        const crmError = crmResult.status === "rejected" ? crmResult.reason?.message : "";
-        setError(recruitError || crmError || "Documents unavailable");
-      } else {
-        setError(null);
-      }
-
-      return deduped;
-    },
-    enabled: !!user?.email,
+  const {
+    data: documentData,
+    isLoading,
+    isFetching,
+    error,
+    refetch
+  } = useQuery({
+    queryKey: [
+      "approved-documents",
+      user?.email
+    ],
+    enabled: Boolean(user?.email),
     staleTime: 0,
     gcTime: 0,
     retry: 1,
-    refetchOnWindowFocus: true
+    refetchOnWindowFocus: true,
+    queryFn: async () => {
+      const token =
+        getAuthToken();
+
+      if (!token) {
+        throw new Error(
+          "Authentication token not found."
+        );
+      }
+
+      const response = await fetch(
+        `${API_BASE}/api/documents/my-documents?refresh=true&_=${Date.now()}`,
+        {
+          method: "GET",
+          cache: "no-store",
+          headers: {
+            Authorization:
+              `Bearer ${token}`
+          }
+        }
+      );
+
+      const payload = await response
+        .json()
+        .catch(() => ({}));
+
+      if (
+        response.status === 401 ||
+        response.status === 403
+      ) {
+        if (
+          payload.portalAccessBlocked ||
+          response.status === 401
+        ) {
+          localStorage.removeItem(
+            "icp_auth_token"
+          );
+        }
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          payload.error ||
+          payload.message ||
+          `Unable to load documents (${response.status}).`
+        );
+      }
+
+      const documents =
+        Array.isArray(
+          payload.documents
+        )
+          ? payload.documents.map(
+              normalizeDocument
+            )
+          : [];
+
+      return {
+        documents,
+        total:
+          Number(payload.total) ||
+          documents.length,
+        pendingCount:
+          Number(
+            payload.pending_count
+          ) || 0,
+        rejectedCount:
+          Number(
+            payload.rejected_count
+          ) || 0
+      };
+    }
   });
 
-  const filteredDocs = (() => {
-    let docs = allDocs;
-    
-    if (searchTerm.trim()) {
-      const term = searchTerm.toLowerCase();
-      docs = docs.filter(doc => 
-        (doc.document_name || '').toLowerCase().includes(term) ||
-        (doc.document_type || '').toLowerCase().includes(term)
+  const allDocs =
+    documentData?.documents || [];
+
+  const sourceCounts =
+    useMemo(() => {
+      return allDocs.reduce(
+        (counts, document) => {
+          const source =
+            document.source ===
+            "recruit"
+              ? "recruit"
+              : "crm";
+
+          counts[source] += 1;
+          return counts;
+        },
+        {
+          crm: 0,
+          recruit: 0
+        }
       );
+    }, [allDocs]);
+
+  const filteredDocs =
+    useMemo(() => {
+      const term =
+        searchTerm
+          .trim()
+          .toLowerCase();
+
+      let documents =
+        term
+          ? allDocs.filter(document =>
+              [
+                document.document_name,
+                document.document_type,
+                document.source,
+                document.crm_field_api_name
+              ].some(value =>
+                String(value || "")
+                  .toLowerCase()
+                  .includes(term)
+              )
+            )
+          : [...allDocs];
+
+      switch (sortBy) {
+        case "date_asc":
+          documents.sort(
+            (a, b) =>
+              new Date(
+                a.uploaded_at || 0
+              ) -
+              new Date(
+                b.uploaded_at || 0
+              )
+          );
+          break;
+
+        case "name_asc":
+          documents.sort(
+            (a, b) =>
+              a.document_name.localeCompare(
+                b.document_name
+              )
+          );
+          break;
+
+        case "name_desc":
+          documents.sort(
+            (a, b) =>
+              b.document_name.localeCompare(
+                a.document_name
+              )
+          );
+          break;
+
+        case "date_desc":
+        default:
+          documents.sort(
+            (a, b) =>
+              new Date(
+                b.uploaded_at || 0
+              ) -
+              new Date(
+                a.uploaded_at || 0
+              )
+          );
+          break;
+      }
+
+      return documents;
+    }, [
+      allDocs,
+      searchTerm,
+      sortBy
+    ]);
+
+  const handleRefresh =
+    async () => {
+      toast.info(
+        "Refreshing documents..."
+      );
+
+      try {
+        const result =
+          await refetch();
+
+        const count =
+          result.data
+            ?.documents?.length ||
+          0;
+
+        toast.success(
+          `${count} approved document${
+            count === 1 ? "" : "s"
+          } available.`
+        );
+      } catch {
+        toast.error(
+          "Failed to refresh documents."
+        );
+      }
+    };
+
+  const openViewer = document => {
+    if (!document.attachment_id) {
+      toast.error(
+        "This document cannot be opened because it has no attachment identifier."
+      );
+      return;
     }
-    
-    switch(sortBy) {
-      case "date_desc":
-        return [...docs].sort((a, b) => 
-          new Date(b.uploaded_at || b.created_at || 0) - new Date(a.uploaded_at || a.created_at || 0)
-        );
-      case "date_asc":
-        return [...docs].sort((a, b) => 
-          new Date(a.uploaded_at || a.created_at || 0) - new Date(b.uploaded_at || b.created_at || 0)
-        );
-      case "name_asc":
-        return [...docs].sort((a, b) => 
-          (a.document_name || '').localeCompare(b.document_name || '')
-        );
-      case "name_desc":
-        return [...docs].sort((a, b) => 
-          (b.document_name || '').localeCompare(a.document_name || '')
-        );
-      default:
-        return docs;
-    }
-  })();
 
-  const totalDocs = allDocs.length;
-
-  const renderDocumentItem = (doc) => {
-    return (
-      <div 
-        key={doc.attachment_id || doc.id || doc._id || Math.random()} 
-        className="bg-card rounded-xl border border-border p-4 flex items-center justify-between gap-4 hover:shadow-md transition-shadow"
-      >
-        <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className="h-10 w-10 rounded-lg flex items-center justify-center shrink-0 bg-gray-50">
-            <FileText className="h-5 w-5 text-gray-600" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="font-medium text-sm truncate">
-              {doc.document_name || doc.name || doc.file_name || 'Unnamed Document'}
-            </p>
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              {(doc.uploaded_at || doc.created_at) && (
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Calendar className="h-3 w-3" />
-                  {new Date(doc.uploaded_at || doc.created_at).toLocaleDateString()}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-        <div className="flex gap-2 shrink-0">
-          {doc.attachment_id && (
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => handleViewDocument(doc)}
-              className="gap-1.5"
-            >
-              <Eye className="h-3.5 w-3.5" />
-              View PDF
-            </Button>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  const handleViewDocument = (doc) => {
-    setSelectedDoc(doc);
+    setSelectedDoc(document);
     setShowViewer(true);
   };
 
-  const handleRefresh = async () => {
-    toast.info("Refreshing documents...");
-    try {
-      setError(null);
-      const result = await refetch();
-      const refreshedDocs = result?.data || [];
-      const recruit = refreshedDocs.filter((doc) => doc.source === "recruit").length;
-      const crm = refreshedDocs.filter((doc) => doc.source === "crm").length;
-      toast.success(`Documents refreshed: ${refreshedDocs.length} total (${recruit} Recruit, ${crm} CRM)`);
-    } catch (error) {
-      toast.error("Failed to refresh documents");
-    }
+  const closeViewer = () => {
+    setShowViewer(false);
+    setSelectedDoc(null);
   };
 
-  if (isLoading && allDocs.length === 0) {
+  const renderDocumentItem =
+    document => {
+      const DocumentIcon =
+        getDocumentIcon(document);
+
+      return (
+        <div
+          key={getDocumentKey(
+            document
+          )}
+          className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card p-4 transition-shadow hover:shadow-md"
+        >
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-50">
+              <DocumentIcon className="h-5 w-5 text-gray-600" />
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">
+                {document.document_name}
+              </p>
+
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                {document.uploaded_at && (
+                  <span className="flex items-center gap-1">
+                    <Calendar className="h-3 w-3" />
+                    {new Date(
+                      document.uploaded_at
+                    ).toLocaleDateString()}
+                  </span>
+                )}
+
+                <span className="rounded-full border px-2 py-0.5 uppercase">
+                  {document.source}
+                </span>
+
+                {document.crm_field_api_name && (
+                  <span className="rounded-full border px-2 py-0.5">
+                    {document.crm_field_api_name}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              openViewer(document)
+            }
+            className="shrink-0 gap-1.5"
+            disabled={
+              !document.attachment_id
+            }
+          >
+            <Eye className="h-3.5 w-3.5" />
+            View
+          </Button>
+        </div>
+      );
+    };
+
+  if (
+    isLoading &&
+    allDocs.length === 0
+  ) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 gap-4">
-        <div className="w-8 h-8 border-4 border-muted border-t-primary rounded-full animate-spin" />
-        <p className="text-sm text-muted-foreground">Loading documents...</p>
+      <div className="flex flex-col items-center justify-center gap-4 py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">
+          Loading approved documents...
+        </p>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <PDFViewerModal 
+      <DocumentViewerModal
         doc={selectedDoc}
         isOpen={showViewer}
-        onClose={() => {
-          setShowViewer(false);
-          setSelectedDoc(null);
-        }}
+        onClose={closeViewer}
       />
 
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">My Documents</h1>
+          <h1 className="text-2xl font-bold tracking-tight">
+            My Documents
+          </h1>
           <p className="text-sm text-muted-foreground">
-            {totalDocs} total documents
+            {allDocs.length} approved document{allDocs.length === 1 ? "" : "s"}
           </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <div className="relative">
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary appearance-none pr-8"
-            >
-              <option value="date_desc">Newest First</option>
-              <option value="date_asc">Oldest First</option>
-              <option value="name_asc">Name A-Z</option>
-              <option value="name_desc">Name Z-A</option>
-            </select>
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">▼</span>
-          </div>
-          
-          <Button 
-            variant="outline" 
-            onClick={handleRefresh} 
-            className="gap-2"
-            size="sm"
-            disabled={isLoading}
+
+        <div className="flex flex-wrap gap-2">
+          <select
+            value={sortBy}
+            onChange={event =>
+              setSortBy(
+                event.target.value
+              )
+            }
+            className="rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
           >
-            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            <option value="date_desc">
+              Newest First
+            </option>
+            <option value="date_asc">
+              Oldest First
+            </option>
+            <option value="name_asc">
+              Name A–Z
+            </option>
+            <option value="name_desc">
+              Name Z–A
+            </option>
+          </select>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={isFetching}
+            className="gap-2"
+          >
+            <RefreshCw
+              className={`h-4 w-4 ${
+                isFetching
+                  ? "animate-spin"
+                  : ""
+              }`}
+            />
             Refresh
           </Button>
         </div>
       </div>
 
-      {/* Error Banner */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-xl border bg-card p-4">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">
+            Approved
+          </p>
+          <p className="mt-1 text-2xl font-bold">
+            {allDocs.length}
+          </p>
+        </div>
+
+        <div className="rounded-xl border bg-card p-4">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">
+            CRM
+          </p>
+          <p className="mt-1 text-2xl font-bold">
+            {sourceCounts.crm}
+          </p>
+        </div>
+
+        <div className="rounded-xl border bg-card p-4">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">
+            Recruit
+          </p>
+          <p className="mt-1 text-2xl font-bold">
+            {sourceCounts.recruit}
+          </p>
+        </div>
+      </div>
+
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
           <div className="flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="text-sm font-medium text-red-800">Error Loading Documents</p>
-              <p className="text-xs text-red-700 mt-0.5">{error}</p>
-              <button 
-                onClick={handleRefresh} 
-                className="mt-2 text-xs bg-red-100 hover:bg-red-200 text-red-800 px-3 py-1 rounded-lg font-medium transition-colors"
-              >
-                Retry
-              </button>
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+            <div>
+              <p className="text-sm font-medium text-red-800">
+                Error loading documents
+              </p>
+              <p className="mt-1 text-xs text-red-700">
+                {error.message ||
+                  "Documents could not be loaded."}
+              </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Generic document availability warning */}
-      {(!connectionStatus.crm || !connectionStatus.recruit) && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="text-sm font-medium text-amber-800">Documents unavailable</p>
-              <button
-                onClick={handleRefresh}
-                className="mt-2 text-xs bg-amber-100 hover:bg-amber-200 text-amber-800 px-3 py-1 rounded-lg font-medium transition-colors"
-              >
-                Retry
-              </button>
-            </div>
-          </div>
+      {documentData?.pendingCount > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          {documentData.pendingCount} document{documentData.pendingCount === 1 ? " is" : "s are"} awaiting administrator approval and will appear here after approval.
         </div>
       )}
 
-      {/* Search */}
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+
         <input
           type="text"
-          placeholder="Search documents by name or source..."
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full pl-10 pr-4 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+          onChange={event =>
+            setSearchTerm(
+              event.target.value
+            )
+          }
+          placeholder="Search by document name, type, source, or CRM field..."
+          className="w-full rounded-lg border border-border bg-background py-2 pl-10 pr-10 focus:outline-none focus:ring-2 focus:ring-primary"
         />
+
         {searchTerm && (
           <button
-            onClick={() => setSearchTerm("")}
+            type="button"
+            onClick={() =>
+              setSearchTerm("")
+            }
             className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            aria-label="Clear search"
           >
             <X className="h-4 w-4" />
           </button>
         )}
       </div>
 
-      {/* Document count */}
-      <div className="bg-muted/30 rounded-lg p-3 border border-border">
-        <div className="flex items-center gap-2 text-sm">
-          <span className="font-medium">📌 Showing:</span>
-          <span className="text-muted-foreground">
-            {filteredDocs.length} document{filteredDocs.length !== 1 ? 's' : ''} found
-          </span>
-        </div>
-      </div>
-
-      {/* Document List */}
       {filteredDocs.length === 0 ? (
-        <div className="bg-card rounded-xl border border-border p-12 text-center">
-          {connectionStatus.recruit || connectionStatus.crm ? (
-            <FolderOpen className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-          ) : (
-            <WifiOff className="h-12 w-12 text-amber-500 mx-auto mb-3" />
-          )}
+        <div className="rounded-xl border border-border bg-card p-12 text-center">
+          <FolderOpen className="mx-auto mb-3 h-12 w-12 text-muted-foreground" />
+
           <p className="font-medium">
-            {connectionStatus.recruit || connectionStatus.crm ? "No documents found" : "Documents unavailable"}
+            {searchTerm
+              ? "No matching documents"
+              : "No approved documents yet"}
           </p>
-          <p className="text-sm text-muted-foreground">
-            {searchTerm 
-              ? "Try adjusting your search criteria." 
-              : connectionStatus.recruit || connectionStatus.crm 
-                ? "No documents are currently available."
-                : "Documents unavailable. Please try again later."}
+
+          <p className="mt-1 text-sm text-muted-foreground">
+            {searchTerm
+              ? "Try a different search term."
+              : "Documents will appear here after an administrator approves them."}
           </p>
+
           {searchTerm && (
-            <Button variant="outline" className="mt-4 gap-2" onClick={() => setSearchTerm("")}>
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-4 gap-2"
+              onClick={() =>
+                setSearchTerm("")
+              }
+            >
               <X className="h-4 w-4" />
               Clear Search
-            </Button>
-          )}
-          {(!connectionStatus.recruit || !connectionStatus.crm) && (
-            <Button 
-              variant="outline" 
-              className="mt-4 gap-2" 
-              onClick={handleRefresh}
-              disabled={isLoading}
-            >
-              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-              Retry Connection
             </Button>
           )}
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="flex items-center justify-between text-sm text-muted-foreground">
-            <span>Showing {filteredDocs.length} document{filteredDocs.length !== 1 ? 's' : ''}</span>
-          </div>
-          {filteredDocs.map(doc => renderDocumentItem(doc))}
+          <p className="text-sm text-muted-foreground">
+            Showing {filteredDocs.length} document{filteredDocs.length === 1 ? "" : "s"}
+          </p>
+
+          {filteredDocs.map(
+            renderDocumentItem
+          )}
         </div>
       )}
     </div>
