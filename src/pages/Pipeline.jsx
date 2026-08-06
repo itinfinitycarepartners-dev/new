@@ -1630,6 +1630,7 @@ const isPipelineStageComplete = (candidate) => {
 const HIRING_FORWARD_ORDER = [
   "Applied",
   "Associated with Job",
+  "Transfer to ICP USRN School",
   "Qualified - Match",
   "Select Prescreen Time",
   "Prescreen Scheduled",
@@ -8433,24 +8434,45 @@ export default function Pipeline() {
   const [finalArrivalDate, setFinalArrivalDate] = useState(null);
 
   useEffect(() => {
-    const checkNCLEXAccess = async () => {
+    const refreshNCLEXAccess = async () => {
       if (!user?.email) {
         setIsCheckingNCLEX(false);
         return;
       }
+
       try {
         setIsCheckingNCLEX(true);
-        const hasAccess = await checkNCLEXAccess(user.email);
-        setShowNCLEX(hasAccess);
-        console.log("[Pipeline] NCLEX access:", hasAccess);
+
+        const hasAccess =
+          await checkNCLEXAccess(
+            user.email
+          );
+
+        setShowNCLEX(previous =>
+          previous || hasAccess
+        );
+
+        console.log(
+          "[Pipeline] NCLEX access:",
+          hasAccess
+        );
       } catch (error) {
-        console.error("[Pipeline] Error checking NCLEX access:", error);
-        setShowNCLEX(false);
+        console.error(
+          "[Pipeline] Error checking NCLEX access:",
+          error
+        );
+
+        // Do not hide an already-open NCLEX branch because of a temporary
+        // request failure.
+        setShowNCLEX(previous =>
+          previous
+        );
       } finally {
         setIsCheckingNCLEX(false);
       }
     };
-    checkNCLEXAccess();
+
+    refreshNCLEXAccess();
   }, [user?.email]);
 
   useEffect(() => {
@@ -8737,12 +8759,115 @@ export default function Pipeline() {
           error
         );
       }
-      const savedByName = new Map(
-        saved.map(stage => [
-          stage.stage_name,
-          stage
-        ])
-      );
+      const strongestSavedStages =
+        Array.from(
+          saved.reduce(
+            (map, stage) => {
+              const current =
+                map.get(
+                  stage.stage_name
+                );
+
+              if (
+                !current ||
+                (
+                  isPipelineStageComplete(
+                    stage
+                  ) &&
+                  !isPipelineStageComplete(
+                    current
+                  )
+                )
+              ) {
+                map.set(
+                  stage.stage_name,
+                  stage
+                );
+              }
+
+              return map;
+            },
+            new Map()
+          ).values()
+        );
+
+      saved =
+        strongestSavedStages;
+
+      const savedByName =
+        saved.reduce(
+          (map, stage) => {
+            const current =
+              map.get(
+                stage.stage_name
+              );
+
+            if (!current) {
+              map.set(
+                stage.stage_name,
+                stage
+              );
+              return map;
+            }
+
+            const currentComplete =
+              isPipelineStageComplete(
+                current
+              );
+
+            const stageComplete =
+              isPipelineStageComplete(
+                stage
+              );
+
+            if (
+              stageComplete &&
+              !currentComplete
+            ) {
+              map.set(
+                stage.stage_name,
+                stage
+              );
+              return map;
+            }
+
+            if (
+              currentComplete &&
+              !stageComplete
+            ) {
+              return map;
+            }
+
+            const currentDate =
+              new Date(
+                current.completed_date ||
+                current.completed_at ||
+                current.updated_at ||
+                0
+              ).getTime();
+
+            const stageDate =
+              new Date(
+                stage.completed_date ||
+                stage.completed_at ||
+                stage.updated_at ||
+                0
+              ).getTime();
+
+            if (
+              stageDate >
+              currentDate
+            ) {
+              map.set(
+                stage.stage_name,
+                stage
+              );
+            }
+
+            return map;
+          },
+          new Map()
+        );
 
       const savedNCLEXProgress = saved
         .filter(stage =>
@@ -8881,10 +9006,22 @@ export default function Pipeline() {
       });
       
       const transferToICPUSRN =
+        normalizeApplicationStatus(
+          recruitApplicationStatus
+        ) ===
+          "transfer to icp usrn school" ||
         shouldShowICPUSRNTransfer(
           recruitApplicationStatus
         ) ||
-        savedTransferReached;
+        savedTransferReached ||
+        saved.some(stage =>
+          [
+            "NCLEX Roadmap",
+            "NCLEX Prescreen"
+          ].includes(
+            stage.stage_category
+          )
+        );
 
       if (transferToICPUSRN) {
         // This is a separate Recruit branch. The three qualification outcome
@@ -8909,9 +9046,11 @@ export default function Pipeline() {
             return {
               ...stage,
               status: "Completed",
+              completed:
+                true,
+              is_completed:
+                true,
               completed_date:
-                backendDocumentsStatus
-                  ?.completed_date ||
                 stage.completed_date ||
                 savedByName.get(
                   stage.stage_name
@@ -9154,19 +9293,28 @@ export default function Pipeline() {
           "Documents Received"
         ];
 
+      const savedDocumentsStage =
+        savedByName.get(
+          "Documents Received"
+        );
+
       const documentsReceivedComplete =
         typeof backendDocumentsStatus
           ?.completed === "boolean"
           ? backendDocumentsStatus
               .completed
-          : (
-              hasRecruitCandidateFieldValue(
-                proofOfNCLEX
-              ) &&
-              hasRecruitCandidateFieldValue(
-                birthCertificate
-              )
-            );
+          : isPipelineStageComplete(
+              savedDocumentsStage
+            )
+            ? true
+            : (
+                hasRecruitCandidateFieldValue(
+                  proofOfNCLEX
+                ) &&
+                hasRecruitCandidateFieldValue(
+                  birthCertificate
+                )
+              );
 
       allStages = allStages.map(stage => {
         if (
@@ -9195,14 +9343,20 @@ export default function Pipeline() {
               )
             : null;
 
-        directStageUpdates.push({
-          stage_name:
-            stage.stage_name,
-          status:
-            nextStatus,
-          completed_date:
-            completionDate
-        });
+        if (
+          backendDocumentsStatus ||
+          proofOfNCLEX !== null ||
+          birthCertificate !== null
+        ) {
+          directStageUpdates.push({
+            stage_name:
+              stage.stage_name,
+            status:
+              nextStatus,
+            completed_date:
+              completionDate
+          });
+        }
 
         return {
           ...stage,
@@ -9539,11 +9693,57 @@ export default function Pipeline() {
 
       allStages =
         restoreForwardOnlyHiringStages({
-          stages: allStages,
+          stages:
+            allStages,
           savedByName,
           applicationStatus:
             recruitApplicationStatus
         });
+
+      // The backend GET repairs and consolidates Hiring history. Re-apply the
+      // returned saved state last so later frontend rules cannot move a
+      // completed Hiring stage backwards.
+      allStages = allStages.map(stage => {
+        const savedStage =
+          savedByName.get(
+            stage.stage_name
+          );
+
+        if (
+          stage.stage_category ===
+            "Hiring" &&
+          isPipelineStageComplete(
+            savedStage
+          )
+        ) {
+          return {
+            ...stage,
+            ...savedStage,
+            status:
+              "Completed",
+            completed:
+              true,
+            is_completed:
+              true,
+            completed_date:
+              savedStage
+                .completed_date ||
+              savedStage
+                .completed_at ||
+              stage.completed_date ||
+              new Date()
+                .toISOString(),
+            unlocked:
+              true,
+            is_locked:
+              false,
+            restored_from_backend:
+              true
+          };
+        }
+
+        return stage;
+      });
 
       setStages(allStages);
       const hasRecruitCheckpoint =
@@ -10224,18 +10424,45 @@ export default function Pipeline() {
       "Transfer to ICP USRN School"
     );
 
+  const transferStatusSelected =
+    normalizeApplicationStatus(
+      applicationStatus
+    ) ===
+    "transfer to icp usrn school";
+
+  const savedNCLEXStageExists =
+    stages.some(stage =>
+      [
+        "NCLEX Roadmap",
+        "NCLEX Prescreen"
+      ].includes(
+        stage?.stage_category
+      )
+    );
+
   const nclexBranchVisible =
     showNCLEX ||
-    transferStage?.nclex_branch_visible ===
+    transferStatusSelected ||
+    transferStage
+      ?.nclex_branch_visible ===
       true ||
     isPipelineStageComplete(
       transferStage
-    );
+    ) ||
+    savedNCLEXStageExists;
 
   const nclexProgress =
     transferStage
       ?.nclex_saved_progress ||
     {};
+
+  useEffect(() => {
+    if (nclexBranchVisible) {
+      setShowNCLEX(true);
+    }
+  }, [
+    nclexBranchVisible
+  ]);
 
   const regularDisplayStages =
     stages.filter(stage => {
