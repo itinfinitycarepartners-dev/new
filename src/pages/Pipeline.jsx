@@ -1,6 +1,3 @@
-
-
-
 // @ts-nocheck
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/AuthContext";
@@ -368,6 +365,7 @@ const APPLICATION_STATUS_STAGE_MAP = new Map([
   ["qualifications & verification", "Associated with Job"],
   ["qualifications and verification", "Associated with Job"],
   ["transfer to icp usrn school", "Transfer to ICP USRN School"],
+  ["transfer to ivp usrn school", "Transfer to ICP USRN School"],
   ["qualified-match", "Qualified - Match"],
   ["qualified match", "Qualified - Match"],
   ["qualified-candidate pool", "Qualified Candidate Pool"],
@@ -1630,7 +1628,6 @@ const isPipelineStageComplete = (candidate) => {
 const HIRING_FORWARD_ORDER = [
   "Applied",
   "Associated with Job",
-  "Transfer to ICP USRN School",
   "Qualified - Match",
   "Select Prescreen Time",
   "Prescreen Scheduled",
@@ -1646,6 +1643,59 @@ const HIRING_FORWARD_ORDER = [
   "Employment Contract Signed",
   "Documents Received"
 ];
+
+const ADAPTIVE_TRIGGER_STAGE_NAMES = new Set([
+  "Documents Received",
+  "Immigration Call",
+  "Foundations (Phases 1–3)",
+  "License Endorsement",
+  "Cultural Adaptation & Integration",
+  "English Complete",
+  "Post-Embassy Interview Update",
+  "Schedule Medical Exam",
+  "Schedule Biometrics Appointment",
+  "Confirmation of Eligibility to Proceed",
+  "Embassy Interview Scheduled",
+  "Confirm Scheduled Arrival Date",
+  "Attend Housing and Transportation Call",
+  "Join ICP Pre-Arrival Support Group",
+  "Attend Deployment Call",
+  "Confirm Final Transportation Plan",
+  "Attend Facility/RN Pre-Arrival Call",
+  "Connect with Concierge",
+  "Communicate During Travel"
+]);
+
+const isStrictSavedCompleted = stage => {
+  if (!stage) return false;
+
+  return (
+    String(
+      stage.status || ""
+    )
+      .trim()
+      .toLowerCase() ===
+      "completed" &&
+    Boolean(
+      stage.completed_date ||
+      stage.completed_at
+    )
+  );
+};
+
+const isStrictSavedInProgress = stage => {
+  if (!stage) return false;
+
+  const status =
+    String(stage.status || "")
+      .trim()
+      .toLowerCase();
+
+  return (
+    status === "in progress" ||
+    status === "in-progress"
+  );
+};
 
 const restoreForwardOnlyHiringStages = ({
   stages,
@@ -1945,25 +1995,21 @@ const checkNCLEXAccess = async (email) => {
           ? pipelineData.stages
           : [];
 
-        const savedTransferReached =
+        const savedTransferEligibility =
           savedStages.some(stage =>
             stage.stage_name ===
               "Transfer to ICP USRN School" &&
-            isPipelineStageComplete(stage)
+            (
+              stage.nclex_eligible ===
+                true ||
+              stage.transfer_status_verified ===
+                true ||
+              stage.completion_source ===
+                "recruit_transfer_status"
+            )
           );
 
-        const savedNCLEXProgress =
-          savedStages.some(stage =>
-            [
-              "NCLEX Roadmap",
-              "NCLEX Prescreen"
-            ].includes(stage.stage_category)
-          );
-
-        if (
-          savedTransferReached ||
-          savedNCLEXProgress
-        ) {
+        if (savedTransferEligibility) {
           return true;
         }
       }
@@ -9005,23 +9051,33 @@ export default function Pipeline() {
         return baseStage;
       });
       
-      const transferToICPUSRN =
-        normalizeApplicationStatus(
-          recruitApplicationStatus
-        ) ===
-          "transfer to icp usrn school" ||
-        shouldShowICPUSRNTransfer(
-          recruitApplicationStatus
-        ) ||
-        savedTransferReached ||
-        saved.some(stage =>
-          [
-            "NCLEX Roadmap",
-            "NCLEX Prescreen"
-          ].includes(
-            stage.stage_category
+      const liveTransferSelected =
+        [
+          "transfer to icp usrn school",
+          "transfer to ivp usrn school"
+        ].includes(
+          normalizeApplicationStatus(
+            recruitApplicationStatus
           )
         );
+
+      const verifiedSavedTransfer =
+        saved.some(stage =>
+          stage.stage_name ===
+            "Transfer to ICP USRN School" &&
+          (
+            stage.nclex_eligible ===
+              true ||
+            stage.transfer_status_verified ===
+              true ||
+            stage.completion_source ===
+              "recruit_transfer_status"
+          )
+        );
+
+      const transferToICPUSRN =
+        liveTransferSelected ||
+        verifiedSavedTransfer;
 
       if (transferToICPUSRN) {
         // This is a separate Recruit branch. The three qualification outcome
@@ -9050,6 +9106,14 @@ export default function Pipeline() {
                 true,
               is_completed:
                 true,
+              nclex_eligible:
+                true,
+              nclex_branch_visible:
+                true,
+              transfer_status_verified:
+                true,
+              completion_source:
+                "recruit_transfer_status",
               completed_date:
                 stage.completed_date ||
                 savedByName.get(
@@ -9700,19 +9764,75 @@ export default function Pipeline() {
             recruitApplicationStatus
         });
 
-      // The backend GET repairs and consolidates Hiring history. Re-apply the
-      // returned saved state last so later frontend rules cannot move a
-      // completed Hiring stage backwards.
+      // Restore every section from pipelinestages. A saved Completed record
+      // with a completion date is authoritative unless a live adaptive trigger
+      // was successfully evaluated during this refresh.
       allStages = allStages.map(stage => {
         const savedStage =
           savedByName.get(
             stage.stage_name
           );
 
+        const triggerStatus =
+          directComputedStageStatus[
+            stage.stage_name
+          ];
+
+        const triggerWasEvaluated =
+          triggerStatus?.evaluated ===
+          true;
+
         if (
-          stage.stage_category ===
-            "Hiring" &&
-          isPipelineStageComplete(
+          ADAPTIVE_TRIGGER_STAGE_NAMES.has(
+            stage.stage_name
+          ) &&
+          triggerWasEvaluated
+        ) {
+          const complete =
+            triggerStatus.completed ===
+            true;
+
+          return {
+            ...stage,
+            status:
+              complete
+                ? "Completed"
+                : (
+                    triggerStatus.status ||
+                    "Not Started"
+                  ),
+            completed:
+              complete,
+            is_completed:
+              complete,
+            completed_date:
+              complete
+                ? (
+                    triggerStatus
+                      .completed_date ||
+                    savedStage
+                      ?.completed_date ||
+                    savedStage
+                      ?.completed_at ||
+                    new Date()
+                      .toISOString()
+                  )
+                : null,
+            unlocked:
+              complete
+                ? true
+                : stage.unlocked,
+            is_locked:
+              complete
+                ? false
+                : stage.is_locked,
+            restored_from_live_trigger:
+              true
+          };
+        }
+
+        if (
+          isStrictSavedCompleted(
             savedStage
           )
         ) {
@@ -9729,15 +9849,37 @@ export default function Pipeline() {
               savedStage
                 .completed_date ||
               savedStage
-                .completed_at ||
-              stage.completed_date ||
-              new Date()
-                .toISOString(),
+                .completed_at,
             unlocked:
               true,
             is_locked:
               false,
-            restored_from_backend:
+            restored_from_pipelinestages:
+              true
+          };
+        }
+
+        if (
+          isStrictSavedInProgress(
+            savedStage
+          )
+        ) {
+          return {
+            ...stage,
+            ...savedStage,
+            status:
+              "In Progress",
+            completed:
+              false,
+            is_completed:
+              false,
+            completed_date:
+              null,
+            unlocked:
+              true,
+            is_locked:
+              false,
+            restored_from_pipelinestages:
               true
           };
         }
@@ -9835,7 +9977,17 @@ export default function Pipeline() {
         });
       }
 
-      setStages(parsed);
+      setStages(previous => {
+        const previousByName = new Map((previous || []).map(stage => [stage.stage_name, stage]));
+        const adaptive = new Set(["Documents Received", "Immigration Call", "Foundations (Phases 1–3)", "License Endorsement", "Cultural Adaptation & Integration", "Post-Embassy Interview Update", "Schedule Medical Exam"]);
+        return parsed.map(stage => {
+          const prior = previousByName.get(stage.stage_name);
+          if (isPipelineStageComplete(prior) && !isPipelineStageComplete(stage) && !adaptive.has(stage.stage_name)) {
+            return { ...stage, ...prior, status: "Completed", completed: true, is_completed: true, completed_date: prior.completed_date || prior.completed_at || stage.completed_date || new Date().toISOString() };
+          }
+          return stage;
+        });
+      });
       setIsInitialized(parsed.length > 0);
     } catch (error) {
       console.error("Error loading pipeline from database:", error);
@@ -9846,6 +9998,7 @@ export default function Pipeline() {
 
   const handleInitialize = async () => {
     if (!user?.email) return toast.error("User email not found");
+    if (stages.length > 0) { await loadStages(); toast.success("Existing pipeline restored from the database."); return; }
     setIsLoading(true);
     try {
       let allStages = STAGES_CONFIG.map(stage => ({ ...stage, candidate_email: user.email, status: "Not Started", completed_date: null, notes: null, target_date: null, stage_details: stage.stage_category === "Immigration" ? IMMIGRATION_STAGE_DETAILS[stage.stage_name] || null : null }));
@@ -10425,31 +10578,31 @@ export default function Pipeline() {
     );
 
   const transferStatusSelected =
-    normalizeApplicationStatus(
-      applicationStatus
-    ) ===
-    "transfer to icp usrn school";
-
-  const savedNCLEXStageExists =
-    stages.some(stage =>
-      [
-        "NCLEX Roadmap",
-        "NCLEX Prescreen"
-      ].includes(
-        stage?.stage_category
+    [
+      "transfer to icp usrn school",
+      "transfer to ivp usrn school"
+    ].includes(
+      normalizeApplicationStatus(
+        applicationStatus
       )
     );
 
-  const nclexBranchVisible =
-    showNCLEX ||
-    transferStatusSelected ||
-    transferStage
-      ?.nclex_branch_visible ===
+  const savedTransferEligibility =
+    transferStage?.nclex_eligible ===
       true ||
-    isPipelineStageComplete(
-      transferStage
-    ) ||
-    savedNCLEXStageExists;
+    transferStage
+      ?.transfer_status_verified ===
+      true ||
+    transferStage
+      ?.completion_source ===
+      "recruit_transfer_status";
+
+  // Strict rule: candidates see NCLEX only if Recruit currently has the
+  // Transfer status, or the backend previously verified that exact status and
+  // persisted the eligibility marker. NCLEX progress alone never grants access.
+  const nclexBranchVisible =
+    transferStatusSelected ||
+    savedTransferEligibility;
 
   const nclexProgress =
     transferStage
@@ -10490,9 +10643,36 @@ export default function Pipeline() {
         );
       }
 
-      if (
+      const acceptedSelected =
         normalizedCurrentApplicationStatus ===
-          "offer accepted" &&
+          "offer accepted" ||
+        (
+          normalizedCurrentApplicationStatus !==
+            "offer declined" &&
+          isPipelineStageComplete(
+            stages.find(item =>
+              item?.stage_name ===
+              "Offer Accepted"
+            )
+          )
+        );
+
+      const declinedSelected =
+        normalizedCurrentApplicationStatus ===
+          "offer declined" ||
+        (
+          normalizedCurrentApplicationStatus !==
+            "offer accepted" &&
+          isPipelineStageComplete(
+            stages.find(item =>
+              item?.stage_name ===
+              "Offer Declined"
+            )
+          )
+        );
+
+      if (
+        acceptedSelected &&
         stage.stage_name ===
           "Offer Declined"
       ) {
@@ -10500,8 +10680,7 @@ export default function Pipeline() {
       }
 
       if (
-        normalizedCurrentApplicationStatus ===
-          "offer declined" &&
+        declinedSelected &&
         stage.stage_name ===
           "Offer Accepted"
       ) {
@@ -10511,62 +10690,13 @@ export default function Pipeline() {
       return true;
     });
 
-  const nclexDisplayStages =
-    nclexBranchVisible
-      ? ICP_USRN_SUBPROCESS_CONFIG.map(
-          (item, index) => {
-            const savedItem =
-              nclexProgress[
-                item.name
-              ];
-
-            const complete =
-              savedItem?.completed ===
-                true ||
-              isICPUSRNItemComplete(
-                item,
-                icpUSRNCRMData
-              );
-
-            return {
-              id:
-                `nclex-${index + 1}`,
-              stage_name:
-                item.name,
-              stage_category:
-                "NCLEX Roadmap",
-              stage_order:
-                index + 1,
-              status:
-                complete
-                  ? "Completed"
-                  : "Not Started",
-              completed:
-                complete,
-              is_completed:
-                complete,
-              completed_date:
-                savedItem?.completed_date ||
-                null,
-              nclex_subprocess:
-                true,
-              nclex_config:
-                item
-            };
-          }
-        )
-      : [];
-
-  const displayStages = [
-    ...regularDisplayStages,
-    ...nclexDisplayStages
-  ];
+  // NCLEX is rendered only in the mini-card grid below. It is deliberately
+  // excluded from the main linear pipeline and from overall stage totals.
+  const displayStages =
+    regularDisplayStages;
 
   const categories = [
     "Hiring",
-    ...(nclexBranchVisible
-      ? ["NCLEX Roadmap"]
-      : []),
     "Immigration",
     "Deployment",
     "Aftercare",
@@ -10672,11 +10802,7 @@ export default function Pipeline() {
           <ChevronRight className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
           <p className="font-medium">No pipeline set up yet</p>
           <p className="text-sm text-muted-foreground mt-1">Click "Set Up Pipeline" to initialize your journey.</p>
-          {showNCLEX && (
-            <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-              <p className="text-xs text-amber-700">🎓 NCLEX Roadmap stages will be included in your pipeline.</p>
-            </div>
-          )}
+
         </div>
       </div>
     );
@@ -10728,9 +10854,7 @@ export default function Pipeline() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">My Pipeline</h1>
           <p className="text-sm text-muted-foreground">Track your hiring, immigration and deployment journey</p>
-          {showNCLEX && (
-            <p className="text-xs text-amber-600 mt-1">🎓 NCLEX Roadmap stages are included in your pipeline</p>
-          )}
+
         </div>
       </div>
 
@@ -10799,6 +10923,96 @@ export default function Pipeline() {
           })}
         </div>
       </div>
+
+      {nclexBranchVisible && (
+        <section className="rounded-xl border border-amber-200 bg-amber-50/40 p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="font-semibold text-amber-900">
+                NCLEX Program
+              </h2>
+              <p className="text-xs text-amber-700">
+                Your NCLEX milestones
+              </p>
+            </div>
+            <span className="rounded-full border border-amber-200 bg-white px-3 py-1 text-xs font-medium text-amber-800">
+              {ICP_USRN_SUBPROCESS_CONFIG.filter(item =>
+                isICPUSRNItemComplete(
+                  item,
+                  icpUSRNCRMData
+                ) ||
+                nclexProgress[item.name]?.completed === true
+              ).length}/{ICP_USRN_SUBPROCESS_CONFIG.length} complete
+            </span>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {ICP_USRN_SUBPROCESS_CONFIG.map((item, index) => {
+              const savedItem =
+                nclexProgress[item.name];
+              const complete =
+                savedItem?.completed === true ||
+                isICPUSRNItemComplete(
+                  item,
+                  icpUSRNCRMData
+                );
+
+              const miniStage = {
+                id: `nclex-mini-${index + 1}`,
+                stage_name: item.name,
+                stage_category: "NCLEX Prescreen",
+                stage_order: index + 1,
+                status: complete
+                  ? "Completed"
+                  : "Not Started",
+                completed: complete,
+                is_completed: complete,
+                completed_date:
+                  savedItem?.completed_date || null,
+                nclex_subprocess: true,
+                nclex_config: item
+              };
+
+              return (
+                <button
+                  key={item.name}
+                  type="button"
+                  onClick={() =>
+                    handleStageClick(miniStage)
+                  }
+                  className={cn(
+                    "rounded-xl border bg-white p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm",
+                    complete
+                      ? "border-emerald-200"
+                      : "border-amber-200"
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <p className={cn(
+                      "text-sm font-semibold",
+                      complete
+                        ? "text-emerald-800"
+                        : "text-gray-900"
+                    )}>
+                      {item.name}
+                    </p>
+                    {complete ? (
+                      <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
+                    ) : (
+                      <Circle className="h-5 w-5 shrink-0 text-amber-500" />
+                    )}
+                  </div>
+                  <p className="mt-2 text-xs text-gray-500">
+                    {complete
+                      ? "Completed"
+                      : "Pending"}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {categories.map(cat => {
         const baseCategoryStages = cat === "Reimbursement"
