@@ -2882,29 +2882,92 @@ const ImmigrationCRMChecklistView = ({ stageName, onClose, user, setStages, stag
       const token = localStorage.getItem("icp_auth_token");
       if (!token) throw new Error("Not authenticated");
 
-      const response = await fetch(`${API_BASE}/api/zoho/my-deals`, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json"
+      const response = await fetch(
+        `${API_BASE}/api/pipeline/field-status?_=${Date.now()}`,
+        {
+          method: "GET",
+          cache: "no-store",
+          headers: {
+            Authorization:
+              `Bearer ${token}`
+          }
         }
-      });
+      );
 
-      if (!response.ok) throw new Error("Failed to fetch progress from CRM");
+      if (!response.ok) {
+        throw new Error(
+          "Failed to fetch progress from CRM"
+        );
+      }
 
-      const data = await response.json();
-      const userData = data.data || {};
+      const data =
+        await response.json();
+
+      const userData = {
+        ...(data.immigration || {})
+      };
 
       const results = {};
+
       items.forEach(item => {
-        results[item.key] = isCRMChecklistComplete(getCRMChecklistValue(userData, item));
+        results[item.key] =
+          isCRMChecklistComplete(
+            getCRMChecklistValue(
+              userData,
+              item
+            )
+          );
       });
       setChecklist(results);
 
-      const allComplete = items.length > 0 && items.every(item => results[item.key]);
-      const currentStage = (stages || []).find(s => s.stage_name === stageName);
-      if (allComplete && currentStage && currentStage.status !== "Completed") {
-        updateStageStatus(user?.email, stageName, setStages);
+      const backendStatus =
+        data.stageStatus?.[
+          stageName
+        ];
+
+      const allComplete =
+        typeof backendStatus
+          ?.completed === "boolean"
+          ? backendStatus.completed
+          : (
+              items.length > 0 &&
+              items.every(
+                item =>
+                  results[item.key]
+              )
+            );
+
+      if (allComplete) {
+        const completedAt =
+          backendStatus
+            ?.completed_date ||
+          new Date()
+            .toISOString();
+
+        setStages(previous =>
+          previous.map(stage =>
+            stage.stage_name ===
+              stageName
+              ? {
+                  ...stage,
+                  status:
+                    "Completed",
+                  completed:
+                    true,
+                  is_completed:
+                    true,
+                  completed_date:
+                    completedAt,
+                  crm_checklist:
+                    results,
+                  crm_checklist_completed:
+                    items.length,
+                  crm_checklist_total:
+                    items.length
+                }
+              : stage
+          )
+        );
       }
     } catch (err) {
       console.error(`[Immigration] Error fetching ${stageName} checklist:`, err);
@@ -6153,64 +6216,18 @@ const HousingDetailsForm = ({ onClose, user, setStages }) => {
 
       console.log("[Housing] Submission successful:", data);
 
-      const completedAt =
-        data.stage
-          ?.completed_date ||
-        data.stage
-          ?.completed_at ||
-        new Date()
-          .toISOString();
-
-      setStages(previous =>
-        previous.map(stage =>
-          stage.stage_name ===
-            "Submit Housing Form"
-            ? {
-                ...stage,
-                ...(data.stage ||
-                  {}),
-                status:
-                  "Completed",
-                completed:
-                  true,
-                is_completed:
-                  true,
-                completed_date:
-                  completedAt,
-                completed_at:
-                  completedAt,
-                timing_status:
-                  "Good Standing"
-              }
+      const savedStage = data.stage;
+      if (savedStage) {
+        setStages(prev => prev.map(stage =>
+          stage.stage_name === "Submit Housing Form"
+            ? { ...stage, ...savedStage, status: "Completed" }
             : stage
-        )
-      );
+        ));
+      } else {
+        await updateStageStatus(user?.email, "Submit Housing Form", setStages);
+      }
 
-      window.dispatchEvent(
-        new CustomEvent(
-          "pipeline-updated",
-          {
-            detail: {
-              email:
-                data.canonical_email ||
-                user?.email,
-              stage_name:
-                "Submit Housing Form",
-              status:
-                "Completed",
-              stage:
-                data.stage ||
-                null
-            }
-          }
-        )
-      );
-
-      const crmSaved =
-        data?.attachments?.crm
-          ?.success === true ||
-        data?.crm?.success ===
-          true;
+      const crmSaved = data?.attachments?.crm?.success === true || data?.crm?.success === true;
       if (!crmSaved) throw new Error("The housing form was not attached to CRM.");
       toast.success("Housing form submitted and attached to CRM.");
       onClose();
@@ -7166,66 +7183,15 @@ const RLChecklistView = ({ onClose, user, setStages }) => {
       setUploadResults(nextUploadResults);
       setSubmissionResult(data);
 
-      const completedAt =
-        data.stage
-          ?.completed_date ||
-        data.stage
-          ?.completed_at ||
-        new Date()
-          .toISOString();
-
-      setStages(previous =>
-        previous.map(stage =>
-          [
-            "Submit R&L Checklist",
-            "Submit R&L Form",
-            "Complete R&L Form",
-            "R&L Form"
-          ].includes(
-            stage.stage_name
-          )
-            ? {
-                ...stage,
-                ...(data.stage ||
-                  {}),
-                stage_name:
-                  stage.stage_name,
-                status:
-                  "Completed",
-                completed:
-                  true,
-                is_completed:
-                  true,
-                completed_date:
-                  completedAt,
-                completed_at:
-                  completedAt,
-                timing_status:
-                  "Good Standing"
-              }
-            : stage
-        )
-      );
-
-      window.dispatchEvent(
-        new CustomEvent(
-          "pipeline-updated",
-          {
-            detail: {
-              email:
-                data.canonical_email ||
-                user?.email,
-              stage_name:
-                "Submit R&L Checklist",
-              status:
-                "Completed",
-              stage:
-                data.stage ||
-                null
-            }
-          }
-        )
-      );
+      // The backend completes the stage and starts the next timer atomically.
+      // Refresh the complete pipeline from MongoDB instead of manually checking it.
+      window.dispatchEvent(new CustomEvent("pipeline-updated", {
+        detail: {
+          email: user?.email,
+          stage_name: "Submit R&L Checklist",
+          stage: data.stage || null
+        }
+      }));
 
       toast.success(
         `R&L form attached to CRM and stage completed. ${
@@ -8508,7 +8474,8 @@ export default function Pipeline() {
           ) {
             directFieldStatus = {
               ...(fieldPayload.deployment || {}),
-              ...(fieldPayload.recruit || {})
+              ...(fieldPayload.recruit || {}),
+              ...(fieldPayload.immigration || {})
             };
 
             directComputedStageStatus =
@@ -9083,11 +9050,17 @@ export default function Pipeline() {
             completionDate,
           recruit_field_label:
             "Proof of NCLEX and Birth Certificate",
-          recruit_field_value: {
+          recruit_text_field_values: {
             Proof_of_NCLEX:
               proofOfNCLEX,
             Birth_Certificate:
               birthCertificate
+          },
+          recruit_trigger_field_types: {
+            Proof_of_NCLEX:
+              "text",
+            Birth_Certificate:
+              "text"
           },
           synced_from_recruit_candidate_fields:
             [
@@ -9200,26 +9173,82 @@ export default function Pipeline() {
           acc[item.key] = isCRMChecklistComplete(getCRMChecklistValue(icpUSRNData, item));
           return acc;
         }, {});
-        const completedCount = Object.values(checklistResults).filter(Boolean).length;
-        const allComplete = completedCount === checklist.length;
+        const locallyCompletedCount =
+          Object.values(
+            checklistResults
+          ).filter(Boolean).length;
 
-        if (allComplete && stage.status !== "Completed") {
+        const backendChecklistStatus =
+          directComputedStageStatus[
+            stage.stage_name
+          ];
+
+        const allComplete =
+          typeof backendChecklistStatus
+            ?.completed === "boolean"
+            ? backendChecklistStatus
+                .completed
+            : (
+                locallyCompletedCount ===
+                checklist.length
+              );
+
+        const completedCount =
+          backendChecklistStatus
+            ?.checklist_completed ??
+          locallyCompletedCount;
+
+        const completedDate =
+          allComplete
+            ? (
+                backendChecklistStatus
+                  ?.completed_date ||
+                stage.completed_date ||
+                savedByName.get(
+                  stage.stage_name
+                )?.completed_date ||
+                format(
+                  new Date(),
+                  "yyyy-MM-dd"
+                )
+              )
+            : null;
+
+        if (
+          allComplete &&
+          stage.status !==
+            "Completed"
+        ) {
           crmDrivenImmigrationUpdates.push({
-            stage_name: stage.stage_name,
-            completed_date: format(new Date(), "yyyy-MM-dd")
+            stage_name:
+              stage.stage_name,
+            completed_date:
+              completedDate
           });
         }
 
         return {
           ...stage,
-          crm_checklist: checklistResults,
-          crm_checklist_completed: completedCount,
-          crm_checklist_total: checklist.length,
-          status: allComplete ? "Completed" : stage.status,
-          completed_date: allComplete
-            ? (stage.completed_date || format(new Date(), "yyyy-MM-dd"))
-            : stage.completed_date,
-          synced_from_crm_checklist: true,
+          crm_checklist:
+            checklistResults,
+          crm_checklist_completed:
+            completedCount,
+          crm_checklist_total:
+            backendChecklistStatus
+              ?.checklist_total ??
+            checklist.length,
+          status:
+            allComplete
+              ? "Completed"
+              : "Not Started",
+          completed:
+            allComplete,
+          is_completed:
+            allComplete,
+          completed_date:
+            completedDate,
+          synced_from_crm_checklist:
+            true
         };
       });
 
@@ -9943,6 +9972,7 @@ export default function Pipeline() {
         setDeploymentFieldStatus({
           ...(data.deployment || {}),
           ...(data.recruit || {}),
+          ...(data.immigration || {}),
           __stageStatus:
             data.stageStatus || {}
         });
