@@ -1995,21 +1995,24 @@ const checkNCLEXAccess = async (email) => {
           ? pipelineData.stages
           : [];
 
-        const savedTransferEligibility =
+        if (
+          pipelineData
+            ?.nclexAccess
+            ?.eligible === true
+        ) {
+          return true;
+        }
+
+        const savedTransferCompleted =
           savedStages.some(stage =>
             stage.stage_name ===
               "Transfer to ICP USRN School" &&
-            (
-              stage.nclex_eligible ===
-                true ||
-              stage.transfer_status_verified ===
-                true ||
-              stage.completion_source ===
-                "recruit_transfer_status"
+            isPipelineStageComplete(
+              stage
             )
           );
 
-        if (savedTransferEligibility) {
+        if (savedTransferCompleted) {
           return true;
         }
       }
@@ -2047,30 +2050,17 @@ const checkNCLEXAccess = async (email) => {
         "";
 
       transferStatusSelected =
-        normalizeApplicationStatus(status) ===
-        "transfer to icp usrn school";
+        [
+          "transfer to icp usrn school",
+          "transfer to ivp usrn school"
+        ].includes(
+          normalizeApplicationStatus(
+            status
+          )
+        );
 
       hasNCLEXFlag =
-        transferStatusSelected ||
-        userData.isNCLEXCandidate === true ||
-        userData.nclex_candidate === true ||
-        userData.NCLEX_Candidate === true ||
-        userData.customModule1 === true ||
-        userData.CustomModule1 === true ||
-        userData.custommodule1 === true ||
-        userData.isNCLEX === true ||
-        userData.nclex === true ||
-        userData.NCLEX === true ||
-        String(
-          userData.Education || ""
-        )
-          .toLowerCase()
-          .includes("nclex") ||
-        String(
-          userData.professionalSpecialty || ""
-        )
-          .toLowerCase()
-          .includes("nclex");
+        transferStatusSelected;
 
       if (
         !hasNCLEXFlag &&
@@ -9065,13 +9055,8 @@ export default function Pipeline() {
         saved.some(stage =>
           stage.stage_name ===
             "Transfer to ICP USRN School" &&
-          (
-            stage.nclex_eligible ===
-              true ||
-            stage.transfer_status_verified ===
-              true ||
-            stage.completion_source ===
-              "recruit_transfer_status"
+          isPipelineStageComplete(
+            stage
           )
         );
 
@@ -10588,14 +10573,9 @@ export default function Pipeline() {
     );
 
   const savedTransferEligibility =
-    transferStage?.nclex_eligible ===
-      true ||
-    transferStage
-      ?.transfer_status_verified ===
-      true ||
-    transferStage
-      ?.completion_source ===
-      "recruit_transfer_status";
+    isPipelineStageComplete(
+      transferStage
+    );
 
   // Strict rule: candidates see NCLEX only if Recruit currently has the
   // Transfer status, or the backend previously verified that exact status and
