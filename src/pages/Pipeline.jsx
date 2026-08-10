@@ -1,3 +1,6 @@
+
+
+
 // @ts-nocheck
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/AuthContext";
@@ -312,39 +315,61 @@ const STAGES_CONFIG = [
   { id: 19, stage_name: "Documents Received", stage_category: "Hiring", stage_order: 19, days_from_start: 15 },
   { id: 20, stage_name: "Hired", stage_category: "Hiring", stage_order: 20, days_from_start: 15 },
 
-  // Immigration/Licensure Stages (21-27) - Updated
-  { id: 21, stage_name: "Immigration Call", stage_category: "Immigration", stage_order: 21, days_from_start: 30 },
-  { id: 22, stage_name: "Foundations (Phases 1–3)", stage_category: "Immigration", stage_order: 22, days_from_start: 90 },
-  { id: 23, stage_name: "Licensure (General) & Live English Assessment", stage_category: "Immigration", stage_order: 23, days_from_start: 540 },
-  { id: 24, stage_name: "English Practice & Development", stage_category: "Immigration", stage_order: 24, days_from_start: 570 },
-  { id: 25, stage_name: "English Complete", stage_category: "Immigration", stage_order: 25, days_from_start: 660 },
-  { id: 26, stage_name: "License Endorsement", stage_category: "Immigration", stage_order: 26, days_from_start: 660 },
-  { id: 27, stage_name: "Cultural Adaptation & Integration", stage_category: "Immigration", stage_order: 27, days_from_start: 810 },
+  // Immigration — exact approved order and labels.
+  { id: 21, stage_name: "Submitted for Immigration", stage_category: "Immigration", stage_order: 21, days_from_start: 30 },
+  { id: 22, stage_name: "Immigration Pathway Discovery Call", stage_category: "Immigration", stage_order: 22, days_from_start: 45 },
+  { id: 23, stage_name: "I-140 Filed Date/Approved Date/ Priority Date", stage_category: "Immigration", stage_order: 23, days_from_start: 120 },
+  { id: 24, stage_name: "Foundations: Pillars 1–5", stage_category: "Immigration", stage_order: 24, days_from_start: 180 },
+  { id: 25, stage_name: "Foundations: Endorsement Discovery", stage_category: "Immigration", stage_order: 25, days_from_start: 300 },
+  { id: 26, stage_name: "Visa Fee Bill", stage_category: "Immigration", stage_order: 26, days_from_start: 390 },
+  { id: 27, stage_name: "DS-260 / Civil Document Submission", stage_category: "Immigration", stage_order: 27, days_from_start: 480 },
+  { id: 28, stage_name: "All Clear Date", stage_category: "Immigration", stage_order: 28, days_from_start: 600 },
+  { id: 29, stage_name: "Foundations: Cultural Readiness", stage_category: "Immigration", stage_order: 29, days_from_start: 720 },
+  { id: 30, stage_name: "Deployment Department Transition Call", stage_category: "Immigration", stage_order: 30, days_from_start: 810 },
 
-  // Deployment Stages (28-50)
-  { id: 28, stage_name: "Deployment & Skills Checklist", stage_category: "Immigration", stage_order: 28, days_from_start: 930 },
-  { id: 29, stage_name: "Submit Updated Work Status, Civil Docs & Licensing Credentials", stage_category: "Deployment", stage_order: 29, days_from_start: 935 },
-  { id: 30, stage_name: "Submit Housing Form", stage_category: "Deployment", stage_order: 30, days_from_start: 940 },
-  { id: 31, stage_name: "Submit R&L Checklist", stage_category: "Deployment", stage_order: 31, days_from_start: 945 },
-  { id: 32, stage_name: "Confirmation of Eligibility to Proceed", stage_category: "Deployment", stage_order: 32, days_from_start: 950 },
-  { id: 33, stage_name: "Embassy Interview Scheduled", stage_category: "Deployment", stage_order: 33, days_from_start: 955 },
-  { id: 34, stage_name: "Request Job Offer Letter", stage_category: "Deployment", stage_order: 34, days_from_start: 960 },
-  { id: 35, stage_name: "Schedule Medical Exam", stage_category: "Deployment", stage_order: 35, days_from_start: 965 },
-  { id: 36, stage_name: "Schedule Biometrics Appointment", stage_category: "Deployment", stage_order: 36, days_from_start: 970 },
-  { id: 37, stage_name: "Post-Embassy Interview Update", stage_category: "Deployment", stage_order: 37, days_from_start: 975 },
-  { id: 38, stage_name: "Confirm Scheduled Arrival Date", stage_category: "Deployment", stage_order: 38, days_from_start: 980 },
-  { id: 39, stage_name: "Download Deploymate App", stage_category: "Deployment", stage_order: 39, days_from_start: 985 },
-  { id: 40, stage_name: "Attend Housing and Transportation Call", stage_category: "Deployment", stage_order: 40, days_from_start: 990 },
-  { id: 41, stage_name: "Join ICP Pre-Arrival Support Group", stage_category: "Deployment", stage_order: 41, days_from_start: 995 },
-  { id: 42, stage_name: "Attend Deployment Call", stage_category: "Deployment", stage_order: 42, days_from_start: 1000 },
-  { id: 43, stage_name: "Confirm Final Transportation Plan", stage_category: "Deployment", stage_order: 43, days_from_start: 1005 },
-  { id: 44, stage_name: "Attend Facility/RN Pre-Arrival Call", stage_category: "Deployment", stage_order: 44, days_from_start: 1010 },
-  { id: 45, stage_name: "Flights Booked", stage_category: "Deployment", stage_order: 45, days_from_start: 1015 },
-  { id: 46, stage_name: "ICP Welcome Packet", stage_category: "Deployment", stage_order: 46, days_from_start: 1020 },
-  { id: 47, stage_name: "Connect with Concierge", stage_category: "Deployment", stage_order: 47, days_from_start: 1025 },
-  { id: 48, stage_name: "Reimbursement/Advance Payment Report Released", stage_category: "Deployment", stage_order: 48, days_from_start: 1030 },
-  { id: 49, stage_name: "Communicate During Travel", stage_category: "Deployment", stage_order: 49, days_from_start: 1035 },
-  { id: 50, stage_name: "Submit Post-Arrival Documents", stage_category: "Deployment", stage_order: 50, days_from_start: 1040 },
+  // Deployment — exact approved order and labels.
+  { id: 31, stage_name: "Introduction to Deployment", stage_category: "Deployment", stage_order: 31, days_from_start: 900 },
+  { id: 32, stage_name: "Embassy Eligibility Status", stage_category: "Deployment", stage_order: 32, days_from_start: 930 },
+  { id: 33, stage_name: "Medical Exam", stage_category: "Deployment", stage_order: 33, days_from_start: 945 },
+  { id: 34, stage_name: "Embassy Interview", stage_category: "Deployment", stage_order: 34, days_from_start: 960 },
+  { id: 35, stage_name: "Schedule Arrival Date", stage_category: "Deployment", stage_order: 35, days_from_start: 975 },
+  { id: 36, stage_name: "Housing & Transportation Call", stage_category: "Deployment", stage_order: 36, days_from_start: 990 },
+  { id: 37, stage_name: "Deployment Call", stage_category: "Deployment", stage_order: 37, days_from_start: 1000 },
+  { id: 38, stage_name: "Flights", stage_category: "Deployment", stage_order: 38, days_from_start: 1015 },
+  { id: 39, stage_name: "Client Pre-Arrival Call", stage_category: "Deployment", stage_order: 39, days_from_start: 1020 },
+  { id: 40, stage_name: "Concierge Introduction", stage_category: "Deployment", stage_order: 40, days_from_start: 1025 },
+  { id: 41, stage_name: "Arrival", stage_category: "Deployment", stage_order: 41, days_from_start: 1035 },
+
+  // Hidden compatibility stages preserve old triggers/forms/history.
+  { id: "legacy-imm-1", stage_name: "Foundations (Phases 1–3)", stage_category: "Immigration", stage_order: 1001, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-imm-2", stage_name: "Licensure (General) & Live English Assessment", stage_category: "Immigration", stage_order: 1002, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-imm-3", stage_name: "English Practice & Development", stage_category: "Immigration", stage_order: 1003, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-imm-4", stage_name: "English Complete", stage_category: "Immigration", stage_order: 1004, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-imm-5", stage_name: "License Endorsement", stage_category: "Immigration", stage_order: 1005, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-imm-6", stage_name: "Cultural Adaptation & Integration", stage_category: "Immigration", stage_order: 1006, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-imm-7", stage_name: "Deployment & Skills Checklist", stage_category: "Immigration", stage_order: 1007, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-1", stage_name: "Submit Updated Work Status, Civil Docs & Licensing Credentials", stage_category: "Deployment", stage_order: 1101, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-2", stage_name: "Submit Housing Form", stage_category: "Deployment", stage_order: 1102, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-3", stage_name: "Submit R&L Checklist", stage_category: "Deployment", stage_order: 1103, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-4", stage_name: "Confirmation of Eligibility to Proceed", stage_category: "Deployment", stage_order: 1104, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-5", stage_name: "Embassy Interview Scheduled", stage_category: "Deployment", stage_order: 1105, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-6", stage_name: "Request Job Offer Letter", stage_category: "Deployment", stage_order: 1106, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-7", stage_name: "Schedule Medical Exam", stage_category: "Deployment", stage_order: 1107, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-8", stage_name: "Schedule Biometrics Appointment", stage_category: "Deployment", stage_order: 1108, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-9", stage_name: "Post-Embassy Interview Update", stage_category: "Deployment", stage_order: 1109, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-10", stage_name: "Confirm Scheduled Arrival Date", stage_category: "Deployment", stage_order: 1110, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-11", stage_name: "Download Deploymate App", stage_category: "Deployment", stage_order: 1111, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-12", stage_name: "Attend Housing and Transportation Call", stage_category: "Deployment", stage_order: 1112, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-13", stage_name: "Join ICP Pre-Arrival Support Group", stage_category: "Deployment", stage_order: 1113, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-14", stage_name: "Attend Deployment Call", stage_category: "Deployment", stage_order: 1114, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-15", stage_name: "Confirm Final Transportation Plan", stage_category: "Deployment", stage_order: 1115, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-16", stage_name: "Attend Facility/RN Pre-Arrival Call", stage_category: "Deployment", stage_order: 1116, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-17", stage_name: "Flights Booked", stage_category: "Deployment", stage_order: 1117, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-18", stage_name: "ICP Welcome Packet", stage_category: "Deployment", stage_order: 1118, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-19", stage_name: "Connect with Concierge", stage_category: "Deployment", stage_order: 1119, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-20", stage_name: "Reimbursement/Advance Payment Report Released", stage_category: "Deployment", stage_order: 1120, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-21", stage_name: "Communicate During Travel", stage_category: "Deployment", stage_order: 1121, hidden_from_main_flow: true, non_counted_section: true },
+  { id: "legacy-deploy-22", stage_name: "Submit Post-Arrival Documents", stage_category: "Deployment", stage_order: 1122, hidden_from_main_flow: true, non_counted_section: true },
 
   // Aftercare stages — all timing is anchored to Flight_Arrival_Time.
   { id: 51, stage_name: "24 Hour Call", stage_category: "Aftercare", stage_order: 51, days_from_arrival: 1 },
@@ -357,6 +382,167 @@ const STAGES_CONFIG = [
   { id: 58, stage_name: "1 Year Survey", stage_category: "Aftercare", stage_order: 58, days_from_arrival: 365 },
 
 ];
+
+const FLOW_STAGE_ALIASES = {
+  "Immigration Pathway Discovery Call": {
+    sources: [
+      "Immigration Call"
+    ],
+    mode: "any"
+  },
+
+  "Foundations: Pillars 1–5": {
+    sources: [
+      "Foundations (Phases 1–3)"
+    ],
+    mode: "any"
+  },
+
+  "Foundations: Endorsement Discovery": {
+    sources: [
+      "License Endorsement",
+      "Licensure (General) & Live English Assessment"
+    ],
+    mode: "any"
+  },
+
+  "Foundations: Cultural Readiness": {
+    sources: [
+      "Cultural Adaptation & Integration"
+    ],
+    mode: "any"
+  },
+
+  "Deployment Department Transition Call": {
+    sources: [
+      "Deployment & Skills Checklist"
+    ],
+    mode: "any"
+  },
+
+  "Introduction to Deployment": {
+    sources: [
+      "Deployment & Skills Checklist"
+    ],
+    mode: "any"
+  },
+
+  "Embassy Eligibility Status": {
+    sources: [
+      "Confirmation of Eligibility to Proceed"
+    ],
+    mode: "any"
+  },
+
+  "Medical Exam": {
+    sources: [
+      "Schedule Medical Exam"
+    ],
+    mode: "any"
+  },
+
+  "Embassy Interview": {
+    sources: [
+      "Embassy Interview Scheduled",
+      "Post-Embassy Interview Update"
+    ],
+    mode: "last"
+  },
+
+  "Schedule Arrival Date": {
+    sources: [
+      "Confirm Scheduled Arrival Date"
+    ],
+    mode: "any"
+  },
+
+  "Housing & Transportation Call": {
+    sources: [
+      "Attend Housing and Transportation Call"
+    ],
+    mode: "any"
+  },
+
+  "Deployment Call": {
+    sources: [
+      "Attend Deployment Call"
+    ],
+    mode: "any"
+  },
+
+  "Flights": {
+    sources: [
+      "Flights Booked"
+    ],
+    mode: "any"
+  },
+
+  "Client Pre-Arrival Call": {
+    sources: [
+      "Attend Facility/RN Pre-Arrival Call"
+    ],
+    mode: "any"
+  },
+
+  "Concierge Introduction": {
+    sources: [
+      "Connect with Concierge"
+    ],
+    mode: "any"
+  },
+
+  "Arrival": {
+    sources: [
+      "Communicate During Travel",
+      "Confirm Scheduled Arrival Date"
+    ],
+    mode: "last"
+  }
+};
+
+const getStrongestFlowSource = sources => {
+  const rank = stage => {
+    if (isPipelineStageComplete(stage)) return 3;
+    const status = String(stage?.status || "").trim().toLowerCase();
+    return status === "in progress" || status === "in-progress" ? 2 : 1;
+  };
+  return [...sources].sort((a, b) => {
+    const diff = rank(b) - rank(a);
+    if (diff) return diff;
+    return new Date(b?.completed_date || b?.updated_at || 0).getTime() -
+      new Date(a?.completed_date || a?.updated_at || 0).getTime();
+  })[0] || null;
+};
+
+const applyVisibleFlowAliases = stagesToSync => {
+  const byName = new Map(stagesToSync.map(stage => [stage.stage_name, stage]));
+  return stagesToSync.map(stage => {
+    const alias = FLOW_STAGE_ALIASES[stage.stage_name];
+    if (!alias) return stage;
+    const sources = alias.sources.map(name => byName.get(name)).filter(Boolean);
+    if (!sources.length || isPipelineStageComplete(stage)) return stage;
+    const completeCount = sources.filter(isPipelineStageComplete).length;
+    const anyInProgress = sources.some(source => ["in progress", "in-progress"].includes(String(source.status || "").trim().toLowerCase()));
+    const complete = alias.mode === "all"
+      ? sources.length === alias.sources.length && completeCount === sources.length
+      : alias.mode === "last"
+        ? isPipelineStageComplete(sources[sources.length - 1])
+        : completeCount > 0;
+    const strongest = getStrongestFlowSource(sources);
+    if (!complete && !anyInProgress && !isPipelineStageComplete(stage)) return stage;
+    return {
+      ...stage,
+      status: complete ? "Completed" : anyInProgress ? "In Progress" : stage.status,
+      completed: complete,
+      is_completed: complete,
+      completed_date: complete
+        ? (stage.completed_date || strongest?.completed_date || strongest?.completed_at || new Date().toISOString())
+        : null,
+      legacy_source_stages: alias.sources,
+      restored_from_legacy_flow: true
+    };
+  });
+};
 
 // Zoho Recruit Lead Management Status (API: Application_Status) -> portal stage.
 // The normalized map accepts spacing/hyphen variations from Recruit while keeping
@@ -1466,9 +1652,12 @@ const CULTURAL_ADAPTATION_ITEMS = [
 // Maps an Immigration stage_name to the CRM checklist group that drives it
 const IMMIGRATION_CRM_CHECKLISTS = {
   "Foundations (Phases 1–3)": FOUNDATIONS_PILLARS,
+  "Foundations: Pillars 1–5": FOUNDATIONS_PILLARS,
   "Licensure (General) & Live English Assessment": LICENSURE_GENERAL_ITEMS,
   "License Endorsement": LICENSE_ENDORSEMENT_ITEMS,
+  "Foundations: Endorsement Discovery": LICENSE_ENDORSEMENT_ITEMS,
   "Cultural Adaptation & Integration": CULTURAL_ADAPTATION_ITEMS,
+  "Foundations: Cultural Readiness": CULTURAL_ADAPTATION_ITEMS,
 };
 
 // CLICKABLE_STAGES - Define which stages are clickable
@@ -1486,6 +1675,133 @@ const CLICKABLE_STAGES = {
   "Employment Contract Signed": { clickable: true, type: "upload", uploadType: "signedContract" },
   "Documents Received": { clickable: false, type: "field", field: "Proof_of_NCLEX" },
   "Hired": { clickable: true, type: "upload", uploadType: "hired", destination: "recruit" },
+
+  // Visible Immigration / Deployment flow
+  "Submitted for Immigration": {
+    clickable: true,
+    type: "view",
+    viewType: "immigrationFlowInfo"
+  },
+
+  "Immigration Pathway Discovery Call": {
+    clickable: true,
+    type: "view",
+    viewType: "immigrationFlowInfo"
+  },
+
+  "I-140 Filed Date/Approved Date/ Priority Date": {
+    clickable: true,
+    type: "view",
+    viewType: "immigrationFlowInfo"
+  },
+
+  "Foundations: Pillars 1–5": {
+    clickable: true,
+    type: "view",
+    viewType: "foundationsPillars"
+  },
+
+  "Foundations: Endorsement Discovery": {
+    clickable: true,
+    type: "view",
+    viewType: "endorsementDiscovery"
+  },
+
+  "Visa Fee Bill": {
+    clickable: true,
+    type: "view",
+    viewType: "immigrationFlowInfo"
+  },
+
+  "DS-260 / Civil Document Submission": {
+    clickable: true,
+    type: "navigate",
+    navigateTo: "/documents"
+  },
+
+  "All Clear Date": {
+    clickable: true,
+    type: "view",
+    viewType: "immigrationFlowInfo"
+  },
+
+  "Foundations: Cultural Readiness": {
+    clickable: true,
+    type: "view",
+    viewType: "culturalReadiness"
+  },
+
+  "Deployment Department Transition Call": {
+    clickable: true,
+    type: "view",
+    viewType: "deploymentTransition"
+  },
+
+  "Introduction to Deployment": {
+    clickable: true,
+    type: "view",
+    viewType: "introductionDeployment"
+  },
+
+  "Embassy Eligibility Status": {
+    clickable: true,
+    type: "view",
+    viewType: "deploymentFlowInfo"
+  },
+
+  "Medical Exam": {
+    clickable: true,
+    type: "view",
+    viewType: "deploymentFlowInfo"
+  },
+
+  "Embassy Interview": {
+    clickable: true,
+    type: "view",
+    viewType: "deploymentFlowInfo"
+  },
+
+  "Schedule Arrival Date": {
+    clickable: true,
+    type: "view",
+    viewType: "deploymentFlowInfo"
+  },
+
+  "Housing & Transportation Call": {
+    clickable: true,
+    type: "view",
+    viewType: "deploymentFlowInfo"
+  },
+
+  "Deployment Call": {
+    clickable: true,
+    type: "view",
+    viewType: "deploymentFlowInfo"
+  },
+
+  "Flights": {
+    clickable: true,
+    type: "view",
+    viewType: "flight"
+  },
+
+  "Client Pre-Arrival Call": {
+    clickable: true,
+    type: "view",
+    viewType: "deploymentFlowInfo"
+  },
+
+  "Concierge Introduction": {
+    clickable: true,
+    type: "view",
+    viewType: "concierge"
+  },
+
+  "Arrival": {
+    clickable: true,
+    type: "view",
+    viewType: "deploymentFlowInfo"
+  },
 
   // Immigration/Licensure stages - Clickable for details
   "Immigration Call": {
@@ -3868,7 +4184,303 @@ const OrientationEndView = (props) => (
 );
 
 
+const hasFlowValue = value => {
+  if (value === undefined || value === null || value === false) return false;
+  if (Array.isArray(value)) return value.some(hasFlowValue);
+  if (typeof value === "object") {
+    const preferred = value.display_value ?? value.value ?? value.name ?? value.file_name ?? value.File_Name ?? value.id;
+    return preferred !== undefined ? hasFlowValue(preferred) : Object.keys(value).length > 0;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  return !["", "—", "-", "none", "null", "undefined", "not available", "n/a"].includes(normalized);
+};
+
 const DEPLOYMENT_CRM_STAGE_RULES = {
+  "Submitted for Immigration": {
+    label: "Submitted for Immigration",
+    field: "Added_to_Weekly_I140_Candidates",
+    complete: value =>
+      hasFlowValue(value)
+  },
+
+  "Immigration Pathway Discovery Call": {
+    label: "Immigration Pathway Discovery Call",
+    field: "Immigration_Pathway_Discovery_Call",
+    complete: value =>
+      isCRMChecklistComplete(value)
+  },
+
+  "I-140 Filed Date/Approved Date/ Priority Date": {
+    label: "I-140 Filed Date/Approved Date/ Priority Date",
+    fields: [
+      "Filed_Date",
+      "Approval_Date",
+      "Priority_Date"
+    ],
+    fieldLabels: {
+      Filed_Date:
+        "I-140 Filed Date",
+      Approval_Date:
+        "I-140 Approved Date",
+      Priority_Date:
+        "Priority Date"
+    },
+    complete: value =>
+      hasFlowValue(
+        value?.Filed_Date
+      ) &&
+      hasFlowValue(
+        value?.Approval_Date
+      ) &&
+      hasFlowValue(
+        value?.Priority_Date
+      ),
+    allowContinue: value =>
+      hasFlowValue(
+        value?.Filed_Date
+      )
+  },
+
+  "Visa Fee Bill": {
+    label: "Visa Fee Bill",
+    fields: [
+      "Visa_Fee_Status",
+      "Visa_Fee_Bill",
+      "NVC_Visa_Fee_Status",
+      "Visa_Fee"
+    ],
+    complete: value =>
+      Object.values(
+        value ||
+        {}
+      )
+        .filter(
+          hasFlowValue
+        )
+        .some(item =>
+          String(item)
+            .trim()
+            .toLowerCase()
+            .includes(
+              "paid"
+            )
+        ),
+    allowContinue: value =>
+      Object.values(
+        value ||
+        {}
+      ).some(
+        hasFlowValue
+      )
+  },
+
+  "DS-260 / Civil Document Submission": {
+    label: "DS-260 / Civil Document Submission",
+    fields: [
+      "NVC_DS_260_Status",
+      "DS_260_Status",
+      "DS260_Status"
+    ],
+    complete: value =>
+      Object.values(
+        value ||
+        {}
+      )
+        .filter(
+          hasFlowValue
+        )
+        .some(item => {
+          const normalized =
+            String(item)
+              .trim()
+              .toLowerCase();
+
+          return [
+            "submitted",
+            "complete",
+            "completed",
+            "documentarily qualified",
+            "dq"
+          ].some(status =>
+            normalized.includes(
+              status
+            )
+          );
+        }),
+    allowContinue: value =>
+      Object.values(
+        value ||
+        {}
+      ).some(
+        hasFlowValue
+      )
+  },
+
+  "All Clear Date": {
+    label: "All Clear Date",
+    fields: [
+      "All_Clear_Date",
+      "All_Clear_Documentary_Complete"
+    ],
+    complete: value =>
+      hasFlowValue(
+        value?.All_Clear_Date
+      ) ||
+      hasAllClearSelection(
+        value?.All_Clear_Documentary_Complete
+      )
+  },
+
+  "Embassy Eligibility Status": {
+    label: "Embassy Eligibility Status",
+    field: "State_Licensure_Requirements",
+    complete: value =>
+      String(
+        value ||
+        ""
+      )
+        .trim()
+        .toLowerCase() ===
+      "eligible"
+  },
+
+  "Medical Exam": {
+    label: "Medical Exam",
+    fields: [
+      "Medical_Exam_Date",
+      "R_L_Checklist_Initiated"
+    ],
+    complete: value =>
+      hasFlowValue(
+        value?.Medical_Exam_Date
+      ) ||
+      hasFlowValue(
+        value?.R_L_Checklist_Initiated
+      )
+  },
+
+  "Embassy Interview": {
+    label: "Embassy Interview",
+    fields: [
+      "Embassy_Interview",
+      "Visa_Status"
+    ],
+    fieldLabels: {
+      Embassy_Interview:
+        "Embassy Interview Date",
+      Visa_Status:
+        "Visa Status"
+    },
+    complete: value =>
+      hasFlowValue(
+        value?.Visa_Status
+      ),
+    allowContinue: value =>
+      hasFlowValue(
+        value?.Embassy_Interview
+      )
+  },
+
+  "Schedule Arrival Date": {
+    label: "Schedule Arrival Date",
+    field: "ETA",
+    complete: value =>
+      hasFlowValue(value)
+  },
+
+  "Housing & Transportation Call": {
+    label: "Housing & Transportation Call",
+    field:
+      "Final_Housing_Confirmation_Call",
+    complete: value =>
+      hasFlowValue(value)
+  },
+
+  "Deployment Call": {
+    label: "Deployment Call",
+    field: "Deployment_Call",
+    complete: value => {
+      if (
+        !hasFlowValue(
+          value
+        )
+      ) {
+        return false;
+      }
+
+      const date =
+        new Date(value);
+
+      return (
+        !Number.isNaN(
+          date.getTime()
+        ) &&
+        date.getTime() <=
+          Date.now()
+      );
+    }
+  },
+
+  "Flights": {
+    label: "Flights",
+    field: "Flight_Confirmation",
+    complete: value =>
+      hasFlowValue(value)
+  },
+
+  "Client Pre-Arrival Call": {
+    label: "Client Pre-Arrival Call",
+    field: "Deployment_Call",
+    complete: value =>
+      hasFlowValue(value)
+  },
+
+  "Concierge Introduction": {
+    label: "Concierge Introduction",
+    fields: [
+      "Concierge_Name1",
+      "Concierge_Phone"
+    ],
+    fieldLabels: {
+      Concierge_Name1:
+        "Concierge Name",
+      Concierge_Phone:
+        "Concierge Phone"
+    },
+    complete: value =>
+      hasFlowValue(
+        value?.Concierge_Name1
+      ) &&
+      hasFlowValue(
+        value?.Concierge_Phone
+      )
+  },
+
+  "Arrival": {
+    label: "Arrival",
+    field: "Flight_Arrival_Time",
+    complete: value => {
+      if (
+        !hasFlowValue(
+          value
+        )
+      ) {
+        return false;
+      }
+
+      const date =
+        new Date(value);
+
+      return (
+        !Number.isNaN(
+          date.getTime()
+        ) &&
+        date.getTime() <=
+          Date.now()
+      );
+    }
+  },
+
   "English Complete": {
     label: "English Complete",
     fields: [
@@ -8644,6 +9256,14 @@ export default function Pipeline() {
         new Set();
       let canonicalHiringCurrentStage =
         null;
+      let canonicalApplicationsFound =
+        null;
+      let canonicalCandidatesFound =
+        null;
+      let canonicalAssociatedWithJob =
+        null;
+      let canonicalMatchedAssociationEmail =
+        null;
       let icpUSRNData = {};
       let resolvedFinalArrivalDate = null;
       let backendAftercareGateOpen = false;
@@ -8943,6 +9563,44 @@ export default function Pipeline() {
               .currentStage ||
             null;
 
+          canonicalApplicationsFound =
+            Object.prototype
+              .hasOwnProperty.call(
+                canonicalHiringState,
+                "applicationsFound"
+              )
+              ? canonicalHiringState
+                  .applicationsFound ===
+                true
+              : null;
+
+          canonicalCandidatesFound =
+            Object.prototype
+              .hasOwnProperty.call(
+                canonicalHiringState,
+                "candidatesFound"
+              )
+              ? canonicalHiringState
+                  .candidatesFound ===
+                true
+              : null;
+
+          canonicalAssociatedWithJob =
+            Object.prototype
+              .hasOwnProperty.call(
+                canonicalHiringState,
+                "associatedWithJob"
+              )
+              ? canonicalHiringState
+                  .associatedWithJob ===
+                true
+              : null;
+
+          canonicalMatchedAssociationEmail =
+            canonicalHiringState
+              .matchedAssociationEmail ||
+            null;
+
           if (
             Object.prototype
               .hasOwnProperty.call(
@@ -9106,6 +9764,20 @@ export default function Pipeline() {
           new Map()
         );
 
+      for (const [visibleStageName, alias] of Object.entries(FLOW_STAGE_ALIASES)) {
+        const currentVisible = savedByName.get(visibleStageName);
+        const legacyCandidates = alias.sources.map(name => savedByName.get(name)).filter(Boolean);
+        const strongestLegacy = getStrongestFlowSource(legacyCandidates);
+        if (!currentVisible && strongestLegacy) {
+          savedByName.set(visibleStageName, {
+            ...strongestLegacy,
+            stage_name: visibleStageName,
+            legacy_stage_name: strongestLegacy.stage_name,
+            restored_from_legacy_flow: true
+          });
+        }
+      }
+
       const savedNCLEXProgress = saved
         .filter(stage =>
           [
@@ -9179,20 +9851,50 @@ export default function Pipeline() {
       // The first two hiring stages are controlled only by Recruit module presence:
       // Applied -> Applications; Associated with Job -> Applications + Candidates.
       const applicationsFound =
-        recruitModulePresence.applications === true;
+        canonicalApplicationsFound !==
+        null
+          ? canonicalApplicationsFound
+          : recruitModulePresence
+              .applications ===
+            true;
+
       const candidatesFound =
-        recruitModulePresence.candidates === true;
+        canonicalCandidatesFound !==
+        null
+          ? canonicalCandidatesFound
+          : recruitModulePresence
+              .candidates ===
+            true;
+
+      const associatedWithJobFound =
+        canonicalAssociatedWithJob !==
+        null
+          ? canonicalAssociatedWithJob
+          : (
+              applicationsFound &&
+              candidatesFound
+            );
+
       const applicationsPresenceKnown =
-        recruitModulePresence.applications !== null;
+        canonicalApplicationsFound !==
+          null ||
+        recruitModulePresence
+          .applications !==
+          null;
+
       const candidatesPresenceKnown =
-        recruitModulePresence.candidates !== null;
+        canonicalCandidatesFound !==
+          null ||
+        recruitModulePresence
+          .candidates !==
+          null;
 
       let allStages = STAGES_CONFIG.map(stage => {
         const savedStage = savedByName.get(stage.stage_name);
         const isAppliedStage = stage.stage_name === "Applied";
         const isAssociatedStage = stage.stage_name === "Associated with Job";
-        const isFirstImmigrationStage = stage.stage_category === "Immigration" && stage.stage_order === 21;
-        const isFirstDeploymentStage = stage.stage_category === "Deployment" && stage.stage_order === 29;
+        const isFirstImmigrationStage = stage.stage_name === "Submitted for Immigration";
+        const isFirstDeploymentStage = stage.stage_name === "Introduction to Deployment";
 
         let automaticStatus = null;
 
@@ -9215,10 +9917,7 @@ export default function Pipeline() {
           }
         } else if (isAssociatedStage) {
           if (
-            (
-              applicationsFound &&
-              candidatesFound
-            ) ||
+            associatedWithJobFound ||
             canonicalHiringCompletedStages
               .has(
                 "Associated with Job"
@@ -9280,6 +9979,16 @@ export default function Pipeline() {
                     ? format(new Date(), "yyyy-MM-dd")
                     : null
             ),
+
+          ...(isAssociatedStage
+            ? {
+                matched_association_email:
+                  canonicalMatchedAssociationEmail,
+                associated_with_job_verified:
+                  associatedWithJobFound ===
+                  true
+              }
+            : {})
         };
         
         // Add immigration stage details if available
@@ -10035,6 +10744,8 @@ export default function Pipeline() {
         );
       }
 
+      allStages = applyVisibleFlowAliases(allStages);
+
       const savedAftercareGateDate = allStages
         .filter(stage => stage.stage_category === "Aftercare")
         .map(stage =>
@@ -10476,7 +11187,7 @@ export default function Pipeline() {
               },
               {
                 key: "housing",
-                title: "Housing & Transportation",
+                title: "Housing & Transportation Call",
                 description:
                   "Complete your housing and transportation form.",
                 icon: Home
@@ -11001,6 +11712,25 @@ export default function Pipeline() {
         case "orientationEnd":
           openModal("Submit Start Date on Floor Independently", <OrientationEndView onClose={closeModal} user={user} setStages={setStages} />);
           break;
+        case "foundationsPillars":
+          openModal("Foundations: Pillars 1–5", <ImmigrationCRMChecklistView stageName="Foundations: Pillars 1–5" onClose={closeModal} user={user} setStages={setStages} stages={stages} />);
+          break;
+        case "endorsementDiscovery":
+          openModal("Foundations: Endorsement Discovery", <ImmigrationCRMChecklistView stageName="Foundations: Endorsement Discovery" onClose={closeModal} user={user} setStages={setStages} stages={stages} />);
+          break;
+        case "culturalReadiness":
+          openModal("Foundations: Cultural Readiness", <ImmigrationCRMChecklistView stageName="Foundations: Cultural Readiness" onClose={closeModal} user={user} setStages={setStages} stages={stages} />);
+          break;
+        case "introductionDeployment":
+          openModal("Introduction to Deployment", <div className="space-y-4"><div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4"><p className="text-sm font-medium text-emerald-900">Introduction to Deployment</p><p className="mt-1 text-sm text-emerald-800">Review your Step 3 call, skills preparation and deployment documents.</p></div><Button type="button" variant="outline" onClick={() => { closeModal(); navigate("/documents"); }}>Open Document Library</Button></div>);
+          break;
+        case "deploymentTransition":
+          openModal("Deployment Department Transition Call", <div className="space-y-4"><p className="text-sm text-muted-foreground">This is the final Immigration handoff into Deployment. Existing completion from the previous Deployment & Skills Checklist is preserved automatically.</p></div>);
+          break;
+        case "immigrationFlowInfo":
+        case "deploymentFlowInfo":
+          openModal(stage.stage_name, <DeploymentCRMStatusView stage={stage} status={deploymentFieldStatus} onClose={closeModal} user={user} setStages={setStages} />);
+          break;
         // Immigration stages driven directly by CRM checklist fields
         case "foundations":
           openModal(
@@ -11357,7 +12087,7 @@ export default function Pipeline() {
 
   const regularDisplayStages =
     stages.filter(stage => {
-      if (stage?.is_gate) {
+      if (stage?.is_gate || stage?.hidden_from_main_flow === true) {
         return false;
       }
 
@@ -11843,45 +12573,18 @@ export default function Pipeline() {
             {isImmigration && (
               <div className="border-b border-border bg-slate-50/70 p-5">
                 <h3 className="text-sm font-semibold text-slate-800">
-                  I-140 & English Record
+                  Immigration Petition Record
                 </h3>
 
                 <div className="mt-3 overflow-hidden rounded-xl border bg-white">
                   {[
-                    {
-                      label:
-                        "I-140 Filed Date",
-                      value:
-                        icpUSRNCRMData
-                          ?.Filed_Date ||
-                        icpUSRNCRMData
-                          ?.i140FiledDate
-                    },
-                    {
-                      label:
-                        "I-140 Approval Date",
-                      value:
-                        icpUSRNCRMData
-                          ?.Approval_Date ||
-                        icpUSRNCRMData
-                          ?.i140ApprovalDate
-                    },
-                    {
-                      label:
-                        "I-140 Priority Date",
-                      value:
-                        icpUSRNCRMData
-                          ?.Priority_Date ||
-                        icpUSRNCRMData
-                          ?.i140PriorityDate
-                    },
-                    {
-                      label:
-                        "English Exp Date",
-                      value:
-                        icpUSRNCRMData
-                          ?.IELTS_Scheduled_Exam_Date_if_applicable
-                    }
+                    { label: "Submitted for Immigration", value: icpUSRNCRMData?.Added_to_Weekly_I140_Candidates ? "Yes" : "—" },
+                    { label: "Submitted Date", value: icpUSRNCRMData?.Added_to_Weekly_I140_Candidates || icpUSRNCRMData?.submittedToImmigration },
+                    { label: "I-140 Filed Date", value: icpUSRNCRMData?.Filed_Date || icpUSRNCRMData?.i140FiledDate },
+                    { label: "I-140 Approval Date", value: icpUSRNCRMData?.Approval_Date || icpUSRNCRMData?.i140ApprovalDate },
+                    { label: "I-140 Priority Date", value: icpUSRNCRMData?.Priority_Date || icpUSRNCRMData?.i140PriorityDate },
+                    { label: "English Complete", value: icpUSRNCRMData?.IELTS_Complete || "—" },
+                    { label: "English Exp Date", value: icpUSRNCRMData?.IELTS_Scheduled_Exam_Date_if_applicable }
                   ].map(
                     (
                       item,
@@ -11968,6 +12671,9 @@ export default function Pipeline() {
                           stage.stage_name
                             ?.toLowerCase()
                             .includes("course") ||
+                          stage.stage_name
+                            ?.toLowerCase()
+                            .includes("foundations") ||
                           stage.stage_name ===
                             "Foundations (Phases 1–3)" ||
                           stage.stage_name ===

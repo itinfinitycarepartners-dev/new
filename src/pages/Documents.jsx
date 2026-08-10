@@ -640,7 +640,7 @@ export default function Documents() {
         user?.email
       ),
     staleTime:
-      30 * 60 * 1000,
+      5 * 60 * 1000,
     retry: 1,
     refetchOnWindowFocus:
       false,
@@ -891,6 +891,13 @@ export default function Documents() {
 
         groups.get(type).push(
           document
+        );
+      }
+
+      for (const docs of groups.values()) {
+        docs.sort((a, b) =>
+          new Date(b.uploaded_at || 0) -
+          new Date(a.uploaded_at || 0)
         );
       }
 
@@ -1274,7 +1281,7 @@ export default function Documents() {
           </h1>
 
           <p className="text-sm text-muted-foreground">
-            {allDocs.length} approved document{allDocs.length === 1 ? "" : "s"} in your library
+            All recruitment, NCLEX, immigration, deployment and aftercare documents are kept here. {allDocs.length} approved document{allDocs.length === 1 ? "" : "s"} currently available.
           </p>
         </div>
 
@@ -1621,6 +1628,9 @@ export default function Documents() {
                     </h2>
                     <p className="text-xs text-muted-foreground">
                       {documents.length} document{documents.length === 1 ? "" : "s"}
+                      {documents[0]?.uploaded_at
+                        ? ` • Updated ${new Date(documents[0].uploaded_at).toLocaleDateString()}`
+                        : ""}
                     </p>
                   </div>
                 </div>

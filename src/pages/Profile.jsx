@@ -1,6 +1,9 @@
+
+
+
 // @ts-nocheck
 import { useAuth } from "@/lib/AuthContext";
-import { User, Phone, Mail, MapPin, Briefcase, Plane, Building2, UserCheck, Calendar, Award, FileText, Clock, Shield, CheckCircle, AlertCircle, Building, Loader2, Users, CalendarDays } from "lucide-react";
+import { User, Phone, Mail, MapPin, Briefcase, Plane, Building2, UserCheck, Calendar, Award, FileText, FileCheck, Clock, Shield, CheckCircle, AlertCircle, Building, Loader2, Users, CalendarDays } from "lucide-react";
 import { useState, useEffect } from "react";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://fictional-carnival-3inv.onrender.com';
@@ -50,24 +53,85 @@ const formatDateTime = (dateStr) => {
   }
 };
 
-function InfoRow({ label, value, icon: Icon }) {
-  if (!value || value === "—" || value === "" || value === null || value === undefined) return null;
-  let displayValue = value;
-  if (typeof value === 'boolean') {
-    displayValue = value ? "Yes" : "No";
+function InfoRow({
+  label,
+  value,
+  icon: Icon,
+  alwaysVisible = false
+}) {
+  const isEmpty =
+    value === undefined ||
+    value === null ||
+    value === "" ||
+    value === "—";
+
+  if (
+    isEmpty &&
+    !alwaysVisible
+  ) {
+    return null;
   }
-  // Handle object values
-  if (typeof value === 'object') {
-    if (value.name) displayValue = value.name;
-    else if (value.file_Name) displayValue = value.file_Name;
-    else return null;
+
+  let displayValue =
+    isEmpty
+      ? "—"
+      : value;
+
+  if (
+    typeof value ===
+    "boolean"
+  ) {
+    displayValue =
+      value
+        ? "Yes"
+        : "No";
   }
+
+  if (
+    value &&
+    typeof value ===
+    "object"
+  ) {
+    if (value.name) {
+      displayValue =
+        value.name;
+    } else if (
+      value.file_Name
+    ) {
+      displayValue =
+        value.file_Name;
+    } else if (
+      value.value !==
+        undefined &&
+      value.value !==
+        null
+    ) {
+      displayValue =
+        value.value;
+    } else if (
+      alwaysVisible
+    ) {
+      displayValue =
+        "—";
+    } else {
+      return null;
+    }
+  }
+
   return (
     <div className="flex items-start gap-3 py-3 border-b border-border last:border-0">
-      {Icon && <Icon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />}
-      <div>
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="text-sm font-medium mt-0.5">{displayValue}</p>
+      {Icon && (
+        <Icon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+      )}
+
+      <div className="min-w-0">
+        <p className="text-xs text-muted-foreground">
+          {label}
+        </p>
+
+        <p className="text-sm font-medium mt-0.5 break-words">
+          {displayValue}
+        </p>
       </div>
     </div>
   );
@@ -272,6 +336,103 @@ export default function Profile() {
     return value ? formatDate(value) : null;
   };
 
+  const getFirstValue = (...fields) => {
+    for (
+      const field of
+      fields
+    ) {
+      const value =
+        getValue(field);
+
+      if (
+        value !== null &&
+        value !== undefined &&
+        value !== "" &&
+        value !== "—"
+      ) {
+        return value;
+      }
+    }
+
+    return null;
+  };
+
+  const getFirstFormattedDate =
+    (...fields) => {
+      const value =
+        getFirstValue(
+          ...fields
+        );
+
+      return value
+        ? formatDate(value)
+        : null;
+    };
+
+  const getSubmittedForImmigrationValue =
+    () => {
+      const raw =
+        getFirstValue(
+          "Added_to_Weekly_I140_Candidates",
+          "submittedToImmigration",
+          "submitted_for_immigration",
+          "Submitted_for_Immigration"
+        );
+
+      if (
+        raw === null ||
+        raw === undefined ||
+        raw === ""
+      ) {
+        return null;
+      }
+
+      if (
+        typeof raw ===
+        "boolean"
+      ) {
+        return raw
+          ? "Yes"
+          : "No";
+      }
+
+      const normalized =
+        String(raw)
+          .trim()
+          .toLowerCase();
+
+      if (
+        [
+          "true",
+          "yes",
+          "1",
+          "checked",
+          "complete",
+          "completed",
+          "submitted"
+        ].includes(
+          normalized
+        )
+      ) {
+        return "Yes";
+      }
+
+      if (
+        [
+          "false",
+          "no",
+          "0",
+          "unchecked"
+        ].includes(
+          normalized
+        )
+      ) {
+        return "No";
+      }
+
+      return raw;
+    };
+
   // Log available fields for debugging
   console.log("[Profile] Available fields:", Object.keys(profileData || {}));
   console.log("[Profile] Recruit data:", recruitData);
@@ -351,6 +512,113 @@ export default function Profile() {
           <InfoRow label="Relias Enrolled Date" value={getFormattedDate('reliasEnrolledDate')} icon={Calendar} />
           <InfoRow label="Relias Extension" value={getFormattedDate('reliasExtension')} icon={Calendar} />
           <InfoRow label="Initial ICP Assessment" value={getValue('initialICPAssessment')} icon={CheckCircle} />
+        </Section>
+
+        {/* Immigration Petition Record */}
+        <Section
+          title="Immigration"
+          className="lg:col-span-2"
+        >
+          <div className="mb-4">
+            <h3 className="text-base font-semibold text-foreground">
+              Immigration Petition Record
+            </h3>
+          </div>
+
+          <div className="overflow-hidden rounded-xl border border-border">
+            <div className="px-5">
+              <InfoRow
+                label="Submitted for Immigration"
+                value={
+                  getSubmittedForImmigrationValue()
+                }
+                icon={FileCheck}
+                alwaysVisible
+              />
+
+              <InfoRow
+                label="Submitted Date"
+                value={
+                  getFirstFormattedDate(
+                    "Submitted_for_Immigration_Date",
+                    "Submitted_For_Immigration_Date",
+                    "submittedForImmigrationDate",
+                    "submittedToImmigrationDate",
+                    "Added_to_Weekly_I140_Candidates"
+                  )
+                }
+                icon={Calendar}
+                alwaysVisible
+              />
+
+              <InfoRow
+                label="I-140 Filed Date"
+                value={
+                  getFirstFormattedDate(
+                    "Filed_Date",
+                    "i140FiledDate",
+                    "I_140_Filed_Date"
+                  )
+                }
+                icon={Calendar}
+                alwaysVisible
+              />
+
+              <InfoRow
+                label="I-140 Approval Date"
+                value={
+                  getFirstFormattedDate(
+                    "Approval_Date",
+                    "i140ApprovalDate",
+                    "I_140_Approval_Date"
+                  )
+                }
+                icon={Calendar}
+                alwaysVisible
+              />
+
+              <InfoRow
+                label="I-140 Priority Date"
+                value={
+                  getFirstFormattedDate(
+                    "Priority_Date",
+                    "i140PriorityDate",
+                    "I_140_Priority_Date"
+                  )
+                }
+                icon={Calendar}
+                alwaysVisible
+              />
+
+              <InfoRow
+                label="English Complete"
+                value={
+                  getFirstValue(
+                    "IELTS_Complete",
+                    "englishComplete",
+                    "English_Complete",
+                    "EnglishComplete"
+                  )
+                }
+                icon={CheckCircle}
+                alwaysVisible
+              />
+
+              <InfoRow
+                label="English Exp Date"
+                value={
+                  getFirstFormattedDate(
+                    "IELTS_Scheduled_Exam_Date_if_applicable",
+                    "englishExpDate",
+                    "English_Exp_Date",
+                    "English_Expiration_Date"
+                  )
+                }
+                icon={Calendar}
+                alwaysVisible
+              />
+            </div>
+          </div>
         </Section>
 
       
