@@ -1,3 +1,6 @@
+
+
+
 // @ts-nocheck
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/AuthContext";
@@ -2031,16 +2034,44 @@ const checkNCLEXAccess = async (email) => {
           return true;
         }
 
-        const savedTransferCompleted =
-          savedStages.some(stage =>
-            stage.stage_name ===
-              "Transfer to ICP USRN School" &&
-            isPipelineStageComplete(
-              stage
-            )
-          );
+        const savedTransferReached =
+          savedStages.some(stage => {
+            if (
+              stage.stage_name !==
+              "Transfer to ICP USRN School"
+            ) {
+              return false;
+            }
 
-        if (savedTransferCompleted) {
+            const status =
+              String(
+                stage.status ||
+                ""
+              )
+                .trim()
+                .toLowerCase();
+
+            return (
+              isPipelineStageComplete(
+                stage
+              ) ||
+              [
+                "in progress",
+                "in-progress",
+                "active"
+              ].includes(
+                status
+              ) ||
+              stage.nclex_eligible ===
+                true ||
+              stage.nclex_branch_visible ===
+                true ||
+              stage.transfer_status_verified ===
+                true
+            );
+          });
+
+        if (savedTransferReached) {
           return true;
         }
       }
@@ -8963,9 +8994,38 @@ export default function Pipeline() {
           "Transfer to ICP USRN School"
         );
 
+      const savedTransferStatus =
+        String(
+          savedTransferStage?.status ||
+          ""
+        )
+          .trim()
+          .toLowerCase();
+
       const savedTransferReached =
-        isPipelineStageComplete(
+        Boolean(
           savedTransferStage
+        ) &&
+        (
+          isPipelineStageComplete(
+            savedTransferStage
+          ) ||
+          [
+            "in progress",
+            "in-progress",
+            "active"
+          ].includes(
+            savedTransferStatus
+          ) ||
+          savedTransferStage
+            ?.nclex_eligible ===
+            true ||
+          savedTransferStage
+            ?.nclex_branch_visible ===
+            true ||
+          savedTransferStage
+            ?.transfer_status_verified ===
+            true
         ) ||
         Object.keys(
           savedNCLEXProgress
@@ -9082,13 +9142,41 @@ export default function Pipeline() {
         );
 
       const verifiedSavedTransfer =
-        saved.some(stage =>
-          stage.stage_name ===
-            "Transfer to ICP USRN School" &&
-          isPipelineStageComplete(
-            stage
-          )
-        );
+        saved.some(stage => {
+          if (
+            stage.stage_name !==
+            "Transfer to ICP USRN School"
+          ) {
+            return false;
+          }
+
+          const status =
+            String(
+              stage.status ||
+              ""
+            )
+              .trim()
+              .toLowerCase();
+
+          return (
+            isPipelineStageComplete(
+              stage
+            ) ||
+            [
+              "in progress",
+              "in-progress",
+              "active"
+            ].includes(
+              status
+            ) ||
+            stage.nclex_eligible ===
+              true ||
+            stage.nclex_branch_visible ===
+              true ||
+            stage.transfer_status_verified ===
+              true
+          );
+        });
 
       const verifiedSavedNCLEXHistory =
         saved.some(
@@ -9184,10 +9272,39 @@ export default function Pipeline() {
       } else {
         const savedTransferStage =
           savedByName.get("Transfer to ICP USRN School");
+        const transferSavedStatus =
+          String(
+            savedTransferStage?.status ||
+            ""
+          )
+            .trim()
+            .toLowerCase();
+
         const transferWasPreviouslyReached =
-          savedTransferStage?.status === "Completed" ||
-          savedTransferStage?.completed === true ||
-          Boolean(savedTransferStage?.completed_date);
+          Boolean(
+            savedTransferStage
+          ) &&
+          (
+            isPipelineStageComplete(
+              savedTransferStage
+            ) ||
+            [
+              "in progress",
+              "in-progress",
+              "active"
+            ].includes(
+              transferSavedStatus
+            ) ||
+            savedTransferStage
+              ?.nclex_eligible ===
+              true ||
+            savedTransferStage
+              ?.nclex_branch_visible ===
+              true ||
+            savedTransferStage
+              ?.transfer_status_verified ===
+              true
+          );
 
         if (
           recruitSnapshotLoaded &&
@@ -10269,43 +10386,137 @@ export default function Pipeline() {
   };
 
   const getRiskStatus = (stage) => {
-    if (!stage) return null;
-    if (stage.status === "Completed") return null;
-
-    // Special-case Immigration Call: its "due by" window is 30 days after
-    // the Hired stage's completion date, not the pipeline start date.
-    if (stage.stage_name === "Immigration Call") {
-      const hiredStage = stages.find(s => s.stage_name === "Hired");
-      if (!hiredStage?.completed_date) return null;
-      const hiredDate = new Date(hiredStage.completed_date);
-      if (Number.isNaN(hiredDate.getTime())) return null;
-      const deadline = addDays(hiredDate, 30);
-      const hoursRemaining = (deadline.getTime() - Date.now()) / (1000 * 60 * 60);
-      if (hoursRemaining < 0) return "Late";
-      if (hoursRemaining <= 24) return "At Risk";
-      return "Good Standing";
+    if (!stage) {
+      return null;
     }
 
-    if (stage.stage_category === "Aftercare" && stage.target_date) {
-      const deadline = new Date(stage.target_date);
-      if (!Number.isNaN(deadline.getTime())) {
+    if (
+      isPipelineStageComplete(
+        stage
+      )
+    ) {
+      return null;
+    }
+
+    // The backend owns the sequential clock. Every screen must use the exact
+    // saved target_date so Dashboard and Pipeline cannot count from different
+    // dates. Legacy calculations are used only if an old row has no target.
+    const storedTarget =
+      stage.target_date ||
+      stage.targetDate ||
+      null;
+
+    if (storedTarget) {
+      const deadline =
+        new Date(
+          storedTarget
+        );
+
+      if (
+        !Number.isNaN(
+          deadline.getTime()
+        )
+      ) {
         const hoursRemaining =
-          (deadline.getTime() - Date.now()) / (1000 * 60 * 60);
-        if (hoursRemaining < 0) return "Late";
-        if (hoursRemaining <= 24) return "At Risk";
+          (
+            deadline.getTime() -
+            Date.now()
+          ) /
+          (
+            1000 *
+            60 *
+            60
+          );
+
+        if (
+          hoursRemaining <
+          0
+        ) {
+          return "Late";
+        }
+
+        if (
+          hoursRemaining <=
+          24
+        ) {
+          return "At Risk";
+        }
+
         return "Good Standing";
       }
     }
 
-    const targetHours = stage.hours_from_start ?? ((stage.days_from_start || 0) * 24);
-    if (!targetHours) return null;
-    const start = new Date(stage.start_date || pipelineStartDate || Date.now());
-    const elapsedHours = Math.floor((Date.now() - start.getTime()) / (1000 * 60 * 60));
-    const hoursRemaining = targetHours - elapsedHours;
-    if (stage.completed_date) return null;
-    if (hoursRemaining < 0) return "Late";
-    if (hoursRemaining <= 24) return "At Risk";
-    return "Good Standing";
+    // Old database rows created before target_date existed are the only rows
+    // allowed to use these compatibility calculations.
+    if (
+      stage.stage_name ===
+      "Immigration Call"
+    ) {
+      const hiredStage =
+        stages.find(
+          item =>
+            item.stage_name ===
+            "Hired"
+        );
+
+      if (
+        !hiredStage
+          ?.completed_date
+      ) {
+        return null;
+      }
+
+      const hiredDate =
+        new Date(
+          hiredStage.completed_date
+        );
+
+      if (
+        Number.isNaN(
+          hiredDate.getTime()
+        )
+      ) {
+        return null;
+      }
+
+      const deadline =
+        addDays(
+          hiredDate,
+          30
+        );
+
+      const hoursRemaining =
+        (
+          deadline.getTime() -
+          Date.now()
+        ) /
+        (
+          1000 *
+          60 *
+          60
+        );
+
+      if (
+        hoursRemaining <
+        0
+      ) {
+        return "Late";
+      }
+
+      if (
+        hoursRemaining <=
+        24
+      ) {
+        return "At Risk";
+      }
+
+      return "Good Standing";
+    }
+
+    return (
+      stage.timing_status ||
+      null
+    );
   };
 
   const isStageClickable = (stageName) => {
@@ -10850,9 +11061,38 @@ export default function Pipeline() {
       )
     );
 
+  const transferStageStatus =
+    String(
+      transferStage?.status ||
+      ""
+    )
+      .trim()
+      .toLowerCase();
+
   const savedTransferEligibility =
-    isPipelineStageComplete(
+    Boolean(
       transferStage
+    ) &&
+    (
+      isPipelineStageComplete(
+        transferStage
+      ) ||
+      [
+        "in progress",
+        "in-progress",
+        "active"
+      ].includes(
+        transferStageStatus
+      ) ||
+      transferStage
+        ?.nclex_eligible ===
+        true ||
+      transferStage
+        ?.nclex_branch_visible ===
+        true ||
+      transferStage
+        ?.transfer_status_verified ===
+        true
     );
 
   const savedNCLEXHistoryExists =
@@ -10881,8 +11121,6 @@ export default function Pipeline() {
         )
     );
 
-  // New candidates enter through the Transfer status. Existing candidates may
-  // also resume when saved NCLEX history proves they previously entered branch.
   const nclexBranchVisible =
     transferStatusSelected ||
     savedTransferEligibility ||
@@ -11470,7 +11708,17 @@ export default function Pipeline() {
                 const isGate = stage.is_gate === true;
                 const riskStatus = (isHiring || stage.days_from_start || stage.stage_name === "Immigration Call") && stage.status !== "Completed" ? getRiskStatus(stage) : null;
                 const riskCfg = riskStatus ? riskConfig[riskStatus] : null;
-                const showRisk = riskStatus && !stage.completed_date && (stage.days_from_start || stage.stage_name === "Immigration Call");
+                const showRisk =
+                  riskStatus &&
+                  !isPipelineStageComplete(
+                    stage
+                  ) &&
+                  Boolean(
+                    stage.target_date ||
+                    stage.targetDate ||
+                    stage.stage_name ===
+                      "Immigration Call"
+                  );
                 const unlocked = stage.non_counted_section === true
                   ? true
                   : isStageUnlocked(stage, displayStages);

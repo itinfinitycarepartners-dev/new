@@ -1,6 +1,3 @@
-
-
-
 // @ts-nocheck
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
@@ -805,6 +802,32 @@ export default function Dashboard() {
     setRecentMessages
   ] = useState([]);
 
+  const [
+    timerNow,
+    setTimerNow
+  ] =
+    useState(
+      Date.now()
+    );
+
+  useEffect(() => {
+    const timer =
+      window.setInterval(
+        () => {
+          setTimerNow(
+            Date.now()
+          );
+        },
+        60 * 1000
+      );
+
+    return () => {
+      window.clearInterval(
+        timer
+      );
+    };
+  }, []);
+
   const {
     data: summary,
     isLoading,
@@ -879,6 +902,45 @@ export default function Dashboard() {
   const pendingNextStage =
     pipeline.nextStage ||
     null;
+
+  const activeTimer =
+    pipeline.timer ||
+    (
+      activeStage?.target_date
+        ? {
+            stageName:
+              activeStage.stage_name,
+            startedAt:
+              activeStage.started_at ||
+              null,
+            targetDate:
+              activeStage.target_date,
+            timingStatus:
+              activeStage.timing_status ||
+              null
+          }
+        : null
+    );
+
+  const activeDeadline =
+    activeTimer?.targetDate
+      ? new Date(
+          activeTimer.targetDate
+        )
+      : null;
+
+  const activeCountdown =
+    activeDeadline &&
+    !Number.isNaN(
+      activeDeadline.getTime()
+    )
+      ? formatCountdown(
+          activeDeadline,
+          new Date(
+            timerNow
+          )
+        )
+      : null;
 
   const docs =
     Array.isArray(
@@ -1325,6 +1387,40 @@ export default function Dashboard() {
               <p className="mt-1 font-medium">
                 {activeStage.stage_name}
               </p>
+
+              {activeCountdown && (
+                <div
+                  className={`mt-3 rounded-lg border px-3 py-2 ${
+                    activeCountdown.overdue
+                      ? "border-orange-200 bg-orange-50"
+                      : activeTimer?.timingStatus ===
+                          "At Risk"
+                        ? "border-amber-200 bg-amber-50"
+                        : "border-emerald-200 bg-emerald-50"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Timer
+                      className={`h-4 w-4 ${
+                        activeCountdown.overdue
+                          ? "text-orange-600"
+                          : activeTimer?.timingStatus ===
+                              "At Risk"
+                            ? "text-amber-600"
+                            : "text-emerald-600"
+                      }`}
+                    />
+                    <span className="text-xs font-semibold">
+                      {activeCountdown.text}
+                    </span>
+                  </div>
+
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Same deadline as My Pipeline:{" "}
+                    {activeDeadline.toLocaleString()}
+                  </p>
+                </div>
+              )}
 
               {pendingNextStage && (
                 <p className="mt-2 text-xs text-muted-foreground">

@@ -28,7 +28,7 @@ const getNavItems = (licensureUrl) => {
     { path: "/", label: "Dashboard", icon: LayoutDashboard },
     { path: "/profile", label: "My Profile", icon: User },
     { path: "/documents", label: "Document Library", icon: FileText },
-    { path: "/pipeline?form=hub", label: "Forms", icon: ClipboardList },
+    { path: "/forms", label: "Forms", icon: ClipboardList },
     { path: "/messages", label: "Messages", icon: MessageCircle },
     { path: "/updates", label: "Updates", icon: Bell },
     { path: "/pipeline", label: "My Pipeline", icon: GitBranch },
