@@ -1,6 +1,3 @@
-
-
-
 // @ts-nocheck
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/AuthContext";
@@ -370,6 +367,56 @@ const normalizeApplicationStatus = (value) => String(value || "")
   .replace(/[–—]/g, "-")
   .replace(/\s*-\s*/g, "-")
   .replace(/\s+/g, " ");
+
+const isTransferToICPUSRNStatus =
+  value => {
+    const rawValue =
+      value &&
+      typeof value ===
+        "object"
+        ? (
+            value.value ??
+            value.name ??
+            value.display_value ??
+            value.displayValue ??
+            value.label ??
+            ""
+          )
+        : value;
+
+    const normalized =
+      normalizeApplicationStatus(
+        rawValue
+      );
+
+    return (
+      [
+        "transfer to icp usrn school",
+        "transfer to ivp usrn school"
+      ].includes(
+        normalized
+      ) ||
+      (
+        normalized.includes(
+          "transfer"
+        ) &&
+        (
+          normalized.includes(
+            "icp"
+          ) ||
+          normalized.includes(
+            "ivp"
+          )
+        ) &&
+        normalized.includes(
+          "usrn"
+        ) &&
+        normalized.includes(
+          "school"
+        )
+      )
+    );
+  };
 
 const APPLICATION_STATUS_STAGE_MAP = new Map([
   ["new candidate", "Applied"],
@@ -8927,6 +8974,12 @@ export default function Pipeline() {
             canonicalHiringState
               .nclexEligible ===
               true ||
+            canonicalHiringState
+              .transferStatusSelected ===
+              true ||
+            isTransferToICPUSRNStatus(
+              canonicalStatus
+            ) ||
             savedPayload
               ?.nclexAccess
               ?.eligible ===
@@ -9304,13 +9357,8 @@ export default function Pipeline() {
       }
 
       const liveTransferSelected =
-        [
-          "transfer to icp usrn school",
-          "transfer to ivp usrn school"
-        ].includes(
-          normalizeApplicationStatus(
-            recruitApplicationStatus
-          )
+        isTransferToICPUSRNStatus(
+          recruitApplicationStatus
         );
 
       const verifiedSavedTransfer =
@@ -11224,13 +11272,8 @@ export default function Pipeline() {
     );
 
   const transferStatusSelected =
-    [
-      "transfer to icp usrn school",
-      "transfer to ivp usrn school"
-    ].includes(
-      normalizeApplicationStatus(
-        applicationStatus
-      )
+    isTransferToICPUSRNStatus(
+      applicationStatus
     );
 
   const transferStageStatus =
@@ -11294,6 +11337,7 @@ export default function Pipeline() {
     );
 
   const nclexBranchVisible =
+    showNCLEX ||
     transferStatusSelected ||
     savedTransferEligibility ||
     savedNCLEXHistoryExists;
