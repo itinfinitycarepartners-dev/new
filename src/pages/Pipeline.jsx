@@ -8593,6 +8593,10 @@ export default function Pipeline() {
       let submittedToImmigrationDate = null;
       let allClearDocumentaryComplete = false;
       let recruitApplicationStatus = "";
+      let canonicalHiringCompletedStages =
+        new Set();
+      let canonicalHiringCurrentStage =
+        null;
       let icpUSRNData = {};
       let resolvedFinalArrivalDate = null;
       let backendAftercareGateOpen = false;
@@ -8845,10 +8849,93 @@ export default function Pipeline() {
         const savedPayload =
           await savedResponse.json().catch(() => ({}));
         if (savedResponse.ok) {
-          saved = Array.isArray(savedPayload.stages)
+          saved = Array.isArray(
+            savedPayload.stages
+          )
             ? savedPayload.stages
             : [];
-          savedPipelineLoadedSuccessfully = true;
+
+          savedPipelineLoadedSuccessfully =
+            true;
+
+          const canonicalHiringState =
+            savedPayload
+              ?.hiringState ||
+            {};
+
+          const canonicalStatus =
+            canonicalHiringState
+              .applicationStatus ||
+            savedPayload
+              ?.nclexAccess
+              ?.applicationStatus ||
+            "";
+
+          if (canonicalStatus) {
+            recruitApplicationStatus =
+              canonicalStatus;
+
+            setApplicationStatus(
+              canonicalStatus
+            );
+          }
+
+          canonicalHiringCompletedStages =
+            new Set(
+              Array.isArray(
+                canonicalHiringState
+                  .completedStages
+              )
+                ? canonicalHiringState
+                    .completedStages
+                : []
+            );
+
+          canonicalHiringCurrentStage =
+            canonicalHiringState
+              .currentStage ||
+            null;
+
+          if (
+            Object.prototype
+              .hasOwnProperty.call(
+                canonicalHiringState,
+                "applicationsFound"
+              ) ||
+            Object.prototype
+              .hasOwnProperty.call(
+                canonicalHiringState,
+                "candidatesFound"
+              )
+          ) {
+            recruitModulePresence = {
+              applications:
+                canonicalHiringState
+                  .applicationsFound ===
+                true,
+              candidates:
+                canonicalHiringState
+                  .candidatesFound ===
+                true,
+              customModule1:
+                recruitModulePresence
+                  .customModule1
+            };
+          }
+
+          if (
+            canonicalHiringState
+              .nclexEligible ===
+              true ||
+            savedPayload
+              ?.nclexAccess
+              ?.eligible ===
+              true
+          ) {
+            setShowNCLEX(
+              true
+            );
+          }
         }
       } catch (error) {
         console.warn(
@@ -9057,23 +9144,42 @@ export default function Pipeline() {
         let automaticStatus = null;
 
         if (isAppliedStage) {
-          if (applicationsFound) {
-            automaticStatus = "Completed";
+          if (
+            applicationsFound ||
+            canonicalHiringCompletedStages
+              .has(
+                "Applied"
+              )
+          ) {
+            automaticStatus =
+              "Completed";
           } else if (
             applicationsPresenceKnown &&
             !savedStage
           ) {
-            automaticStatus = null;
+            automaticStatus =
+              null;
           }
         } else if (isAssociatedStage) {
-          if (applicationsFound && candidatesFound) {
-            automaticStatus = "Completed";
+          if (
+            (
+              applicationsFound &&
+              candidatesFound
+            ) ||
+            canonicalHiringCompletedStages
+              .has(
+                "Associated with Job"
+              )
+          ) {
+            automaticStatus =
+              "Completed";
           } else if (
             applicationsPresenceKnown &&
             candidatesPresenceKnown &&
             !savedStage
           ) {
-            automaticStatus = null;
+            automaticStatus =
+              null;
           }
         } else if (isFirstImmigrationStage && submittedToImmigrationDate) {
           automaticStatus = savedStage?.status === "Completed" ? "Completed" : "In Progress";
@@ -9131,6 +9237,72 @@ export default function Pipeline() {
         return baseStage;
       });
       
+      if (
+        canonicalHiringCompletedStages
+          .size > 0 ||
+        canonicalHiringCurrentStage
+      ) {
+        allStages =
+          allStages.map(stage => {
+            if (
+              stage.stage_category !==
+              "Hiring"
+            ) {
+              return stage;
+            }
+
+            if (
+              canonicalHiringCompletedStages
+                .has(
+                  stage.stage_name
+                )
+            ) {
+              return {
+                ...stage,
+                status:
+                  "Completed",
+                completed:
+                  true,
+                is_completed:
+                  true,
+                completed_date:
+                  stage.completed_date ||
+                  format(
+                    new Date(),
+                    "yyyy-MM-dd"
+                  ),
+                synced_from_application_status:
+                  true,
+                recruit_application_status:
+                  recruitApplicationStatus
+              };
+            }
+
+            if (
+              canonicalHiringCurrentStage ===
+              stage.stage_name
+            ) {
+              return {
+                ...stage,
+                status:
+                  "In Progress",
+                completed:
+                  false,
+                is_completed:
+                  false,
+                completed_date:
+                  null,
+                synced_from_application_status:
+                  true,
+                recruit_application_status:
+                  recruitApplicationStatus
+              };
+            }
+
+            return stage;
+          });
+      }
+
       const liveTransferSelected =
         [
           "transfer to icp usrn school",
