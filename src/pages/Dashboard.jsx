@@ -1,3 +1,6 @@
+
+
+
 // @ts-nocheck
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
@@ -32,7 +35,8 @@ import {
   Home,
   ClipboardList,
   AlertTriangle,
-  Info
+  Info,
+  Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "../components/StatusBadge";
@@ -788,789 +792,825 @@ const isPipelineStageComplete = (stage) => {
 };
 
 export default function Dashboard() {
-  const { user } = useAuth();
-  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
-  const [recentMessages, setRecentMessages] = useState([]);
-  const [conversations, setConversations] = useState([]);
+  const { user } =
+    useAuth();
 
-  // Authoritative pipeline state loaded from the same MongoDB endpoint as Pipeline.jsx.
-  const [pipelineStages, setPipelineStages] = useState([]);
-  const [pipelineLoading, setPipelineLoading] = useState(true);
-  const [pipelineError, setPipelineError] = useState("");
-  const [activeStage, setActiveStage] = useState(null);
-  const [countdown, setCountdown] = useState({ text: "", color: "", icon: null });
-  const previousActiveStageRef = useRef(null);
+  const [
+    unreadMessageCount,
+    setUnreadMessageCount
+  ] = useState(0);
 
-  // Stage-action popup state — only fires once per page load/refresh
-  const [showActionPopup, setShowActionPopup] = useState(false);
-  const hasShownPopupRef = useRef(false);
-  const hasShownToastRef = useRef(false);
+  const [
+    recentMessages,
+    setRecentMessages
+  ] = useState([]);
 
-  // Persistent inline banner state — stays visible on the page (independent
-  // of the popup) until the user dismisses it for this specific stage.
-  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const {
+    data: summary,
+    isLoading,
+    error,
+    refetch
+  } = useQuery({
+    queryKey: [
+      "dashboard-summary",
+      user?.email
+    ],
+    enabled:
+      Boolean(
+        user?.email
+      ),
+    staleTime:
+      30 * 60 * 1000,
+    refetchOnWindowFocus:
+      false,
+    queryFn:
+      async () => {
+        const token =
+          tokenStorage.get();
 
-  const { data: profiles = [] } = useQuery({
-    queryKey: ["candidateProfile", user?.email],
-    queryFn: () => base44.entities.CandidateProfile.filter({ email: user?.email }),
-    enabled: !!user?.email,
+        if (!token) {
+          throw new Error(
+            "Authentication token is missing."
+          );
+        }
+
+        const response =
+          await fetch(
+            `${API_BASE}/api/candidate/dashboard-summary`,
+            {
+              headers: {
+                Authorization:
+                  `Bearer ${token}`
+              }
+            }
+          );
+
+        const payload =
+          await response
+            .json()
+            .catch(
+              () => ({})
+            );
+
+        if (!response.ok) {
+          throw new Error(
+            payload.error ||
+            payload.message ||
+            "Unable to load dashboard."
+          );
+        }
+
+        return payload;
+      }
   });
 
-  const { data: updates = [] } = useQuery({
-    queryKey: ["updates", user?.email],
-    queryFn: () => base44.entities.CandidateUpdate.filter({ candidate_email: user?.email }, "-created_date", 5),
-    enabled: !!user?.email,
-  });
+  const profile =
+    summary?.candidate ||
+    {};
 
-  const { data: docs = [] } = useQuery({
-    queryKey: ["documents", user?.email],
-    queryFn: () => base44.entities.CandidateDocument.filter({ candidate_email: user?.email }),
-    enabled: !!user?.email,
-  });
+  const pipeline =
+    summary?.pipeline ||
+    {};
 
-  const profile = profiles[0];
-  const unreadUpdates = updates.filter(u => !u.is_read).length;
-  const pendingDocs = docs.filter(d => d.status === "Pending Review").length;
-  const approvedDocs = docs.filter(d => d.status === "Approved").length;
+  const activeStage =
+    pipeline.currentStage ||
+    null;
 
-  // Use the exact stage records returned by /api/pipeline/get. Gates are workflow
-  // controls rather than candidate stages, so both the numerator and denominator
-  // exclude them. This keeps the Dashboard count aligned with the Pipeline page.
-  const visiblePipelineStages = pipelineStages.filter(stage => stage && stage.is_gate !== true);
-  const completedPipelineStages = visiblePipelineStages.filter(
-    isPipelineStageComplete
-  );
-  const pipelineCompletedCount = completedPipelineStages.length;
-  const pipelineTotalCount = visiblePipelineStages.length;
-  const pipelineProgressPercent = pipelineTotalCount > 0
-    ? Math.round((pipelineCompletedCount / pipelineTotalCount) * 100)
-    : 0;
+  const pendingNextStage =
+    pipeline.nextStage ||
+    null;
 
-  const recruitmentStages = visiblePipelineStages.filter(stage =>
-    ["Hiring", "Recruitment"].includes(
-      stage.stage_category || stage.category
+  const docs =
+    Array.isArray(
+      summary?.documents
     )
-  );
-  const completedRecruitmentStages =
-    recruitmentStages.filter(isPipelineStageComplete).length;
+      ? summary.documents
+      : [];
 
-  const pipelineCategorySummary = visiblePipelineStages.reduce((summary, stage) => {
-    const category = stage.stage_category || "Other";
-    if (!summary[category]) summary[category] = { total: 0, completed: 0 };
-    summary[category].total += 1;
-    if (isPipelineStageComplete(stage)) {
-      summary[category].completed += 1;
-    }
-    return summary;
-  }, {});
+  const updates =
+    Array.isArray(
+      summary?.updates
+    )
+      ? summary.updates
+      : [];
+
+  const documentCount =
+    Number(
+      summary?.counts
+        ?.documents ||
+      0
+    );
+
+  const pendingDocs =
+    Number(
+      summary?.counts
+        ?.documentPending ||
+      0
+    );
+
+  const approvedDocs =
+    Number(
+      summary?.counts
+        ?.documentApproved ||
+      0
+    );
+
+  const unreadUpdates =
+    Number(
+      summary?.counts
+        ?.updates ||
+      0
+    );
+
+  const pipelineCompletedCount =
+    Number(
+      pipeline.completed ||
+      0
+    );
+
+  const pipelineTotalCount =
+    Number(
+      pipeline.total ||
+      0
+    );
+
+  const pipelineProgressPercent =
+    Number(
+      pipeline.progress ||
+      0
+    );
 
   useEffect(() => {
     if (!user?.email) {
-      setPipelineStages([]);
-      setActiveStage(null);
-      setPipelineLoading(false);
       return;
     }
 
-    let cancelled = false;
-    let intervalId = null;
+    let cancelled =
+      false;
 
-    const updatePipelineState = async () => {
-      try {
-        const token = localStorage.getItem("icp_auth_token");
-        if (!token) {
-          throw new Error("Authentication token is missing");
-        }
+    const loadMessages =
+      async () => {
+        try {
+          const response =
+            await messaging.getConversations();
 
-        const response = await fetch(
-          `${API_BASE}/api/pipeline/get?email=${encodeURIComponent(user.email)}&_=${Date.now()}`,
-          {
-            method: "GET",
-            cache: "no-store",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
+          if (
+            cancelled ||
+            !response?.success
+          ) {
+            return;
           }
-        );
 
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(payload.error || payload.message || "Failed to load pipeline");
-        }
-
-        const databaseStages = Array.isArray(payload.stages)
-          ? [...payload.stages].sort(
-              (a, b) => Number(a.stage_order || 0) - Number(b.stage_order || 0)
+          const conversations =
+            Array.isArray(
+              response.conversations
             )
-          : [];
+              ? response.conversations
+              : [];
 
-        if (cancelled) return;
+          const unread =
+            conversations.reduce(
+              (
+                total,
+                conversation
+              ) =>
+                total +
+                Number(
+                  conversation
+                    .unreadCount ||
+                  0
+                ),
+              0
+            );
 
-        const normalizedStages = databaseStages.map((stage) => ({
-          ...stage,
-          status: isPipelineStageComplete(stage)
-            ? "Completed"
-            : (stage.status || "Not Started")
-        }));
-
-        setPipelineStages(normalizedStages);
-        setPipelineError("");
-        setPipelineLoading(false);
-
-        const candidateStages = normalizedStages.filter(
-          stage => stage && stage.is_gate !== true
-        );
-
-        // Prefer the backend-designated In Progress stage. If the backend has not
-        // set one yet, use the first incomplete, non-blocked stage.
-        const current =
-          candidateStages.find(
-            stage =>
-              !isPipelineStageComplete(stage) &&
-              String(stage.status || "").trim().toLowerCase() === "in progress"
-          ) ||
-          candidateStages.find(
-            stage =>
-              !isPipelineStageComplete(stage) &&
-              String(stage.status || "").trim().toLowerCase() !== "blocked"
-          ) ||
-          candidateStages.find(
-            stage => !isPipelineStageComplete(stage)
+          setUnreadMessageCount(
+            unread
           );
 
-        if (!current) {
-          setActiveStage(null);
-          previousActiveStageRef.current = null;
-          setCountdown({
-            text: "All stages completed",
-            standing: "Good Standing",
-            color: "text-emerald-700 bg-emerald-100 border-emerald-200",
-            icon: CheckCircle2,
-          });
-          return;
-        }
+          const recent =
+            conversations
+              .filter(
+                conversation =>
+                  conversation
+                    .lastMessage
+              )
+              .sort(
+                (a, b) =>
+                  new Date(
+                    b.lastMessageAt ||
+                    0
+                  ) -
+                  new Date(
+                    a.lastMessageAt ||
+                    0
+                  )
+              )
+              .slice(
+                0,
+                3
+              )
+              .map(
+                conversation => ({
+                  id:
+                    conversation._id ||
+                    conversation.id,
+                  conversationId:
+                    conversation._id ||
+                    conversation.id,
+                  content:
+                    conversation
+                      .lastMessage
+                      ?.content ||
+                    conversation
+                      .lastMessageText ||
+                    "",
+                  senderName:
+                    conversation
+                      .lastMessage
+                      ?.senderName ||
+                    conversation
+                      .groupName ||
+                    "Message",
+                  createdAt:
+                    conversation
+                      .lastMessageAt ||
+                    conversation
+                      .lastMessage
+                      ?.createdAt
+                })
+              );
 
-        const stageIdentity = String(current._id || current.id || current.stage_name);
-        const stageChanged = previousActiveStageRef.current !== stageIdentity;
+          setRecentMessages(
+            recent
+          );
+        } catch (messageError) {
+          console.error(
+            "[Dashboard] Messages:",
+            messageError
+          );
 
-        if (stageChanged) {
-          previousActiveStageRef.current = stageIdentity;
-
-          // A newly active stage must get a fresh notification/banner state and
-          // must use its own started_at/target_date returned by MongoDB.
-          hasShownPopupRef.current = false;
-          hasShownToastRef.current = false;
-          setShowActionPopup(false);
-          setBannerDismissed(
-            !!sessionStorage.getItem(
-              bannerDismissKey(user.email, current.stage_name)
+          setUnreadMessageCount(
+            Number(
+              summary?.counts
+                ?.messages ||
+              0
             )
           );
         }
+      };
 
-        setActiveStage(current);
+    loadMessages();
 
-        const deadline = current.target_date ? new Date(current.target_date) : null;
-        if (!deadline || Number.isNaN(deadline.getTime())) {
-          setCountdown({
-            text: current.started_at
-              ? "Timer is being calculated"
-              : "Waiting for previous stage",
-            standing: "Good Standing",
-            color: "text-emerald-700 bg-emerald-100 border-emerald-200",
-            icon: Clock,
-          });
-          return;
-        }
+    const handleMessage =
+      () =>
+        loadMessages();
 
-        const result = formatCountdown(deadline, new Date());
+    websocket.on(
+      "new_message",
+      handleMessage
+    );
 
-        let durationMs = Number(current.duration_hours || 0) * HOUR_MS;
-        if (!durationMs && current.started_at) {
-          const startedAt = new Date(current.started_at);
-          if (!Number.isNaN(startedAt.getTime())) {
-            durationMs = Math.max(HOUR_MS, deadline.getTime() - startedAt.getTime());
-          }
-        }
-        durationMs = Math.max(HOUR_MS, durationMs || HOUR_MS);
-
-        let standing = "Good Standing";
-        let color = "text-emerald-700 bg-emerald-100 border-emerald-200";
-        let icon = Timer;
-
-        if (result.overdue) {
-          standing = "Late";
-          color = "text-red-700 bg-red-100 border-red-200";
-          icon = AlertCircle;
-        } else if (result.remainingMs <= durationMs * 0.25) {
-          standing = "At Risk";
-          color = "text-amber-700 bg-amber-100 border-amber-200";
-          icon = AlertTriangle;
-        }
-
-        setCountdown({
-          text: `${standing} · ${result.text}`,
-          standing,
-          color,
-          icon,
-        });
-      } catch (error) {
-        console.error("[Dashboard] Error loading database pipeline:", error);
-        if (!cancelled) {
-          setPipelineLoading(false);
-          setPipelineError(error.message || "Unable to load pipeline");
-          setCountdown({
-            text: "Unable to calculate timeline",
-            standing: "Late",
-            color: "text-red-700 bg-red-100 border-red-200",
-            icon: AlertCircle,
-          });
-        }
-      }
-    };
-
-    updatePipelineState();
-
-    // Five-second polling keeps the Dashboard synchronized even when a stage is
-    // completed in another tab or by a CRM/Recruit backend sync.
-    intervalId = window.setInterval(updatePipelineState, 5 * 1000);
-
-    const handlePipelineUpdate = () => updatePipelineState();
-    const handleFocus = () => updatePipelineState();
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") updatePipelineState();
-    };
-
-    window.addEventListener("pipeline-updated", handlePipelineUpdate);
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener(
+      "messaging-updated",
+      handleMessage
+    );
 
     return () => {
       cancelled = true;
-      if (intervalId) window.clearInterval(intervalId);
-      window.removeEventListener("pipeline-updated", handlePipelineUpdate);
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
+
+      websocket.off(
+        "new_message",
+        handleMessage
+      );
+
+      window.removeEventListener(
+        "messaging-updated",
+        handleMessage
+      );
     };
-  }, [user?.email]);
+  }, [
+    user?.email,
+    summary?.counts?.messages
+  ]);
 
-  // ─── Stage Action Notifications ──────────────────────────────────────────
   useEffect(() => {
-    if (!activeStage || !user?.email) return;
+    const refresh =
+      () => {
+        refetch();
+      };
 
-    const guide = STAGE_ACTION_GUIDE[activeStage.stage_name];
-    if (!guide) {
-      setBannerDismissed(false);
-      return;
-    }
-
-    // Toast — fires once per page load
-    if (!hasShownToastRef.current) {
-      toast.warning(guide.message, {
-        description: `${activeStage.stage_name} - Action Required`,
-        icon: <AlertTriangle className="h-4 w-4 text-red-500" />,
-        duration: 10000,
-        action: {
-          label: guide.cta || "View",
-          onClick: () => { window.location.href = "/pipeline"; },
-        },
-      });
-      hasShownToastRef.current = true;
-    }
-
-    // Modal popup — fires once per page load
-    if (!hasShownPopupRef.current) {
-      setShowActionPopup(true);
-      hasShownPopupRef.current = true;
-    }
-
-    // Persistent banner — respects a per-stage dismissal stored in sessionStorage
-    const dismissedForStage = sessionStorage.getItem(bannerDismissKey(user.email, activeStage.stage_name));
-    setBannerDismissed(!!dismissedForStage);
-  }, [activeStage, user?.email]);
-
-  const dismissActionPopup = () => setShowActionPopup(false);
-
-  const dismissActionBanner = () => {
-    if (activeStage && user?.email) {
-      sessionStorage.setItem(bannerDismissKey(user.email, activeStage.stage_name), "1");
-    }
-    setBannerDismissed(true);
-  };
-
-  const activeGuide = activeStage ? STAGE_ACTION_GUIDE[activeStage.stage_name] : null;
-
-  // Helper function to get sender display name
-  const getSenderDisplayName = (message, conversation) => {
-    const currentUserEmail = tokenStorage.get();
-    
-    if (message.senderEmail === currentUserEmail || message.sender === currentUserEmail) {
-      return 'You';
-    }
-    
-    let senderName = message.senderName || message.sender;
-    
-    if (senderName === 'admin' || senderName === 'Admin' || !senderName || senderName === 'Unknown') {
-      const senderEmail = message.senderEmail || message.sender;
-      
-      if (conversation && conversation.participantNames) {
-        if (senderEmail && conversation.participantNames[senderEmail]) {
-          senderName = conversation.participantNames[senderEmail];
-        } else {
-          const currentUserEmail = tokenStorage.get();
-          const otherParticipant = conversation.participants?.find(email => email !== currentUserEmail);
-          if (otherParticipant && conversation.participantNames[otherParticipant]) {
-            senderName = conversation.participantNames[otherParticipant];
-          }
-        }
-      }
-      
-      if (senderName === 'admin' || senderName === 'Admin' || senderName === 'Unknown') {
-        if (senderEmail) {
-          senderName = senderEmail.split('@')[0];
-        }
-      }
-    }
-    
-    return senderName || 'User';
-  };
-
-  const getConversationName = (conversation) => {
-    if (conversation.type === 'group') {
-      return conversation.groupName || 'Group Chat';
-    }
-    const currentUserEmail = tokenStorage.get();
-    const otherUser = conversation.participants?.find(
-      (email) => email !== currentUserEmail
+    window.addEventListener(
+      "pipeline-updated",
+      refresh
     );
-    
-    if (otherUser && conversation.participantNames && conversation.participantNames[otherUser]) {
-      return conversation.participantNames[otherUser];
-    }
-    
-    return otherUser?.split('@')[0] || 'Chat';
-  };
 
-  // ─── Messaging ──────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const loadMessagingData = async () => {
-      try {
-        const token = tokenStorage.get();
-        if (!token) return;
+    window.addEventListener(
+      "documents-updated",
+      refresh
+    );
 
-        const convResponse = await messaging.getConversations(10);
-        if (convResponse.success) {
-          const convs = convResponse.conversations || [];
-          setConversations(convs);
-          
-          const totalUnread = convs.reduce((sum, conv) => sum + (conv.unreadCount || 0), 0);
-          setUnreadMessageCount(totalUnread);
+    window.addEventListener(
+      "updates-read",
+      refresh
+    );
 
-          const recent = convs
-            .filter(conv => conv.lastMessage)
-            .slice(0, 3)
-            .map(conv => {
-              const lastMsg = conv.lastMessage;
-              const senderName = getSenderDisplayName(lastMsg, conv);
-              const conversationName = getConversationName(conv);
-              
-              return {
-                ...lastMsg,
-                conversationId: conv._id,
-                conversationName: conversationName,
-                senderName: senderName,
-                senderEmail: lastMsg?.senderEmail || lastMsg?.sender,
-              };
-            });
-          setRecentMessages(recent);
-        }
-      } catch (error) {
-        console.error('Failed to load messaging data:', error);
-      }
-    };
-
-    loadMessagingData();
-
-    const handleNewMessage = (message) => {
-      setUnreadMessageCount(prev => prev + 1);
-      
-      const conversation = conversations.find(c => c._id === message.conversationId);
-      let senderName = getSenderDisplayName(message, conversation);
-      let conversationName = conversation ? getConversationName(conversation) : 'Chat';
-      
-      setRecentMessages(prev => {
-        const existingIndex = prev.findIndex(m => m.conversationId === message.conversationId);
-        
-        const newMessage = {
-          ...message,
-          conversationId: message.conversationId,
-          conversationName: conversationName,
-          senderName: senderName,
-          senderEmail: message.senderEmail || message.sender,
-        };
-        
-        if (existingIndex >= 0) {
-          const updated = [...prev];
-          updated[existingIndex] = newMessage;
-          updated.splice(existingIndex, 1);
-          return [newMessage, ...updated];
-        } else {
-          return [newMessage, ...prev.slice(0, 2)];
-        }
-      });
-    };
-
-    websocket.on('new_message', handleNewMessage);
+    window.addEventListener(
+      "candidate-data-updated",
+      refresh
+    );
 
     return () => {
-      websocket.off('new_message', handleNewMessage);
+      window.removeEventListener(
+        "pipeline-updated",
+        refresh
+      );
+
+      window.removeEventListener(
+        "documents-updated",
+        refresh
+      );
+
+      window.removeEventListener(
+        "updates-read",
+        refresh
+      );
+
+      window.removeEventListener(
+        "candidate-data-updated",
+        refresh
+      );
     };
-  }, [conversations]);
+  }, [refetch]);
 
-  const getTimeAgo = (date) => {
-    if (!date) return '';
-    try {
-      return moment(date).fromNow();
-    } catch {
-      return '';
-    }
-  };
+  const greeting =
+    () => {
+      const hour =
+        new Date().getHours();
 
-  const greeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return "Good morning";
-    if (hour < 17) return "Good afternoon";
-    return "Good evening";
-  };
+      if (hour < 12) {
+        return "Good morning";
+      }
+
+      if (hour < 17) {
+        return "Good afternoon";
+      }
+
+      return "Good evening";
+    };
+
+  const deploymentDate =
+    summary?.deploymentDate ||
+    profile
+      ?.initial_departure_time ||
+    null;
+
+  const welcomeCompleted =
+    summary?.welcomePacket
+      ?.completed === true;
+
+  const notifications =
+    [
+      activeStage
+        ? {
+            title:
+              "Current Stage",
+            message:
+              activeStage.stage_name,
+            type:
+              "current"
+          }
+        : null,
+      pendingNextStage
+        ? {
+            title:
+              "Next Stage",
+            message:
+              pendingNextStage
+                .stage_name,
+            type:
+              "next"
+          }
+        : null
+    ].filter(Boolean);
 
   const quickLinks = [
-    { path: "/documents", label: "Documents", sublabel: `${pendingDocs} pending`, icon: FileText, color: "bg-blue-50 text-blue-600" },
-    { path: "/updates", label: "Updates", sublabel: `${unreadUpdates} unread`, icon: Bell, color: "bg-amber-50 text-amber-600" },
-    { 
-      path: "/messages", 
-      label: "Messages", 
-      sublabel: `${unreadMessageCount} unread`, 
-      icon: MessageCircle, 
-      color: "bg-purple-50 text-purple-600",
-      badge: unreadMessageCount > 0 
+    {
+      path:
+        "/documents",
+      label:
+        "Documents",
+      sublabel:
+        `${documentCount} document${documentCount === 1 ? "" : "s"}`,
+      icon:
+        FileText,
+      color:
+        "bg-blue-50 text-blue-600"
     },
-    { path: "/welcome-packet", label: "Welcome Packet", sublabel: "View itinerary", icon: Briefcase, color: "bg-indigo-50 text-indigo-600" },
-    { path: "/relocation", label: "Relocation Hub", sublabel: profile?.destination_city || "View info", icon: MapPin, color: "bg-emerald-50 text-emerald-600" },
+    {
+      path:
+        "/updates",
+      label:
+        "Updates",
+      sublabel:
+        `${unreadUpdates} unread`,
+      icon:
+        Bell,
+      color:
+        "bg-amber-50 text-amber-600",
+      badge:
+        unreadUpdates >
+        0
+    },
+    {
+      path:
+        "/messages",
+      label:
+        "Messages",
+      sublabel:
+        `${unreadMessageCount} unread`,
+      icon:
+        MessageCircle,
+      color:
+        "bg-purple-50 text-purple-600",
+      badge:
+        unreadMessageCount >
+        0
+    },
+    {
+      path:
+        "/pipeline?stage=welcome-packet",
+      label:
+        "Welcome Packet",
+      sublabel:
+        welcomeCompleted
+          ? "Acknowledged"
+          : "View in pipeline",
+      icon:
+        Briefcase,
+      color:
+        "bg-indigo-50 text-indigo-600"
+    },
+    {
+      path:
+        "/pipeline?form=hub",
+      label:
+        "Forms",
+      sublabel:
+        "R&L, Housing, Behavioral",
+      icon:
+        ClipboardList,
+      color:
+        "bg-emerald-50 text-emerald-600"
+    }
   ];
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[420px] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-xl border border-red-200 bg-red-50 p-6">
+        <p className="font-semibold text-red-800">
+          Dashboard could not be loaded.
+        </p>
+        <p className="mt-1 text-sm text-red-700">
+          {error.message}
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          className="mt-4"
+          onClick={() =>
+            refetch()
+          }
+        >
+          Try Again
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      {/* STICKY ACTION BANNER - Always visible at the top */}
-      {activeStage && activeGuide && !bannerDismissed && (
-        <StickyActionBanner
-          stage={activeStage}
-          guide={activeGuide}
-          onDismiss={dismissActionBanner}
-        />
-      )}
+      <div className="rounded-2xl bg-gradient-to-br from-primary/10 via-accent to-primary/5 p-6 lg:p-8">
+        <div className="flex flex-col justify-between gap-6 md:flex-row md:items-center">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight lg:text-3xl">
+              {greeting()}, {profile?.candidateName || profile?.firstName || user?.full_name || "there"} 👋
+            </h1>
 
-      {/* Stage Action Popup — shows on every page load/refresh */}
-      {showActionPopup && (
-        <StageActionPopup
-          stage={activeStage}
-          guide={activeGuide}
-          onDismiss={dismissActionPopup}
-        />
-      )}
-
-      {/* Welcome Banner with Countdown */}
-      <div className="bg-gradient-to-br from-primary/10 via-accent to-primary/5 rounded-2xl p-6 lg:p-8 flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <h1 className="text-2xl lg:text-3xl font-bold tracking-tight">
-            {greeting()}, {profile?.full_name || user?.full_name || "there"} 👋
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            {profile?.status ? (
-              <span>Your status: <StatusBadge status={profile.status} /></span>
-            ) : (
-              "Welcome to your candidate portal. Start by completing your profile."
-            )}
-          </p>
-          {profile?.deployment_date && (
-            <p className="text-sm text-muted-foreground mt-3">
-              <Clock className="h-4 w-4 inline mr-1" />
-              Deployment: {moment(profile.deployment_date).format("MMMM D, YYYY")} — {moment(profile.deployment_date).fromNow()}
+            <p className="mt-1 text-muted-foreground">
+              Your candidate portal is synchronized with your current pipeline.
             </p>
-          )}
-        </div>
 
-        {/* Active Stage Countdown */}
-        {activeStage && (
-          <div className="bg-background/80 backdrop-blur-sm border border-border rounded-xl p-4 shadow-sm min-w-[280px]">
-            <div className="flex items-center justify-between mb-1">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            {deploymentDate && (
+              <p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+                <Plane className="h-4 w-4" />
+                Deployment: {deploymentDate}
+              </p>
+            )}
+          </div>
+
+          {activeStage && (
+            <div className="min-w-[280px] rounded-xl border border-border bg-background/80 p-4 shadow-sm backdrop-blur-sm">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Current Stage
               </p>
-              <Link to="/pipeline" className="text-xs text-primary hover:underline flex items-center gap-1">
-                View <ArrowRight className="h-3 w-3" />
+
+              <p className="mt-1 font-medium">
+                {activeStage.stage_name}
+              </p>
+
+              {pendingNextStage && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Next: {pendingNextStage.stage_name}
+                </p>
+              )}
+
+              <Link
+                to="/pipeline"
+                className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+              >
+                Open Pipeline
+                <ArrowRight className="h-3 w-3" />
               </Link>
             </div>
-            <p className="font-medium text-foreground mb-3 line-clamp-1" title={activeStage.stage_name}>
-              {activeStage.stage_name}
-            </p>
-            <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border font-medium ${countdown.color}`}>
-              {countdown.icon && <countdown.icon className="h-4 w-4" />}
-              {countdown.text}
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
-      {/* Pipeline Progress — same MongoDB records and counts as Pipeline.jsx */}
-      <div className="bg-card rounded-xl border border-border p-5">
+      {notifications.length > 0 && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+          <div className="flex items-center gap-2">
+            <Bell className="h-4 w-4 text-blue-700" />
+            <h2 className="text-sm font-semibold text-blue-900">
+              What needs your attention
+            </h2>
+          </div>
+
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            {notifications.map(
+              notification => (
+                <Link
+                  key={
+                    notification.type
+                  }
+                  to="/pipeline"
+                  className="rounded-lg border border-blue-200 bg-white p-3 transition hover:border-blue-300"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">
+                    {notification.title}
+                  </p>
+
+                  <p className="mt-1 text-sm font-medium text-gray-900">
+                    {notification.message}
+                  </p>
+                </Link>
+              )
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-xl border border-border bg-card p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="font-semibold flex items-center gap-2">
+            <h2 className="flex items-center gap-2 font-semibold">
               <ClipboardList className="h-4 w-4 text-primary" />
               Pipeline Progress
             </h2>
-            <p className="text-xs text-muted-foreground mt-1">
-              Synced directly from your saved pipeline progress.
+
+            <p className="mt-1 text-xs text-muted-foreground">
+              Exactly the same saved pipeline progress shown on My Pipeline.
             </p>
           </div>
 
-          <Link
-            to="/pipeline"
-            className="text-xs text-primary hover:underline flex items-center gap-1"
-          >
-            View pipeline <ArrowRight className="h-3 w-3" />
-          </Link>
+          <span className="text-sm font-semibold text-primary">
+            {pipelineCompletedCount} / {pipelineTotalCount} stages
+          </span>
         </div>
 
-        {pipelineLoading ? (
-          <div className="mt-5 flex items-center gap-2 text-sm text-muted-foreground">
-            <Clock className="h-4 w-4 animate-pulse" />
-            Loading pipeline progress...
-          </div>
-        ) : pipelineError ? (
-          <div className="mt-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            <AlertCircle className="h-4 w-4 inline mr-2" />
-            {pipelineError}
-          </div>
-        ) : (
-          <>
-            <div className="mt-5 flex items-end justify-between gap-4">
-              <div>
-                <p className="text-3xl font-bold tracking-tight">
-                  {pipelineCompletedCount}
-                  <span className="text-lg font-medium text-muted-foreground">
-                    {" "}/ {pipelineTotalCount}
-                  </span>
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  stages complete
-                </p>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  Counted from saved status and completion dates
-                </p>
-              </div>
-              <p className="text-lg font-bold text-primary">
-                {pipelineProgressPercent}%
-              </p>
-            </div>
+        <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-blue-500 via-purple-500 to-emerald-500 transition-all"
+            style={{
+              width:
+                `${pipelineProgressPercent}%`
+            }}
+          />
+        </div>
 
-            <div className="mt-3 h-3 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-primary transition-all duration-500"
-                style={{ width: `${pipelineProgressPercent}%` }}
-              />
-            </div>
+        <div className="mt-2 flex justify-between text-xs text-muted-foreground">
+          <span>
+            {pipelineProgressPercent}% complete
+          </span>
 
-            {recruitmentStages.length > 0 && (
-              <div className="mt-4 rounded-lg border border-border bg-background/60 px-3 py-3">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold">
-                    Recruitment / Hiring
-                  </p>
-                  <p className="text-sm font-bold text-primary">
-                    {completedRecruitmentStages}/{recruitmentStages.length}
-                  </p>
+          <Link
+            to="/pipeline"
+            className="font-medium text-primary hover:underline"
+          >
+            View pipeline
+          </Link>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        {quickLinks.map(
+          link => {
+            const Icon =
+              link.icon;
+
+            return (
+              <Link
+                key={
+                  link.path
+                }
+                to={
+                  link.path
+                }
+                className="relative rounded-xl border border-border bg-card p-4 transition hover:-translate-y-0.5 hover:shadow-sm"
+              >
+                {link.badge && (
+                  <span className="absolute right-3 top-3 h-2.5 w-2.5 rounded-full bg-red-500" />
+                )}
+
+                <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${link.color}`}>
+                  <Icon className="h-5 w-5" />
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Synced from Recruit Lead Management Status and saved pipeline stages.
-                </p>
-              </div>
-            )}
 
-            <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-              {Object.entries(pipelineCategorySummary).map(
-                ([category, values]) => (
+                <p className="mt-3 text-sm font-semibold">
+                  {link.label}
+                </p>
+
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {link.sublabel}
+                </p>
+              </Link>
+            );
+          }
+        )}
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-xl border border-border bg-card p-5">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold">
+              Document Status
+            </h2>
+
+            <Link
+              to="/documents"
+              className="flex items-center gap-1 text-xs text-primary hover:underline"
+            >
+              View all
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-4">
+            <div className="flex items-center gap-2 text-sm">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              <span>
+                {approvedDocs} in library
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 text-sm">
+              <Clock className="h-4 w-4 text-amber-500" />
+              <span>
+                {pendingDocs} awaiting approval
+              </span>
+            </div>
+          </div>
+
+          {docs.length === 0 ? (
+            <p className="mt-4 text-sm text-muted-foreground">
+              No approved documents yet.
+            </p>
+          ) : (
+            <div className="mt-4 space-y-2">
+              {docs.map(
+                doc => (
                   <div
-                    key={category}
-                    className="rounded-lg border border-border bg-background/60 px-3 py-2"
+                    key={
+                      doc.approval_key ||
+                      doc.attachment_id ||
+                      doc.document_name
+                    }
+                    className="flex items-center justify-between gap-3 border-b py-2 last:border-0"
                   >
-                    <p className="truncate text-xs font-medium" title={category}>
-                      {category}
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      {doc.document_name}
+                    </span>
+
+                    <span className="rounded-full border bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                      Available
+                    </span>
+                  </div>
+                )
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-border bg-card p-5">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold">
+              Recent Updates
+            </h2>
+
+            <Link
+              to="/updates"
+              className="flex items-center gap-1 text-xs text-primary hover:underline"
+            >
+              View all
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+
+          {updates.length === 0 ? (
+            <p className="mt-4 text-sm text-muted-foreground">
+              No CRM or Recruit updates yet.
+            </p>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {updates.map(
+                update => (
+                  <div
+                    key={
+                      update.id ||
+                      update._id
+                    }
+                    className={`rounded-lg border p-3 ${
+                      update.is_read
+                        ? ""
+                        : "border-primary/20 bg-primary/5"
+                    }`}
+                  >
+                    <p className="text-sm font-medium">
+                      {update.title}
                     </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {values.completed}/{values.total} complete
+
+                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                      {update.message}
                     </p>
                   </div>
                 )
               )}
             </div>
-          </>
-        )}
+          )}
+        </div>
       </div>
 
-      {/* Stage Contact */}
-      <StageContact />
-
-      {/* Quick Links */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        {quickLinks.map(link => {
-          const Icon = link.icon;
-          return (
-            <Link 
-              key={link.path} 
-              to={link.path} 
-              className="group bg-card rounded-xl border border-border p-4 hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 relative"
-            >
-              {link.badge && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
-                  {unreadMessageCount > 9 ? '9+' : unreadMessageCount}
-                </span>
-              )}
-              <div className={`h-10 w-10 rounded-lg ${link.color} flex items-center justify-center mb-3`}>
-                <Icon className="h-5 w-5" />
-              </div>
-              <p className="font-medium text-sm">{link.label}</p>
-              <p className="text-xs text-muted-foreground">{link.sublabel}</p>
-            </Link>
-          );
-        })}
-      </div>
-
-      {/* Recent Messages Section */}
       {recentMessages.length > 0 && (
-        <div className="bg-card rounded-xl border border-border p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold flex items-center gap-2">
-              <MessageCircle className="h-4 w-4 text-purple-500" />
+        <div className="rounded-xl border border-border bg-card p-5">
+          <div className="flex items-center justify-between">
+            <h2 className="flex items-center gap-2 font-semibold">
+              <MessageCircle className="h-4 w-4 text-primary" />
               Recent Messages
             </h2>
-            <Link to="/messages" className="text-xs text-primary hover:underline flex items-center gap-1">
-              View all <ArrowRight className="h-3 w-3" />
+
+            <Link
+              to="/messages"
+              className="text-xs text-primary hover:underline"
+            >
+              View Messages
             </Link>
           </div>
-          
-          <div className="space-y-3">
-            {recentMessages.map((msg, index) => (
-              <Link 
-                key={index} 
-                to={`/messages/${msg.conversationId}`}
-                className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-accent/50 transition-colors"
-              >
-                <div className="flex-shrink-0">
-                  <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 font-semibold text-sm">
-                    {msg.conversationName?.charAt(0).toUpperCase() || '?'}
-                  </div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium truncate">{msg.conversationName}</p>
-                    <span className="text-xs text-muted-foreground flex-shrink-0">
-                      {getTimeAgo(msg.createdAt)}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground truncate">
-                      {msg.senderName !== 'You' && (
-                        <span className="font-medium text-foreground">{msg.senderName}: </span>
-                      )}
-                      {msg.content?.substring(0, 40)}{msg.content?.length > 40 ? '...' : ''}
-                    </span>
-                    {!msg.isRead && msg.senderEmail !== tokenStorage.get() && (
-                      <span className="flex-shrink-0 w-2 h-2 bg-purple-600 rounded-full"></span>
-                    )}
-                  </div>
-                </div>
-              </Link>
-            ))}
+
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            {recentMessages.map(
+              message => (
+                <Link
+                  key={
+                    message.id
+                  }
+                  to={
+                    message.conversationId
+                      ? `/messages/${message.conversationId}`
+                      : "/messages"
+                  }
+                  className="rounded-lg border p-3 transition hover:bg-muted/30"
+                >
+                  <p className="text-xs font-semibold text-muted-foreground">
+                    {message.senderName}
+                  </p>
+
+                  <p className="mt-1 line-clamp-2 text-sm">
+                    {message.content ||
+                      "New message"}
+                  </p>
+                </Link>
+              )
+            )}
           </div>
-          {unreadMessageCount > recentMessages.length && (
-            <div className="text-center mt-3">
-              <Link to="/messages" className="text-sm text-primary hover:underline">
-                +{unreadMessageCount - recentMessages.length} more unread messages
-              </Link>
-            </div>
-          )}
         </div>
       )}
-
-      {/* Document Overview & Recent Updates */}
-      <div className="grid lg:grid-cols-2 gap-6">
-        <div className="bg-card rounded-xl border border-border p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold">Document Status</h2>
-            <Link to="/documents" className="text-xs text-primary hover:underline flex items-center gap-1">View all <ArrowRight className="h-3 w-3" /></Link>
-          </div>
-          <div className="flex gap-4 mb-4">
-            <div className="flex items-center gap-2 text-sm">
-              <CheckCircle2 className="h-4 w-4" style={{ color: '#6fb04f' }} />
-              <span>{approvedDocs} approved</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-              <Clock className="h-4 w-4 text-amber-500" />
-              <span>{pendingDocs} pending</span>
-            </div>
-          </div>
-          {docs.length === 0 && <p className="text-sm text-muted-foreground">No documents uploaded yet.</p>}
-          <div className="space-y-2">
-            {docs.slice(0, 4).map(doc => (
-              <div key={doc.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                <span className="text-sm truncate flex-1">{doc.document_name}</span>
-                <StatusBadge status={doc.status} />
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="bg-card rounded-xl border border-border p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold">Recent Updates</h2>
-            <Link to="/updates" className="text-xs text-primary hover:underline flex items-center gap-1">View all <ArrowRight className="h-3 w-3" /></Link>
-          </div>
-          {updates.length === 0 && <p className="text-sm text-muted-foreground">No updates yet.</p>}
-          <div className="space-y-3">
-            {updates.slice(0, 4).map(update => (
-              <div key={update.id} className={`p-3 rounded-lg border ${!update.is_read ? "bg-accent/50 border-primary/20" : "border-border"}`}>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">{update.title}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{update.message}</p>
-                  </div>
-                  <StatusBadge status={update.update_type} />
-                </div>
-                <p className="text-[10px] text-muted-foreground mt-2">{moment(update.created_date).fromNow()}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Quick Action: New Message Button */}
-      
-      <div className="fixed bottom-6 right-6 lg:bottom-8 lg:right-8 z-50">
-        <Link
-          to="/messages"
-          className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-3 rounded-full shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105"
-        >
-          <MessageCircle className="h-5 w-5" />
-          <span className="text-sm font-medium">Messages</span>
-          {unreadMessageCount > 0 && (
-            <span className="bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center ml-1">
-              {unreadMessageCount > 9 ? '9+' : unreadMessageCount}
-            </span>
-          )}
-        </Link>
-      </div>
     </div>
   );
 }

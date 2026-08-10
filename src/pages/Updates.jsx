@@ -1,363 +1,410 @@
+
+
+
 // @ts-nocheck
-import React, { useEffect, useState, useCallback, useRef } from "react";
-import { Bell, CheckCircle, Edit, Info, PlaneLanding, Loader2, RefreshCw } from "lucide-react";
+import React, {
+  useCallback,
+  useEffect,
+  useState
+} from "react";
+import {
+  Bell,
+  CheckCircle,
+  Edit,
+  Info,
+  Loader2,
+  RefreshCw,
+  PlaneLanding
+} from "lucide-react";
 import { tokenStorage } from "@/api/icpClient";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
-// Track ALL fields returned from the backend's getUserComprehensiveDetails function
-const FIELD_LABELS = { 
-  // Personal & Contact Info
-  firstName: "First Name",
-  lastName: "Last Name",
-  prefferedName: "Preferred Name",
-  dateOfBirth: "Date of Birth",
-  email: "Email",
-  altEmail: "Alternate Email",
-  phone: "Phone Number",
-  usaddress: "US Mailing Address",
-  
-  // Professional & Application Info
-  applicationStatus: "Application Status",
-  professionalSpecialty: "Professional Specialty",
-  Education: "Education",
-  orderNumber: "Order Number",
-  interviewDate: "Interview Date",
-  interviewLocation: "Interview Location",
-  hospitalName: "Hospital Name",
-  initialICPAssessment: "Initial ICP Assessment",
-  reliasEnrolledDate: "Relias Enrolled Date",
-  reliasExtension: "Relias Extension",
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ||
+  "https://fictional-carnival-3inv.onrender.com";
 
-  // Concierge & Relocation
-  conciergeName: "Concierge Name",
-  conciergePhone: "Concierge Phone",
-  conciergeEmail: "Concierge Email",
-  conciergePictures: "Concierge Pictures",
-  concierge_assigned: "Concierge Assigned",
-  client_meet_and_greet: "Client Meet and Greet",
-  welcome_packet_emailed: "Welcome Packet Emailed",
-  welcomeAppointments: "Welcome Appointments",
-  hotel_booked: "Hotel Booked",
-  
-  // Flights & Travel
-  Flight_Booked_Emailed: "Flight Booked/Emailed",
-  RN_Flight_Cost: "RN Flight Cost",
-  Dependent_Flight_Cost: "Dependent(s) Flight Cost",
-  flightConfirmation: "Flight Confirmation",
-  primaryairline: "Primary Airline",
-  confirmationnumbers: "Confirmation Numbers",
-  primaryairlinetrack: "Flight Status Tracker",
-  departcity: "Departure City",
-  initial_departure_time: "Initial Departure Time",
-  scheduleddeparturedate: "Departure Date",
-  layover1location: "Layover 1 Location",
-  layover2location: "Layover 2 Location",
-  layover3location: "Layover 3 Location",
-  entryport: "Port of Entry in US",
-  scheduledarrivaldate: "Arrival Date",
-  final_destination_arrival: "Final Destination Arrival",
-  finalflightairline: "Final Flight Airline",
-  finalflightnumber: "Final Flight Number",
-  leadManagementStatus: "Lead Management Status",
-  State_Licensure_Requirements: "Embassy Eligibility Status",
-  Embassy_Interview: "Embassy Interview Date",
-  Visa_Status: "Visa Status",
-  IELTS_Complete: "English Exam Type",
-  IELTS_Scheduled_Exam_Date_if_applicable: "English Expiry Date",
-  Completed_BON_Requirements: "Completed BON Requirements",
-  Assessments_Completed: "Assessments Completed",
-  Assignments_Completed: "Assignments Completed",
-  Performance_Rating: "Performance Rating",
-  fligtnumber1: "Flight Number 1",
-  fligtnumber2: "Flight Number 2",
-  fligtnumber3: "Flight Number 3",
-  fligtnumber4: "Flight Number 4",
-
-  // Attachments
-  flightConfirmationAttachmentId: "Flight Confirmation Document",
-  welcomeAppointmentsAttachmentId: "Welcome Appointments Document",
-  educationAttachmentId: "Education Document",
-  conciergeBiographyAttachmentId: "Concierge Biography Document"
+const getUpdateIcon = type => {
+  switch (
+    String(type || "")
+      .toLowerCase()
+  ) {
+    case "arrival":
+      return (
+        <PlaneLanding className="h-5 w-5 text-blue-500" />
+      );
+    case "add":
+      return (
+        <CheckCircle className="h-5 w-5 text-green-500" />
+      );
+    case "edit":
+      return (
+        <Edit className="h-5 w-5 text-amber-500" />
+      );
+    default:
+      return (
+        <Info className="h-5 w-5 text-gray-400" />
+      );
+  }
 };
 
-const normalizeValue = (val) => { 
-  if (val === undefined || val === null) return ""; 
-  if (typeof val === "object") { 
-    if (val.name) return val.name; 
-    if (val.id) return String(val.id); 
-    return JSON.stringify(val); 
-  } 
-  return String(val).trim(); 
-};
+const formatDate = value => {
+  if (!value) return "Just now";
 
-const isEmpty = (v) => !v || v === "—" || v === "";
+  const date =
+    new Date(value);
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return "Just now";
+  }
+
+  const diffMs =
+    Date.now() -
+    date.getTime();
+
+  const mins =
+    Math.floor(
+      diffMs / 60000
+    );
+
+  const hours =
+    Math.floor(
+      diffMs / 3600000
+    );
+
+  const days =
+    Math.floor(
+      diffMs / 86400000
+    );
+
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins} min ago`;
+  if (hours < 24) {
+    return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  }
+  if (days < 7) {
+    return `${days} day${days === 1 ? "" : "s"} ago`;
+  }
+
+  return date.toLocaleDateString(
+    "en-US",
+    {
+      month: "short",
+      day: "numeric",
+      year: "numeric"
+    }
+  );
+};
 
 export default function Updates() {
-  const [updates, setUpdates] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [isPolling, setIsPolling] = useState(true);
-  const pollingIntervalRef = useRef(null);
-  const lastDataRef = useRef(null);
+  const [updates, setUpdates] =
+    useState([]);
 
-  // Function to fetch and compare data
-  const fetchAndCompareData = useCallback(async (showToast = false) => {
-    try {
-      const token = tokenStorage.get();
-      if (!token) {
-        setLoading(false);
-        return;
-      }
+  const [unread, setUnread] =
+    useState(0);
 
-      const BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://fictional-carnival-3inv.onrender.com";
-      const res = await fetch(`${BASE_URL}/api/zoho/my-deals?refresh=true&_=${Date.now()}`, {
-        headers: { 
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json"
+  const [loading, setLoading] =
+    useState(true);
+
+  const [refreshing, setRefreshing] =
+    useState(false);
+
+  const loadUpdates =
+    useCallback(
+      async ({
+        refreshZoho = false
+      } = {}) => {
+        const token =
+          tokenStorage.get();
+
+        if (!token) {
+          setLoading(false);
+          return;
         }
-      });
-      
-      const json = await res.json();
-      
-      if (!json.success || !json.data) {
-        return;
-      }
-      
-      const currentData = json.data;
-      
-      // If we have previous data to compare
-      if (lastDataRef.current) {
-        const previousData = lastDataRef.current;
-        const newUpdates = [];
-        
-        for (const [field, label] of Object.entries(FIELD_LABELS)) {
-          const newVal = normalizeValue(currentData[field]);
-          const oldVal = normalizeValue(previousData[field]);
 
-          if (newVal === oldVal) continue;
-
-          const dateStr = new Date().toISOString();
-
-          // Custom arrival notification
-          if (field === "final_destination_arrival" && isEmpty(oldVal) && !isEmpty(newVal)) {
-            const update = { 
-              id: Date.now() + Math.random(), 
-              type: 'arrival', 
-              title: "Arrival Confirmed", 
-              text: `🛬 You have arrived! Portal access active for 48 hours.`, 
-              date: dateStr 
-            };
-            newUpdates.unshift(update);
-            if (showToast) toast.success("Arrival confirmed!");
-            continue;
+        try {
+          if (refreshZoho) {
+            // User-triggered only. This bypasses the cache once so CRM/Recruit
+            // changes can be detected without background polling.
+            await fetch(
+              `${API_BASE}/api/zoho/my-deals?refresh=true`,
+              {
+                headers: {
+                  Authorization:
+                    `Bearer ${token}`
+                }
+              }
+            );
           }
 
-          // Standard field notifications
-          if (isEmpty(oldVal) && !isEmpty(newVal)) {
-            const update = { 
-              id: Date.now() + Math.random(), 
-              type: 'add', 
-              title: `${label} Added`, 
-              text: `${newVal}`, 
-              date: dateStr 
-            };
-            newUpdates.unshift(update);
-            if (showToast) toast.info(`${label} added`);
-          } else if (!isEmpty(oldVal) && isEmpty(newVal)) {
-            const update = { 
-              id: Date.now() + Math.random(), 
-              type: 'clear', 
-              title: `${label} Cleared`, 
-              text: `This field has been removed.`, 
-              date: dateStr 
-            };
-            newUpdates.unshift(update);
-            if (showToast) toast.warning(`${label} removed`);
-          } else if (!isEmpty(oldVal) && !isEmpty(newVal)) {
-            const update = { 
-              id: Date.now() + Math.random(), 
-              type: 'edit', 
-              title: `${label} Updated`, 
-              text: `Changed from "${oldVal}" to "${newVal}"`, 
-              date: dateStr 
-            };
-            newUpdates.unshift(update);
-            if (showToast) toast.info(`${label} updated`);
-          }
-        }
-        
-        if (newUpdates.length > 0) {
-          // Add new updates to the top of the list
-          setUpdates(prev => [...newUpdates, ...prev].slice(0, 100));
-          
-          // Save to localStorage
-          const storedUpdates = JSON.parse(localStorage.getItem("deploymate_updates") || "[]");
-          const combinedUpdates = [...newUpdates, ...storedUpdates].slice(0, 100);
-          localStorage.setItem("deploymate_updates", JSON.stringify(combinedUpdates));
-          
-          // Play a sound notification (optional - you can add a beep)
-          // new Audio('/notification.mp3').play().catch(e => console.log('Audio not supported'));
-        }
-      }
-      
-      // Update the stored data
-      lastDataRef.current = currentData;
-      localStorage.setItem("deploymate_snapshot", JSON.stringify(currentData));
-      
-    } catch (error) {
-      console.error("Failed to fetch updates:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+          const response =
+            await fetch(
+              `${API_BASE}/api/updates?limit=100`,
+              {
+                headers: {
+                  Authorization:
+                    `Bearer ${token}`
+                }
+              }
+            );
 
-  // Initial load and setup polling
+          const payload =
+            await response
+              .json()
+              .catch(
+                () => ({})
+              );
+
+          if (!response.ok) {
+            throw new Error(
+              payload.error ||
+              payload.message ||
+              "Unable to load updates."
+            );
+          }
+
+          setUpdates(
+            Array.isArray(
+              payload.updates
+            )
+              ? payload.updates
+              : []
+          );
+
+          setUnread(
+            Number(
+              payload.unread ||
+              0
+            )
+          );
+        } finally {
+          setLoading(false);
+        }
+      },
+      []
+    );
+
   useEffect(() => {
-    // Load existing updates from localStorage
-    const storedUpdates = JSON.parse(localStorage.getItem("deploymate_updates") || "[]");
-    const storedSnapshot = JSON.parse(localStorage.getItem("deploymate_snapshot") || "null");
-    
-    if (storedUpdates.length > 0) {
-      setUpdates(storedUpdates);
-    }
-    
-    if (storedSnapshot) {
-      lastDataRef.current = storedSnapshot;
-    }
-    
-    // Initial fetch
-    fetchAndCompareData();
-    
-    // Set up polling every 5 seconds for real-time updates
-    if (isPolling) {
-      pollingIntervalRef.current = setInterval(() => {
-        fetchAndCompareData(true);
-      }, 5000); // Check every 5 seconds
-    }
-    
-    // Cleanup on unmount
+    loadUpdates();
+
+    const handleUpdate =
+      () => loadUpdates();
+
+    window.addEventListener(
+      "candidate-data-updated",
+      handleUpdate
+    );
+
+    window.addEventListener(
+      "pipeline-updated",
+      handleUpdate
+    );
+
     return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
+      window.removeEventListener(
+        "candidate-data-updated",
+        handleUpdate
+      );
+
+      window.removeEventListener(
+        "pipeline-updated",
+        handleUpdate
+      );
+    };
+  }, [loadUpdates]);
+
+  const manualRefresh =
+    async () => {
+      setRefreshing(true);
+
+      try {
+        await loadUpdates({
+          refreshZoho: true
+        });
+
+        toast.success(
+          "Updates refreshed."
+        );
+      } catch (error) {
+        toast.error(
+          error.message ||
+          "Unable to refresh updates."
+        );
+      } finally {
+        setRefreshing(false);
       }
     };
-  }, [fetchAndCompareData, isPolling]);
 
-  // Manual refresh function
-  const handleManualRefresh = () => {
-    setLoading(true);
-    fetchAndCompareData(true);
-    setTimeout(() => setLoading(false), 1000);
-    toast.success("Checking for updates...");
-  };
+  const markAllRead =
+    async () => {
+      const token =
+        tokenStorage.get();
 
-  const formatDate = (isoString) => {
-    try {
-      const date = new Date(isoString);
-      const now = new Date();
-      const diffMs = now - date;
-      const diffMins = Math.floor(diffMs / 60000);
-      const diffHours = Math.floor(diffMs / 3600000);
-      const diffDays = Math.floor(diffMs / 86400000);
-      
-      if (diffMins < 1) return "Just now";
-      if (diffMins < 60) return `${diffMins} min ago`;
-      if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-      if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-      
-      return date.toLocaleDateString("en-US", { 
-        month: "short", day: "numeric", year: "numeric"
-      });
-    } catch (e) {
-      return "Just now";
-    }
-  };
+      if (!token) return;
 
-  const getUpdateIcon = (type) => {
-    switch (type) {
-      case 'arrival': return <PlaneLanding className="h-5 w-5 text-blue-500" />;
-      case 'add': return <CheckCircle className="h-5 w-5 text-green-500" />;
-      case 'edit': return <Edit className="h-5 w-5 text-amber-500" />;
-      case 'clear': return <Info className="h-5 w-5 text-gray-400" />;
-      default: return <Bell className="h-5 w-5 text-primary" />;
-    }
-  };
+      try {
+        await fetch(
+          `${API_BASE}/api/updates/mark-read`,
+          {
+            method: "POST",
+            headers: {
+              Authorization:
+                `Bearer ${token}`,
+              "Content-Type":
+                "application/json"
+            }
+          }
+        );
+
+        setUpdates(previous =>
+          previous.map(
+            update => ({
+              ...update,
+              is_read: true
+            })
+          )
+        );
+
+        setUnread(0);
+
+        window.dispatchEvent(
+          new CustomEvent(
+            "updates-read"
+          )
+        );
+      } catch {
+        toast.error(
+          "Unable to mark updates as read."
+        );
+      }
+    };
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[360px] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6 max-w-3xl mx-auto">
-      <div className="flex items-center justify-between">
+    <div className="mx-auto max-w-3xl space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Updates</h1>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Updates
+          </h1>
           <p className="text-sm text-muted-foreground">
-            Real-time notifications and changes to your profile
-            <span className="inline-flex items-center ml-2 text-xs text-green-600">
-              <span className="relative flex h-2 w-2 mr-1">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-              </span>
-              Live
-            </span>
+            CRM and Recruit changes relevant to your candidate record.
           </p>
         </div>
-        <Button 
-          variant="outline" 
-          size="sm" 
-          onClick={handleManualRefresh}
-          disabled={loading}
-          className="gap-2"
-        >
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-          Refresh
-        </Button>
+
+        <div className="flex gap-2">
+          {unread > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={
+                markAllRead
+              }
+            >
+              Mark all read
+            </Button>
+          )}
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={
+              manualRefresh
+            }
+            disabled={
+              refreshing
+            }
+            className="gap-2"
+          >
+            <RefreshCw
+              className={`h-4 w-4 ${
+                refreshing
+                  ? "animate-spin"
+                  : ""
+              }`}
+            />
+            Refresh
+          </Button>
+        </div>
       </div>
 
-      {loading && updates.length === 0 ? (
-        <div className="flex justify-center items-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="rounded-xl border bg-card p-4">
+        <div className="flex items-center gap-2">
+          <Bell className="h-5 w-5 text-primary" />
+          <p className="font-semibold">
+            {unread} unread update{unread === 1 ? "" : "s"}
+          </p>
         </div>
-      ) : updates.length === 0 ? (
-        <div className="bg-card rounded-xl border border-border p-12 text-center shadow-sm">
-          <Bell className="h-12 w-12 text-muted-foreground/50 mx-auto mb-3" />
-          <p className="font-medium text-lg">No updates yet</p>
-          <p className="text-sm text-muted-foreground max-w-sm mx-auto mt-1">
-            Updates will appear here in real-time when your profile changes in the database.
+      </div>
+
+      {updates.length === 0 ? (
+        <div className="rounded-xl border bg-card p-12 text-center">
+          <Bell className="mx-auto h-10 w-10 text-muted-foreground" />
+          <p className="mt-3 font-medium">
+            No updates yet
           </p>
-          <p className="text-xs text-muted-foreground mt-3">
-            The page automatically checks for changes every 5 seconds
-          </p>
-          <p className="text-sm text-primary mt-6 font-medium bg-primary/5 inline-block px-4 py-2 rounded-full">
-            📞 615-881-5321 &nbsp;|&nbsp; ✉️ customerservice@infinitycarepartners.com
+          <p className="mt-1 text-sm text-muted-foreground">
+            Changes from CRM and Recruit will appear here.
           </p>
         </div>
       ) : (
-        <div className="space-y-4">
-          {updates.map((update, index) => (
-            <div 
-              key={update.id} 
-              className={`bg-card flex items-start gap-4 rounded-xl border p-4 shadow-sm transition-all hover:shadow-md ${
-                index === 0 ? 'border-primary/30 bg-primary/5' : 'border-border'
-              }`}
-            >
-              <div className="bg-muted/50 p-2 rounded-full mt-1">
-                {getUpdateIcon(update.type)}
-              </div>
-              <div className="flex-1">
-                <div className="flex justify-between items-start gap-2">
-                  <h3 className="font-semibold text-sm">{update.title}</h3>
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">
-                    {formatDate(update.date)}
-                  </span>
+        <div className="space-y-3">
+          {updates.map(
+            update => (
+              <div
+                key={
+                  update.id ||
+                  update._id
+                }
+                className={`rounded-xl border p-4 ${
+                  update.is_read
+                    ? "bg-card"
+                    : "border-primary/20 bg-primary/5"
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5">
+                    {getUpdateIcon(
+                      update.update_type
+                    )}
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="font-medium">
+                        {update.title ||
+                          "Candidate record updated"}
+                      </p>
+
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {formatDate(
+                          update.created_date ||
+                          update.created_at
+                        )}
+                      </span>
+                    </div>
+
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {update.message ||
+                        update.text ||
+                        "Your record was updated."}
+                    </p>
+                  </div>
                 </div>
-                <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
-                  {update.text}
-                </p>
               </div>
-            </div>
-          ))}
-          
-          <div className="pt-6 text-center">
-            
-          </div>
+            )
+          )}
         </div>
       )}
     </div>

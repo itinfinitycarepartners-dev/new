@@ -70,7 +70,10 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { format, differenceInDays, differenceInHours, addDays } from "date-fns";
 import { toast } from "sonner";
-import { useNavigate } from "react-router-dom";
+import {
+  useNavigate,
+  useSearchParams
+} from "react-router-dom";
 import { candidate } from "@/api/icpClient";
 
 const relocationTravelPolicyPdf =
@@ -79,7 +82,12 @@ const relocationTravelPolicyPdf =
 const photoVideoReleasePdf =
   "/documents/Photo_Release.pdf";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://fictional-carnival-3inv.onrender.com'
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ||
+  "https://fictional-carnival-3inv.onrender.com";
+
+const PRESCREEN_BOOKING_URL =
+  "https://bookings.cloud.microsoft/book/Prescreen@Infinitycarepartners.com/s/80GsIx6AjkuAYAnb7DcVPw2?ismsaljsauthenabled";
 
 // Bank details are protected twice in transit:
 // 1) HTTPS/TLS for the request itself.
@@ -255,7 +263,7 @@ const getArrivalDate = async () => {
     const token = localStorage.getItem("icp_auth_token");
     if (!token) return null;
 
-    const response = await fetch(`${API_BASE}/api/zoho/my-deals?refresh=true&_=${Date.now()}`, {
+    const response = await fetch(`${API_BASE}/api/zoho/my-deals?_=${Date.now()}`, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -338,13 +346,15 @@ const STAGES_CONFIG = [
   { id: 49, stage_name: "Communicate During Travel", stage_category: "Deployment", stage_order: 49, days_from_start: 1035 },
   { id: 50, stage_name: "Submit Post-Arrival Documents", stage_category: "Deployment", stage_order: 50, days_from_start: 1040 },
 
-  // Aftercare Stages (51-56)
-  { id: 51, stage_name: "Relocation Survey", stage_category: "Aftercare", stage_order: 51, days_from_arrival: 0 },
-  { id: 52, stage_name: "30 Day Survey", stage_category: "Aftercare", stage_order: 52, days_from_arrival: 30 },
-  { id: 53, stage_name: "90 Day Exit Call", stage_category: "Aftercare", stage_order: 53, days_from_arrival: 90 },
-  { id: 54, stage_name: "Submit Active License", stage_category: "Aftercare", stage_order: 54 },
-  { id: 55, stage_name: "Submit Orientation Start Date", stage_category: "Aftercare", stage_order: 55 },
-  { id: 56, stage_name: "Submit Start Date on Floor Independently", stage_category: "Aftercare", stage_order: 56 },
+  // Aftercare stages — all timing is anchored to Flight_Arrival_Time.
+  { id: 51, stage_name: "24 Hour Call", stage_category: "Aftercare", stage_order: 51, days_from_arrival: 1 },
+  { id: 52, stage_name: "Relocation Survey", stage_category: "Aftercare", stage_order: 52, days_from_arrival: 2 },
+  { id: 53, stage_name: "Concierge Debrief", stage_category: "Aftercare", stage_order: 53, days_from_arrival: 3 },
+  { id: 54, stage_name: "7 Day Call", stage_category: "Aftercare", stage_order: 54, days_from_arrival: 7 },
+  { id: 55, stage_name: "2 Week Call", stage_category: "Aftercare", stage_order: 55, days_from_arrival: 14 },
+  { id: 56, stage_name: "30 Day Survey", stage_category: "Aftercare", stage_order: 56, days_from_arrival: 30 },
+  { id: 57, stage_name: "90 Day Exit Call", stage_category: "Aftercare", stage_order: 57, days_from_arrival: 90 },
+  { id: 58, stage_name: "1 Year Survey", stage_category: "Aftercare", stage_order: 58, days_from_arrival: 365 },
 
 ];
 
@@ -965,12 +975,17 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
   {
     name: "Credential Evaluation Set-up",
     days: 27,
-    field: "Credential_Service",
+    field: "Credentialing_Status",
     type: "picklist",
     accepted: [
-      "Paid by ICP",
-      "Paid by Infinity",
-      "Paid and completed by candidate"
+      "App Complete",
+      "Report Issued"
+    ],
+    displayOptions: [
+      "None",
+      "App On-Going",
+      "App Complete",
+      "Report Issued"
     ]
   },
   {
@@ -1476,12 +1491,14 @@ const CLICKABLE_STAGES = {
   "Submit Post-Arrival Documents": { clickable: true, type: "upload", uploadType: "postArrivalDocs" },
 
   // Aftercare stages
+  "24 Hour Call": { clickable: true, type: "view", viewType: "aftercareCall" },
   "Relocation Survey": { clickable: true, type: "view", viewType: "relocationSurvey" },
+  "Concierge Debrief": { clickable: true, type: "view", viewType: "aftercareCall" },
+  "7 Day Call": { clickable: true, type: "view", viewType: "aftercareCall" },
+  "2 Week Call": { clickable: true, type: "view", viewType: "aftercareCall" },
   "30 Day Survey": { clickable: true, type: "view", viewType: "thirtyDaySurvey" },
   "90 Day Exit Call": { clickable: true, type: "view", viewType: "ninetyDaySurvey" },
-  "Submit Active License": { clickable: true, type: "upload", uploadType: "activeLicense" },
-  "Submit Orientation Start Date": { clickable: true, type: "view", viewType: "orientationStart" },
-  "Submit Start Date on Floor Independently": { clickable: true, type: "view", viewType: "orientationEnd" },
+  "1 Year Survey": { clickable: true, type: "view", viewType: "aftercareCall" },
 
   // Stage 5 - Reimbursement/Expenses
   "Reimbursement/Expenses": { clickable: true, type: "view", viewType: "reimbursementExpenses" },
@@ -1506,10 +1523,21 @@ const statusConfig = {
 };
 
 const riskConfig = {
-  "Good Standing": { icon: CheckCircle2, color: "text-emerald-500", label: "Good Standing" },
-  "At Risk": { icon: AlertTriangle, color: "text-amber-500", label: "At Risk" },
-  "Late": { icon: AlertCircle, color: "text-red-500", label: "Late" },
-  "Late": { icon: Timer, color: "text-orange-500", label: "Late" },
+  "Good Standing": {
+    icon: CheckCircle2,
+    color: "text-emerald-500",
+    label: "Good Standing"
+  },
+  "At Risk": {
+    icon: AlertTriangle,
+    color: "text-amber-500",
+    label: "At Risk"
+  },
+  "Late": {
+    icon: Timer,
+    color: "text-orange-500",
+    label: "Late"
+  }
 };
 
 export const PIPELINE_STAGES = STAGES_CONFIG;
@@ -2694,7 +2722,7 @@ const ContractView = ({ onClose, user, setStages }) => {
         throw new Error("Not authenticated");
       }
 
-      const response = await fetch(`${API_BASE}/api/zoho/my-deals?refresh=true&_=${Date.now()}`, {
+      const response = await fetch(`${API_BASE}/api/zoho/my-deals?_=${Date.now()}`, {
         method: "GET",
         cache: "no-store",
         headers: {
@@ -5866,7 +5894,7 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
       };
 
       const statusResponse = await fetch(
-        `${API_BASE}/api/zoho/my-deals?refresh=true&_=${Date.now()}`,
+        `${API_BASE}/api/zoho/my-deals?_=${Date.now()}`,
         {
           cache: "no-store",
           headers: {
@@ -8448,6 +8476,8 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
 export default function Pipeline() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] =
+    useSearchParams();
   const [stages, setStages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -8557,7 +8587,7 @@ export default function Pipeline() {
         // Fetch the exact Recruit modules in which this email was found.
         // The backend searches Applications and Candidates independently.
         try {
-          const response = await fetch(`${API_BASE}/api/zoho/my-deals?refresh=true`, {
+          const response = await fetch(`${API_BASE}/api/zoho/my-deals`, {
             headers: {
               Authorization: `Bearer ${token}`,
               "Content-Type": "application/json",
@@ -9060,9 +9090,36 @@ export default function Pipeline() {
           )
         );
 
+      const verifiedSavedNCLEXHistory =
+        saved.some(
+          stage =>
+            ICP_USRN_SUBPROCESS_CONFIG.some(
+              item =>
+                item.name ===
+                stage?.stage_name
+            ) &&
+            (
+              isPipelineStageComplete(
+                stage
+              ) ||
+              [
+                "in progress",
+                "in-progress"
+              ].includes(
+                String(
+                  stage?.status ||
+                  ""
+                )
+                  .trim()
+                  .toLowerCase()
+              )
+            )
+        );
+
       const transferToICPUSRN =
         liveTransferSelected ||
-        verifiedSavedTransfer;
+        verifiedSavedTransfer ||
+        verifiedSavedNCLEXHistory;
 
       if (transferToICPUSRN) {
         // This is a separate Recruit branch. The three qualification outcome
@@ -10014,7 +10071,193 @@ export default function Pipeline() {
       title: null,
       component: null
     });
+
+    if (
+      searchParams.get("form") ||
+      searchParams.get("stage")
+    ) {
+      setSearchParams(
+        {},
+        {
+          replace: true
+        }
+      );
+    }
   };
+
+  useEffect(() => {
+    if (
+      !isInitialized ||
+      isLoading ||
+      modalState.isOpen
+    ) {
+      return;
+    }
+
+    const requestedForm =
+      String(
+        searchParams.get("form") ||
+        ""
+      )
+        .trim()
+        .toLowerCase();
+
+    const requestedStage =
+      String(
+        searchParams.get("stage") ||
+        ""
+      )
+        .trim()
+        .toLowerCase();
+
+    if (
+      requestedForm ===
+      "hub"
+    ) {
+      openModal(
+        "Forms",
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Open and complete your required candidate forms.
+          </p>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            {[
+              {
+                key: "behavioral",
+                title: "Behavioral Assessment",
+                description:
+                  "Complete your behavioral assessment.",
+                icon: ClipboardList
+              },
+              {
+                key: "rl",
+                title: "R&L Form",
+                description:
+                  "Complete your Relocation & Logistics form.",
+                icon: HeartHandshake
+              },
+              {
+                key: "housing",
+                title: "Housing & Transportation",
+                description:
+                  "Complete your housing and transportation form.",
+                icon: Home
+              }
+            ].map(item => {
+              const Icon =
+                item.icon;
+
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => {
+                    setModalState({
+                      isOpen: false,
+                      type: null,
+                      title: null,
+                      component: null
+                    });
+
+                    setSearchParams(
+                      {
+                        form:
+                          item.key
+                      },
+                      {
+                        replace:
+                          true
+                      }
+                    );
+                  }}
+                  className="rounded-xl border bg-white p-4 text-left transition hover:border-primary/40 hover:shadow-sm"
+                >
+                  <Icon className="h-5 w-5 text-primary" />
+                  <p className="mt-3 font-semibold">
+                    {item.title}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {item.description}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      );
+
+      return;
+    }
+
+    if (
+      requestedForm ===
+      "behavioral"
+    ) {
+      openModal(
+        "Behavioral Assessment",
+        <DeploymentDetails
+          onClose={closeModal}
+          user={user}
+          setStages={setStages}
+        />
+      );
+
+      return;
+    }
+
+    if (
+      requestedForm ===
+      "rl"
+    ) {
+      openModal(
+        "Relocation & Logistics Form",
+        <RLChecklistView
+          onClose={closeModal}
+          user={user}
+          setStages={setStages}
+        />
+      );
+
+      return;
+    }
+
+    if (
+      requestedForm ===
+      "housing"
+    ) {
+      openModal(
+        "Housing Form",
+        <HousingDetails
+          onClose={closeModal}
+          user={user}
+          setStages={setStages}
+        />
+      );
+
+      return;
+    }
+
+    if (
+      requestedStage ===
+      "welcome-packet"
+    ) {
+      openModal(
+        "ICP Welcome Packet",
+        <WelcomePacketView
+          onClose={closeModal}
+          user={user}
+          setStages={setStages}
+        />
+      );
+    }
+  }, [
+    isInitialized,
+    isLoading,
+    searchParams,
+    modalState.isOpen,
+    user?.email
+  ]);
 
   const cycleStatus = async (stageId) => {
     const order = ["Not Started", "In Progress", "Completed", "Blocked"];
@@ -10195,6 +10438,23 @@ export default function Pipeline() {
       return;
     }
 
+    if (
+      action.type === "booking" &&
+      action.bookingType === "prescreen"
+    ) {
+      window.open(
+        PRESCREEN_BOOKING_URL,
+        "_blank",
+        "noopener,noreferrer"
+      );
+
+      toast.success(
+        "Prescreen booking opened. This stage will check off automatically once Recruit shows Prescreen Scheduled."
+      );
+
+      return;
+    }
+
     if (action.type === "upload") {
       switch(action.uploadType) {
         case "prescreen":
@@ -10278,6 +10538,21 @@ export default function Pipeline() {
           openModal(
             "ICP Welcome Packet",
             <WelcomePacketView onClose={closeModal} user={user} setStages={setStages} />
+          );
+          break;
+        case "aftercareCall":
+          openModal(
+            stage.stage_name,
+            <div className="space-y-4">
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                <p className="text-sm text-blue-900">
+                  This Aftercare milestone is scheduled from your Final Destination Arrival date.
+                </p>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Your portal will keep this stage timed from your arrival date and preserve the saved completion state.
+              </p>
+            </div>
           );
           break;
         case "relocationSurvey":
@@ -10450,7 +10725,10 @@ export default function Pipeline() {
     };
 
     loadExpiryAndDeploymentStatus();
-    const interval = window.setInterval(loadExpiryAndDeploymentStatus, 60_000);
+    const interval = window.setInterval(
+      loadExpiryAndDeploymentStatus,
+      30 * 60 * 1000
+    );
     return () => {
       cancelled = true;
       window.clearInterval(interval);
@@ -10516,7 +10794,7 @@ export default function Pipeline() {
     loadRequiredDocumentApproval();
     const interval = window.setInterval(
       loadRequiredDocumentApproval,
-      15_000
+      30 * 60 * 1000
     );
 
     return () => {
@@ -10577,12 +10855,38 @@ export default function Pipeline() {
       transferStage
     );
 
-  // Strict rule: candidates see NCLEX only if Recruit currently has the
-  // Transfer status, or the backend previously verified that exact status and
-  // persisted the eligibility marker. NCLEX progress alone never grants access.
+  const savedNCLEXHistoryExists =
+    stages.some(
+      stage =>
+        ICP_USRN_SUBPROCESS_CONFIG.some(
+          item =>
+            item.name ===
+            stage?.stage_name
+        ) &&
+        (
+          isPipelineStageComplete(
+            stage
+          ) ||
+          [
+            "in progress",
+            "in-progress"
+          ].includes(
+            String(
+              stage?.status ||
+              ""
+            )
+              .trim()
+              .toLowerCase()
+          )
+        )
+    );
+
+  // New candidates enter through the Transfer status. Existing candidates may
+  // also resume when saved NCLEX history proves they previously entered branch.
   const nclexBranchVisible =
     transferStatusSelected ||
-    savedTransferEligibility;
+    savedTransferEligibility ||
+    savedNCLEXHistoryExists;
 
   const nclexProgress =
     transferStage
@@ -10982,11 +11286,32 @@ export default function Pipeline() {
                       <Circle className="h-5 w-5 shrink-0 text-amber-500" />
                     )}
                   </div>
-                  <p className="mt-2 text-xs text-gray-500">
-                    {complete
-                      ? "Completed"
-                      : "Pending"}
-                  </p>
+                  {item.name ===
+                  "Credential Evaluation Set-up" ? (
+                    <div className="mt-2 space-y-1">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                        Credentialing Status
+                      </p>
+                      <span
+                        className={cn(
+                          "inline-flex rounded-full border px-2 py-1 text-xs font-medium",
+                          complete
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : "border-slate-200 bg-slate-50 text-slate-700"
+                        )}
+                      >
+                        {icpUSRNCRMData
+                          ?.Credentialing_Status ||
+                          "None"}
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs text-gray-500">
+                      {complete
+                        ? "Completed"
+                        : "Pending"}
+                    </p>
+                  )}
                 </button>
               );
             })}
@@ -11000,7 +11325,7 @@ export default function Pipeline() {
               id: "reimbursement-section",
               stage_name: "Reimbursement/Expenses",
               stage_category: "Reimbursement",
-              stage_order: 57,
+              stage_order: 59,
               status:
                 reimbursementSubmitted
                   ? "Completed"
@@ -11061,6 +11386,77 @@ export default function Pipeline() {
                   : `${catCompleted}/${countedCategoryStages.length} complete`}
               </span>
             </div>
+            {isImmigration && (
+              <div className="border-b border-border bg-slate-50/70 p-5">
+                <h3 className="text-sm font-semibold text-slate-800">
+                  I-140 & English Record
+                </h3>
+
+                <div className="mt-3 overflow-hidden rounded-xl border bg-white">
+                  {[
+                    {
+                      label:
+                        "I-140 Filed Date",
+                      value:
+                        icpUSRNCRMData
+                          ?.Filed_Date ||
+                        icpUSRNCRMData
+                          ?.i140FiledDate
+                    },
+                    {
+                      label:
+                        "I-140 Approval Date",
+                      value:
+                        icpUSRNCRMData
+                          ?.Approval_Date ||
+                        icpUSRNCRMData
+                          ?.i140ApprovalDate
+                    },
+                    {
+                      label:
+                        "I-140 Priority Date",
+                      value:
+                        icpUSRNCRMData
+                          ?.Priority_Date ||
+                        icpUSRNCRMData
+                          ?.i140PriorityDate
+                    },
+                    {
+                      label:
+                        "English Exp Date",
+                      value:
+                        icpUSRNCRMData
+                          ?.IELTS_Scheduled_Exam_Date_if_applicable
+                    }
+                  ].map(
+                    (
+                      item,
+                      index
+                    ) => (
+                      <div
+                        key={
+                          item.label
+                        }
+                        className={cn(
+                          "flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between",
+                          index > 0 &&
+                            "border-t"
+                        )}
+                      >
+                        <p className="text-sm font-medium text-slate-600">
+                          {item.label}
+                        </p>
+                        <p className="text-sm font-semibold text-slate-900">
+                          {item.value ||
+                            "—"}
+                        </p>
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="divide-y divide-border">
               {catStages.map((stage, idx) => {
                 if (!stage) return null;
@@ -11103,8 +11499,23 @@ export default function Pipeline() {
                         <GitBranch className={cn("h-5 w-5", cfg.color)} />
                       ) : isLocked ? (
                         <Lock className="h-5 w-5 text-gray-300" />
+                      ) : isImmigrationStage &&
+                        (
+                          stage.stage_name
+                            ?.toLowerCase()
+                            .includes("course") ||
+                          stage.stage_name ===
+                            "Foundations (Phases 1–3)" ||
+                          stage.stage_name ===
+                            "Licensure (General) & Live English Assessment" ||
+                          stage.stage_name ===
+                            "English Practice & Development" ||
+                          stage.stage_name ===
+                            "Cultural Adaptation & Integration"
+                        ) ? (
+                        <Book className={cn("h-5 w-5", cfg.color)} />
                       ) : isImmigrationStage ? (
-                        <GraduationCap className={cn("h-5 w-5", cfg.color)} />
+                        <FileCheck className={cn("h-5 w-5", cfg.color)} />
                       ) : (
                         <Icon className={cn("h-5 w-5", cfg.color)} />
                       )}

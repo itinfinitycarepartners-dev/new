@@ -196,6 +196,30 @@ export const auth = {
 
 // ─── Zoho / Candidate data ────────────────────────────────────────────────────
 export const candidate = {
+  getDashboardSummary: () =>
+    apiFetch("/api/candidate/dashboard-summary"),
+
+  getBootstrap: () =>
+    apiFetch("/api/candidate/bootstrap"),
+
+  getUpdates: (limit = 100) =>
+    apiFetch(`/api/updates?limit=${limit}`),
+
+  markUpdatesRead: () =>
+    apiFetch("/api/updates/mark-read", {
+      method: "POST"
+    }),
+
+  getDocumentLibrary: () =>
+    apiFetch("/api/documents/library"),
+
+  getPrescreenStatus: () =>
+    apiFetch("/api/recruit/prescreen-status"),
+
+  getCredentialingStatus: () =>
+    apiFetch("/api/recruit/credentialing-status"),
+
+
   /** Fetch all deals / placement info */
   getMyDeals: () => {
     console.log('[Candidate] Fetching my deals...');
@@ -391,9 +415,34 @@ export const messaging = {
     apiFetch(`/api/messaging/conversations?limit=${limit}&offset=${offset}`),
 
   /** Get messages for a conversation */
-  getMessages: (conversationId, limit = 30, before = null) => {
-    let url = `/api/messaging/messages/${conversationId}?limit=${limit}`;
-    if (before) url += `&before=${before}`;
+  getMessages: (
+    conversationId,
+    limitOrOptions = 30,
+    before = null
+  ) => {
+    const options =
+      typeof limitOrOptions === "object"
+        ? limitOrOptions
+        : {
+            limit:
+              limitOrOptions,
+            before
+          };
+
+    const limit =
+      Number(
+        options.limit ||
+        30
+      );
+
+    let url =
+      `/api/messaging/messages/${conversationId}?limit=${limit}`;
+
+    if (options.before) {
+      url +=
+        `&before=${encodeURIComponent(options.before)}`;
+    }
+
     return apiFetch(url);
   },
 
@@ -407,6 +456,24 @@ export const messaging = {
     return apiFetch('/api/messaging/send', { method: 'POST', body });
   },
 
+  /** Send a threaded reply */
+  sendReply: (
+    conversationId,
+    parentMessageId,
+    content
+  ) =>
+    apiFetch(
+      "/api/messaging/reply",
+      {
+        method: "POST",
+        body: {
+          conversationId,
+          parentMessageId,
+          content
+        }
+      }
+    ),
+
   /** Mark messages as read */
   markAsRead: (conversationId) =>
     apiFetch(`/api/messaging/read/${conversationId}`, { method: 'POST' }),
@@ -414,6 +481,16 @@ export const messaging = {
   /** Get unread count */
   getUnreadCount: () =>
     apiFetch('/api/messaging/unread-count'),
+
+  /** Candidate/user broadcast to all candidate users */
+  sendUserBroadcast: (content, title = "") =>
+    apiFetch("/api/messaging/user-broadcast", {
+      method: "POST",
+      body: {
+        content,
+        title
+      }
+    }),
 
   /** Delete a message */
   deleteMessage: (messageId) =>
@@ -439,6 +516,76 @@ export const messaging = {
       method: 'POST', 
       body: { deviceToken, deviceType } 
     }),
+};
+
+// ─── Document Library ─────────────────────────────────────────────────────────
+export const documentLibrary = {
+  getAll: () =>
+    apiFetch("/api/documents/library"),
+
+  upload: ({
+    file,
+    category,
+    destination = "crm",
+    documentType = "",
+    pipelineSection = "",
+    requirementKey = "",
+    crmFieldApiName = ""
+  }) => {
+    const formData =
+      new FormData();
+
+    formData.append(
+      "file",
+      file
+    );
+
+    formData.append(
+      "document_category",
+      category
+    );
+
+    formData.append(
+      "destination",
+      destination
+    );
+
+    formData.append(
+      "document_type",
+      documentType ||
+      category
+    );
+
+    if (pipelineSection) {
+      formData.append(
+        "pipeline_section",
+        pipelineSection
+      );
+    }
+
+    if (requirementKey) {
+      formData.append(
+        "requirement_key",
+        requirementKey
+      );
+    }
+
+    if (crmFieldApiName) {
+      formData.append(
+        "crm_field_api_name",
+        crmFieldApiName
+      );
+    }
+
+    return apiFetch(
+      "/api/documents/upload",
+      {
+        method: "POST",
+        body: formData,
+        isFormData: true
+      }
+    );
+  }
 };
 
 // ─── Admin ────────────────────────────────────────────────────────────────────

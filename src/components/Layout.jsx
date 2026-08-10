@@ -28,6 +28,7 @@ const getNavItems = (licensureUrl) => {
     { path: "/", label: "Dashboard", icon: LayoutDashboard },
     { path: "/profile", label: "My Profile", icon: User },
     { path: "/documents", label: "Document Library", icon: FileText },
+    { path: "/pipeline?form=hub", label: "Forms", icon: ClipboardList },
     { path: "/messages", label: "Messages", icon: MessageCircle },
     { path: "/updates", label: "Updates", icon: Bell },
     { path: "/pipeline", label: "My Pipeline", icon: GitBranch },
@@ -200,7 +201,7 @@ export default function Layout() {
 
       {/* ─── Mobile bottom nav ──────────────────────────────────────────────── */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 flex justify-around py-2 px-1">
-        {navItems.slice(0, 5).map((item) => {
+        {navItems.slice(0, 6).map((item) => {
           const Icon = item.icon;
           const active = location.pathname === item.path;
           const isMessages = item.path === "/messages";

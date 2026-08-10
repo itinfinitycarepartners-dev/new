@@ -23,6 +23,8 @@ import ResetPassword from './pages/ResetPassword';
 import Resource from './pages/Resource';
 import RAndL from "./pages/RAndL";
 import Admin from "./pages/overal";
+import Forms from "./pages/Forms";
+
 
 // ─── Messaging imports ──────────────────────────────────────────────────
 import Messages from './pages/Messages';

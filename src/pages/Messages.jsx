@@ -148,7 +148,7 @@ export default function Messages() {
 
       <ConversationList
         allowDirectMessaging={false}
-        allowBroadcastMessaging={false}
+        allowBroadcastMessaging={true}
         hideStartChat
       />
 

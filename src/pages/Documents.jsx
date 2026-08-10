@@ -1,3 +1,6 @@
+
+
+
 // @ts-nocheck
 import {
   useQuery,
@@ -503,7 +506,7 @@ function DocumentViewerModal({
             category === "pdf" &&
             objectUrl && (
               <iframe
-                src={`${objectUrl}#toolbar=1&navpanes=0`}
+                src={`${objectUrl}#toolbar=${canDownload ? 1 : 0}&navpanes=0`}
                 title={doc.document_name}
                 className="min-h-[70vh] w-full rounded-lg border-0 bg-white"
               />
@@ -568,7 +571,9 @@ function DocumentViewerModal({
 }
 
 export default function Documents() {
-  const { user } = useAuth();
+  const { user } =
+    useAuth();
+
   const queryClient =
     useQueryClient();
 
@@ -590,7 +595,34 @@ export default function Documents() {
   const [
     sortBy,
     setSortBy
-  ] = useState("date_desc");
+  ] = useState(
+    "workflow"
+  );
+
+  const [
+    showUpload,
+    setShowUpload
+  ] = useState(false);
+
+  const [
+    selectedDepartment,
+    setSelectedDepartment
+  ] = useState("");
+
+  const [
+    selectedCategory,
+    setSelectedCategory
+  ] = useState("");
+
+  const [
+    selectedFile,
+    setSelectedFile
+  ] = useState(null);
+
+  const [
+    uploading,
+    setUploading
+  ] = useState(false);
 
   const {
     data: documentData,
@@ -600,110 +632,132 @@ export default function Documents() {
     refetch
   } = useQuery({
     queryKey: [
-      "approved-documents",
+      "document-library",
       user?.email
     ],
-    enabled: Boolean(user?.email),
-    staleTime: 0,
-    gcTime: 0,
+    enabled:
+      Boolean(
+        user?.email
+      ),
+    staleTime:
+      30 * 60 * 1000,
     retry: 1,
-    refetchOnWindowFocus: true,
-    queryFn: async () => {
-      const token =
-        getAuthToken();
+    refetchOnWindowFocus:
+      false,
+    queryFn:
+      async () => {
+        const token =
+          getAuthToken();
 
-      if (!token) {
-        throw new Error(
-          "Authentication token not found."
-        );
-      }
-
-      const response = await fetch(
-        `${API_BASE}/api/documents/my-documents?refresh=true&_=${Date.now()}`,
-        {
-          method: "GET",
-          cache: "no-store",
-          headers: {
-            Authorization:
-              `Bearer ${token}`
-          }
-        }
-      );
-
-      const payload = await response
-        .json()
-        .catch(() => ({}));
-
-      if (
-        response.status === 401 ||
-        response.status === 403
-      ) {
-        if (
-          payload.portalAccessBlocked ||
-          response.status === 401
-        ) {
-          localStorage.removeItem(
-            "icp_auth_token"
+        if (!token) {
+          throw new Error(
+            "Authentication token not found."
           );
         }
+
+        const response =
+          await fetch(
+            `${API_BASE}/api/documents/library`,
+            {
+              method:
+                "GET",
+              headers: {
+                Authorization:
+                  `Bearer ${token}`
+              }
+            }
+          );
+
+        const payload =
+          await response
+            .json()
+            .catch(
+              () => ({})
+            );
+
+        if (!response.ok) {
+          throw new Error(
+            payload.error ||
+            payload.message ||
+            `Unable to load documents (${response.status}).`
+          );
+        }
+
+        const documents =
+          Array.isArray(
+            payload.documents
+          )
+            ? payload.documents.map(
+                normalizeDocument
+              )
+            : [];
+
+        return {
+          ...payload,
+          documents
+        };
       }
-
-      if (!response.ok) {
-        throw new Error(
-          payload.error ||
-          payload.message ||
-          `Unable to load documents (${response.status}).`
-        );
-      }
-
-      const documents =
-        Array.isArray(
-          payload.documents
-        )
-          ? payload.documents.map(
-              normalizeDocument
-            )
-          : [];
-
-      return {
-        documents,
-        total:
-          Number(payload.total) ||
-          documents.length,
-        pendingCount:
-          Number(
-            payload.pending_count
-          ) || 0,
-        rejectedCount:
-          Number(
-            payload.rejected_count
-          ) || 0
-      };
-    }
   });
 
   const allDocs =
-    documentData?.documents || [];
+    documentData?.documents ||
+    [];
 
-  const sourceCounts =
-    useMemo(() => {
-      return allDocs.reduce(
-        (counts, document) => {
-          const source =
-            document.source ===
-            "recruit"
-              ? "recruit"
-              : "crm";
+  const categories =
+    Array.isArray(
+      documentData?.categories
+    )
+      ? documentData.categories
+      : [];
 
-          counts[source] += 1;
-          return counts;
-        },
-        {
-          crm: 0,
-          recruit: 0
-        }
-      );
-    }, [allDocs]);
+  const categoryByKey =
+    useMemo(
+      () =>
+        new Map(
+          categories.map(
+            category => [
+              category.key,
+              category
+            ]
+          )
+        ),
+      [categories]
+    );
+
+  const activeCategory =
+    categoryByKey.get(
+      selectedCategory
+    ) ||
+    null;
+
+  const departments =
+    useMemo(
+      () => [
+        ...new Set(
+          categories
+            .map(
+              category =>
+                category.section
+            )
+            .filter(Boolean)
+        )
+      ],
+      [categories]
+    );
+
+  const departmentCategories =
+    useMemo(
+      () =>
+        categories.filter(
+          category =>
+            category.section ===
+            selectedDepartment
+        ),
+      [
+        categories,
+        selectedDepartment
+      ]
+    );
 
   const filteredDocs =
     useMemo(() => {
@@ -712,93 +766,408 @@ export default function Documents() {
           .trim()
           .toLowerCase();
 
-      let documents =
+      const docs =
         term
-          ? allDocs.filter(document =>
-              [
-                document.document_name,
-                document.document_type,
-                document.source,
-                document.crm_field_api_name
-              ].some(value =>
-                String(value || "")
-                  .toLowerCase()
-                  .includes(term)
-              )
+          ? allDocs.filter(
+              document =>
+                [
+                  document.document_name,
+                  document.document_type,
+                  document.category_label,
+                  document.library_section
+                ].some(
+                  value =>
+                    String(
+                      value ||
+                      ""
+                    )
+                      .toLowerCase()
+                      .includes(
+                        term
+                      )
+                )
             )
-          : [...allDocs];
+          : [
+              ...allDocs
+            ];
 
       switch (sortBy) {
-        case "date_asc":
-          documents.sort(
+        case "date_desc":
+          return docs.sort(
             (a, b) =>
               new Date(
-                a.uploaded_at || 0
+                b.uploaded_at ||
+                0
               ) -
               new Date(
-                b.uploaded_at || 0
+                a.uploaded_at ||
+                0
               )
           );
-          break;
+
+        case "date_asc":
+          return docs.sort(
+            (a, b) =>
+              new Date(
+                a.uploaded_at ||
+                0
+              ) -
+              new Date(
+                b.uploaded_at ||
+                0
+              )
+          );
 
         case "name_asc":
-          documents.sort(
+          return docs.sort(
             (a, b) =>
-              a.document_name.localeCompare(
-                b.document_name
+              String(
+                a.document_name ||
+                ""
+              ).localeCompare(
+                String(
+                  b.document_name ||
+                  ""
+                )
               )
           );
-          break;
 
-        case "name_desc":
-          documents.sort(
-            (a, b) =>
-              b.document_name.localeCompare(
-                a.document_name
-              )
-          );
-          break;
-
-        case "date_desc":
+        case "workflow":
         default:
-          documents.sort(
+          return docs.sort(
             (a, b) =>
-              new Date(
-                b.uploaded_at || 0
+              Number(
+                a.library_section_order ??
+                999
               ) -
+                Number(
+                  b.library_section_order ??
+                  999
+                ) ||
+              Number(
+                a.document_order ??
+                999
+              ) -
+                Number(
+                  b.document_order ??
+                  999
+                ) ||
               new Date(
-                a.uploaded_at || 0
-              )
+                b.uploaded_at ||
+                0
+              ) -
+                new Date(
+                  a.uploaded_at ||
+                  0
+                )
           );
-          break;
       }
-
-      return documents;
     }, [
       allDocs,
       searchTerm,
       sortBy
     ]);
 
-  const handleRefresh =
-    async () => {
-      toast.info(
-        "Refreshing documents..."
+  const groupedDocs =
+    useMemo(() => {
+      const groups =
+        new Map();
+
+      for (
+        const document of
+        filteredDocs
+      ) {
+        const type =
+          document.category_label ||
+          document.document_type ||
+          "Other Document";
+
+        if (!groups.has(type)) {
+          groups.set(
+            type,
+            []
+          );
+        }
+
+        groups.get(type).push(
+          document
+        );
+      }
+
+      return [
+        ...groups.entries()
+      ].sort(
+        (a, b) => {
+          const aDoc =
+            a[1][0] ||
+            {};
+
+          const bDoc =
+            b[1][0] ||
+            {};
+
+          return (
+            Number(
+              aDoc.document_order ??
+              999
+            ) -
+              Number(
+                bDoc.document_order ??
+                999
+              ) ||
+            String(
+              a[0]
+            ).localeCompare(
+              String(
+                b[0]
+              )
+            )
+          );
+        }
+      );
+    }, [
+      filteredDocs
+    ]);
+
+  const openViewer =
+    document => {
+      if (
+        !document.attachment_id
+      ) {
+        toast.error(
+          "This document has no attachment identifier."
+        );
+        return;
+      }
+
+      setSelectedDoc(
+        document
       );
 
+      setShowViewer(
+        true
+      );
+    };
+
+  const closeViewer =
+    () => {
+      setShowViewer(
+        false
+      );
+      setSelectedDoc(
+        null
+      );
+    };
+
+  const resetUpload =
+    () => {
+      setSelectedDepartment(
+        ""
+      );
+      setSelectedCategory(
+        ""
+      );
+      setSelectedFile(
+        null
+      );
+      setShowUpload(
+        false
+      );
+    };
+
+  const uploadDocument =
+    async event => {
+      event.preventDefault();
+
+      if (
+        !selectedDepartment ||
+        !selectedCategory ||
+        !selectedFile
+      ) {
+        toast.error(
+          "Choose a department, document type, and file."
+        );
+        return;
+      }
+
+      const token =
+        getAuthToken();
+
+      if (!token) {
+        toast.error(
+          "Your session has expired."
+        );
+        return;
+      }
+
+      const category =
+        categoryByKey.get(
+          selectedCategory
+        );
+
+      const resolvedDestination =
+        selectedDepartment ===
+        "Recruitment"
+          ? "recruit"
+          : "crm";
+
+      const formData =
+        new FormData();
+
+      formData.append(
+        "file",
+        selectedFile
+      );
+
+      formData.append(
+        "candidate_email",
+        user?.email ||
+        ""
+      );
+
+      formData.append(
+        "document_category",
+        selectedCategory
+      );
+
+      formData.append(
+        "document_type",
+        category?.label ||
+        selectedCategory
+      );
+
+      formData.append(
+        "document_name",
+        selectedFile.name
+      );
+
+      formData.append(
+        "destination",
+        resolvedDestination
+      );
+
+      formData.append(
+        "document_library_upload",
+        "true"
+      );
+
+      formData.append(
+        "document_department",
+        selectedDepartment
+      );
+
+      formData.append(
+        "pipeline_section",
+        selectedDepartment ===
+          "Recruitment"
+          ? "hiring"
+          : selectedDepartment
+      );
+
+      if (
+        category
+          ?.requirementKey
+      ) {
+        formData.append(
+          "requirement_key",
+          category.requirementKey
+        );
+      }
+
+      if (
+        category
+          ?.crmFieldApiName
+      ) {
+        formData.append(
+          "crm_field_api_name",
+          category.crmFieldApiName
+        );
+      }
+
+      setUploading(
+        true
+      );
+
+      try {
+        const response =
+          await fetch(
+            `${API_BASE}/api/documents/upload`,
+            {
+              method:
+                "POST",
+              headers: {
+                Authorization:
+                  `Bearer ${token}`
+              },
+              body:
+                formData
+            }
+          );
+
+        const payload =
+          await response
+            .json()
+            .catch(
+              () => ({})
+            );
+
+        if (
+          !response.ok ||
+          payload.success !==
+            true
+        ) {
+          throw new Error(
+            payload.error ||
+            "Document upload failed."
+          );
+        }
+
+        toast.success(
+          `${category?.label || "Document"} uploaded successfully.`
+        );
+
+        resetUpload();
+
+        await refetch();
+
+        queryClient.invalidateQueries({
+          queryKey: [
+            "dashboard-summary",
+            user?.email
+          ]
+        });
+
+        window.dispatchEvent(
+          new CustomEvent(
+            "documents-updated"
+          )
+        );
+
+        window.dispatchEvent(
+          new CustomEvent(
+            "pipeline-updated"
+          )
+        );
+      } catch (uploadError) {
+        toast.error(
+          uploadError.message ||
+          "Unable to upload the document."
+        );
+      } finally {
+        setUploading(
+          false
+        );
+      }
+    };
+
+  const handleRefresh =
+    async () => {
       try {
         const result =
           await refetch();
 
-        const count =
-          result.data
-            ?.documents?.length ||
-          0;
-
         toast.success(
-          `${count} approved document${
-            count === 1 ? "" : "s"
-          } available.`
+          `${result.data?.documents?.length || 0} document(s) available.`
         );
       } catch {
         toast.error(
@@ -807,34 +1176,21 @@ export default function Documents() {
       }
     };
 
-  const openViewer = document => {
-    if (!document.attachment_id) {
-      toast.error(
-        "This document cannot be opened because it has no attachment identifier."
-      );
-      return;
-    }
-
-    setSelectedDoc(document);
-    setShowViewer(true);
-  };
-
-  const closeViewer = () => {
-    setShowViewer(false);
-    setSelectedDoc(null);
-  };
-
   const renderDocumentItem =
     document => {
       const DocumentIcon =
-        getDocumentIcon(document);
+        getDocumentIcon(
+          document
+        );
 
       return (
         <div
-          key={getDocumentKey(
-            document
-          )}
-          className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card p-4 transition-shadow hover:shadow-md"
+          key={
+            getDocumentKey(
+              document
+            )
+          }
+          className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card p-4 transition-shadow hover:shadow-sm"
         >
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-50">
@@ -847,22 +1203,18 @@ export default function Documents() {
               </p>
 
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span className="rounded-full border px-2 py-0.5">
+                  {document.category_label ||
+                    document.document_type ||
+                    "Document"}
+                </span>
+
                 {document.uploaded_at && (
                   <span className="flex items-center gap-1">
                     <Calendar className="h-3 w-3" />
                     {new Date(
                       document.uploaded_at
                     ).toLocaleDateString()}
-                  </span>
-                )}
-
-                <span className="rounded-full border px-2 py-0.5 uppercase">
-                  {document.source}
-                </span>
-
-                {document.crm_field_api_name && (
-                  <span className="rounded-full border px-2 py-0.5">
-                    {document.crm_field_api_name}
                   </span>
                 )}
               </div>
@@ -874,7 +1226,9 @@ export default function Documents() {
             variant="outline"
             size="sm"
             onClick={() =>
-              openViewer(document)
+              openViewer(
+                document
+              )
             }
             className="shrink-0 gap-1.5"
             disabled={
@@ -890,13 +1244,14 @@ export default function Documents() {
 
   if (
     isLoading &&
-    allDocs.length === 0
+    allDocs.length ===
+      0
   ) {
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-20">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
         <p className="text-sm text-muted-foreground">
-          Loading approved documents...
+          Loading document library...
         </p>
       </div>
     );
@@ -907,49 +1262,46 @@ export default function Documents() {
       <DocumentViewerModal
         doc={selectedDoc}
         isOpen={showViewer}
-        onClose={closeViewer}
+        onClose={
+          closeViewer
+        }
       />
 
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">
-            My Documents
+            Document Library
           </h1>
+
           <p className="text-sm text-muted-foreground">
-            {allDocs.length} approved document{allDocs.length === 1 ? "" : "s"}
+            {allDocs.length} approved document{allDocs.length === 1 ? "" : "s"} in your library
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <select
-            value={sortBy}
-            onChange={event =>
-              setSortBy(
-                event.target.value
+          <Button
+            type="button"
+            onClick={() =>
+              setShowUpload(
+                previous =>
+                  !previous
               )
             }
-            className="rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            className="gap-2"
           >
-            <option value="date_desc">
-              Newest First
-            </option>
-            <option value="date_asc">
-              Oldest First
-            </option>
-            <option value="name_asc">
-              Name A–Z
-            </option>
-            <option value="name_desc">
-              Name Z–A
-            </option>
-          </select>
+            <FileText className="h-4 w-4" />
+            Upload Document
+          </Button>
 
           <Button
             type="button"
             variant="outline"
-            size="sm"
-            onClick={handleRefresh}
-            disabled={isFetching}
+            onClick={
+              handleRefresh
+            }
+            disabled={
+              isFetching
+            }
             className="gap-2"
           >
             <RefreshCw
@@ -964,10 +1316,166 @@ export default function Documents() {
         </div>
       </div>
 
+      {showUpload && (
+        <form
+          onSubmit={
+            uploadDocument
+          }
+          className="rounded-xl border border-primary/20 bg-primary/5 p-5"
+        >
+          <div className="grid gap-4 md:grid-cols-3">
+            <div>
+              <label className="text-sm font-medium">
+                Department
+              </label>
+              <select
+                value={
+                  selectedDepartment
+                }
+                onChange={
+                  event => {
+                    setSelectedDepartment(
+                      event.target.value
+                    );
+                    setSelectedCategory(
+                      ""
+                    );
+                  }
+                }
+                className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
+                required
+              >
+                <option value="">
+                  Select department
+                </option>
+                {departments.map(
+                  department => (
+                    <option
+                      key={
+                        department
+                      }
+                      value={
+                        department
+                      }
+                    >
+                      {department}
+                    </option>
+                  )
+                )}
+              </select>
+
+              {selectedDepartment && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {selectedDepartment ===
+                  "Recruitment"
+                    ? "Recruitment documents are submitted to Recruit."
+                    : "This department submits documents to CRM."}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">
+                Document Type
+              </label>
+              <select
+                value={
+                  selectedCategory
+                }
+                onChange={
+                  event =>
+                    setSelectedCategory(
+                      event.target.value
+                    )
+                }
+                disabled={
+                  !selectedDepartment
+                }
+                className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm disabled:opacity-50"
+                required
+              >
+                <option value="">
+                  Select document type
+                </option>
+                {departmentCategories.map(
+                  category => (
+                    <option
+                      key={
+                        category.key
+                      }
+                      value={
+                        category.key
+                      }
+                    >
+                      {category.label}
+                    </option>
+                  )
+                )}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">
+                File
+              </label>
+              <input
+                type="file"
+                onChange={
+                  event =>
+                    setSelectedFile(
+                      event.target.files
+                        ?.[0] ||
+                      null
+                    )
+                }
+                className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
+                required
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={
+                resetUpload
+              }
+              disabled={
+                uploading
+              }
+            >
+              Cancel
+            </Button>
+
+            <Button
+              type="submit"
+              disabled={
+                uploading ||
+                !selectedDepartment ||
+                !selectedCategory ||
+                !selectedFile
+              }
+              className="gap-2"
+            >
+              {uploading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FileText className="h-4 w-4" />
+              )}
+
+              {uploading
+                ? "Uploading..."
+                : "Upload"}
+            </Button>
+          </div>
+        </form>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="rounded-xl border bg-card p-4">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">
-            Approved
+            Documents
           </p>
           <p className="mt-1 text-2xl font-bold">
             {allDocs.length}
@@ -976,19 +1484,19 @@ export default function Documents() {
 
         <div className="rounded-xl border bg-card p-4">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">
-            CRM
+            Awaiting Approval
           </p>
           <p className="mt-1 text-2xl font-bold">
-            {sourceCounts.crm}
+            {Number(documentData?.pending_count || 0)}
           </p>
         </div>
 
         <div className="rounded-xl border bg-card p-4">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">
-            Recruit
+            Sections
           </p>
           <p className="mt-1 text-2xl font-bold">
-            {sourceCounts.recruit}
+            {groupedDocs.length}
           </p>
         </div>
       </div>
@@ -1010,79 +1518,120 @@ export default function Documents() {
         </div>
       )}
 
-      {documentData?.pendingCount > 0 && (
+      {Number(
+        documentData?.pending_count ||
+        0
+      ) > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          {documentData.pendingCount} document{documentData.pendingCount === 1 ? " is" : "s are"} awaiting administrator approval and will appear here after approval.
+          {Number(documentData.pending_count)} document{Number(documentData.pending_count) === 1 ? " is" : "s are"} awaiting administrator approval.
         </div>
       )}
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <div className="flex flex-col gap-3 md:flex-row">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 
-        <input
-          type="text"
-          value={searchTerm}
-          onChange={event =>
-            setSearchTerm(
-              event.target.value
-            )
-          }
-          placeholder="Search by document name, type, source, or CRM field..."
-          className="w-full rounded-lg border border-border bg-background py-2 pl-10 pr-10 focus:outline-none focus:ring-2 focus:ring-primary"
-        />
-
-        {searchTerm && (
-          <button
-            type="button"
-            onClick={() =>
-              setSearchTerm("")
+          <input
+            type="text"
+            value={
+              searchTerm
             }
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            aria-label="Clear search"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        )}
+            onChange={
+              event =>
+                setSearchTerm(
+                  event.target.value
+                )
+            }
+            placeholder="Search document library..."
+            className="w-full rounded-lg border border-border bg-background py-2 pl-10 pr-10 focus:outline-none focus:ring-2 focus:ring-primary"
+          />
+
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() =>
+                setSearchTerm(
+                  ""
+                )
+              }
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        <select
+          value={
+            sortBy
+          }
+          onChange={
+            event =>
+              setSortBy(
+                event.target.value
+              )
+          }
+          className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
+        >
+          <option value="workflow">
+            Pipeline Order
+          </option>
+          <option value="date_desc">
+            Newest First
+          </option>
+          <option value="date_asc">
+            Oldest First
+          </option>
+          <option value="name_asc">
+            Name A–Z
+          </option>
+        </select>
       </div>
 
-      {filteredDocs.length === 0 ? (
+      {filteredDocs.length ===
+      0 ? (
         <div className="rounded-xl border border-border bg-card p-12 text-center">
           <FolderOpen className="mx-auto mb-3 h-12 w-12 text-muted-foreground" />
 
           <p className="font-medium">
-            {searchTerm
-              ? "No matching documents"
-              : "No approved documents yet"}
+            No documents found
           </p>
 
           <p className="mt-1 text-sm text-muted-foreground">
-            {searchTerm
-              ? "Try a different search term."
-              : "Documents will appear here after an administrator approves them."}
+            Upload your documents from this library. Approved documents already in CRM or Recruit also appear here.
           </p>
-
-          {searchTerm && (
-            <Button
-              type="button"
-              variant="outline"
-              className="mt-4 gap-2"
-              onClick={() =>
-                setSearchTerm("")
-              }
-            >
-              <X className="h-4 w-4" />
-              Clear Search
-            </Button>
-          )}
         </div>
       ) : (
-        <div className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Showing {filteredDocs.length} document{filteredDocs.length === 1 ? "" : "s"}
-          </p>
+        <div className="space-y-7">
+          {groupedDocs.map(
+            ([
+              documentType,
+              documents
+            ]) => (
+              <section
+                key={
+                  documentType
+                }
+                className="space-y-3"
+              >
+                <div className="flex items-center justify-between border-b pb-2">
+                  <div>
+                    <h2 className="font-semibold">
+                      {documentType}
+                    </h2>
+                    <p className="text-xs text-muted-foreground">
+                      {documents.length} document{documents.length === 1 ? "" : "s"}
+                    </p>
+                  </div>
+                </div>
 
-          {filteredDocs.map(
-            renderDocumentItem
+                <div className="space-y-3">
+                  {documents.map(
+                    renderDocumentItem
+                  )}
+                </div>
+              </section>
+            )
           )}
         </div>
       )}
