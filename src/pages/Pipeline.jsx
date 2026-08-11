@@ -9548,17 +9548,23 @@ export default function Pipeline() {
               savedStage
             );
 
+          // Module presence is independent of Application_Status. A candidate
+          // can still have Application_Status="Applied" while already existing
+          // in BOTH Applications and Candidates. That must complete Associated.
+          const bothRecruitModulesFound =
+            applicationsFound ===
+              true &&
+            candidatesFound ===
+              true;
+
           if (
             savedAssociatedComplete ||
+            bothRecruitModulesFound ||
             associatedWithJobFound ||
             canonicalHiringCompletedStages
               .has(
                 "Associated with Job"
-              ) ||
-            (
-              applicationsFound &&
-              candidatesFound
-            )
+              )
           ) {
             automaticStatus =
               "Completed";
@@ -10498,6 +10504,49 @@ export default function Pipeline() {
           applicationStatus:
             recruitApplicationStatus
         });
+
+      // Final Hiring safeguard: Recruit module presence is a separate trigger
+      // from Application_Status. Never let a later "Applied" status pass erase
+      // an Associated completion that was proven by Applications + Candidates.
+      if (
+        applicationsFound ===
+          true &&
+        candidatesFound ===
+          true
+      ) {
+        allStages =
+          allStages.map(
+            stage =>
+              stage.stage_name ===
+                "Associated with Job"
+                ? {
+                    ...stage,
+                    status:
+                      "Completed",
+                    completed:
+                      true,
+                    is_completed:
+                      true,
+                    completed_date:
+                      stage.completed_date ||
+                      savedByName.get(
+                        "Associated with Job"
+                      )?.completed_date ||
+                      new Date()
+                        .toISOString(),
+                    unlocked:
+                      true,
+                    is_locked:
+                      false,
+                    associated_with_job_verified:
+                      true,
+                    completion_source:
+                      stage.completion_source ||
+                      "recruit_module_email_presence"
+                  }
+                : stage
+          );
+      }
 
       // Restore every section from pipelinestages. A saved Completed record
       // with a completion date is authoritative unless a live adaptive trigger
@@ -12222,49 +12271,7 @@ export default function Pipeline() {
                   : `${catCompleted}/${countedCategoryStages.length} complete`}
               </span>
             </div>
-            {isImmigration && (
-              <div className="border-b border-border bg-slate-50/70 p-5">
-                <h3 className="text-sm font-semibold text-slate-800">
-                  Immigration Petition Record
-                </h3>
-
-                <div className="mt-3 overflow-hidden rounded-xl border bg-white">
-                  {[
-                    { label: "Submitted for Immigration", value: icpUSRNCRMData?.Added_to_Weekly_I140_Candidates ? "Yes" : "—" },
-                    { label: "Submitted Date", value: icpUSRNCRMData?.Added_to_Weekly_I140_Candidates || icpUSRNCRMData?.submittedToImmigration },
-                    { label: "I-140 Filed Date", value: icpUSRNCRMData?.Filed_Date || icpUSRNCRMData?.i140FiledDate },
-                    { label: "I-140 Approval Date", value: icpUSRNCRMData?.Approval_Date || icpUSRNCRMData?.i140ApprovalDate },
-                    { label: "I-140 Priority Date", value: icpUSRNCRMData?.Priority_Date || icpUSRNCRMData?.i140PriorityDate },
-                    { label: "English Complete", value: icpUSRNCRMData?.IELTS_Complete || "—" },
-                    { label: "English Exp Date", value: icpUSRNCRMData?.IELTS_Scheduled_Exam_Date_if_applicable }
-                  ].map(
-                    (
-                      item,
-                      index
-                    ) => (
-                      <div
-                        key={
-                          item.label
-                        }
-                        className={cn(
-                          "flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between",
-                          index > 0 &&
-                            "border-t"
-                        )}
-                      >
-                        <p className="text-sm font-medium text-slate-600">
-                          {item.label}
-                        </p>
-                        <p className="text-sm font-semibold text-slate-900">
-                          {item.value ||
-                            "—"}
-                        </p>
-                      </div>
-                    )
-                  )}
-                </div>
-              </div>
-            )}
+            
 
             <div className="divide-y divide-border">
               {catStages.map((stage, idx) => {
