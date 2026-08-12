@@ -482,13 +482,23 @@ export const messaging = {
   getUnreadCount: () =>
     apiFetch('/api/messaging/unread-count'),
 
-  /** Candidate/user broadcast to all candidate users */
-  sendUserBroadcast: (content, title = "") =>
+  /** Candidate/user broadcast to all candidate users - REMOVED TITLE */
+  sendUserBroadcast: (content) =>
     apiFetch("/api/messaging/user-broadcast", {
       method: "POST",
       body: {
-        content,
-        title
+        content
+      }
+    }),
+
+  /** Admin broadcast to all or specific users */
+  sendAdminBroadcast: (content, targetUsers = 'all', recipientEmails = null) =>
+    apiFetch("/api/admin/broadcast", {
+      method: "POST",
+      body: {
+        message: content,
+        targetUsers,
+        recipientEmails
       }
     }),
 
@@ -591,10 +601,10 @@ export const documentLibrary = {
 // ─── Admin ────────────────────────────────────────────────────────────────────
 export const admin = {
   /** Send broadcast message to users */
-  broadcast: (message, targetUsers = 'all', groupId = null) =>
+  broadcast: (message, targetUsers = 'all', recipientEmails = null) =>
     apiFetch('/api/admin/broadcast', { 
       method: 'POST', 
-      body: { message, targetUsers, groupId } 
+      body: { message, targetUsers, recipientEmails } 
     }),
 };
 

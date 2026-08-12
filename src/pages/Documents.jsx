@@ -730,20 +730,17 @@ export default function Documents() {
     ) ||
     null;
 
-  const departments =
-    useMemo(
-      () => [
-        ...new Set(
-          categories
-            .map(
-              category =>
-                category.section
-            )
-            .filter(Boolean)
-        )
-      ],
-      [categories]
-    );
+  const WORKFLOW_SECTION_ORDER = [
+    "Recruiting",
+    "Immigration",
+    "Deployment",
+    "Aftercare"
+  ];
+
+  const departments = useMemo(
+    () => WORKFLOW_SECTION_ORDER.filter(section => categories.some(category => category.section === section)),
+    [categories]
+  );
 
   const departmentCategories =
     useMemo(
@@ -868,73 +865,47 @@ export default function Documents() {
       sortBy
     ]);
 
-  const groupedDocs =
-    useMemo(() => {
-      const groups =
-        new Map();
+  const workflowSections = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    const documentsByCategory = new Map();
 
-      for (
-        const document of
-        filteredDocs
-      ) {
-        const type =
-          document.category_label ||
-          document.document_type ||
-          "Other Document";
+    for (const document of filteredDocs) {
+      const key = document.document_category || "";
+      if (!documentsByCategory.has(key)) documentsByCategory.set(key, []);
+      documentsByCategory.get(key).push(document);
+    }
 
-        if (!groups.has(type)) {
-          groups.set(
-            type,
-            []
-          );
-        }
+    return WORKFLOW_SECTION_ORDER.map((section, sectionIndex) => {
+      const sectionCategories = categories
+        .filter(category => category.section === section)
+        .sort((a, b) => Number(a.order || 999) - Number(b.order || 999))
+        .filter(category => {
+          if (!term) return true;
+          const categoryMatches = [category.label, category.key, category.pipelineStage, category.crmFieldApiName]
+            .some(value => String(value || "").toLowerCase().includes(term));
+          const docsMatch = (documentsByCategory.get(category.key) || []).length > 0;
+          return categoryMatches || docsMatch;
+        });
 
-        groups.get(type).push(
-          document
-        );
-      }
+      const slots = sectionCategories.map(category => ({
+        category,
+        documents: (documentsByCategory.get(category.key) || []).sort((a, b) => new Date(b.uploaded_at || 0) - new Date(a.uploaded_at || 0))
+      }));
 
-      for (const docs of groups.values()) {
-        docs.sort((a, b) =>
-          new Date(b.uploaded_at || 0) -
-          new Date(a.uploaded_at || 0)
-        );
-      }
+      return {
+        section, sectionIndex, slots,
+        documentCount: slots.reduce((total, slot) => total + slot.documents.length, 0),
+        completedSlotCount: slots.filter(slot => slot.documents.length > 0).length
+      };
+    });
+  }, [categories, filteredDocs, searchTerm]);
 
-      return [
-        ...groups.entries()
-      ].sort(
-        (a, b) => {
-          const aDoc =
-            a[1][0] ||
-            {};
+  const visibleWorkflowSections = useMemo(
+    () => searchTerm.trim() ? workflowSections.filter(group => group.slots.length > 0) : workflowSections,
+    [workflowSections, searchTerm]
+  );
 
-          const bDoc =
-            b[1][0] ||
-            {};
-
-          return (
-            Number(
-              aDoc.document_order ??
-              999
-            ) -
-              Number(
-                bDoc.document_order ??
-                999
-              ) ||
-            String(
-              a[0]
-            ).localeCompare(
-              String(
-                b[0]
-              )
-            )
-          );
-        }
-      );
-    }, [
-      filteredDocs
-    ]);
+  const totalDocumentTypes = workflowSections.reduce((total, group) => total + group.slots.length, 0);
 
   const openViewer =
     document => {
@@ -1014,7 +985,7 @@ export default function Documents() {
 
       const resolvedDestination =
         selectedDepartment ===
-        "Recruitment"
+        "Recruiting"
           ? "recruit"
           : "crm";
 
@@ -1066,7 +1037,7 @@ export default function Documents() {
       formData.append(
         "pipeline_section",
         selectedDepartment ===
-          "Recruitment"
+          "Recruiting"
           ? "hiring"
           : selectedDepartment
       );
@@ -1281,7 +1252,7 @@ export default function Documents() {
           </h1>
 
           <p className="text-sm text-muted-foreground">
-            All recruitment, NCLEX, immigration, deployment and aftercare documents are kept here. {allDocs.length} approved document{allDocs.length === 1 ? "" : "s"} currently available.
+            All recruiting, immigration, deployment and aftercare documents are kept here in pipeline order. {allDocs.length} approved document{allDocs.length === 1 ? "" : "s"} currently available.
           </p>
         </div>
 
@@ -1374,8 +1345,8 @@ export default function Documents() {
               {selectedDepartment && (
                 <p className="mt-1 text-xs text-muted-foreground">
                   {selectedDepartment ===
-                  "Recruitment"
-                    ? "Recruitment documents are submitted to Recruit."
+                  "Recruiting"
+                    ? "Recruiting documents are submitted to Recruit."
                     : "This department submits documents to CRM."}
                 </p>
               )}
@@ -1500,11 +1471,12 @@ export default function Documents() {
 
         <div className="rounded-xl border bg-card p-4">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">
-            Sections
+            Workflow Sections
           </p>
           <p className="mt-1 text-2xl font-bold">
-            {groupedDocs.length}
+            {WORKFLOW_SECTION_ORDER.length}
           </p>
+          <p className="mt-1 text-xs text-muted-foreground">{totalDocumentTypes} document types</p>
         </div>
       </div>
 
@@ -1595,54 +1567,61 @@ export default function Documents() {
         </select>
       </div>
 
-      {filteredDocs.length ===
-      0 ? (
+      {visibleWorkflowSections.length === 0 ? (
         <div className="rounded-xl border border-border bg-card p-12 text-center">
           <FolderOpen className="mx-auto mb-3 h-12 w-12 text-muted-foreground" />
-
-          <p className="font-medium">
-            No documents found
-          </p>
-
-          <p className="mt-1 text-sm text-muted-foreground">
-            Upload your documents from this library. Approved documents already in CRM or Recruit also appear here.
-          </p>
+          <p className="font-medium">No matching document types found</p>
+          <p className="mt-1 text-sm text-muted-foreground">Clear the search to see all document types in pipeline order.</p>
         </div>
       ) : (
-        <div className="space-y-7">
-          {groupedDocs.map(
-            ([
-              documentType,
-              documents
-            ]) => (
-              <section
-                key={
-                  documentType
-                }
-                className="space-y-3"
-              >
-                <div className="flex items-center justify-between border-b pb-2">
-                  <div>
-                    <h2 className="font-semibold">
-                      {documentType}
-                    </h2>
-                    <p className="text-xs text-muted-foreground">
-                      {documents.length} document{documents.length === 1 ? "" : "s"}
-                      {documents[0]?.uploaded_at
-                        ? ` • Updated ${new Date(documents[0].uploaded_at).toLocaleDateString()}`
-                        : ""}
-                    </p>
+        <div className="space-y-8">
+          {visibleWorkflowSections.map(group => (
+            <section key={group.section} className="overflow-hidden rounded-2xl border border-border bg-card">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/30 px-5 py-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{group.sectionIndex + 1}</span>
+                    <h2 className="text-lg font-bold">{group.section}</h2>
                   </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {group.completedSlotCount} of {group.slots.length} document types currently on file • {group.documentCount} approved file{group.documentCount === 1 ? "" : "s"}
+                  </p>
                 </div>
+                <span className="rounded-full border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">Pipeline order</span>
+              </div>
 
-                <div className="space-y-3">
-                  {documents.map(
-                    renderDocumentItem
-                  )}
-                </div>
-              </section>
-            )
-          )}
+              <div className="divide-y">
+                {group.slots.map((slot, slotIndex) => {
+                  const hasDocuments = slot.documents.length > 0;
+                  return (
+                    <div key={slot.category.key} className="p-5">
+                      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${hasDocuments ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>{slotIndex + 1}</span>
+                          <div>
+                            <h3 className="font-semibold">{slot.category.label}</h3>
+                            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                              {slot.category.pipelineStage && <span>Pipeline: {slot.category.pipelineStage}</span>}
+                              {slot.category.crmFieldApiName && <span className="rounded-full border px-2 py-0.5">{slot.category.crmFieldApiName}</span>}
+                            </div>
+                          </div>
+                        </div>
+                        <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${hasDocuments ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-gray-200 bg-gray-50 text-gray-500"}`}>
+                          {hasDocuments ? `${slot.documents.length} on file` : "Not submitted"}
+                        </span>
+                      </div>
+
+                      {hasDocuments ? (
+                        <div className="space-y-3 pl-10">{slot.documents.map(renderDocumentItem)}</div>
+                      ) : (
+                        <div className="ml-10 rounded-lg border border-dashed bg-muted/20 px-4 py-3 text-sm text-muted-foreground">No approved document is currently available for this item.</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
         </div>
       )}
     </div>

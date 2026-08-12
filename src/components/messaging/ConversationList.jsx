@@ -224,30 +224,42 @@ export default function ConversationList({
       setSendingReply(false);
     }
   }, [selectedId, getUserName]);
+// In ConversationList.jsx - Update the sendMessage function:
+const sendMessage = useCallback(async () => {
+  if (!newMessageContent.trim() || !selectedId) return;
+  setSendingMessage(true);
+  try {
+    // Check if this is a direct message to admin or another user
+    const conversation = conversations.find(c => c._id === selectedId);
+    const isAdminConversation = conversation?.participants?.some(
+      p => p.includes('admin@')
+    );
 
-  const sendMessage = useCallback(async () => {
-    if (!newMessageContent.trim() || !selectedId) return;
-    setSendingMessage(true);
-    try {
-      const response = await messaging.sendMessage(selectedId, newMessageContent);
-      if (response.success) {
-        const userName = getUserName();
-        const newMessage = { ...response.message, replies: [], senderName: userName };
-        setMessages(prev => [...prev, newMessage]);
-        setNewMessageContent('');
-        
-        setConversations(prev => {
-          const updated = prev.map(conv => conv._id === selectedId ? { ...conv, lastMessage: newMessage, lastMessageAt: newMessage.createdAt } : conv);
-          return updated.sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
-        });
-        setTimeout(scrollToBottom, 50); 
-      }
-    } catch (error) {
-      console.error('Send message error:', error);
-    } finally {
-      setSendingMessage(false);
+    // For direct admin messages, use the admin send endpoint
+    const response = await messaging.sendMessage(selectedId, newMessageContent, isAdminConversation ? 'direct' : 'text');
+    
+    if (response.success) {
+      const userName = getUserName();
+      const newMessage = { ...response.message, replies: [], senderName: userName };
+      setMessages(prev => [...prev, newMessage]);
+      setNewMessageContent('');
+      
+      setConversations(prev => {
+        const updated = prev.map(conv => 
+          conv._id === selectedId 
+            ? { ...conv, lastMessage: newMessage, lastMessageAt: newMessage.createdAt } 
+            : conv
+        );
+        return updated.sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
+      });
+      setTimeout(scrollToBottom, 50);
     }
-  }, [newMessageContent, selectedId, getUserName]);
+  } catch (error) {
+    console.error('Send message error:', error);
+  } finally {
+    setSendingMessage(false);
+  }
+}, [newMessageContent, selectedId, getUserName]);;
 
 
   const startChat = async () => {

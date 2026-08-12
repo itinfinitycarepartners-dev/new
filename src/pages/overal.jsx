@@ -1,6 +1,3 @@
-
-
-
 // @ts-nocheck
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
@@ -1262,20 +1259,23 @@ const MessagingPanel = ({ users, initialTarget }) => {
     try {
       const { userToken, adminToken } = getTokens();
       const headers = { 
-        'Content-Type': 'application/json', 
-        ...(userToken ? { 'Authorization': `Bearer ${userToken}` } : {}),
-        ...(adminToken ? { 'x-admin-token': adminToken } : {})
+        'Content-Type': 'application/json',
+        ...(adminToken ? { 
+          'Authorization': `AdminBearer ${adminToken}`,
+          'x-admin-token': adminToken 
+        } : {}),
+        ...(userToken && !adminToken ? { 'Authorization': `Bearer ${userToken}` } : {})
       };
 
-      const res = await fetch(`${API_BASE}/api/messaging/send`, {
+      // Try the admin broadcast endpoint for admin messages
+      const res = await fetch(`${API_BASE}/api/admin/broadcast`, {
         method: 'POST',
         credentials: 'include',
         headers,
         body: JSON.stringify({ 
-          recipientEmail: selected, // Explicitly target the selected user
-          conversationId: selected, 
-          content: input.trim(), 
-          messageType: 'text' // Direct messages should be standard text, not broadcasts
+          message: input.trim(),
+          recipientEmails: [selected],
+          targetUsers: 'specific'
         }),
       });
       const data = await res.json();
@@ -1284,8 +1284,27 @@ const MessagingPanel = ({ users, initialTarget }) => {
         const msg = { id: Date.now().toString(), from: 'admin', text: input.trim(), time: new Date().toISOString() };
         setMessages(prev => ({ ...prev, [selected]: [...(prev[selected] || []), msg] }));
         setInput('');
+        alert(`Message sent to ${selected}`);
       } else {
-        alert("Failed to send message: " + (data.error || "Unknown Error"));
+        // Fallback to direct message
+        const fallbackRes = await fetch(`${API_BASE}/api/messaging/send`, {
+          method: 'POST',
+          credentials: 'include',
+          headers,
+          body: JSON.stringify({ 
+            recipientEmail: selected,
+            content: input.trim(),
+            messageType: 'text'
+          }),
+        });
+        const fallbackData = await fallbackRes.json();
+        if (fallbackData.success) {
+          const msg = { id: Date.now().toString(), from: 'admin', text: input.trim(), time: new Date().toISOString() };
+          setMessages(prev => ({ ...prev, [selected]: [...(prev[selected] || []), msg] }));
+          setInput('');
+        } else {
+          alert("Failed to send message: " + (fallbackData.error || "Unknown Error"));
+        }
       }
     } catch (err) { 
       console.error('Failed to send message:', err); 
@@ -1459,41 +1478,36 @@ const AdminPanel = () => {
       ...(adminToken ? { 'x-admin-token': adminToken } : {})
     };
 
-    let targetEmails = users.map(u => u.email);
-    if (target === 'active') targetEmails = users.filter(u => u.isActive).map(u => u.email);
-    if (target === 'arrived') targetEmails = users.filter(u => u.hasArrived).map(u => u.email);
+    let recipientEmails = null;
+    if (target === 'active') {
+      recipientEmails = users.filter(u => u.isActive).map(u => u.email);
+    } else if (target === 'arrived') {
+      recipientEmails = users.filter(u => u.hasArrived).map(u => u.email);
+    }
 
-    if (targetEmails.length === 0) {
+    if (recipientEmails && recipientEmails.length === 0) {
       alert('No users match the selected target filter.');
       return;
     }
 
     try {
       const res = await fetch(`${API_BASE}/api/admin/broadcast`, { 
-        method: 'POST', credentials: 'include', headers, 
-        body: JSON.stringify({ message, targetUsers: target }) 
+        method: 'POST', 
+        credentials: 'include', 
+        headers, 
+        body: JSON.stringify({ 
+          message, 
+          targetUsers: target,
+          recipientEmails 
+        }) 
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          alert(`Broadcast successfully sent to ${data.recipientsCount || targetEmails.length} users!`);
-          return;
-        }
+      const data = await res.json();
+      if (data.success) {
+        alert(`Broadcast successfully sent to ${data.recipientsCount || (recipientEmails ? recipientEmails.length : users.length)} users!`);
+      } else {
+        alert('Failed to send broadcast: ' + (data.error || 'Unknown error'));
       }
-      
-      let successCount = 0;
-      for (const email of targetEmails) {
-        const msgRes = await fetch(`${API_BASE}/api/messaging/send`, {
-          method: 'POST', credentials: 'include', headers,
-          // Explicitly fallback to a broadcast so the frontend doesn't treat it like a DM
-          body: JSON.stringify({ recipientEmail: email, conversationId: email, content: message, messageType: 'broadcast' }) 
-        });
-        if (msgRes.ok) successCount++;
-      }
-
-      alert(`Broadcast fallback complete. Directly delivered to ${successCount} out of ${targetEmails.length} users.`);
-      
     } catch (err) {
       console.error('Broadcast error:', err);
       alert('Failed to send broadcast due to a network error.');
