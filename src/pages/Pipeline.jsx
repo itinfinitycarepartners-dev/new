@@ -611,8 +611,10 @@ const APPLICATION_STATUS_STAGE_MAP = new Map([
   ["transfer to icp usrn school", "Transfer to ICP USRN School"],
   ["transfer to ivp usrn school", "Transfer to ICP USRN School"],
   ["qualified-match", "Qualified - Match"],
+  ["qualified- match", "Qualified - Match"],
   ["qualified match", "Qualified - Match"],
   ["qualified-candidate pool", "Qualified Candidate Pool"],
+  ["qualified- candidate pool", "Qualified Candidate Pool"],
   ["qualified candidate pool", "Qualified Candidate Pool"],
   ["not qualified-to close", "Not Qualified - to close"],
   ["not qualified - to close", "Not Qualified - to close"],
@@ -628,6 +630,7 @@ const APPLICATION_STATUS_STAGE_MAP = new Map([
   ["interview-scheduled", "Interview Scheduled"],
   ["interview scheduled", "Interview Scheduled"],
   ["interview attended", "Interview Attended"],
+  ["location selected", "Client Documents & Video Provided"],
   ["no-show", "Interview Scheduled"],
   ["offered", "Offer Made"],
   ["offer made", "Offer Made"],
@@ -679,6 +682,8 @@ const getEffectiveQualificationOutcome = applicationStatus => {
   if (
     [
       "transfer to icp usrn school",
+      "qualified- match",
+      "location selected",
       "prescreen",
       "prescreen scheduled",
       "prescreen complete",
@@ -755,6 +760,14 @@ const HIRING_STATUS_PROGRESS = {
     ],
     current: null
   },
+  "qualified- match": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Qualified - Match"
+    ],
+    current: null
+  },
   "qualified match": {
     completed: [
       "Applied",
@@ -764,6 +777,14 @@ const HIRING_STATUS_PROGRESS = {
     current: null
   },
   "qualified-candidate pool": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Qualified Candidate Pool"
+    ],
+    current: null
+  },
+  "qualified- candidate pool": {
     completed: [
       "Applied",
       "Associated with Job",
@@ -845,6 +866,17 @@ const HIRING_STATUS_PROGRESS = {
     current: "Client Documents & Video Provided"
   },
   "assessment complete": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Select Prescreen Time",
+      "Prescreen Scheduled",
+      "Prescreen Completed",
+      "Client Documents & Video Provided"
+    ],
+    current: "Pending Interview Selection"
+  },
+  "location selected": {
     completed: [
       "Applied",
       "Associated with Job",
@@ -8842,6 +8874,17 @@ export default function Pipeline() {
   const [icpUSRNCRMData, setICPUSRNCRMData] = useState({});
   const [portalAccessBlocked, setPortalAccessBlocked] = useState(false);
   const [finalArrivalDate, setFinalArrivalDate] = useState(null);
+
+  useEffect(() => {
+    if (
+      searchParams.get(
+        "branch"
+      ) === "nclex"
+    ) {
+      setShowNCLEX(true);
+      setIsCheckingNCLEX(false);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const refreshNCLEXAccess = async () => {

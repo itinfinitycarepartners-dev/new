@@ -15,12 +15,23 @@ import {
   MessageCircle,
   Megaphone,
   Home,
-  ArrowLeft
+  ArrowLeft,
+  Send
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { messaging, websocket, tokenStorage } from "@/api/icpClient";
 // Import the image
 import logoImage from "./logo.jpg";
+
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ||
+  "https://fictional-carnival-3inv.onrender.com";
+
+const normalizeLeadStatus = value =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
 
 // Define all possible nav items with a condition for licensure
 const getNavItems = (licensureUrl) => {
@@ -29,6 +40,7 @@ const getNavItems = (licensureUrl) => {
     { path: "/profile", label: "My Profile", icon: User },
     { path: "/documents", label: "Document Library", icon: FileText },
     { path: "/forms", label: "Forms", icon: ClipboardList },
+    { path: "/make-request", label: "Make a Request", icon: Send },
     { path: "/messages", label: "Messages", icon: MessageCircle },
     { path: "/updates", label: "Updates", icon: Bell },
     { path: "/pipeline", label: "My Pipeline", icon: GitBranch },
@@ -71,6 +83,109 @@ export default function Layout() {
 
   // Get nav items based on licensure URL availability
   const navItems = getNavItems(licensureUrl);
+
+  // ─── Transfer to ICP USRN School branch redirect ───────────────────────────
+  // Applications.Application_Status is the canonical Hiring source.
+  // Redirect only once per authenticated session so the user can still visit
+  // Forms, Documents, Make a Request, etc. after the NCLEX branch opens.
+  useEffect(() => {
+    if (!user?.email) {
+      return;
+    }
+
+    const checkTransferBranch =
+      async () => {
+        const authToken =
+          tokenStorage.get();
+
+        if (!authToken) {
+          return;
+        }
+
+        const redirectKey =
+          `icp_usrn_redirected:${String(
+            user.email
+          ).trim().toLowerCase()}`;
+
+        if (
+          sessionStorage.getItem(
+            redirectKey
+          ) === "1"
+        ) {
+          return;
+        }
+
+        try {
+          const response =
+            await fetch(
+              `${API_BASE}/api/zoho/source-map?refresh=true`,
+              {
+                headers: {
+                  Authorization:
+                    `Bearer ${authToken}`
+                },
+                cache:
+                  "no-store"
+              }
+            );
+
+          const data =
+            await response
+              .json()
+              .catch(() => ({}));
+
+          if (
+            !response.ok ||
+            data.success !==
+              true
+          ) {
+            return;
+          }
+
+          const status =
+            normalizeLeadStatus(
+              data.applicationStatus
+            );
+
+          if (
+            status ===
+            "transfer to icp usrn school"
+          ) {
+            sessionStorage.setItem(
+              redirectKey,
+              "1"
+            );
+
+            if (
+              location.pathname !==
+              "/pipeline" ||
+              !location.search.includes(
+                "branch=nclex"
+              )
+            ) {
+              navigate(
+                "/pipeline?branch=nclex",
+                {
+                  replace: true
+                }
+              );
+            }
+          }
+        } catch (error) {
+          console.warn(
+            "[Layout] ICP USRN redirect check failed:",
+            error.message
+          );
+        }
+      };
+
+    checkTransferBranch();
+  }, [
+    user?.email,
+    location.pathname,
+    location.search,
+    navigate
+  ]);
 
   // ─── Load unread count ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -201,7 +316,7 @@ export default function Layout() {
 
       {/* ─── Mobile bottom nav ──────────────────────────────────────────────── */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 flex justify-around py-2 px-1">
-        {navItems.slice(0, 6).map((item) => {
+        {navItems.slice(0, 7).map((item) => {
           const Icon = item.icon;
           const active = location.pathname === item.path;
           const isMessages = item.path === "/messages";
