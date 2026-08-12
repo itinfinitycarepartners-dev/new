@@ -1,39 +1,136 @@
 // @ts-nocheck
-import React from "react";
-import { Link } from "react-router-dom";
+// src/pages/Forms.jsx
+import React, {
+  useState
+} from "react";
 import {
   ClipboardList,
   Home,
-  HeartHandshake,
-  ArrowRight,
-  CheckCircle2
+  FileCheck,
+  ArrowLeft
 } from "lucide-react";
+import {
+  useAuth
+} from "@/lib/AuthContext";
+import {
+  DeploymentDetails,
+  HousingDetailsForm,
+  RLChecklistView
+} from "./Pipeline";
 
-const FORM_ITEMS = [
+const FORMS = [
   {
     key: "behavioral",
     title: "Behavioral Assessment",
     description:
-      "Complete the behavioral assessment used in your deployment document stage.",
-    icon: ClipboardList
-  },
-  {
-    key: "rl",
-    title: "R&L Form",
-    description:
-      "Complete your Relocation & Logistics checklist and required acknowledgements.",
-    icon: HeartHandshake
+      "Complete and submit your Behavioral Assessment.",
+    icon:
+      FileCheck
   },
   {
     key: "housing",
-    title: "Housing & Transportation Form",
+    title:
+      "Housing & Transportation Form",
     description:
-      "Complete your required housing and transportation information.",
-    icon: Home
+      "Complete your housing and transportation information.",
+    icon:
+      Home
+  },
+  {
+    key: "randl",
+    title:
+      "Relocation & Logistics Form",
+    description:
+      "Complete the R&L checklist, policies and required attachments.",
+    icon:
+      ClipboardList
   }
 ];
 
 export default function Forms() {
+  const {
+    user
+  } = useAuth();
+
+  const [
+    activeForm,
+    setActiveForm
+  ] =
+    useState(null);
+
+  const [
+    localStages,
+    setLocalStages
+  ] =
+    useState([]);
+
+  if (activeForm) {
+    return (
+      <div className="space-y-4">
+        <button
+          type="button"
+          onClick={() =>
+            setActiveForm(
+              null
+            )
+          }
+          className="inline-flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm font-semibold"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to Forms
+        </button>
+
+        <div className="rounded-xl border bg-white p-4">
+          {activeForm ===
+            "behavioral" && (
+            <DeploymentDetails
+              user={user}
+              setStages={
+                setLocalStages
+              }
+              behavioralOnly
+              onClose={() =>
+                setActiveForm(
+                  null
+                )
+              }
+            />
+          )}
+
+          {activeForm ===
+            "housing" && (
+            <HousingDetailsForm
+              user={user}
+              setStages={
+                setLocalStages
+              }
+              onClose={() =>
+                setActiveForm(
+                  null
+                )
+              }
+            />
+          )}
+
+          {activeForm ===
+            "randl" && (
+            <RLChecklistView
+              user={user}
+              setStages={
+                setLocalStages
+              }
+              onClose={() =>
+                setActiveForm(
+                  null
+                )
+              }
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -41,26 +138,28 @@ export default function Forms() {
           Forms
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Complete and review your candidate forms in one place.
+          Complete your forms directly here. You will not be redirected to Pipeline.
         </p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {FORM_ITEMS.map(item => {
-          const Icon = item.icon;
+        {FORMS.map(item => {
+          const Icon =
+            item.icon;
 
           return (
-            <Link
+            <button
               key={item.key}
-              to={`/pipeline?form=${encodeURIComponent(item.key)}`}
-              className="group rounded-xl border border-border bg-card p-5 transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
+              type="button"
+              onClick={() =>
+                setActiveForm(
+                  item.key
+                )
+              }
+              className="rounded-xl border bg-card p-5 text-left transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
             >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
-                  <Icon className="h-5 w-5 text-primary" />
-                </div>
-
-                <ArrowRight className="h-4 w-4 text-muted-foreground transition group-hover:translate-x-1 group-hover:text-primary" />
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
+                <Icon className="h-5 w-5 text-primary" />
               </div>
 
               <h2 className="mt-4 font-semibold">
@@ -71,11 +170,10 @@ export default function Forms() {
                 {item.description}
               </p>
 
-              <div className="mt-4 flex items-center gap-2 text-xs font-medium text-primary">
-                <CheckCircle2 className="h-3.5 w-3.5" />
+              <div className="mt-4 text-xs font-semibold text-primary">
                 Open form
               </div>
-            </Link>
+            </button>
           );
         })}
       </div>

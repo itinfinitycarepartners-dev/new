@@ -1,9 +1,3 @@
-
-
-
-
-
-
 // @ts-nocheck
 import {
   useQuery,
@@ -264,34 +258,15 @@ function DocumentViewerModal({
           );
         }
 
-        if (!doc.attachment_id) {
-          throw new Error(
-            "This document has no attachment identifier."
-          );
-        }
-
         const query = new URLSearchParams();
-
-        if (doc.source) {
-          query.set(
-            "source",
-            doc.source
-          );
-        }
-
-        if (doc.crm_field_api_name) {
-          query.set(
-            "field",
-            doc.crm_field_api_name
-          );
-        }
-
+        query.set(
+          "key",
+          getDocumentKey(doc)
+        );
         query.set("_", String(Date.now()));
 
         const response = await fetch(
-          `${API_BASE}/api/documents/download/${encodeURIComponent(
-            doc.attachment_id
-          )}?${query.toString()}`,
+          `${API_BASE}/api/documents/preview?${query.toString()}`,
           {
             method: "GET",
             cache: "no-store",

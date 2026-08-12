@@ -166,8 +166,8 @@ const REQUIRED_STAGE_ACTIONS = {
   "Pre-Arrival Banking Call": { message: "Attend your pre-arrival banking call.", cta: "View Deployment", icon: Phone, urgency: "high" },
   "Mandatory Petitioner / Employer Call": { message: "Attend the mandatory petitioner/employer call.", cta: "View Deployment", icon: Phone, urgency: "high" },
   "deployMate Ready": { message: "Complete your deployMate readiness requirements.", cta: "View Deployment", icon: CheckCircle2, urgency: "high" },
-  "Welcome Packet": { message: "Review and acknowledge your welcome packet.", cta: "View Packet", icon: FileText, urgency: "high" },
-  "Expense Report": { message: "Complete and submit your expense report.", cta: "Submit Report", icon: Receipt, urgency: "high" },
+  "Arrival Itinerary": { message: "Review and acknowledge your welcome packet.", cta: "View Packet", icon: FileText, urgency: "high" },
+  "Receipt Submission": { message: "Complete and submit your expense report.", cta: "Submit Report", icon: Receipt, urgency: "high" },
   "Arrived": { message: "Your arrival is confirmed. Your Aftercare journey is next.", cta: "View Pipeline", icon: Plane, urgency: "medium" },
   "Concierge Debrief": { message: "This step is completed by an ICP administrator. No candidate action is required.", cta: "View Status", icon: Clock, urgency: "low" },
   "Request for further evidence": { message: "If an RFE is active, follow the immigration team's evidence instructions. This step closes when the immigration stage becomes Approved.", cta: "View Immigration", icon: FileText, urgency: "high" },
@@ -1413,7 +1413,7 @@ export default function Dashboard() {
       path:
         "/pipeline?stage=welcome-packet",
       label:
-        "Welcome Packet",
+        "Arrival Itinerary",
       sublabel:
         welcomeCompleted
           ? "Acknowledged"

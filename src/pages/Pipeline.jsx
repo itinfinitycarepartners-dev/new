@@ -2,6 +2,9 @@
 
 
 
+
+
+
 // @ts-nocheck
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/AuthContext";
@@ -186,6 +189,68 @@ const ga = (data, ...fieldNames) => {
 };
 
 
+const getLocalDateKey = (
+  date = new Date()
+) => {
+  const year =
+    date.getFullYear();
+
+  const month =
+    String(
+      date.getMonth() + 1
+    ).padStart(2, "0");
+
+  const day =
+    String(
+      date.getDate()
+    ).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+};
+
+const isArrivalCalendarDateTodayOrPast =
+  value => {
+    if (!value) {
+      return false;
+    }
+
+    const raw =
+      String(value)
+        .trim();
+
+    const rawDatePart =
+      raw.match(
+        /^(\d{4}-\d{2}-\d{2})/
+      )?.[1];
+
+    // The Aftercare gate is calendar-date based: a Flight_Arrival_Time whose
+    // date is today unlocks immediately even if its clock time is later today.
+    if (rawDatePart) {
+      return (
+        rawDatePart <=
+        getLocalDateKey()
+      );
+    }
+
+    const parsed =
+      new Date(value);
+
+    if (
+      Number.isNaN(
+        parsed.getTime()
+      )
+    ) {
+      return false;
+    }
+
+    return (
+      getLocalDateKey(
+        parsed
+      ) <=
+      getLocalDateKey()
+    );
+  };
+
 const isCRMChecklistComplete = (value) => {
   if (value === true) return true;
   if (typeof value === "number") return value === 1;
@@ -320,22 +385,20 @@ const STAGES_CONFIG = [
   { id: 28, stage_name: "DS-260 / Civil Document Submission", stage_category: "Immigration", stage_order: 28, days_from_start: 480 },
   { id: 29, stage_name: "Foundations: Cultural Readiness", stage_category: "Immigration", stage_order: 29, days_from_start: 600 },
   { id: 30, stage_name: "Documentarily Qualified", stage_category: "Immigration", stage_order: 30, days_from_start: 840 },
-  // These remain visible last as immigration information/actions but do not block progress.
-  { id: 31, stage_name: "Add/Remove Dependents", stage_category: "Immigration", stage_order: 31, non_counted_section: true, conditional_section: true },
-  { id: 32, stage_name: "Change Embassy Location", stage_category: "Immigration", stage_order: 32, non_counted_section: true, conditional_section: true },
+  
 
   // Deployment — CRM-driven flow.
   { id: 33, stage_name: "Speciality Classes", stage_category: "Deployment", stage_order: 33, days_from_start: 900 },
   { id: 34, stage_name: "Final Self Assessment", stage_category: "Deployment", stage_order: 34, days_from_start: 910 },
-  { id: 35, stage_name: "Speciality w/Trainer Skills Check", stage_category: "Deployment", stage_order: 35, days_from_start: 920 },
-  { id: 36, stage_name: "Deployment Eligible / Not Eligible", stage_category: "Deployment", stage_order: 36, days_from_start: 930 },
-  { id: 37, stage_name: "Deployment Pre-Arrival Call", stage_category: "Deployment", stage_order: 37, days_from_start: 940 },
-  { id: 38, stage_name: "Housing / Transportation Call", stage_category: "Deployment", stage_order: 38, days_from_start: 950 },
+  { id: 35, stage_name: "Speciality with Trainer Skills Check", stage_category: "Deployment", stage_order: 35, days_from_start: 920 },
+  
+  { id: 38, stage_name: "Deployment Pre-Arrival Call", stage_category: "Deployment", stage_order: 38, days_from_start: 940 },
+  { id: 37, stage_name: "Housing / Transportation Call", stage_category: "Deployment", stage_order: 37, days_from_start: 950 },
   { id: 39, stage_name: "Pre-Arrival Banking Call", stage_category: "Deployment", stage_order: 39, days_from_start: 960 },
-  { id: 40, stage_name: "Mandatory Petitioner / Employer Call", stage_category: "Deployment", stage_order: 40, days_from_start: 970 },
+  { id: 40, stage_name: "Employer Pre-Arrival Call", stage_category: "Deployment", stage_order: 40, days_from_start: 970 },
   { id: 41, stage_name: "deployMate Ready", stage_category: "Deployment", stage_order: 41, days_from_start: 980 },
-  { id: 42, stage_name: "Welcome Packet", stage_category: "Deployment", stage_order: 42, days_from_start: 990 },
-  { id: 43, stage_name: "Expense Report", stage_category: "Deployment", stage_order: 43, days_from_start: 1000 },
+  { id: 42, stage_name: "Arrival Itinerary", stage_category: "Deployment", stage_order: 42, days_from_start: 990 },
+  { id: 43, stage_name: "Receipt Submission", stage_category: "Deployment", stage_order: 43, days_from_start: 1000 },
   { id: 44, stage_name: "Arrived", stage_category: "Deployment", stage_order: 44, days_from_start: 1010 },
 
   // Hidden compatibility stages preserve old triggers/forms/history.
@@ -370,7 +433,7 @@ const STAGES_CONFIG = [
   { id: "legacy-deploy-22", stage_name: "Submit Post-Arrival Documents", stage_category: "Deployment", stage_order: 1122, hidden_from_main_flow: true, non_counted_section: true },
 
   // Aftercare stages — all timing is anchored to Flight_Arrival_Time.
-  { id: 51, stage_name: "24 Hour Call", stage_category: "Aftercare", stage_order: 51, days_from_arrival: 1 },
+  { id: 51, stage_name: "24 Hour Call", stage_category: "Aftercare", stage_order: 51, days_from_arrival: 0 },
   { id: 52, stage_name: "Relocation Survey", stage_category: "Aftercare", stage_order: 52, days_from_arrival: 2 },
   { id: 53, stage_name: "Concierge Debrief", stage_category: "Aftercare", stage_order: 53, days_from_arrival: 3, admin_only_completion: true, candidate_read_only: true, hidden_from_main_flow: true, internal_only: true, non_counted_section: true },
   { id: 54, stage_name: "7 Day Call", stage_category: "Aftercare", stage_order: 54, days_from_arrival: 7 },
@@ -393,8 +456,8 @@ const REQUIRED_STAGE_NOTICES = {
   "Pre-Arrival Banking Call": "Attend the pre-arrival banking call.",
   "Mandatory Petitioner / Employer Call": "Attend the mandatory petitioner/employer call.",
   "deployMate Ready": "Complete the deployMate readiness requirements.",
-  "Welcome Packet": "Review and acknowledge your welcome packet.",
-  "Expense Report": "Complete and submit your expense report.",
+  "Arrival Itinerary": "Review your arrival itinerary and relocation information.",
+  "Receipt Submission": "Submit the receipts required for reimbursement processing.",
   "Arrived": "Arrival confirmed. Continue to Aftercare."
 };
 
@@ -475,6 +538,8 @@ const sortStagesByConfiguredOrder =
 
 
 const FLOW_STAGE_ALIASES = {
+  "Arrival Itinerary": { sources: ["Welcome Packet", "ICP Welcome Packet", "ICP Welcome Packet & Itinerary"], mode: "any" },
+  "Receipt Submission": { sources: ["Expense Report", "Reimbursement/Advance Payment Report Released"], mode: "any" },
   "Immigration forms submitted": { sources: ["I 140 Submitted for Immigration", "Submitted for Immigration"], mode: "any" },
   "Request for further evidence": { sources: ["I140 Sent to NVC"], mode: "any" },
   "Immigration approved": { sources: ["I140 Approved", "I-140 Petition", "I-140 Filed Date/Approved Date/ Priority Date"], mode: "any" },
@@ -638,7 +703,8 @@ const APPLICATION_STATUS_STAGE_MAP = new Map([
   ["offer declined", "Offer Declined"],
   ["hired", "Hired"],
   ["contract sent", "Employment Contract Sent"],
-  ["employer offer sent", "Employment Contract Sent"],
+  ["employer offer sent", "Offer Made"],
+  ["offer sent", "Offer Made"],
   ["contract signed", "Employment Contract Signed"],
   ["documents received", "Documents Received"],
   ["unqualified", "Not Qualified - to close"],
@@ -1053,7 +1119,6 @@ const HIRING_STATUS_PROGRESS = {
       "Interview Attended",
       "Offer Made",
       "Offer Accepted",
-      "Hired",
       "Employment Contract Sent"
     ],
     current: null
@@ -1069,10 +1134,22 @@ const HIRING_STATUS_PROGRESS = {
       "Pending Interview Selection",
       "Interview Scheduled",
       "Interview Attended",
-      "Offer Made",
-      "Offer Accepted",
-      "Hired",
-      "Employment Contract Sent"
+      "Offer Made"
+    ],
+    current: null
+  },
+  "offer sent": {
+    completed: [
+      "Applied",
+      "Associated with Job",
+      "Select Prescreen Time",
+      "Prescreen Scheduled",
+      "Prescreen Completed",
+      "Client Documents & Video Provided",
+      "Pending Interview Selection",
+      "Interview Scheduled",
+      "Interview Attended",
+      "Offer Made"
     ],
     current: null
   },
@@ -1089,7 +1166,6 @@ const HIRING_STATUS_PROGRESS = {
       "Interview Attended",
       "Offer Made",
       "Offer Accepted",
-      "Hired",
       "Employment Contract Sent",
       "Employment Contract Signed"
     ],
@@ -1103,6 +1179,18 @@ const shouldShowICPUSRNTransfer = (applicationStatus) =>
 // ============= Hiring section field mappings to Recruit =============
 // These map pipeline stages to Recruit field names
 const HIRING_FIELD_MAPPINGS = {
+  "Mandatory Pre-Interview Coaching Call": {
+    field: "Attended_Pre_Interview_Call",
+    section: "pre interview coaching call",
+    module: "Candidates",
+    type: "boolean"
+  },
+  "Documents Received": {
+    field: "All_docs_on_file",
+    section: "documents received",
+    module: "Candidates",
+    type: "boolean"
+  },
   "Interview Scheduled": {
     field: "Scheduled_for_Interview",
     section: "Interview"
@@ -1114,10 +1202,6 @@ const HIRING_FIELD_MAPPINGS = {
   "Offer Accepted": {
     field: "Offer_Status",
     section: "Offer accepted"
-  },
-  "Employment Contract Sent": {
-    field: "Contract_on_file",
-    section: "Employment contract sent"
   },
   "Employment Contract Signed": {
     field: "Contract_Signed_Date",
@@ -1186,6 +1270,12 @@ const updateRecruitField = async (userEmail, stageName) => {
 
 const ICP_USRN_SUBPROCESS_CONFIG = [
   {
+    name: "Pipeline Start",
+    days: 0,
+    field: "Date_Received",
+    type: "present"
+  },
+  {
     name: "Complete Pre-assessment",
     days: 5,
     field: "NCLEX_Pre_Exam",
@@ -1201,13 +1291,6 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
     field: "Prescreen_Status",
     type: "picklist",
     accepted: ["Attended"]
-  },
-  {
-    name: "Required Document Upload",
-    days: 10,
-    field: "Hiring_Documents_Verified",
-    type: "boolean",
-    action: "usrnDocuments"
   },
   {
     name: "Document Review",
@@ -1229,36 +1312,27 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
     accepted: ["Approved"]
   },
   {
-    name: "Schedule time - booking app",
-    days: 24,
-    field: "Prescreen_Status",
+    name: "Credential Evaluation Set-up",
+    days: 27,
+    field: "Credential_Service",
     type: "picklist",
     accepted: [
-      "Scheduled",
-      "Attended"
+      "Paid by ICP",
+      "Sponsored by ICP",
+      "To be Sponsored by Infinity",
+      "Paid by Infinity"
     ]
   },
   {
-    name: "Credential Evaluation Set-up",
-    days: 27,
+    name: "Credential Evaluation",
+    days: 60,
     field: "Credentialing_Status",
     type: "picklist",
     accepted: [
-      "App Complete",
-      "Report Issued"
-    ],
-    displayOptions: [
-      "None",
-      "App On-Going",
-      "App Complete",
-      "Report Issued"
+      "Completed",
+      "Complete",
+      "Evaluation Completed"
     ]
-  },
-  {
-    name: "Learn HUB enrollment",
-    days: 27,
-    field: "UWorld_Subscription_Date",
-    type: "present"
   },
   {
     name: "Credential Evaluation Completed",
@@ -1267,17 +1341,10 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
     type: "present"
   },
   {
-    name: "CES Report Issued",
+    name: "Credentials Issued",
     days: 102,
     field: "Date_Report_Issued",
     type: "present"
-  },
-  {
-    name: "Performance Check 1",
-    days: 102,
-    type: "performanceMilestone",
-    assessmentsRequired: 2,
-    assignmentsRequired: 6
   },
   {
     name: "Board Registration",
@@ -1292,45 +1359,16 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
     ]
   },
   {
-    name: "Performance Check 2",
-    days: 120,
-    type: "performanceMilestone",
-    assessmentsRequired: 4,
-    assignmentsRequired: 15
-  },
-  {
     name: "Board Approval",
     days: 127,
-    field: "Completed_BON_Requirements",
-    type: "picklist",
-    accepted: ["BON Approval"]
+    field: "Board_Username",
+    type: "present"
   },
   {
     name: "Pearson Vue Registration",
-    days: 140,
-    field: "Pearson_Vue_Registration",
-    type: "present"
-  },
-  {
-    name: "Performance Check 3",
-    days: 145,
-    type: "performanceMilestone",
-    assessmentsRequired: 5,
-    assignmentsRequired: 15
-  },
-  {
-    name: "ATT Received",
     days: 150,
     field: "ATT_Received_Date",
     type: "present"
-  },
-  {
-    name: "Performance Check FINAL",
-    days: 155,
-    type: "performanceMilestone",
-    assessmentsRequired: 6,
-    assignmentsRequired: 15,
-    ratingRequired: true
   },
   {
     name: "Exam Registration",
@@ -1344,13 +1382,6 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
     field: "NCLEX_Status",
     type: "picklist",
     accepted: ["Passed"]
-  },
-  {
-    name: "Background Complete",
-    days: 215,
-    field: "Fingerprint_Status",
-    type: "picklist",
-    accepted: ["Complete"]
   }
 ];
 
@@ -1415,21 +1446,14 @@ const HIRING_SUBPROCESSES = {
 };
 
 // NCLEX Roadmap Stages
-const NCLEX_STAGES = [
-  { id: 101, stage_name: "Complete Pre-assessment", stage_category: "NCLEX Roadmap", stage_order: 1 },
-  { id: 102, stage_name: "Program Prescreen", stage_category: "NCLEX Roadmap", stage_order: 2 },
-  { id: 103, stage_name: "Document Review", stage_category: "NCLEX Roadmap", stage_order: 3 },
-  { id: 104, stage_name: "Educational Program Agreement", stage_category: "NCLEX Roadmap", stage_order: 4 },
-  { id: 105, stage_name: "Program Approval", stage_category: "NCLEX Roadmap", stage_order: 5 },
-  { id: 106, stage_name: "Credential Evaluation Set-up", stage_category: "NCLEX Roadmap", stage_order: 6 },
-    { id: 108, stage_name: "Credential Evaluation Completed", stage_category: "NCLEX Roadmap", stage_order: 8 },
-  { id: 109, stage_name: "CES Report Issued", stage_category: "NCLEX Roadmap", stage_order: 9 },
-  { id: 110, stage_name: "Board Registration", stage_category: "NCLEX Roadmap", stage_order: 10 },
-  { id: 111, stage_name: "Board Approval", stage_category: "NCLEX Roadmap", stage_order: 11 },
-  { id: 112, stage_name: "Pearson Vue Registration", stage_category: "NCLEX Roadmap", stage_order: 12 },
-  { id: 113, stage_name: "Exam Registration", stage_category: "NCLEX Roadmap", stage_order: 13 },
-  { id: 114, stage_name: "Exam Results", stage_category: "NCLEX Roadmap", stage_order: 14 },
-];
+const NCLEX_STAGES = ICP_USRN_SUBPROCESS_CONFIG.map(
+  (item, index) => ({
+    id: 101 + index,
+    stage_name: item.name,
+    stage_category: "NCLEX Roadmap",
+    stage_order: index + 1
+  })
+);
 
 // NCLEX Prescreen stages
 const NCLEX_PRESCREEN_STAGES = [
@@ -1692,19 +1716,38 @@ const IMMIGRATION_CRM_CHECKLISTS = {
 };
 
 const PIPELINE_STAGE_COMMENTS = {
-  "Immigration forms submitted": "Your case has been submitted to the attorney's to be filed with USCIS. When the attorney has reviewed your case you'll receive access to your Envoy Global profile with instructions. Your case cannot be filed until you have completed all of the requested requirements.",
-  "Foundations: Pillars": "Foundations courses are a blend of policy, procedural, academic and cultural courses. Enrollment begins three months after your filed date. You will be enrolled in 1-3 15 minute courses per month.",
-  "Foundations: Endorsement Discovery": "The foundations courses in this section are specific to the U.S. license endorsement process. You will review the general endorsement process and procedures along with the documents, certifications and applications that are required to successfully and expediently endorse your RN license.",
+  "Applied": "Thank you for your interest! Our recruitment department has received your application and will connect with you within 24 hours of your submission.",
+  "Associated with Job": "You have selected an employer. The recruitment department will review your resume and credentials to determine you are the right fit for the selected employer.",
+  "Prescreen Scheduled": "Schedule your prescreen with an ICP recruiter to move your application forward. Dress professionally and come ready to demonstrate your knowledge as a nurse.",
+  "Prescreen Completed": "Thank you for joining! Your recruiter is matching you to an employer(s) and will share their information with you shortly.",
+  "Client Documents & Video Provided": "Explore employers who are actively hiring and seeking candidates with your qualifications and interests.",
+  "Pending Interview Selection": "Now that you’ve familiarized yourself with the clients interested in your skill set, select and notify your recruiter which employer you would like to interview with.",
+  "Mandatory Pre-Interview Coaching Call": "Meet with your recruiter to review your employers’ standards and expectations for the interview. Also, review useful tips and tricks for communicating your strengths. Go into your interview confident and prepared!",
+  "Interview Scheduled": "You have your official interview date!",
+  "Interview Attended": "You have successfully completed the interview with your potential employer. Your Hiring manager will connect with you within 24 hours of the interview with the employer’s decision.",
+  "Offer Made": "Congratulations! Your employer believes you would be a great fit for their team. ICP has submitted the employer’s offer and it is pending your review.",
+  "Offer Accepted": "You’ve accepted your job offer from the employer! You will receive your employer’s employment agreement by the end of the week.",
+  "Employment Contract Sent": "Your employer’s employment agreement is ready for your review and signature!",
+  "Employment Contract Signed": "Congratulations! You and your employer have officially entered into an employment agreement.",
+  "Documents Received": "Required documentation for your case to be transferred to our immigration department and submitted to the attorneys.",
+  "Hired": "Your employment contract has been signed and you have submitted your documents for immigration. It’s time to transition you to the Immigration department, meet your attorney and receive access to your Envoy Global profile!",
+  "Immigration forms submitted": "Your case has been submitted to the attorneys to be filed with USCIS. When the attorney has reviewed your case you’ll receive access to your Envoy Global profile with instructions.",
+  "Foundations: Pillars": "Foundations courses are a blend of policy, procedural, academic and cultural courses.",
+  "Foundations: Endorsement Discovery": "These foundations courses are specific to the U.S. license endorsement process.",
   "Immigration approved": "USCIS has approved your I-140 application.",
-  "Visa bill issued": "Infinity Care Partners will pay for your fee bill when your filing date is current, foundations courses up to this point have been completed and you have submitted a passing English exam score that meets your state board of nursing's requirements.",
-  "DS-260 / Civil Document Submission": "You have 30 days from the payment date of your fee bill to complete your DS-260 and submit any remaining civil documents to our team and the attorney's via your Envoy Global profile.",
+  "Visa bill issued": "Infinity Care Partners will pay for your fee bill when your filing date is current and required preparation is complete.",
+  "DS-260 / Civil Document Submission": "Complete your DS-260 and submit any remaining civil documents through the required process.",
   "Foundations: Cultural Readiness": "These foundations courses provide critical cultural insight that will prepare you in your transition to the United States.",
-  "Documentarily Qualified": "The NVC has determined and marked your case complete and ready for embassy interview scheduling. You will begin your formal transition to the Deployment department at this stage.",
-  "Final Self Assessment": "The final skills assessment is a personal assessment of your nursing skills. You will indicate, using a numerical scale, a self-evaluation of your nursing skills for your employer's review.",
-  "Deployment Pre-Arrival Call": "The Deployment Call covers all things pre and post arrival. The call will begin with a brief video covering Deploymate, flights, concierge, arrival itinerary, reimbursements, client pre-arrival calls and much more.",
-  "Housing / Transportation Call": "You have learned about both U.S. housing and transportation during your foundations courses. You have also completed your housing form for the deployment department. On this call you will work with the ICP Housing Coordinator to review your housing form, confirm accuracy, begin your housing search and confirm your transportation plans.",
-  "Pre-Arrival Banking Call": "Our partners at Advancial offer pre-arrival banking services. On this call you will review Advancial's pre-arrival banking offer and all of your U.S. banking options.",
-  "Mandatory Petitioner / Employer Call": "You likely have not spoken with your employer since your original interview date. On this call, you will reconnect with your employer (ICP to facilitate) and have an exchange rekindling rapport and asking any questions you have specific to the transition to your facility (onboarding, orientation, scrubs, shifts, etc.) and about the employer themselves.",
+  "Documentarily Qualified": "The NVC has determined and marked your case complete and ready for embassy interview scheduling.",
+  "Final Self Assessment": "The final skills assessment is a personal assessment of your nursing skills.",
+  "Speciality with Trainer Skills Check": "Department-specific academic preparation courses designed to assess and equip you with the knowledge and expectations of your future clinical role in the United States. These courses will be tailored to your nursing specialty. At the conclusion, a member of the ICP academic team will evaluate your knowledge in a one-on-one oral assessment.",
+  "Deployment Pre-Arrival Call": "The Deployment Call covers all things pre and post arrival.",
+  "Housing / Transportation Call": "Work with the ICP Housing Coordinator to review your housing information, begin your housing search and confirm your transportation plans.",
+  "Pre-Arrival Banking Call": "Our partners at Advancial offer pre-arrival banking services. On this call you will review Advancial’s pre-arrival banking offer and all of your U.S. banking options.",
+  "Employer Pre-Arrival Call": "You likely have not spoken with your employer since your original interview date. On this call, you will reconnect with your employer with ICP facilitating the discussion and ask questions specific to your transition to the facility.",
+  "deployMate Ready": "Our all-in-one mobile platform is designed to support you throughout your journey to living and working in the United States. From travel coordination, flight details, housing information, personalized itineraries, and airport pickup services, DeployMate provides a seamless experience before, during, and after arrival.",
+  "Arrival Itinerary": "A comprehensive relocation guide that provides nurses with the essential information needed for a smooth transition to the United States. It includes flight details, arrival and onboarding itineraries, housing information, banking resources and employer information.",
+  "Receipt Submission": "Summarizes eligible certification, licensing, immigration, and relocation expenses incurred prior to arrival in the United States. Qualified expenses, including the housing stipend, are reimbursed according to company policy.",
   "Arrived": "You have officially arrived in the United States!"
 };
 
@@ -1721,7 +1764,7 @@ const CLICKABLE_STAGES = {
   "Offer Accepted": { clickable: true, type: "upload", uploadType: "offerAccepted" },
   "Employment Contract Sent": { clickable: true, type: "view", viewType: "contract" },
   "Employment Contract Signed": { clickable: true, type: "upload", uploadType: "signedContract" },
-  "Documents Received": { clickable: false, type: "field", field: "Proof_of_NCLEX" },
+  "Documents Received": { clickable: false, type: "field", field: "All_docs_on_file" },
   "Hired": { clickable: true, type: "upload", uploadType: "hired", destination: "recruit" },
 
   // Current Immigration flow
@@ -1748,8 +1791,8 @@ const CLICKABLE_STAGES = {
   "Pre-Arrival Banking Call": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
   "Mandatory Petitioner / Employer Call": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
   "deployMate Ready": { clickable: true, type: "view", viewType: "downloadApp" },
-  "Welcome Packet": { clickable: true, type: "view", viewType: "welcomePacket" },
-  "Expense Report": { clickable: true, type: "view", viewType: "reimbursement" },
+  "Arrival Itinerary": { clickable: true, type: "view", viewType: "welcomePacket" },
+  "Receipt Submission": { clickable: true, type: "view", viewType: "reimbursement" },
   "Arrived": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
 
   // Current Aftercare links
@@ -2012,6 +2055,7 @@ const HIRING_FORWARD_ORDER = [
 
 const ADAPTIVE_TRIGGER_STAGE_NAMES = new Set([
   "Documents Received",
+  "Mandatory Pre-Interview Coaching Call",
   "Immigration Call",
   "Foundations (Phases 1–3)",
   "License Endorsement",
@@ -2282,8 +2326,17 @@ const isStageUnlocked = (stage, allStages) => {
 
   if (stage.stage_category === "Aftercare") {
     const gateValue = stage.aftercare_gate_date || stage.aftercareGateDate || null;
-    const gateDate = gateValue ? new Date(gateValue) : null;
-    const gateDateReached = gateDate && !Number.isNaN(gateDate.getTime()) && gateDate.getTime() <= Date.now();
+    const gateDate =
+      gateValue
+        ? new Date(
+            gateValue
+          )
+        : null;
+
+    const gateDateReached =
+      isArrivalCalendarDateTodayOrPast(
+        gateValue
+      );
     const aftercareGateOpen =
       (stage.aftercare_unlocked === true || stage.aftercare_locked === false) && gateDateReached;
 
@@ -4222,7 +4275,12 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
     label: "Immigration Stage",
     field: "i140",
     complete: value => String(value || "").trim().toLowerCase() === "approved",
-    inProgress: value => ["rfe", "rfe (request for evidence)", "request for evidence", "request for further evidence"].includes(String(value || "").trim().toLowerCase())
+    inProgress: value => [
+      "rfe",
+      "rfe (request for evidence)",
+      "request for evidence",
+      "request for further evidence"
+    ].includes(String(value || "").trim().toLowerCase())
   },
   "Immigration approved": {
     label: "I-140 Approval Date",
@@ -4249,15 +4307,20 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
     field: "All_Clear_Documentary_Complete",
     complete: value => String(value || "").trim().toLowerCase() === "yes"
   },
+  "Speciality Classes": {
+    label: "Relias Skills Checklist",
+    field: "Hours_Recent_Bedside_Experience",
+    complete: value => String(value || "").trim().toLowerCase() === "pass"
+  },
   "Final Self Assessment": {
     label: "Final ICP Self Assessment",
     field: "Self_Assessment_2_Complete",
     complete: isCurrentOrPastDate
   },
-  "Deployment Eligible / Not Eligible": {
-    label: "Embassy Eligibility Status",
-    field: "State_Licensure_Requirements",
-    complete: value => selectedValues(value).includes("eligible")
+  "Speciality with Trainer Skills Check": {
+    label: "Speciality w/Trainer Skills Check",
+    field: "Speciality_with_Trainer_Skills_Check",
+    complete: value => isCRMChecklistComplete(value)
   },
   "Deployment Pre-Arrival Call": {
     label: "Nurse Deployment Call",
@@ -4267,9 +4330,16 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
   "Housing / Transportation Call": {
     label: "Housing Call",
     fields: ["Final_Housing_Confirmation_Call", "Housing_Call_1"],
-    complete: value => isCurrentOrPastDate(value?.Final_Housing_Confirmation_Call) || isCurrentOrPastDate(value?.Housing_Call_1)
+    complete: value =>
+      isCurrentOrPastDate(value?.Final_Housing_Confirmation_Call) ||
+      isCurrentOrPastDate(value?.Housing_Call_1)
   },
-  "Mandatory Petitioner / Employer Call": {
+  "Pre-Arrival Banking Call": {
+    label: "Pre-Arrival Banking Call",
+    field: "Pre_Arrival_Banking_Call",
+    complete: isCurrentOrPastDate
+  },
+  "Employer Pre-Arrival Call": {
     label: "Client Arrival Call",
     field: "Client_Arrival_Call",
     complete: isCurrentOrPastDate
@@ -6007,7 +6077,7 @@ const createEmptyBehavioralAssessment = () => ({
 });
 
 // Deployment Details Component
-const DeploymentDetails = ({ onClose, user, setStages }) => {
+export const DeploymentDetails = ({ onClose, user, setStages, behavioralOnly = false }) => {
   const [uploading, setUploading] = useState({});
   const [requirements, setRequirements] = useState({
     nclexPassReport: { confirmed: false, file: null, fileName: "" },
@@ -6504,8 +6574,11 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
   };
 
   const getProgress = () => {
-    const total = Object.keys(requirements).length;
-    const completed = Object.values(requirements).filter(req => req.confirmed === true).length;
+    const visibleRequirements = behavioralOnly
+      ? { behaviorAssessment: requirements.behaviorAssessment }
+      : requirements;
+    const total = Object.keys(visibleRequirements).length;
+    const completed = Object.values(visibleRequirements).filter(req => req.confirmed === true).length;
     return { total, completed, percentage: (completed / total) * 100 };
   };
 
@@ -6546,6 +6619,8 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
       </div>
 
       <div className="space-y-2">
+        {!behavioralOnly && (
+          <>
         <RequirementCheckbox requirementKey="nclexPassReport" label="1. NCLEX Pass Report" description="Official NCLEX passing report" />
         <RequirementCheckbox requirementKey="passportBiometric" label="2. Passport Biometric Page" description="Clear biometric page" />
         <RequirementCheckbox requirementKey="birthCertificate" label="3. Birth Certificate" description="Official civil document" />
@@ -6556,6 +6631,8 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
         <RequirementCheckbox requirementKey="usStateLicense" label="8. US State RN License Certificate" description="Upload when applicable" />
         <RequirementCheckbox requirementKey="priorApprovalNotices" label="9. USCIS Prior Approval Notices (I-797)" description="Upload when applicable" />
         <RequirementCheckbox requirementKey="idPictures" label="10. Recent 2x2 ID Pictures" description="Candidate, spouse, and children" />
+          </>
+        )}
 
         <div className="mt-4">
           <RequirementCheckbox
@@ -6566,7 +6643,7 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
         </div>
       </div>
 
-      {allRequirementsMet() && (
+      {!behavioralOnly && allRequirementsMet() && (
         <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="h-5 w-5 text-emerald-600" />
@@ -6580,6 +6657,7 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
 
       <div className="flex gap-2 justify-end pt-2 border-t border-border">
         <Button variant="outline" onClick={onClose}>Close</Button>
+        {!behavioralOnly && (
         <Button onClick={handleSubmit} disabled={!allRequirementsMet() || isSubmitting} className="gap-2">
           {isSubmitting ? (
             <><Loader2 className="h-4 w-4 animate-spin" /> Submitting...</>
@@ -6587,13 +6665,14 @@ const DeploymentDetails = ({ onClose, user, setStages }) => {
             <><CheckCircle2 className="h-4 w-4" /> Confirm & Submit</>
           )}
         </Button>
+        )}
       </div>
     </div>
   );
 };
 
 // Housing Details Form Component
-const HousingDetailsForm = ({ onClose, user, setStages }) => {
+export const HousingDetailsForm = ({ onClose, user, setStages }) => {
   const [uploading, setUploading] = useState(false);
   const [formData, setFormData] = useState({
     dateCompleted: "",
@@ -7554,7 +7633,7 @@ const RLPolicyDocumentViewer = ({
 
 
 // Complete Relocation & Logistics form based on the ICP candidate checklist.
-const RLChecklistView = ({ onClose, user, setStages }) => {
+export const RLChecklistView = ({ onClose, user, setStages }) => {
   const [submitting, setSubmitting] = useState(false);
   const [activePolicyDocument, setActivePolicyDocument] = useState(null);
   const [documents, setDocuments] = useState({
@@ -9109,7 +9188,7 @@ export default function Pipeline() {
         // This response is not dependent on the larger cached candidate payload.
         try {
           const fieldResponse = await fetch(
-            `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(user.email)}&_=${Date.now()}`,
+            `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(user.email)}&refresh=true&_=${Date.now()}`,
             {
               method: "GET",
               cache: "no-store",
@@ -9147,11 +9226,114 @@ export default function Pipeline() {
               ...icpUSRNData,
               ...directFieldStatus
             };
+
+            // The NCLEX mini-cards read icpUSRNCRMData. Keep that state tied
+            // directly to CustomModule1 instead of the broader mixed user object.
+            setICPUSRNCRMData(previous => ({
+              ...previous,
+              ...(fieldPayload.nclex || {})
+            }));
           }
         } catch (fieldError) {
           console.warn(
             "[Pipeline] Direct CRM/Recruit field fetch failed:",
             fieldError.message
+          );
+        }
+
+        // These two Hiring checkboxes are read from a dedicated endpoint that
+        // resolves the Candidate linked to Recruit Applications first.
+        try {
+          const triggerResponse =
+            await fetch(
+              `${API_BASE}/api/pipeline/hiring-candidate-triggers?email=${encodeURIComponent(
+                user.email
+              )}&_=${Date.now()}`,
+              {
+                method:
+                  "GET",
+                cache:
+                  "no-store",
+                headers: {
+                  Authorization:
+                    `Bearer ${token}`
+                }
+              }
+            );
+
+          const triggerPayload =
+            await triggerResponse
+              .json()
+              .catch(() => ({}));
+
+          if (
+            triggerResponse.ok &&
+            triggerPayload.success ===
+              true
+          ) {
+            directFieldStatus = {
+              ...directFieldStatus,
+              ...(triggerPayload.fields || {})
+            };
+
+            directComputedStageStatus = {
+              ...directComputedStageStatus,
+              "Documents Received": {
+                evaluated:
+                  true,
+                completed:
+                  triggerPayload
+                    .completion
+                    ?.["Documents Received"] ===
+                  true,
+                status:
+                  triggerPayload
+                    .completion
+                    ?.["Documents Received"] ===
+                  true
+                    ? "Completed"
+                    : "Not Started",
+                source_fields: [
+                  "All_docs_on_file"
+                ],
+                resolution_source:
+                  triggerPayload
+                    .resolutionSource,
+                candidate_record_id:
+                  triggerPayload
+                    .candidateRecordId
+              },
+              "Mandatory Pre-Interview Coaching Call": {
+                evaluated:
+                  true,
+                completed:
+                  triggerPayload
+                    .completion
+                    ?.["Mandatory Pre-Interview Coaching Call"] ===
+                  true,
+                status:
+                  triggerPayload
+                    .completion
+                    ?.["Mandatory Pre-Interview Coaching Call"] ===
+                  true
+                    ? "Completed"
+                    : "Not Started",
+                source_fields: [
+                  "Attended_Pre_Interview_Call"
+                ],
+                resolution_source:
+                  triggerPayload
+                    .resolutionSource,
+                candidate_record_id:
+                  triggerPayload
+                    .candidateRecordId
+              }
+            };
+          }
+        } catch (triggerError) {
+          console.warn(
+            "[Pipeline] Dedicated Recruit Hiring trigger fetch failed:",
+            triggerError.message
           );
         }
 
@@ -10170,15 +10352,146 @@ export default function Pipeline() {
         };
       });
 
-      // Documents Received is controlled directly by Recruit Candidates.
-      const proofOfNCLEX =
-        sourceFieldValues.Proof_of_NCLEX ??
-        sourceFieldValues.proofOfNCLEX ??
+      // Mandatory Pre-Interview Coaching Call is controlled ONLY by
+      // Recruit Candidates.Attended_Pre_Interview_Call.
+      const attendedPreInterviewCall =
+        sourceFieldValues
+          .Attended_Pre_Interview_Call ??
+        directFieldStatus
+          .Attended_Pre_Interview_Call ??
         null;
 
-      const birthCertificate =
-        sourceFieldValues.Birth_Certificate ??
-        sourceFieldValues.birthCertificate ??
+      const backendPreInterviewStatus =
+        directComputedStageStatus[
+          "Mandatory Pre-Interview Coaching Call"
+        ];
+
+      const normalizeRecruitBoolean =
+        value => {
+          if (
+            value === true ||
+            value === 1
+          ) {
+            return true;
+          }
+
+          if (
+            value === false ||
+            value === 0 ||
+            value === null ||
+            value === undefined
+          ) {
+            return false;
+          }
+
+          if (
+            typeof value ===
+            "object"
+          ) {
+            return normalizeRecruitBoolean(
+              value.checked ??
+              value.selected ??
+              value.value ??
+              value.display_value ??
+              false
+            );
+          }
+
+          return [
+            "true",
+            "1",
+            "yes",
+            "checked",
+            "selected",
+            "on"
+          ].includes(
+            String(value)
+              .trim()
+              .toLowerCase()
+          );
+        };
+
+      const preInterviewCallComplete =
+        typeof backendPreInterviewStatus
+          ?.completed === "boolean"
+          ? backendPreInterviewStatus
+              .completed
+          : normalizeRecruitBoolean(
+              attendedPreInterviewCall
+            );
+
+      allStages =
+        allStages.map(stage => {
+          if (
+            stage.stage_name !==
+            "Mandatory Pre-Interview Coaching Call"
+          ) {
+            return stage;
+          }
+
+          const nextStatus =
+            preInterviewCallComplete
+              ? "Completed"
+              : "Not Started";
+
+          const completionDate =
+            preInterviewCallComplete
+              ? (
+                  stage.completed_date ||
+                  savedByName.get(
+                    stage.stage_name
+                  )?.completed_date ||
+                  format(
+                    new Date(),
+                    "yyyy-MM-dd"
+                  )
+                )
+              : null;
+
+          if (
+            backendPreInterviewStatus ||
+            attendedPreInterviewCall !==
+              null
+          ) {
+            directStageUpdates.push({
+              stage_name:
+                stage.stage_name,
+              status:
+                nextStatus,
+              completed_date:
+                completionDate
+            });
+          }
+
+          return {
+            ...stage,
+            status:
+              nextStatus,
+            completed:
+              preInterviewCallComplete,
+            is_completed:
+              preInterviewCallComplete,
+            completed_date:
+              completionDate,
+            recruit_field_label:
+              "Attended Pre-Interview Call",
+            recruit_boolean_field:
+              "Attended_Pre_Interview_Call",
+            recruit_boolean_value:
+              attendedPreInterviewCall,
+            synced_from_recruit_candidate_fields: [
+              "Attended_Pre_Interview_Call"
+            ]
+          };
+        });
+
+      // Documents Received is controlled ONLY by Recruit Candidates.All_docs_on_file.
+      // Library uploads and the old Proof_of_NCLEX/Birth_Certificate fields must
+      // never complete this Hiring stage.
+      const allDocsOnFile =
+        sourceFieldValues.All_docs_on_file ??
+        sourceFieldValues.All_Docs_on_File ??
+        directFieldStatus.All_docs_on_file ??
         null;
 
       const backendDocumentsStatus =
@@ -10194,20 +10507,10 @@ export default function Pipeline() {
       const documentsReceivedComplete =
         typeof backendDocumentsStatus
           ?.completed === "boolean"
-          ? backendDocumentsStatus
-              .completed
-          : isPipelineStageComplete(
-              savedDocumentsStage
-            )
-            ? true
-            : (
-                hasRecruitCandidateFieldValue(
-                  proofOfNCLEX
-                ) &&
-                hasRecruitCandidateFieldValue(
-                  birthCertificate
-                )
-              );
+          ? backendDocumentsStatus.completed
+          : normalizeRecruitBoolean(
+              allDocsOnFile
+            );
 
       allStages = allStages.map(stage => {
         if (
@@ -10226,9 +10529,8 @@ export default function Pipeline() {
           documentsReceivedComplete
             ? (
                 stage.completed_date ||
-                savedByName.get(
-                  stage.stage_name
-                )?.completed_date ||
+                savedDocumentsStage
+                  ?.completed_date ||
                 format(
                   new Date(),
                   "yyyy-MM-dd"
@@ -10238,8 +10540,7 @@ export default function Pipeline() {
 
         if (
           backendDocumentsStatus ||
-          proofOfNCLEX !== null ||
-          birthCertificate !== null
+          allDocsOnFile !== null
         ) {
           directStageUpdates.push({
             stage_name:
@@ -10262,23 +10563,18 @@ export default function Pipeline() {
           completed_date:
             completionDate,
           recruit_field_label:
-            "Proof of NCLEX and Birth Certificate",
+            "All docs on file",
           recruit_text_field_values: {
-            Proof_of_NCLEX:
-              proofOfNCLEX,
-            Birth_Certificate:
-              birthCertificate
+            All_docs_on_file:
+              allDocsOnFile
           },
           recruit_trigger_field_types: {
-            Proof_of_NCLEX:
-              "text",
-            Birth_Certificate:
-              "text"
+            All_docs_on_file:
+              "boolean"
           },
           synced_from_recruit_candidate_fields:
             [
-              "Proof_of_NCLEX",
-              "Birth_Certificate"
+              "All_docs_on_file"
             ]
         };
       });
@@ -10530,8 +10826,14 @@ export default function Pipeline() {
 
         const validArrivalDate =
           stageArrivalDate &&
-          !Number.isNaN(stageArrivalDate.getTime()) &&
-          stageArrivalDate.getTime() <= Date.now();
+          !Number.isNaN(
+            stageArrivalDate.getTime()
+          ) &&
+          isArrivalCalendarDateTodayOrPast(
+            stage.aftercare_gate_date ||
+            stage.aftercareGateDate ||
+            stageArrivalDate.toISOString()
+          );
 
         const backendGateOpen =
           backendAftercareGateOpen === true ||
@@ -10825,8 +11127,12 @@ export default function Pipeline() {
 
         const validArrival =
           parsedArrival &&
-          !Number.isNaN(parsedArrival.getTime()) &&
-          parsedArrival.getTime() <= Date.now();
+          !Number.isNaN(
+            parsedArrival.getTime()
+          ) &&
+          isArrivalCalendarDateTodayOrPast(
+            responseArrivalDate
+          );
 
         if (validArrival) {
           setFinalArrivalDate(parsedArrival);
@@ -11671,7 +11977,7 @@ export default function Pipeline() {
       try {
         const token = localStorage.getItem("icp_auth_token");
         const response = await fetch(
-          `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(user.email)}&_=${Date.now()}`,
+          `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(user.email)}&refresh=true&_=${Date.now()}`,
           {
             cache: "no-store",
             headers: { Authorization: `Bearer ${token}` }

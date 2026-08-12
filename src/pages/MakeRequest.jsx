@@ -5,13 +5,15 @@ import React, {
   useState
 } from "react";
 import {
-  BadgeHelp,
   Building2,
   Loader2,
   Plus,
   Save,
   UserPlus,
-  CheckCircle2
+  CheckCircle2,
+  ExternalLink,
+  BadgeHelp,
+  Calendar
 } from "lucide-react";
 import {
   tokenStorage
@@ -24,62 +26,32 @@ const API_BASE =
 const emptyDependant = () => ({
   name: "",
   dob: "",
-  email: "",
   relationship: "",
-  travelStatus:
-    "arriving",
-  needsBooster:
-    false,
-  needsCarSeat:
-    false,
-  disability:
-    ""
+  needsCarSeat: false
 });
 
 export default function MakeRequest() {
-  const [
-    loading,
-    setLoading
-  ] =
+  const [loading, setLoading] =
     useState(true);
-
-  const [
-    submitting,
-    setSubmitting
-  ] =
+  const [submitting, setSubmitting] =
     useState("");
-
-  const [
-    notice,
-    setNotice
-  ] =
+  const [notice, setNotice] =
     useState("");
-
-  const [
-    embassyLocation,
-    setEmbassyLocation
-  ] =
+  const [licenseUrl, setLicenseUrl] =
     useState("");
-
-  const [
-    licenseNotes,
-    setLicenseNotes
-  ] =
+  const [embassyLocation, setEmbassyLocation] =
     useState("");
-
-  const [
-    dependant,
-    setDependant
-  ] =
-    useState(
-      emptyDependant()
-    );
-
-  const [
-    dependants,
-    setDependants
-  ] =
+  const [embassyReason, setEmbassyReason] =
+    useState("");
+  const [dependant, setDependant] =
+    useState(emptyDependant());
+  const [dependants, setDependants] =
     useState([]);
+  const [requests, setRequests] =
+    useState([]);
+
+  const requestDate =
+    new Date().toLocaleDateString();
 
   const getHeaders = () => {
     const token =
@@ -97,144 +69,148 @@ export default function MakeRequest() {
     };
   };
 
-  const load =
-    async () => {
-      setLoading(true);
+  const load = async () => {
+    setLoading(true);
 
-      try {
-        const response =
-          await fetch(
-            `${API_BASE}/api/requests`,
-            {
-              headers:
-                getHeaders(),
-              cache:
-                "no-store"
-            }
-          );
-
-        const data =
-          await response
-            .json()
-            .catch(() => ({}));
-
-        if (
-          !response.ok ||
-          data.success !==
-            true
-        ) {
-          throw new Error(
-            data.error ||
-            "Unable to load requests."
-          );
-        }
-
-        setEmbassyLocation(
-          data.embassyLocation ||
-          ""
+    try {
+      const response =
+        await fetch(
+          `${API_BASE}/api/requests?_=${Date.now()}`,
+          {
+            headers:
+              getHeaders(),
+            cache:
+              "no-store"
+          }
         );
 
-        setDependants(
-          Array.isArray(
-            data.dependants
-          )
-            ? data.dependants
-            : []
+      const data =
+        await response
+          .json()
+          .catch(() => ({}));
+
+      if (
+        !response.ok ||
+        data.success !== true
+      ) {
+        throw new Error(
+          data.error ||
+          "Unable to load requests."
         );
-      } catch (error) {
-        setNotice(
-          error.message
-        );
-      } finally {
-        setLoading(false);
       }
-    };
+
+      setLicenseUrl(
+        String(
+          data.licenseEndorsementUrl ||
+          ""
+        ).trim()
+      );
+      setEmbassyLocation(
+        data.embassyLocation ||
+        ""
+      );
+      setDependants(
+        Array.isArray(
+          data.dependants
+        )
+          ? data.dependants
+          : []
+      );
+      setRequests(
+        Array.isArray(
+          data.requests
+        )
+          ? data.requests
+          : []
+      );
+    } catch (error) {
+      setNotice(
+        error.message
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     load();
   }, []);
 
-  const submit =
-    async (
-      requestType,
-      details
-    ) => {
-      setSubmitting(
-        requestType
-      );
-      setNotice("");
+  const submit = async (
+    requestType,
+    details
+  ) => {
+    setSubmitting(
+      requestType
+    );
+    setNotice("");
 
-      try {
-        const response =
-          await fetch(
-            `${API_BASE}/api/requests`,
-            {
-              method:
-                "POST",
-              headers: {
-                ...getHeaders(),
-                "Content-Type":
-                  "application/json"
-              },
-              body:
-                JSON.stringify({
-                  requestType,
-                  details
-                })
-            }
-          );
+    try {
+      const response =
+        await fetch(
+          `${API_BASE}/api/requests`,
+          {
+            method: "POST",
+            headers: {
+              ...getHeaders(),
+              "Content-Type":
+                "application/json"
+            },
+            body:
+              JSON.stringify({
+                requestType,
+                details
+              })
+          }
+        );
 
-        const data =
-          await response
-            .json()
-            .catch(() => ({}));
+      const data =
+        await response
+          .json()
+          .catch(() => ({}));
 
-        if (
-          !response.ok ||
-          data.success !==
-            true
-        ) {
-          throw new Error(
-            data.error ||
-            "The request could not be submitted."
-          );
-        }
+      if (
+        !response.ok ||
+        data.success !== true
+      ) {
+        throw new Error(
+          data.error ||
+          "The request could not be submitted."
+        );
+      }
 
+      if (
+        requestType ===
+        "embassy_change"
+      ) {
+        setNotice(
+          "Embassy change request submitted for admin approval. CRM will update only after approval."
+        );
+        setEmbassyReason("");
+      } else {
         setNotice(
           "Request submitted successfully."
         );
-
-        if (
-          requestType ===
-          "license_endorsement_assistance"
-        ) {
-          setLicenseNotes("");
-        }
-
-        if (
-          requestType ===
-          "add_dependant"
-        ) {
-          setDependant(
-            emptyDependant()
-          );
-        }
-
-        await load();
-
-        window.dispatchEvent(
-          new CustomEvent(
-            "candidate-data-updated"
-          )
+        setDependant(
+          emptyDependant()
         );
-      } catch (error) {
-        setNotice(
-          error.message
-        );
-      } finally {
-        setSubmitting("");
       }
-    };
+
+      await load();
+
+      window.dispatchEvent(
+        new CustomEvent(
+          "candidate-data-updated"
+        )
+      );
+    } catch (error) {
+      setNotice(
+        error.message
+      );
+    } finally {
+      setSubmitting("");
+    }
+  };
 
   if (loading) {
     return (
@@ -244,6 +220,15 @@ export default function MakeRequest() {
     );
   }
 
+  const pendingEmbassy =
+    requests.find(
+      item =>
+        item.request_type ===
+          "embassy_change" &&
+        item.status ===
+          "Pending Approval"
+    );
+
   return (
     <div className="space-y-6">
       <div>
@@ -251,7 +236,7 @@ export default function MakeRequest() {
           Make a Request
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Submit licensure, embassy, or dependant requests to ICP.
+          Submit requests to ICP.
         </p>
       </div>
 
@@ -262,57 +247,32 @@ export default function MakeRequest() {
         </div>
       )}
 
-      <section className="rounded-xl border bg-white p-5">
-        <div className="flex items-center gap-3">
-          <BadgeHelp className="h-5 w-5 text-purple-600" />
-          <div>
-            <h2 className="font-semibold">
-              License Endorsement Assistance
-            </h2>
-            <p className="text-sm text-slate-500">
-              Ask ICP for assistance with your license endorsement process.
-            </p>
+      {/* Hidden until LICENSE_ENDORSEMENT_ASSISTANCE_URL is configured. */}
+      {licenseUrl && (
+        <section className="rounded-xl border bg-white p-5">
+          <div className="flex items-center gap-3">
+            <BadgeHelp className="h-5 w-5 text-purple-600" />
+            <div>
+              <h2 className="font-semibold">
+                License Endorsement Assistance
+              </h2>
+              <p className="text-sm text-slate-500">
+                Open the ICP license endorsement assistance resource.
+              </p>
+            </div>
           </div>
-        </div>
 
-        <textarea
-          value={licenseNotes}
-          onChange={event =>
-            setLicenseNotes(
-              event.target.value
-            )
-          }
-          rows={5}
-          placeholder="Tell us what assistance you need..."
-          className="mt-4 w-full rounded-lg border px-3 py-2 text-sm"
-        />
-
-        <button
-          type="button"
-          disabled={
-            submitting ===
-            "license_endorsement_assistance"
-          }
-          onClick={() =>
-            submit(
-              "license_endorsement_assistance",
-              {
-                notes:
-                  licenseNotes.trim()
-              }
-            )
-          }
-          className="mt-3 inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-        >
-          {submitting ===
-          "license_endorsement_assistance" ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Save className="h-4 w-4" />
-          )}
-          Submit Request
-        </button>
-      </section>
+          <a
+            href={licenseUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white"
+          >
+            <ExternalLink className="h-4 w-4" />
+            Open Assistance
+          </a>
+        </section>
+      )}
 
       <section className="rounded-xl border bg-white p-5">
         <div className="flex items-center gap-3">
@@ -322,16 +282,20 @@ export default function MakeRequest() {
               Embassy Change
             </h2>
             <p className="text-sm text-slate-500">
-              This updates CRM Deals → Embassy Location
-              (API Name: Embassy_Location).
+              Requests require admin approval before CRM Deals →
+              Embassy_Location is updated.
             </p>
           </div>
         </div>
 
-        <label className="mt-4 block text-sm font-medium text-slate-700">
-          Embassy Location
-        </label>
+        <div className="mt-4 flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+          <Calendar className="h-4 w-4" />
+          Date of request: {requestDate}
+        </div>
 
+        <label className="mt-4 block text-sm font-medium text-slate-700">
+          Requested Embassy Location
+        </label>
         <input
           type="text"
           value={embassyLocation}
@@ -340,23 +304,49 @@ export default function MakeRequest() {
               event.target.value
             )
           }
-          placeholder="Enter requested embassy location"
           className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
         />
+
+        <label className="mt-4 block text-sm font-medium text-slate-700">
+          Reason for Request
+        </label>
+        <textarea
+          value={embassyReason}
+          onChange={event =>
+            setEmbassyReason(
+              event.target.value
+            )
+          }
+          rows={5}
+          placeholder="Explain why you are requesting an embassy change."
+          className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+        />
+
+        {pendingEmbassy && (
+          <p className="mt-3 text-sm font-medium text-amber-700">
+            A previous embassy change request is pending admin approval.
+          </p>
+        )}
 
         <button
           type="button"
           disabled={
             submitting ===
               "embassy_change" ||
-            !embassyLocation.trim()
+            !embassyLocation.trim() ||
+            !embassyReason.trim()
           }
           onClick={() =>
             submit(
               "embassy_change",
               {
                 embassyLocation:
-                  embassyLocation.trim()
+                  embassyLocation.trim(),
+                reason:
+                  embassyReason.trim(),
+                requestedDate:
+                  new Date()
+                    .toISOString()
               }
             )
           }
@@ -368,7 +358,7 @@ export default function MakeRequest() {
           ) : (
             <Save className="h-4 w-4" />
           )}
-          Request Embassy Change
+          Submit for Approval
         </button>
       </section>
 
@@ -380,7 +370,7 @@ export default function MakeRequest() {
               Add Dependants
             </h2>
             <p className="text-sm text-slate-500">
-              Add dependant details to your candidate profile.
+              Add a dependant to your candidate record.
             </p>
           </div>
         </div>
@@ -388,28 +378,21 @@ export default function MakeRequest() {
         {dependants.length > 0 && (
           <div className="mt-4 space-y-2">
             {dependants.map(
-              (
-                item,
-                index
-              ) => (
+              (item, index) => (
                 <div
                   key={`${item.name}-${index}`}
                   className="rounded-lg border bg-slate-50 px-3 py-2 text-sm"
                 >
-                  <span className="font-semibold">
+                  <strong>
                     {item.name}
-                  </span>
+                  </strong>
                   <span className="text-slate-500">
-                    {" "}
-                    ·{" "}
+                    {" "}·{" "}
                     {item.relationship ||
                       "Dependant"}
-                    {" "}
-                    ·{" "}
-                    {item.travelStatus ===
-                    "join-to-follow"
-                      ? "Join to follow"
-                      : "Arriving"}
+                    {item.dob
+                      ? ` · ${item.dob}`
+                      : ""}
                   </span>
                 </div>
               )
@@ -446,24 +429,8 @@ export default function MakeRequest() {
 
           <input
             className="rounded-lg border px-3 py-2 text-sm"
-            type="email"
-            placeholder="Email address"
-            value={dependant.email}
-            onChange={event =>
-              setDependant(value => ({
-                ...value,
-                email:
-                  event.target.value
-              }))
-            }
-          />
-
-          <input
-            className="rounded-lg border px-3 py-2 text-sm"
             placeholder="Relationship to applicant"
-            value={
-              dependant.relationship
-            }
+            value={dependant.relationship}
             onChange={event =>
               setDependant(value => ({
                 ...value,
@@ -473,61 +440,7 @@ export default function MakeRequest() {
             }
           />
 
-          <select
-            className="rounded-lg border px-3 py-2 text-sm"
-            value={
-              dependant.travelStatus
-            }
-            onChange={event =>
-              setDependant(value => ({
-                ...value,
-                travelStatus:
-                  event.target.value
-              }))
-            }
-          >
-            <option value="arriving">
-              Arriving
-            </option>
-            <option value="join-to-follow">
-              Join to follow
-            </option>
-          </select>
-
-          <input
-            className="rounded-lg border px-3 py-2 text-sm"
-            placeholder="Ability / disability notes"
-            value={
-              dependant.disability
-            }
-            onChange={event =>
-              setDependant(value => ({
-                ...value,
-                disability:
-                  event.target.value
-              }))
-            }
-          />
-
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={
-                dependant.needsBooster
-              }
-              onChange={event =>
-                setDependant(value => ({
-                  ...value,
-                  needsBooster:
-                    event.target
-                      .checked
-                }))
-              }
-            />
-            Booster seat required
-          </label>
-
-          <label className="flex items-center gap-2 text-sm">
+          <label className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm">
             <input
               type="checkbox"
               checked={
@@ -537,12 +450,11 @@ export default function MakeRequest() {
                 setDependant(value => ({
                   ...value,
                   needsCarSeat:
-                    event.target
-                      .checked
+                    event.target.checked
                 }))
               }
             />
-            Car seat required
+            Child car seat required
           </label>
         </div>
 
