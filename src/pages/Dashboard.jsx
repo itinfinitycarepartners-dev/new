@@ -1,3 +1,6 @@
+
+
+
 // @ts-nocheck
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
@@ -151,6 +154,49 @@ const formatCountdown = (deadline, now = new Date()) => {
 };
 
 // ─── Stage → "what you need to do" guide ───────────────────────────────────
+const REQUIRED_STAGE_ACTIONS = {
+  "Mandatory Pre-Interview Coaching Call": { message: "Complete the mandatory coaching call 24–36 hours before your interview.", cta: "View Pipeline", icon: Phone, urgency: "high" },
+  "Introduction to Deployment Call": { message: "Attend your introduction to deployment call.", cta: "View Deployment", icon: Phone, urgency: "high" },
+  "Speciality Classes": { message: "Complete your assigned speciality classes.", cta: "View Deployment", icon: Book, urgency: "high" },
+  "Final Self Assessment": { message: "Complete your final self assessment.", cta: "View Deployment", icon: ClipboardList, urgency: "high" },
+  "Speciality w/Trainer Skills Check": { message: "Complete your speciality skills check with your trainer.", cta: "View Deployment", icon: CheckCircle2, urgency: "high" },
+  "Deployment Eligible / Not Eligible": { message: "Your deployment eligibility is being confirmed.", cta: "View Status", icon: CheckCircle2, urgency: "medium" },
+  "Deployment Pre-Arrival Call": { message: "Attend your deployment pre-arrival call.", cta: "View Deployment", icon: Phone, urgency: "high" },
+  "Housing / Transportation Call": { message: "Confirm housing and transportation arrangements.", cta: "View Deployment", icon: Home, urgency: "high" },
+  "Pre-Arrival Banking Call": { message: "Attend your pre-arrival banking call.", cta: "View Deployment", icon: Phone, urgency: "high" },
+  "Mandatory Petitioner / Employer Call": { message: "Attend the mandatory petitioner/employer call.", cta: "View Deployment", icon: Phone, urgency: "high" },
+  "deployMate Ready": { message: "Complete your deployMate readiness requirements.", cta: "View Deployment", icon: CheckCircle2, urgency: "high" },
+  "Welcome Packet": { message: "Review and acknowledge your welcome packet.", cta: "View Packet", icon: FileText, urgency: "high" },
+  "Expense Report": { message: "Complete and submit your expense report.", cta: "Submit Report", icon: Receipt, urgency: "high" },
+  "Arrived": { message: "Your arrival is confirmed. Your Aftercare journey is next.", cta: "View Pipeline", icon: Plane, urgency: "medium" },
+  "Concierge Debrief": { message: "This step is completed by an ICP administrator. No candidate action is required.", cta: "View Status", icon: Clock, urgency: "low" },
+  "Request for further evidence": { message: "If an RFE is active, follow the immigration team's evidence instructions. This step closes when the immigration stage becomes Approved.", cta: "View Immigration", icon: FileText, urgency: "high" },
+  "Visa bill issued": { message: "Your visa fee bill is ready to be paid. Review the immigration instructions for the next step.", cta: "View Immigration", icon: Receipt, urgency: "high" },
+  "Visa bill paid": { message: "The visa fee is paid. Prepare your DS-260 and civil documents for submission.", cta: "View Immigration", icon: FileText, urgency: "high" },
+  "DS-260 / Civil Document Submission": { message: "Complete and submit the DS-260 and required civil documents to NVC.", cta: "View Immigration", icon: FileText, urgency: "high" },
+  "Final Self Assessment": { message: "Complete your final ICP self assessment.", cta: "View Deployment", icon: ClipboardList, urgency: "high" },
+  "Deployment Eligible / Not Eligible": { message: "Your deployment eligibility is being confirmed. Eligible must be selected before this step completes.", cta: "View Status", icon: CheckCircle2, urgency: "medium" },
+  "Deployment Pre-Arrival Call": { message: "Attend your Nurse Deployment Call.", cta: "View Deployment", icon: Phone, urgency: "high" },
+  "Housing / Transportation Call": { message: "Attend and complete the housing/transportation call.", cta: "View Deployment", icon: Home, urgency: "high" },
+  "Mandatory Petitioner / Employer Call": { message: "Attend the mandatory petitioner/employer arrival call.", cta: "View Deployment", icon: Phone, urgency: "high" },
+  "Arrived": { message: "Your Final Destination Arrival date will complete this stage and unlock Aftercare when that time is reached.", cta: "View Deployment", icon: Plane, urgency: "medium" },
+
+};
+
+const getDashboardVisibleStages = (stages = [], applicationStatus = "") => {
+  const normalized = String(applicationStatus || "").trim().toLowerCase();
+  const complete = name => stages.some(stage => stage?.stage_name === name && (stage?.status === "Completed" || stage?.completed === true || stage?.is_completed === true || stage?.completed_date));
+  const progressed = stages.some(stage => ["Transfer to ICP USRN School","Select Prescreen Time","Prescreen Scheduled","Prescreen Completed","Client Documents & Video Provided","Pending Interview Selection","Mandatory Pre-Interview Coaching Call","Interview Scheduled","Interview Attended","Offer Made","Offer Accepted","Offer Declined","Employment Contract Sent","Employment Contract Signed","Documents Received","Hired"].includes(stage?.stage_name) && (stage?.status === "Completed" || stage?.status === "In Progress" || stage?.completed === true || stage?.completed_date));
+  const accepted = normalized === "offer accepted" || (normalized !== "offer declined" && complete("Offer Accepted"));
+  const declined = normalized === "offer declined" || (normalized !== "offer accepted" && complete("Offer Declined"));
+  return stages.filter(stage => {
+    if (progressed && ["Qualified Candidate Pool","Not Qualified - to close"].includes(stage?.stage_name)) return false;
+    if (accepted && stage?.stage_name === "Offer Declined") return false;
+    if (declined && stage?.stage_name === "Offer Accepted") return false;
+    return true;
+  });
+};
+
 const STAGE_ACTION_GUIDE = {
   // Hiring Stages
   "Select Prescreen Time": {
@@ -895,13 +941,78 @@ export default function Dashboard() {
     summary?.pipeline ||
     {};
 
-  const activeStage =
+  const visiblePipelineStages = getDashboardVisibleStages(
+    Array.isArray(pipeline.stages) ? pipeline.stages : [],
+    pipeline.applicationStatus || pipeline.application_status || pipeline.hiringState?.applicationStatus || ""
+  );
+
+  const hiddenStageNames = new Set(
+    (Array.isArray(pipeline.stages) ? pipeline.stages : [])
+      .filter(stage => !visiblePipelineStages.some(item => item?.stage_name === stage?.stage_name))
+      .map(stage => stage?.stage_name)
+  );
+
+  const rawActiveStage =
     pipeline.currentStage ||
     null;
 
-  const pendingNextStage =
+  const rawPendingNextStage =
     pipeline.nextStage ||
     null;
+
+  const progressedPastQualification = (() => {
+    const stages = visiblePipelineStages;
+    const markerNames = new Set([
+      "Transfer to ICP USRN School",
+      "Select Prescreen Time",
+      "Prescreen Scheduled",
+      "Prescreen Completed",
+      "Client Documents & Video Provided",
+      "Pending Interview Selection",
+      "Mandatory Pre-Interview Coaching Call",
+      "Interview Scheduled",
+      "Interview Attended",
+      "Offer Made",
+      "Offer Accepted",
+      "Employment Contract Sent",
+      "Employment Contract Signed",
+      "Documents Received",
+      "Hired"
+    ]);
+    return stages.some(stage => {
+      if (!markerNames.has(stage?.stage_name)) return false;
+      const status = String(stage?.status || "").toLowerCase();
+      return status === "completed" || status === "complete" || status === "in progress" ||
+        stage?.completed === true || Boolean(stage?.completed_date);
+    });
+  })();
+
+  const obsoleteQualificationStage = stage =>
+    !stage ||
+    hiddenStageNames.has(stage?.stage_name) ||
+    (progressedPastQualification && ["Qualified Candidate Pool", "Not Qualified - to close"].includes(stage?.stage_name));
+
+  const activeStage =
+    obsoleteQualificationStage(rawActiveStage)
+      ? (visiblePipelineStages.length
+          ? visiblePipelineStages.find(stage => {
+              const status = String(stage?.status || "").toLowerCase();
+              return !obsoleteQualificationStage(stage) &&
+                (status === "in progress" || (!stage?.completed && status !== "completed"));
+            })
+          : null)
+      : rawActiveStage;
+
+  const pendingNextStage =
+    obsoleteQualificationStage(rawPendingNextStage)
+      ? (visiblePipelineStages.length
+          ? visiblePipelineStages.find(stage =>
+              !obsoleteQualificationStage(stage) &&
+              Number(stage?.stage_order || 0) > Number(activeStage?.stage_order || 0) &&
+              String(stage?.status || "").toLowerCase() !== "completed"
+            )
+          : null)
+      : rawPendingNextStage;
 
   const activeTimer =
     pipeline.timer ||

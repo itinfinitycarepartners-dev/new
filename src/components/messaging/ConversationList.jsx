@@ -30,7 +30,7 @@ export default function ConversationList({
   const [newMessageContent, setNewMessageContent] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
   const [sendingReply, setSendingReply] = useState(false);
-  const [activeConversationTab, setActiveConversationTab] = useState("admin");
+  const [activeConversationTab, setActiveConversationTab] = useState("all");
   const [showStartChat, setShowStartChat] = useState(false);
   const [newRecipientEmail, setNewRecipientEmail] = useState("");
   const [startingChat, setStartingChat] = useState(false);
@@ -174,6 +174,28 @@ export default function ConversationList({
     return () => { isMounted = false; };
   }, []);
 
+
+  useEffect(() => {
+    const handleMessagingUpdated = async (event) => {
+      try {
+        const response = await messaging.getConversations();
+        if (response.success) {
+          const convs = response.conversations || [];
+          setConversations(convs);
+          setUnreadCount(convs.reduce((sum, item) => sum + (item.unreadCount || 0), 0));
+          // Keep the full conversation list visible after a broadcast.
+          if (event?.detail?.type === "broadcast") {
+            setActiveConversationTab("all");
+          }
+        }
+      } catch (error) {
+        console.error("Refresh conversations error:", error);
+      }
+    };
+    window.addEventListener("messaging-updated", handleMessagingUpdated);
+    return () => window.removeEventListener("messaging-updated", handleMessagingUpdated);
+  }, []);
+
   useEffect(() => {
     if (selectedId) {
       setMessages([]);
@@ -231,9 +253,15 @@ const sendMessage = useCallback(async () => {
   try {
     // Check if this is a direct message to admin or another user
     const conversation = conversations.find(c => c._id === selectedId);
-    const isAdminConversation = conversation?.participants?.some(
-      p => p.includes('admin@')
-    );
+    const isAdminConversation =
+      conversation?.participants?.some(
+        participant =>
+          participant ===
+            "admin" ||
+          participant.includes(
+            "admin@"
+          )
+      );
 
     // For direct admin messages, use the admin send endpoint
     const response = await messaging.sendMessage(selectedId, newMessageContent, isAdminConversation ? 'direct' : 'text');
@@ -293,15 +321,18 @@ const sendMessage = useCallback(async () => {
   };
 
   const isBroadcastConversation = (conversation) =>
-    conversation?.type === "broadcast" ||
+    conversation?.type === "broadcast" || conversation?.broadcast === true ||
     conversation?.groupName?.toLowerCase().includes("broadcast") ||
     conversation?.groupName?.toLowerCase().includes("announcement");
 
-  const visibleConversations = conversations.filter(conversation =>
-    activeConversationTab === "broadcast"
-      ? isBroadcastConversation(conversation)
-      : !isBroadcastConversation(conversation)
-  );
+  // Candidates must be able to see:
+  // - broadcasts they sent,
+  // - admin broadcasts they received,
+  // - individual admin messages.
+  // The previous code defaulted to an "admin" tab but rendered no tab controls,
+  // which silently hid every broadcast conversation.
+  const visibleConversations =
+    conversations;
 
   const toggleThread = (messageId) => {
     setExpandedThreads(prev => {
@@ -336,10 +367,23 @@ const sendMessage = useCallback(async () => {
     const handleNewMessage = (message) => {
       const currentUserEmail = getCurrentUserEmail();
       const isOwn = message.senderEmail === currentUserEmail;
-      const isCurrentlyViewed = selectedId && message.conversationId === selectedId;
+      const incomingConversationId =
+        message.broadcast === true
+          ? "community"
+          : message.conversationId;
+
+      const isCurrentlyViewed =
+        selectedId &&
+        incomingConversationId ===
+          selectedId;
 
       setConversations(prev => {
-        const conversationExists = prev.some((conv) => conv._id === message.conversationId);
+        const conversationExists =
+          prev.some(
+            conv =>
+              conv._id ===
+              incomingConversationId
+          );
         
         // If Admin initiates a BRAND NEW conversation, dynamically fetch it
         if (!conversationExists) {
@@ -354,7 +398,10 @@ const sendMessage = useCallback(async () => {
         }
 
         const updated = prev.map((conv) => {
-          if (conv._id === message.conversationId) {
+          if (
+            conv._id ===
+            incomingConversationId
+          ) {
             return {
               ...conv,
               lastMessage: message,
@@ -416,9 +463,33 @@ const sendMessage = useCallback(async () => {
   }, [selectedId, getCurrentUserEmail]); 
 
   const getConversationName = (conversation) => {
+    if (
+      conversation._id ===
+        "community" ||
+      conversation.type ===
+        "community"
+    ) {
+      return "Community Messages";
+    }
+
+    if (
+      conversation._id ===
+      "admin-direct"
+    ) {
+      return "Admin Messages";
+    }
+
+    if (conversation.type === 'broadcast') return "Community Messages";
     if (conversation.type === 'group') return conversation.groupName || 'Group Chat';
     const currentUserEmail = getCurrentUserEmail();
-    const otherUser = conversation.participants?.find((email) => email !== currentUserEmail);
+    const otherUser =
+      conversation.participants?.find(
+        email =>
+          email !==
+            currentUserEmail &&
+          email !==
+            "admin"
+      );
     return conversation.participantNames?.[otherUser || ''] || otherUser?.split('@')[0] || 'Unknown';
   };
 
@@ -448,29 +519,72 @@ const sendMessage = useCallback(async () => {
     const maxDepth = 3;
     const displayName = getSenderDisplayName(message);
 
-    const isBroadcast = message.messageType === 'broadcast' || 
+    const isBroadcast = message.messageType === 'broadcast' || message.broadcast === true ||
                         message.senderEmail === 'admin' || 
                         message.senderEmail === 'system';
 
-    if (isBroadcast) {
+    if (
+      isBroadcast ||
+      selectedConversation?._id ===
+        "community"
+    ) {
+      const senderName =
+        message.senderEmail ===
+          "admin"
+          ? "Admin"
+          : (
+              message.senderName ||
+              getSenderDisplayName(
+                message
+              ) ||
+              "User"
+            );
+
+      const initials =
+        String(
+          senderName ||
+          "U"
+        )
+          .trim()
+          .split(/\s+/)
+          .map(part =>
+            part[0]
+          )
+          .join("")
+          .slice(0, 2)
+          .toUpperCase();
+
       return (
-        <div key={message._id} className="my-4">
-          <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-2xl p-4 shadow-sm">
-            <div className="flex items-start gap-3">
-              <div className="flex-shrink-0">
-                <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center text-white text-sm font-bold">📢</div>
+        <article
+          key={message._id}
+          className="border-b border-slate-200 bg-white px-4 py-4 transition-colors hover:bg-slate-50/70"
+        >
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-purple-600 text-sm font-bold text-white">
+              {initials}
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="font-semibold text-slate-900">
+                  {senderName}
+                </span>
+                <span className="text-slate-400">
+                  ·
+                </span>
+                <span className="text-sm text-slate-500">
+                  {getTimeAgo(
+                    message.createdAt
+                  )}
+                </span>
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold text-purple-700">Admin Announcement</span>
-                  <span className="text-xs text-slate-400">·</span>
-                  <span className="text-xs text-slate-400">{getTimeAgo(message.createdAt)}</span>
-                </div>
-                <p className="text-slate-800 mt-1 whitespace-pre-wrap break-words">{message.content}</p>
-              </div>
+
+              <p className="mt-1 whitespace-pre-wrap break-words text-[15px] leading-6 text-slate-800">
+                {message.content}
+              </p>
             </div>
           </div>
-        </div>
+        </article>
       );
     }
 
@@ -577,7 +691,9 @@ const sendMessage = useCallback(async () => {
                 const preview = getLastMessagePreview(conversation);
                 const timeAgo = getTimeAgo(conversation.lastMessageAt);
                 const isUnread = (conversation.unreadCount || 0) > 0;
-                const isBroadcast = conversation.type === 'broadcast' || conversation.groupName?.includes('Announcements');
+                const isBroadcast =
+                  conversation._id ===
+                    "community";
                 const isSelected = selectedId === conversation._id;
 
                 return (
@@ -595,7 +711,9 @@ const sendMessage = useCallback(async () => {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <span className={`font-medium ${isUnread ? 'text-slate-900' : 'text-slate-600'}`}>
-                          {isBroadcast ? '📢 Community Announcements' : name}
+                          {isBroadcast
+                            ? "Community Messages"
+                            : "Admin Messages"}
                         </span>
                         <span className="text-xs text-slate-400">{timeAgo}</span>
                       </div>
@@ -617,13 +735,21 @@ const sendMessage = useCallback(async () => {
               <div className="p-4 border-b border-slate-200 bg-white flex-shrink-0">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-semibold text-lg">
-                    {selectedConversation?.type === 'broadcast' ? '📢' : getConversationName(selectedConversation || {}).charAt(0).toUpperCase()}
+                    {selectedConversation?._id === "community"
+                      ? "🌐"
+                      : "A"}
                   </div>
                   <div>
                     <h2 className="font-semibold text-slate-800">
-                      {selectedConversation?.type === 'broadcast' ? '📢 Community Announcements' : getConversationName(selectedConversation || {})}
+                      {selectedConversation?._id === "community"
+                        ? "Community Messages"
+                        : "Admin Messages"}
                     </h2>
-                    <p className="text-xs text-slate-400">{selectedConversation?.participants?.length || 0} participants</p>
+                    <p className="text-xs text-slate-400">
+                      {selectedConversation?._id === "community"
+                        ? "Shared candidate community"
+                        : "Direct messages from Admin"}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -643,11 +769,7 @@ const sendMessage = useCallback(async () => {
                 <div ref={messagesEndRef} className="h-1" />
               </div>
 
-              {(
-                selectedConversation?.type === "broadcast"
-                  ? allowBroadcastMessaging
-                  : allowDirectMessaging
-              ) ? (
+              {false ? (
                 <div className="p-4 border-t border-slate-200 bg-white flex-shrink-0">
                   <div className="flex items-center gap-2">
                     <input
@@ -690,9 +812,9 @@ const sendMessage = useCallback(async () => {
                 </div>
               ) : (
                 <div className="border-t border-slate-200 bg-white p-4 text-center text-sm text-slate-500">
-                  {selectedConversation?.type === "broadcast"
-                    ? "Use the New Broadcast button to send a message to all users."
-                    : "Direct replies are not available for user accounts."}
+                  {selectedConversation?._id === "community"
+                    ? "Use New Community Message above to post to the community."
+                    : "Admin Messages are read-only for candidate accounts."}
                 </div>
               )}
             </>

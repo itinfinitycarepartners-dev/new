@@ -1,3 +1,7 @@
+
+
+
+
 // @ts-nocheck
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/AuthContext";
@@ -294,6 +298,7 @@ const STAGES_CONFIG = [
   { id: 9, stage_name: "Prescreen Completed", stage_category: "Hiring", stage_order: 9, hours_from_start: 72 },
   { id: 10, stage_name: "Client Documents & Video Provided", stage_category: "Hiring", stage_order: 10, hours_from_start: 72 },
   { id: 11, stage_name: "Pending Interview Selection", stage_category: "Hiring", stage_order: 11, hours_from_start: 96 },
+  { id: "11b", stage_name: "Mandatory Pre-Interview Coaching Call", stage_category: "Hiring", stage_order: 11.5, hours_from_start: 96, candidate_notice: "Mandatory coaching call must be completed 24–36 hours before the interview." },
   { id: 12, stage_name: "Interview Scheduled", stage_category: "Hiring", stage_order: 12, hours_from_start: 96 },
   { id: 13, stage_name: "Interview Attended", stage_category: "Hiring", stage_order: 13, days_from_start: 7 },
   { id: 14, stage_name: "Offer Made", stage_category: "Hiring", stage_order: 14, days_from_start: 8 },
@@ -304,38 +309,34 @@ const STAGES_CONFIG = [
   { id: 19, stage_name: "Documents Received", stage_category: "Hiring", stage_order: 19, days_from_start: 15 },
   { id: 20, stage_name: "Hired", stage_category: "Hiring", stage_order: 20, days_from_start: 15 },
 
-  // Immigration — exact approved order and labels.
-  { id: 21, stage_name: "I 140 Submitted for Immigration", stage_category: "Immigration", stage_order: 21, days_from_start: 30 },
-  { id: 22, stage_name: "Immigration Pathway Discovery Call", stage_category: "Immigration", stage_order: 22, days_from_start: 45 },
-  { id: 23, stage_name: "Foundations: Pillars", stage_category: "Immigration", stage_order: 23, days_from_start: 180 },
-  { id: 24, stage_name: "Foundations: Endorsement Discovery", stage_category: "Immigration", stage_order: 24, days_from_start: 300 },
-  { id: 25, stage_name: "I140 Approved", stage_category: "Immigration", stage_order: 25, days_from_start: 360 },
-  { id: 26, stage_name: "I140 Sent to NVC", stage_category: "Immigration", stage_order: 26, days_from_start: 390 },
-  { id: 27, stage_name: "I140 NVC Received", stage_category: "Immigration", stage_order: 27, days_from_start: 420 },
-  { id: 28, stage_name: "Visa Fee Bill", stage_category: "Immigration", stage_order: 28, days_from_start: 450 },
-  { id: 29, stage_name: "DS-260 / Civil Document Submission", stage_category: "Immigration", stage_order: 29, days_from_start: 480 },
-  { id: 30, stage_name: "Foundations: Cultural Readiness", stage_category: "Immigration", stage_order: 30, days_from_start: 720 },
-  { id: 31, stage_name: "Deployment Department Transition Call", stage_category: "Immigration", stage_order: 31, days_from_start: 810 },
-  { id: 32, stage_name: "Documentarily Qualified", stage_category: "Immigration", stage_order: 32, days_from_start: 840 },
+  // Immigration — CRM-driven flow.
+  { id: 21, stage_name: "Immigration forms submitted", stage_category: "Immigration", stage_order: 21, days_from_start: 30 },
+  { id: 22, stage_name: "Request for further evidence", stage_category: "Immigration", stage_order: 22, days_from_start: 90, conditional_rfe: true },
+  { id: 23, stage_name: "Foundations: Pillars", stage_category: "Immigration", stage_order: 23, days_from_start: 120 },
+  { id: 24, stage_name: "Foundations: Endorsement Discovery", stage_category: "Immigration", stage_order: 24, days_from_start: 150 },
+  { id: 25, stage_name: "Immigration approved", stage_category: "Immigration", stage_order: 25, days_from_start: 180 },
+  { id: 26, stage_name: "Visa bill issued", stage_category: "Immigration", stage_order: 26, days_from_start: 360 },
+  { id: 27, stage_name: "Visa bill paid", stage_category: "Immigration", stage_order: 27, days_from_start: 390 },
+  { id: 28, stage_name: "DS-260 / Civil Document Submission", stage_category: "Immigration", stage_order: 28, days_from_start: 480 },
+  { id: 29, stage_name: "Foundations: Cultural Readiness", stage_category: "Immigration", stage_order: 29, days_from_start: 600 },
+  { id: 30, stage_name: "Documentarily Qualified", stage_category: "Immigration", stage_order: 30, days_from_start: 840 },
+  // These remain visible last as immigration information/actions but do not block progress.
+  { id: 31, stage_name: "Add/Remove Dependents", stage_category: "Immigration", stage_order: 31, non_counted_section: true, conditional_section: true },
+  { id: 32, stage_name: "Change Embassy Location", stage_category: "Immigration", stage_order: 32, non_counted_section: true, conditional_section: true },
 
-  // Deployment — unchanged labels, shifted after the new Immigration flow.
-  { id: 33, stage_name: "Introduction to Deployment", stage_category: "Deployment", stage_order: 33, days_from_start: 900 },
-  { id: 34, stage_name: "Eligibility Documents", stage_category: "Deployment", stage_order: 34, days_from_start: 930 },
-  { id: 35, stage_name: "Current Priority Date", stage_category: "Deployment", stage_order: 35, days_from_start: 930 }, 
-  { id: 36, stage_name: "Scheduled Embassy Interview Date", stage_category: "Deployment", stage_order: 36, days_from_start: 930 }, 
-  { id: 37, stage_name: "Scheduled Arrival Date", stage_category: "Deployment", stage_order: 37, days_from_start: 930 }, 
-  { id: 37, stage_name: "Scheduled Medical Exam", stage_category: "Deployment", stage_order: 37, days_from_start: 930 },
-  { id: 37, stage_name: "Live Academic Skills Check", stage_category: "Deployment", stage_order: 37, days_from_start: 930 },
-  { id: 37, stage_name: "Visa Approved", stage_category: "Deployment", stage_order: 37, days_from_start: 930 },
-  { id: 38, stage_name: "Housing & Transportation Call", stage_category: "Deployment", stage_order: 38, days_from_start: 990 },
-  { id: 39, stage_name: "Advancial Banking Call", stage_category: "Deployment", stage_order: 39, days_from_start: 999 },
-  { id: 39, stage_name: "Deployment Call", stage_category: "Deployment", stage_order: 39, days_from_start: 1000 },
-  { id: 39, stage_name: "Final Skills Assessment", stage_category: "Deployment", stage_order: 39, days_from_start: 1000 },
-  { id: 40, stage_name: "Flights", stage_category: "Deployment", stage_order: 40, days_from_start: 1015 },
-  { id: 41, stage_name: "Client Pre-Arrival Call", stage_category: "Deployment", stage_order: 41, days_from_start: 1020 },
-  { id: 41, stage_name: "U.S. Welcome Itinerary ", stage_category: "Deployment", stage_order: 41, days_from_start: 1020 },
-  { id: 42, stage_name: "Concierge Introduction", stage_category: "Deployment", stage_order: 42, days_from_start: 1025 },
-  { id: 43, stage_name: "Arrival", stage_category: "Deployment", stage_order: 43, days_from_start: 1035 },
+  // Deployment — CRM-driven flow.
+  { id: 33, stage_name: "Speciality Classes", stage_category: "Deployment", stage_order: 33, days_from_start: 900 },
+  { id: 34, stage_name: "Final Self Assessment", stage_category: "Deployment", stage_order: 34, days_from_start: 910 },
+  { id: 35, stage_name: "Speciality w/Trainer Skills Check", stage_category: "Deployment", stage_order: 35, days_from_start: 920 },
+  { id: 36, stage_name: "Deployment Eligible / Not Eligible", stage_category: "Deployment", stage_order: 36, days_from_start: 930 },
+  { id: 37, stage_name: "Deployment Pre-Arrival Call", stage_category: "Deployment", stage_order: 37, days_from_start: 940 },
+  { id: 38, stage_name: "Housing / Transportation Call", stage_category: "Deployment", stage_order: 38, days_from_start: 950 },
+  { id: 39, stage_name: "Pre-Arrival Banking Call", stage_category: "Deployment", stage_order: 39, days_from_start: 960 },
+  { id: 40, stage_name: "Mandatory Petitioner / Employer Call", stage_category: "Deployment", stage_order: 40, days_from_start: 970 },
+  { id: 41, stage_name: "deployMate Ready", stage_category: "Deployment", stage_order: 41, days_from_start: 980 },
+  { id: 42, stage_name: "Welcome Packet", stage_category: "Deployment", stage_order: 42, days_from_start: 990 },
+  { id: 43, stage_name: "Expense Report", stage_category: "Deployment", stage_order: 43, days_from_start: 1000 },
+  { id: 44, stage_name: "Arrived", stage_category: "Deployment", stage_order: 44, days_from_start: 1010 },
 
   // Hidden compatibility stages preserve old triggers/forms/history.
   { id: "legacy-imm-1", stage_name: "Foundations (Phases 1–3)", stage_category: "Immigration", stage_order: 1001, hidden_from_main_flow: true, non_counted_section: true },
@@ -371,7 +372,7 @@ const STAGES_CONFIG = [
   // Aftercare stages — all timing is anchored to Flight_Arrival_Time.
   { id: 51, stage_name: "24 Hour Call", stage_category: "Aftercare", stage_order: 51, days_from_arrival: 1 },
   { id: 52, stage_name: "Relocation Survey", stage_category: "Aftercare", stage_order: 52, days_from_arrival: 2 },
-  { id: 53, stage_name: "Concierge Debrief", stage_category: "Aftercare", stage_order: 53, days_from_arrival: 3 },
+  { id: 53, stage_name: "Concierge Debrief", stage_category: "Aftercare", stage_order: 53, days_from_arrival: 3, admin_only_completion: true, candidate_read_only: true, hidden_from_main_flow: true, internal_only: true, non_counted_section: true },
   { id: 54, stage_name: "7 Day Call", stage_category: "Aftercare", stage_order: 54, days_from_arrival: 7 },
   { id: 55, stage_name: "2 Week Call", stage_category: "Aftercare", stage_order: 55, days_from_arrival: 14 },
   { id: 56, stage_name: "30 Day Survey", stage_category: "Aftercare", stage_order: 56, days_from_arrival: 30 },
@@ -379,6 +380,23 @@ const STAGES_CONFIG = [
   { id: 58, stage_name: "1 Year Survey", stage_category: "Aftercare", stage_order: 58, days_from_arrival: 365 },
 
 ];
+
+const REQUIRED_STAGE_NOTICES = {
+  "Mandatory Pre-Interview Coaching Call": "Complete the mandatory coaching call 24–36 hours before your interview.",
+  "Introduction to Deployment Call": "Attend your introduction to deployment call.",
+  "Speciality Classes": "Complete your assigned speciality classes.",
+  "Final Self Assessment": "Complete your final self assessment.",
+  "Speciality w/Trainer Skills Check": "Complete the speciality skills check with your trainer.",
+  "Deployment Eligible / Not Eligible": "Your deployment eligibility is being confirmed.",
+  "Deployment Pre-Arrival Call": "Attend your deployment pre-arrival call.",
+  "Housing / Transportation Call": "Attend the housing and transportation call and confirm your arrangements.",
+  "Pre-Arrival Banking Call": "Attend the pre-arrival banking call.",
+  "Mandatory Petitioner / Employer Call": "Attend the mandatory petitioner/employer call.",
+  "deployMate Ready": "Complete the deployMate readiness requirements.",
+  "Welcome Packet": "Review and acknowledge your welcome packet.",
+  "Expense Report": "Complete and submit your expense report.",
+  "Arrived": "Arrival confirmed. Continue to Aftercare."
+};
 
 // Use the CURRENT pipeline configuration as the authoritative visible order.
 // Older saved pipelinestages rows can contain obsolete stage_order values.
@@ -457,16 +475,13 @@ const sortStagesByConfiguredOrder =
 
 
 const FLOW_STAGE_ALIASES = {
-  "I 140 Submitted for Immigration": { sources: ["Submitted for Immigration"], mode: "any" },
-  "Immigration Pathway Discovery Call": { sources: ["Immigration Call"], mode: "any" },
-  "Foundations: Pillars": { sources: ["Foundations: Pillars 1–5", "Foundations (Phases 1–3)"], mode: "any" },
-  "Foundations: Endorsement Discovery": { sources: ["License Endorsement", "Licensure (General) & Live English Assessment"], mode: "any" },
-  "I140 Approved": { sources: ["I-140 Filed Date/Approved Date/ Priority Date", "I-140 Petition"], mode: "any" },
-  "Visa Fee Bill": { sources: ["NVC Fee Bill"], mode: "any" },
-  "DS-260 / Civil Document Submission": { sources: ["DS-260"], mode: "any" },
-  "Foundations: Cultural Readiness": { sources: ["Cultural Adaptation & Integration"], mode: "any" },
-  "Deployment Department Transition Call": { sources: ["Deployment & Skills Checklist"], mode: "any" },
-  "Documentarily Qualified": { sources: ["All Clear Date"], mode: "any" },
+  "Immigration forms submitted": { sources: ["I 140 Submitted for Immigration", "Submitted for Immigration"], mode: "any" },
+  "Request for further evidence": { sources: ["I140 Sent to NVC"], mode: "any" },
+  "Immigration approved": { sources: ["I140 Approved", "I-140 Petition", "I-140 Filed Date/Approved Date/ Priority Date"], mode: "any" },
+  "Visa bill issued": { sources: ["I140 NVC Received", "Visa Fee Bill"], mode: "any" },
+  "Visa bill paid": { sources: ["Visa Fee Bill"], mode: "any" },
+  "Visa application & Civil docs submitted": { sources: ["DS-260 / Civil Document Submission", "DS-260"], mode: "any" },
+  "Documentarily qualified": { sources: ["Documentarily Qualified", "All Clear Date"], mode: "any" },
   "Introduction to Deployment": { sources: ["Deployment & Skills Checklist"], mode: "any" },
   "Embassy Eligibility Status": { sources: ["Confirmation of Eligibility to Proceed"], mode: "any" },
   "Medical Exam": { sources: ["Schedule Medical Exam"], mode: "any" },
@@ -524,6 +539,9 @@ const applyVisibleFlowAliases = stagesToSync => {
   });
 };
 
+// Zoho Recruit Applications.Application_Status is the ONLY authoritative
+// Lead Management Status driving the Hiring pipeline. Candidates supplies
+// candidate/profile fields; CustomModule1 supplies NCLEX only.
 // Zoho Recruit Lead Management Status (API: Application_Status) -> portal stage.
 // The normalized map accepts spacing/hyphen variations from Recruit while keeping
 // the portal stage names aligned with the existing hiring pipeline.
@@ -1641,6 +1659,23 @@ const IMMIGRATION_CRM_CHECKLISTS = {
   "Foundations: Cultural Readiness": CULTURAL_ADAPTATION_ITEMS,
 };
 
+const PIPELINE_STAGE_COMMENTS = {
+  "Immigration forms submitted": "Your case has been submitted to the attorney's to be filed with USCIS. When the attorney has reviewed your case you'll receive access to your Envoy Global profile with instructions. Your case cannot be filed until you have completed all of the requested requirements.",
+  "Foundations: Pillars": "Foundations courses are a blend of policy, procedural, academic and cultural courses. Enrollment begins three months after your filed date. You will be enrolled in 1-3 15 minute courses per month.",
+  "Foundations: Endorsement Discovery": "The foundations courses in this section are specific to the U.S. license endorsement process. You will review the general endorsement process and procedures along with the documents, certifications and applications that are required to successfully and expediently endorse your RN license.",
+  "Immigration approved": "USCIS has approved your I-140 application.",
+  "Visa bill issued": "Infinity Care Partners will pay for your fee bill when your filing date is current, foundations courses up to this point have been completed and you have submitted a passing English exam score that meets your state board of nursing's requirements.",
+  "DS-260 / Civil Document Submission": "You have 30 days from the payment date of your fee bill to complete your DS-260 and submit any remaining civil documents to our team and the attorney's via your Envoy Global profile.",
+  "Foundations: Cultural Readiness": "These foundations courses provide critical cultural insight that will prepare you in your transition to the United States.",
+  "Documentarily Qualified": "The NVC has determined and marked your case complete and ready for embassy interview scheduling. You will begin your formal transition to the Deployment department at this stage.",
+  "Final Self Assessment": "The final skills assessment is a personal assessment of your nursing skills. You will indicate, using a numerical scale, a self-evaluation of your nursing skills for your employer's review.",
+  "Deployment Pre-Arrival Call": "The Deployment Call covers all things pre and post arrival. The call will begin with a brief video covering Deploymate, flights, concierge, arrival itinerary, reimbursements, client pre-arrival calls and much more.",
+  "Housing / Transportation Call": "You have learned about both U.S. housing and transportation during your foundations courses. You have also completed your housing form for the deployment department. On this call you will work with the ICP Housing Coordinator to review your housing form, confirm accuracy, begin your housing search and confirm your transportation plans.",
+  "Pre-Arrival Banking Call": "Our partners at Advancial offer pre-arrival banking services. On this call you will review Advancial's pre-arrival banking offer and all of your U.S. banking options.",
+  "Mandatory Petitioner / Employer Call": "You likely have not spoken with your employer since your original interview date. On this call, you will reconnect with your employer (ICP to facilitate) and have an exchange rekindling rapport and asking any questions you have specific to the transition to your facility (onboarding, orientation, scrubs, shifts, etc.) and about the employer themselves.",
+  "Arrived": "You have officially arrived in the United States!"
+};
+
 // CLICKABLE_STAGES - Define which stages are clickable
 const CLICKABLE_STAGES = {
   // Hiring stages
@@ -1657,19 +1692,45 @@ const CLICKABLE_STAGES = {
   "Documents Received": { clickable: false, type: "field", field: "Proof_of_NCLEX" },
   "Hired": { clickable: true, type: "upload", uploadType: "hired", destination: "recruit" },
 
-  // Visible Immigration / Deployment flow
-  "I 140 Submitted for Immigration": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
-  "Immigration Pathway Discovery Call": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+  // Current Immigration flow
+  "Immigration forms submitted": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+  "Request for further evidence": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
   "Foundations: Pillars": { clickable: true, type: "view", viewType: "foundationsPillars" },
   "Foundations: Endorsement Discovery": { clickable: true, type: "view", viewType: "endorsementDiscovery" },
-  "I140 Approved": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
-  "I140 Sent to NVC": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
-  "I140 NVC Received": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
-  "Visa Fee Bill": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
-  "DS-260 / Civil Document Submission": { clickable: true, type: "navigate", navigateTo: "/documents" },
+  "Immigration approved": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+  "Visa bill issued": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+  "Visa bill paid": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+  "DS-260 / Civil Document Submission": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
   "Foundations: Cultural Readiness": { clickable: true, type: "view", viewType: "culturalReadiness" },
-  "Deployment Department Transition Call": { clickable: true, type: "view", viewType: "deploymentTransition" },
   "Documentarily Qualified": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+  "Add/Remove Dependents": { clickable: true, type: "navigate", navigateTo: "/profile" },
+  "Change Embassy Location": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+
+  // Current Deployment flow
+  "Speciality Classes": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
+  "Final Self Assessment": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
+  "Speciality w/Trainer Skills Check": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
+  "Deployment Eligible / Not Eligible": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
+  "Deployment Pre-Arrival Call": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
+  "Housing / Transportation Call": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
+  "Pre-Arrival Banking Call": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
+  "Mandatory Petitioner / Employer Call": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
+  "deployMate Ready": { clickable: true, type: "view", viewType: "downloadApp" },
+  "Welcome Packet": { clickable: true, type: "view", viewType: "welcomePacket" },
+  "Expense Report": { clickable: true, type: "view", viewType: "reimbursement" },
+  "Arrived": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
+
+  // Current Aftercare links
+  "1 Year Survey": { clickable: true, type: "external", url: "https://survey.zohopublic.com/zs/kJCsR0" },
+
+  // Visible Immigration / Deployment flow
+  "Immigration forms submitted": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+  "Request for further evidence": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+  "Immigration approved": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+  "Visa bill issued": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+  "Visa bill paid": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+  "Visa application & Civil docs submitted": { clickable: true, type: "navigate", navigateTo: "/documents" },
+  "Documentarily qualified": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
   "Introduction to Deployment": { clickable: true, type: "view", viewType: "introductionDeployment" },
   "Embassy Eligibility Status": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
   "Medical Exam": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
@@ -2188,11 +2249,11 @@ const isStageUnlocked = (stage, allStages) => {
   }
 
   if (stage.stage_category === "Aftercare") {
+    const gateValue = stage.aftercare_gate_date || stage.aftercareGateDate || null;
+    const gateDate = gateValue ? new Date(gateValue) : null;
+    const gateDateReached = gateDate && !Number.isNaN(gateDate.getTime()) && gateDate.getTime() <= Date.now();
     const aftercareGateOpen =
-      stage.aftercare_unlocked === true ||
-      stage.aftercare_locked === false ||
-      Boolean(stage.aftercare_gate_date) ||
-      Boolean(stage.aftercareGateDate);
+      (stage.aftercare_unlocked === true || stage.aftercare_locked === false) && gateDateReached;
 
     if (!aftercareGateOpen) return false;
 
@@ -4104,142 +4165,102 @@ const hasFlowValue = value => {
   return !["", "—", "-", "none", "null", "undefined", "not available", "n/a"].includes(normalized);
 };
 
-const DEPLOYMENT_CRM_STAGE_RULES = {
-  "I 140 Submitted for Immigration": { label: "I 140 Submitted for Immigration", field: "Added_to_Weekly_I140_Candidates", complete: value => hasFlowValue(value) },
-  "Immigration Pathway Discovery Call": { label: "Immigration Pathway Discovery Call", field: "Immigration_Pathway_Discovery_Call", complete: value => isCRMChecklistComplete(value) },
-  "I140 Approved": { label: "I140 Approved", fields: ["Approval_Date", "i140"], complete: value => hasFlowValue(value?.Approval_Date) || String(value?.i140 || "").trim().toLowerCase().includes("approved") },
-  "I140 Sent to NVC": { label: "I140 Sent to NVC", fields: ["i140", "NVC_DS_260_Status"], complete: value => { const s=String(value?.i140||"").trim().toLowerCase(); return s.includes("sent to nvc") || (s.includes("nvc")&&s.includes("sent")); } },
-  "I140 NVC Received": { label: "I140 NVC Received", fields: ["i140", "NVC_DS_260_Status"], complete: value => { const a=String(value?.i140||"").trim().toLowerCase(); const n=String(value?.NVC_DS_260_Status||"").trim().toLowerCase(); return (a.includes("nvc")&&a.includes("received")) || n.includes("received"); } },
-  "Visa Fee Bill": { label: "Visa Fee Bill", fields: ["Visa_Fee_Status","Visa_Fee_Bill","NVC_Visa_Fee_Status","Visa_Fee"], complete: value => Object.values(value||{}).filter(hasFlowValue).some(v=>String(v).trim().toLowerCase().includes("paid")) },
-  "DS-260 / Civil Document Submission": { label: "DS-260 / Civil Document Submission", fields: ["NVC_DS_260_Status","DS_260_Status","DS260_Status"], complete: value => Object.values(value||{}).filter(hasFlowValue).some(v=>["submitted","complete","completed","documentarily qualified","dq"].some(x=>String(v).trim().toLowerCase().includes(x))) },
-  "Documentarily Qualified": { label: "Documentarily Qualified", field: "All_Clear_Documentary_Complete", complete: value => hasAllClearSelection(value) },
+const isCurrentOrPastDate = value => {
+  if (!value || String(value).trim() === "—") return false;
+  const date = new Date(value);
+  return !Number.isNaN(date.getTime()) && date.getTime() <= Date.now();
+};
 
-  "English Complete": {
-    label: "English Complete",
-    fields: [
-      "IELTS_Complete",
-      "IELTS_Scheduled_Exam_Date_if_applicable"
-    ],
-    fieldLabels: {
-      IELTS_Complete: "English Exam Type",
-      IELTS_Scheduled_Exam_Date_if_applicable:
-        "English Expiration Date"
-    },
-    complete: value =>
-      Boolean(
-        value?.IELTS_Complete &&
-        String(value.IELTS_Complete).trim() !== "—"
-      ) &&
-      Boolean(
-        value?.IELTS_Scheduled_Exam_Date_if_applicable &&
-        String(
-          value.IELTS_Scheduled_Exam_Date_if_applicable
-        ).trim() !== "—"
-      )
+const selectedValues = value => {
+  if (Array.isArray(value)) return value.map(item => String(item?.value ?? item?.name ?? item).trim().toLowerCase());
+  if (value && typeof value === "object") {
+    const v = value.value ?? value.name ?? value.display_value;
+    return v === undefined ? [] : [String(v).trim().toLowerCase()];
+  }
+  return String(value ?? "").split(/[;,|]/).map(item => item.trim().toLowerCase()).filter(Boolean);
+};
+
+const DEPLOYMENT_CRM_STAGE_RULES = {
+  "Immigration forms submitted": {
+    label: "Submitted to Immigration",
+    field: "Added_to_Weekly_I140_Candidates",
+    complete: value => Boolean(value) && !Number.isNaN(new Date(value).getTime())
   },
-  "Post-Embassy Interview Update": {
-    label: "Visa Status",
-    field: "Visa_Status",
-    complete: value =>
-      Boolean(value && String(value).trim() !== "—")
+  "Request for further evidence": {
+    label: "Immigration Stage",
+    field: "i140",
+    complete: value => String(value || "").trim().toLowerCase() === "approved",
+    inProgress: value => ["rfe", "rfe (request for evidence)", "request for evidence", "request for further evidence"].includes(String(value || "").trim().toLowerCase())
   },
-  "Confirmation of Eligibility to Proceed": {
+  "Immigration approved": {
+    label: "I-140 Approval Date",
+    field: "Approval_Date",
+    complete: value => Boolean(value) && !Number.isNaN(new Date(value).getTime())
+  },
+  "Visa bill issued": {
+    label: "Visa Fee Bill Stage",
+    field: "Visa_Fee_Bill",
+    complete: value => ["received - ready to be paid", "paid"].includes(String(value || "").trim().toLowerCase())
+  },
+  "Visa bill paid": {
+    label: "Visa Fee Bill Stage",
+    field: "Visa_Fee_Bill",
+    complete: value => String(value || "").trim().toLowerCase() === "paid"
+  },
+  "DS-260 / Civil Document Submission": {
+    label: "DS260 Stage",
+    field: "DS260_STATUS",
+    complete: value => String(value || "").trim().toLowerCase() === "submitted to nvc"
+  },
+  "Documentarily Qualified": {
+    label: "All Clear",
+    field: "All_Clear_Documentary_Complete",
+    complete: value => String(value || "").trim().toLowerCase() === "yes"
+  },
+  "Final Self Assessment": {
+    label: "Final ICP Self Assessment",
+    field: "Self_Assessment_2_Complete",
+    complete: isCurrentOrPastDate
+  },
+  "Deployment Eligible / Not Eligible": {
     label: "Embassy Eligibility Status",
     field: "State_Licensure_Requirements",
-    complete: value => String(value || "").trim().toLowerCase() === "eligible"
+    complete: value => selectedValues(value).includes("eligible")
   },
-  "Embassy Interview Scheduled": {
-    label: "Embassy Interview Date",
-    field: "Embassy_Interview",
-    complete: value => Boolean(value && String(value).trim() !== "—")
+  "Deployment Pre-Arrival Call": {
+    label: "Nurse Deployment Call",
+    field: "Deployment_Call",
+    complete: isCurrentOrPastDate
   },
-  "Schedule Medical Exam": {
-    label: "Medical Exam Date",
-    field: "R_L_Checklist_Initiated",
-    complete: value => Boolean(value && String(value).trim() !== "—")
-  },
-  "Schedule Biometrics Appointment": {
-    label: "Finger Printing",
-    field: "Finger_Printing",
-    complete: value => ["completed", "post arrival- completed", "post arrival - completed"].includes(String(value || "").trim().toLowerCase()),
-    allowContinue: value => String(value || "").trim().toLowerCase() === "post arrival"
-  },
-  "Confirm Scheduled Arrival Date": {
-    label: "Scheduled Arrival Date",
-    field: "ETA",
-    complete: value => Boolean(value && String(value).trim() !== "—")
-  },
-  "Attend Housing and Transportation Call": {
+  "Housing / Transportation Call": {
     label: "Housing Call",
-    field: "Final_Housing_Confirmation_Call",
-    complete: value => Boolean(value && String(value).trim() !== "—")
+    fields: ["Final_Housing_Confirmation_Call", "Housing_Call_1"],
+    complete: value => isCurrentOrPastDate(value?.Final_Housing_Confirmation_Call) || isCurrentOrPastDate(value?.Housing_Call_1)
   },
-  "Join ICP Pre-Arrival Support Group": {
-    label: "Pre-Arrival WhatsApp",
-    field: "Pre_Arrival_WhatsApp",
-    complete: value =>
-      Boolean(
-        value &&
-        String(value).trim() !== "—"
-      )
+  "Mandatory Petitioner / Employer Call": {
+    label: "Client Arrival Call",
+    field: "Client_Arrival_Call",
+    complete: isCurrentOrPastDate
   },
-  "Attend Deployment Call": {
-    label: "Nurse Deployment Call",
-    field: "Deployment_Call",
-    complete: value => {
-      if (!value || String(value).trim() === "—") {
-        return false;
-      }
-      const date = new Date(value);
-      return (
-        !Number.isNaN(date.getTime()) &&
-        date.getTime() <= Date.now()
-      );
-    }
-  },
-  "Attend Facility/RN Pre-Arrival Call": {
-    label: "Nurse Deployment Call",
-    field: "Deployment_Call",
-    complete: value =>
-      Boolean(
-        value &&
-        String(value).trim() !== "—"
-      )
-  },
-  "Confirm Final Transportation Plan": {
-    label: "Final Transportation Plan",
-    field: "Final_Transportation_Plan",
-    complete: value => Boolean(value && String(value).trim() !== "—")
-  },
-  "Connect with Concierge": {
-    label: "Concierge",
-    fields: [
-      "Concierge_Name1",
-      "Concierge_Phone"
-    ],
-    fieldLabels: {
-      Concierge_Name1: "Concierge Name",
-      Concierge_Phone: "Concierge Phone"
-    },
-    complete: value =>
-      Boolean(
-        value?.Concierge_Name1 &&
-        value?.Concierge_Phone
-      )
-  },
-  "Communicate During Travel": {
+  "Arrived": {
     label: "Final Destination Arrival",
     field: "Flight_Arrival_Time",
-    complete: value => {
-      if (!value || String(value).trim() === "—") {
-        return false;
-      }
-      const date = new Date(value);
-      return (
-        !Number.isNaN(date.getTime()) &&
-        date.getTime() <= Date.now()
-      );
-    }
+    complete: isCurrentOrPastDate
+  },
+  "7 Day Call": {
+    label: "7 Day Call",
+    field: "Day_Call",
+    complete: isCurrentOrPastDate
+  },
+  "2 Week Call": {
+    label: "2 Week Survey",
+    field: "Client_Post_Arrival_Survey_Due_90_Days",
+    complete: isCurrentOrPastDate
+  },
+  "1 Year Survey": {
+    label: "1 Year Survey Result",
+    field: "Called_1_Yr_Results",
+    complete: value => hasFlowValue(value)
   }
 };
 
@@ -8895,6 +8916,8 @@ export default function Pipeline() {
         null;
       let canonicalAssociatedWithJob =
         null;
+      let canonicalApplicationCandidateLinkVerified =
+        false;
       let canonicalMatchedAssociationEmail =
         null;
       let icpUSRNData = {};
@@ -9063,8 +9086,9 @@ export default function Pipeline() {
           ) {
             directFieldStatus = {
               ...(fieldPayload.deployment || {}),
+              ...(fieldPayload.immigration || {}),
               ...(fieldPayload.recruit || {}),
-              ...(fieldPayload.immigration || {})
+              ...(fieldPayload.nclex || {})
             };
 
             directComputedStageStatus =
@@ -9229,9 +9253,17 @@ export default function Pipeline() {
                 true
               : null;
 
+          canonicalApplicationCandidateLinkVerified =
+            canonicalHiringState
+              .applicationCandidateLinkVerified ===
+            true;
+
           canonicalMatchedAssociationEmail =
             canonicalHiringState
               .matchedAssociationEmail ||
+            canonicalHiringState
+              ?.applicationCandidateLink
+              ?.candidateEmail ||
             null;
 
           if (
@@ -9563,14 +9595,20 @@ export default function Pipeline() {
             candidatesFound ===
               true;
 
+          const normalizedHiringStatus = normalizeApplicationStatus(recruitApplicationStatus);
+          const recruitStatusHasPassedApplied = Boolean(
+            normalizedHiringStatus &&
+            normalizedHiringStatus !== "new candidate" &&
+            normalizedHiringStatus !== "applied"
+          );
+
           if (
             savedAssociatedComplete ||
+            canonicalApplicationCandidateLinkVerified ||
             bothRecruitModulesFound ||
             associatedWithJobFound ||
-            canonicalHiringCompletedStages
-              .has(
-                "Associated with Job"
-              )
+            recruitStatusHasPassedApplied ||
+            canonicalHiringCompletedStages.has("Associated with Job")
           ) {
             automaticStatus =
               "Completed";
@@ -9643,7 +9681,10 @@ export default function Pipeline() {
                   canonicalMatchedAssociationEmail,
                 associated_with_job_verified:
                   associatedWithJobFound ===
-                  true
+                    true ||
+                  canonicalApplicationCandidateLinkVerified,
+                application_candidate_link_verified:
+                  canonicalApplicationCandidateLinkVerified
               }
             : {})
         };
@@ -10446,7 +10487,8 @@ export default function Pipeline() {
 
         const validArrivalDate =
           stageArrivalDate &&
-          !Number.isNaN(stageArrivalDate.getTime());
+          !Number.isNaN(stageArrivalDate.getTime()) &&
+          stageArrivalDate.getTime() <= Date.now();
 
         const backendGateOpen =
           backendAftercareGateOpen === true ||
@@ -10514,11 +10556,19 @@ export default function Pipeline() {
       // Final Hiring safeguard: Recruit module presence is a separate trigger
       // from Application_Status. Never let a later "Applied" status pass erase
       // an Associated completion that was proven by Applications + Candidates.
+      const normalizedFinalHiringStatus = normalizeApplicationStatus(recruitApplicationStatus);
+      const finalStatusPastApplied = Boolean(
+        normalizedFinalHiringStatus &&
+        normalizedFinalHiringStatus !== "new candidate" &&
+        normalizedFinalHiringStatus !== "applied"
+      );
+
       if (
-        applicationsFound ===
-          true &&
-        candidatesFound ===
-          true
+        (
+          applicationsFound === true &&
+          (candidatesFound === true || canonicalApplicationCandidateLinkVerified)
+        ) ||
+        finalStatusPastApplied
       ) {
         allStages =
           allStages.map(
@@ -10732,7 +10782,8 @@ export default function Pipeline() {
 
         const validArrival =
           parsedArrival &&
-          !Number.isNaN(parsedArrival.getTime());
+          !Number.isNaN(parsedArrival.getTime()) &&
+          parsedArrival.getTime() <= Date.now();
 
         if (validArrival) {
           setFinalArrivalDate(parsedArrival);
@@ -10769,7 +10820,34 @@ export default function Pipeline() {
 
       setStages(previous => {
         const previousByName = new Map((previous || []).map(stage => [stage.stage_name, stage]));
-        const adaptive = new Set(["Documents Received", "Immigration Call", "Foundations (Phases 1–3)", "License Endorsement", "Cultural Adaptation & Integration", "Post-Embassy Interview Update", "Schedule Medical Exam"]);
+        const adaptive = new Set([
+          "Documents Received",
+          "Immigration forms submitted",
+          "Request for further evidence",
+          "Foundations: Pillars",
+          "Foundations: Endorsement Discovery",
+          "Immigration approved",
+          "Visa bill issued",
+          "Visa bill paid",
+          "DS-260 / Civil Document Submission",
+          "Foundations: Cultural Readiness",
+          "Documentarily Qualified",
+          "Final Self Assessment",
+          "Deployment Eligible / Not Eligible",
+          "Deployment Pre-Arrival Call",
+          "Housing / Transportation Call",
+          "Mandatory Petitioner / Employer Call",
+          "Arrived",
+          "7 Day Call",
+          "2 Week Call",
+          "1 Year Survey",
+          "Immigration Call",
+          "Foundations (Phases 1–3)",
+          "License Endorsement",
+          "Cultural Adaptation & Integration",
+          "Post-Embassy Interview Update",
+          "Schedule Medical Exam"
+        ]);
         return parsed.map(stage => {
           const prior = previousByName.get(stage.stage_name);
           if (isPipelineStageComplete(prior) && !isPipelineStageComplete(stage) && !adaptive.has(stage.stage_name)) {
@@ -11333,6 +11411,13 @@ export default function Pipeline() {
       return;
     }
 
+    if (action.type === "external") {
+      if (action.url) {
+        window.open(action.url, "_blank", "noopener,noreferrer");
+      }
+      return;
+    }
+
     if (action.type === "view") {
       switch(action.viewType) {
         case "contract":
@@ -11688,12 +11773,36 @@ export default function Pipeline() {
       isPipelineStageComplete(stage)
     )?.stage_name || null;
 
+  const progressedPastQualification =
+    isTransferToICPUSRNStatus(applicationStatus) ||
+    stages.some(stage =>
+      [
+        "Transfer to ICP USRN School",
+        "Select Prescreen Time",
+        "Prescreen Scheduled",
+        "Prescreen Completed",
+        "Client Documents & Video Provided",
+        "Pending Interview Selection",
+        "Mandatory Pre-Interview Coaching Call",
+        "Interview Scheduled",
+        "Interview Attended",
+        "Offer Made",
+        "Offer Accepted",
+        "Offer Declined",
+        "Employment Contract Sent",
+        "Employment Contract Signed",
+        "Documents Received",
+        "Hired"
+      ].includes(stage?.stage_name) &&
+      (isPipelineStageComplete(stage) || ["in progress", "in-progress", "active"].includes(String(stage?.status || "").trim().toLowerCase()))
+    );
+
   const selectedQualificationOutcome =
-    qualificationOutcomeNames.includes(
-      mappedQualificationOutcome
-    )
-      ? mappedQualificationOutcome
-      : savedQualificationOutcome;
+    progressedPastQualification
+      ? "Qualified - Match"
+      : qualificationOutcomeNames.includes(mappedQualificationOutcome)
+        ? mappedQualificationOutcome
+        : savedQualificationOutcome;
 
   const transferStage =
     stages.find(stage =>
@@ -11798,6 +11907,13 @@ export default function Pipeline() {
         "Transfer to ICP USRN School"
       ) {
         return false;
+      }
+
+      if (stage.stage_name === "Request for further evidence") {
+        const currentI140 = String(deploymentFieldStatus?.i140 || "").trim().toLowerCase();
+        const rfeCurrent = ["rfe", "rfe (request for evidence)", "request for evidence", "request for further evidence"].includes(currentI140);
+        const rfePreviouslySeen = stage.rfe_seen === true || stage.rfe_seen_at || isPipelineStageComplete(stage);
+        if (!rfeCurrent && !rfePreviouslySeen) return false;
       }
 
       if (
@@ -12311,7 +12427,9 @@ export default function Pipeline() {
                 
                 return (
                   <div 
-                    key={stage.id} 
+                    key={stage.id}
+                    title={PIPELINE_STAGE_COMMENTS[stage.stage_name] || undefined}
+                    aria-label={PIPELINE_STAGE_COMMENTS[stage.stage_name] ? `${stage.stage_name}: ${PIPELINE_STAGE_COMMENTS[stage.stage_name]}` : stage.stage_name}
                     className={cn(
                       "flex items-start gap-4 px-5 py-3.5 transition-colors",
                       canInteract ? "hover:bg-muted/30 cursor-pointer" : "cursor-default",
@@ -12367,6 +12485,15 @@ export default function Pipeline() {
                       )}>
                         {isGate && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded mr-1">GATE</span>}
                         {stage.stage_name}
+                        {PIPELINE_STAGE_COMMENTS[stage.stage_name] && (
+                          <span
+                            className="ml-2 inline-flex cursor-help items-center text-xs text-muted-foreground no-underline"
+                            title={PIPELINE_STAGE_COMMENTS[stage.stage_name]}
+                            aria-label="Hover for stage details"
+                          >
+                            ⓘ
+                          </span>
+                        )}
                         {isNCLEXStage && (
                           <span className="text-xs text-purple-600 ml-2 bg-purple-50 px-1.5 py-0.5 rounded-full">
                             Click for details

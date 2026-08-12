@@ -1,6 +1,9 @@
 
 
 
+
+
+
 // @ts-nocheck
 import {
   useQuery,
@@ -49,6 +52,14 @@ const API_BASE = (() => {
 
 const getAuthToken = () =>
   localStorage.getItem("icp_auth_token") || "";
+
+const REQUIRED_PROFILE_DOCUMENT_TYPES = [
+  { key: "candidate-passport-picture", label: "Candidate Passport Picture", section: "Profile", order: 1, defaultDestination: "crm" },
+  { key: "dependent-passport", label: "Dependent Passport", section: "Dependants", order: 2, defaultDestination: "crm" },
+  { key: "dependent-resume", label: "Dependent Resume", section: "Dependants", order: 3, defaultDestination: "crm" },
+  { key: "dependent-work-experience", label: "Dependent Work Experience (if applicable)", section: "Dependants", order: 4, defaultDestination: "crm" }
+];
+
 
 const normalizeDocument = (document, index) => {
   const attachmentId =

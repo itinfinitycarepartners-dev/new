@@ -14,6 +14,9 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
 
 export default function MessageList() {
   const { conversationId } = useParams();
+  const isCommunityConversation =
+    conversationId ===
+    "community";
   const navigate = useNavigate();
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -33,6 +36,15 @@ export default function MessageList() {
   // Image Upload State
   const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
+
+
+  const getCurrentUserEmail = useCallback(() => {
+    const stored = localStorage.getItem("user");
+    if (stored) { try { const parsed = JSON.parse(stored); if (parsed?.email) return String(parsed.email).toLowerCase(); } catch {} }
+    const direct = localStorage.getItem("userEmail");
+    if (direct) return String(direct).toLowerCase();
+    return "";
+  }, []);
 
   // Get user name from localStorage or use email
   const getUserName = useCallback(() => {
@@ -397,7 +409,7 @@ export default function MessageList() {
   };
 
   const getSenderDisplayName = (message) => {
-    const currentUserEmail = tokenStorage.get();
+    const currentUserEmail = getCurrentUserEmail();
     if (message.senderEmail === currentUserEmail) {
       return 'You';
     }
@@ -407,7 +419,12 @@ export default function MessageList() {
     }
     
     if (message.senderEmail) {
-      if (message.senderEmail === 'admin' || message.senderEmail === 'admin@') {
+      if (
+        message.senderEmail === "admin" ||
+        message.senderEmail === "admin@" ||
+        message.senderEmail ===
+          "admin@infinitycarepartners.com"
+      ) {
         return 'Admin';
       }
       return message.senderEmail.split('@')[0];
@@ -417,10 +434,11 @@ export default function MessageList() {
   };
 
   const renderMessageWithReplies = (message) => {
-    const currentUserEmail = tokenStorage.get();
+    const currentUserEmail = getCurrentUserEmail();
     const isOwn = message.senderEmail === currentUserEmail;
     const isBroadcast =
       message.messageType === "broadcast" ||
+      message.broadcast === true ||
       conversation?.type === "broadcast";
     const isAdminDirect =
       !isBroadcast &&
@@ -454,7 +472,14 @@ export default function MessageList() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold text-purple-700">Admin Announcement</span>
+                  <span className="font-semibold text-purple-700">
+                    {message.senderEmail === "admin"
+                      ? "Admin Announcement"
+                      : (
+                          message.senderName ||
+                          "User"
+                        )}
+                  </span>
                   <span className="text-xs text-slate-400">·</span>
                   <span className="text-xs text-slate-400">{formatMessageTime(message.createdAt)}</span>
                 </div>
