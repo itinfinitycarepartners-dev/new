@@ -1479,22 +1479,49 @@ const isICPUSRNItemUnlocked = (item, index, data = {}) => {
   if (!item) return false;
   if (index <= 0) return true;
 
-  // A live CRM/Recruit gate is authoritative wherever that NCLEX stage sits in
-  // the pipeline. If its threshold is already satisfied, unlock it immediately
-  // even when one or more earlier visual stages are still incomplete.
-  // Because this is evaluated from the current Recruit values every render,
-  // lowering the values later re-locks the stage again.
+  // Find the furthest NCLEX item that CRM/Recruit has already reached.
+  // IMPORTANT: when a gate in the middle of the NCLEX flow is satisfied, that
+  // proves the candidate has reached that point. Every earlier NCLEX item must
+  // therefore be accessible too, even if one of those earlier rows does not
+  // yet have its own completion flag saved locally.
+  let furthestSourceReachedIndex = 0;
+
+  ICP_USRN_SUBPROCESS_CONFIG.forEach((candidateItem, candidateIndex) => {
+    const gateSatisfied = candidateItem?.performanceGate
+      ? isNCLEXPerformanceGateSatisfied(candidateItem.performanceGate, data)
+      : false;
+
+    const sourceComplete = isICPUSRNItemComplete(candidateItem, data);
+
+    if (gateSatisfied || sourceComplete) {
+      furthestSourceReachedIndex = Math.max(
+        furthestSourceReachedIndex,
+        candidateIndex
+      );
+    }
+  });
+
+  // A satisfied middle gate cascades backwards: all earlier stages unlock.
+  if (index <= furthestSourceReachedIndex) {
+    return true;
+  }
+
+  // The current stage's own live performance gate remains authoritative and
+  // reversible. If values later drop below the threshold this stage can lock
+  // again unless a still-later source-backed milestone proves the candidate has
+  // already progressed beyond it.
   if (item.performanceGate) {
     return isNCLEXPerformanceGateSatisfied(item.performanceGate, data);
   }
 
-  // A stage whose own CRM/Recruit completion field is already satisfied must
-  // remain accessible even if an earlier display-only milestone was skipped.
+  // A stage whose own CRM/Recruit completion field is already satisfied stays
+  // accessible regardless of local pipeline history.
   if (isICPUSRNItemComplete(item, data)) {
     return true;
   }
 
-  // Stages without their own independent gate retain normal sequential flow.
+  // Only the first stage after the furthest source-reached point follows the
+  // ordinary sequential rule.
   const previousItem = ICP_USRN_SUBPROCESS_CONFIG[index - 1];
   return isICPUSRNItemComplete(previousItem, data);
 };
@@ -2318,14 +2345,17 @@ const restoreForwardOnlyHiringStages = ({
 
 
 const getSequencedMainStages = (allStages) => {
+  // One continuous visible pipeline sequence across Hiring, NCLEX, Immigration,
+  // Deployment and Aftercare. Hidden compatibility rows and pure gate rows are
+  // excluded, but visible NCLEX rows stay in the sequence so cascade unlocking
+  // works consistently across every pipeline section.
   return (allStages || [])
     .filter(stage =>
       stage &&
       stage.is_gate !== true &&
       stage.hidden !== true &&
       stage.is_hidden !== true &&
-      stage.stage_category !== "NCLEX Roadmap" &&
-      stage.stage_category !== "NCLEX Prescreen"
+      stage.hidden_from_main_flow !== true
     )
     .sort((first, second) => {
       const firstOrder = Number(first.stage_order ?? first.order ?? 0);
@@ -2358,91 +2388,50 @@ const isSamePipelineStage = (first, second) =>
 const isStageUnlocked = (stage, allStages) => {
   if (!stage) return false;
 
-  // Recruit module-presence stages must not be blocked by the generic
-  // furthest-stage calculation.
-  if (
-    stage.stage_name ===
-    "Applied"
-  ) {
-    return true;
-  }
-
-  if (
-    stage.stage_name ===
-    "Associated with Job"
-  ) {
-    const applied =
-      allStages.find(
-        item =>
-          item?.stage_name ===
-          "Applied"
-      );
-
-    return (
-      isPipelineStageComplete(
-        applied
-      ) ||
-      isPipelineStageComplete(
-        stage
-      )
-    );
-  }
-
-  if (
-    stage.non_counted_section === true ||
-    stage.conditional_section === true
-  ) {
-    return true;
-  }
-
-  if (stage.stage_category === "Aftercare") {
-    const gateValue = stage.aftercare_gate_date || stage.aftercareGateDate || null;
-    const gateDate =
-      gateValue
-        ? new Date(
-            gateValue
-          )
-        : null;
-
-    const gateDateReached =
-      isArrivalCalendarDateTodayOrPast(
-        gateValue
-      );
-    const aftercareGateOpen =
-      (stage.aftercare_unlocked === true || stage.aftercare_locked === false) && gateDateReached;
-
-    if (!aftercareGateOpen) return false;
-
-    // Flight_Arrival_Time opens Aftercare, but each milestone remains locked
-    // until its own arrival-relative due date is reached.
-    const targetValue = stage.target_date || stage.targetDate || null;
-    if (targetValue) {
-      const targetDate = new Date(targetValue);
-      if (!Number.isNaN(targetDate.getTime()) && Date.now() < targetDate.getTime()) {
-        return isPipelineStageComplete(stage);
-      }
-    }
-    return true;
-  }
-
-  // Backend source gates are authoritative and reversible. A stage that was
-  // previously reached must re-lock if CRM/Recruit now says its gate is closed.
-  if (stage.source_trigger_unlocked === false || stage.trigger_unlocked === false) {
-    return isPipelineStageComplete(stage) && stage.source_trigger_unlocked !== false;
-  }
-  if (stage.source_trigger_unlocked === true || stage.trigger_unlocked === true) {
-    return true;
-  }
-
   const sequencedStages = getSequencedMainStages(allStages);
   const currentIndex = sequencedStages.findIndex(candidate =>
     isSamePipelineStage(candidate, stage)
   );
 
-  if (currentIndex < 0) return false;
-  if (currentIndex === 0) return true;
+  if (currentIndex < 0) {
+    // Non-main-flow informational/conditional rows keep their existing behavior.
+    return (
+      stage.non_counted_section === true ||
+      stage.conditional_section === true ||
+      isPipelineStageComplete(stage) ||
+      stage.unlocked === true ||
+      stage.is_unlocked === true
+    );
+  }
 
-  const isReachedStage = candidate => {
+  if (currentIndex === 0 || stage.stage_name === "Applied") return true;
+
+  // Aftercare remains arrival-date based for its own due dates, but a later
+  // authoritative Aftercare milestone can still prove all earlier pipeline
+  // stages have been reached through the universal cascade below.
+  const aftercareOwnGateOpen = candidate => {
+    if (candidate?.stage_category !== "Aftercare") return false;
+    const gateValue = candidate.aftercare_gate_date || candidate.aftercareGateDate || null;
+    const gateDateReached = isArrivalCalendarDateTodayOrPast(gateValue);
+    const sectionOpen =
+      (candidate.aftercare_unlocked === true || candidate.aftercare_locked === false) &&
+      gateDateReached;
+    if (!sectionOpen) return false;
+
+    const targetValue = candidate.target_date || candidate.targetDate || null;
+    if (!targetValue) return true;
+    const targetDate = new Date(targetValue);
+    return (
+      Number.isNaN(targetDate.getTime()) ||
+      Date.now() >= targetDate.getTime() ||
+      isPipelineStageComplete(candidate)
+    );
+  };
+
+  // A stage is authoritative when CRM/Recruit/backend data explicitly proves
+  // that it is open/reached. This is intentionally section-agnostic: Hiring,
+  // NCLEX, Immigration, Deployment and Aftercare all participate.
+  const isAuthoritativelyReached = candidate => {
     if (!candidate) return false;
 
     const normalizedStatus = String(
@@ -2452,40 +2441,77 @@ const isStageUnlocked = (stage, allStages) => {
       ""
     ).trim().toLowerCase();
 
-    return (
-      isPipelineStageComplete(candidate) ||
-      normalizedStatus === "in progress" ||
-      normalizedStatus === "current" ||
+    const explicitOpen =
+      candidate.source_trigger_unlocked === true ||
+      candidate.trigger_unlocked === true ||
       candidate.unlocked === true ||
       candidate.is_unlocked === true ||
       candidate.crm_unlocked === true ||
       candidate.recruit_unlocked === true ||
+      candidate.nclex_unlocked === true ||
+      candidate.immigration_unlocked === true ||
+      candidate.deployment_unlocked === true ||
+      aftercareOwnGateOpen(candidate);
+
+    const sourceBackedComplete =
+      (candidate.synced_from_custom_module_1 === true ||
+       candidate.source_trigger_synced === true ||
+       candidate.crm_synced === true ||
+       candidate.recruit_synced === true) &&
+      isPipelineStageComplete(candidate);
+
+    return (
+      explicitOpen ||
+      sourceBackedComplete ||
+      isPipelineStageComplete(candidate) ||
+      normalizedStatus === "in progress" ||
+      normalizedStatus === "current" ||
       Boolean(candidate.started_at) ||
       Boolean(candidate.startedAt)
     );
   };
 
-  // Find the furthest point the candidate has reached. This can be a normal
-  // candidate stage or a CRM/Recruit-triggered stage in the middle.
+  // UNIVERSAL CASCADE: if ANY later visible stage in ANY pipeline section is
+  // already proven open/reached by CRM/Recruit/backend data, every stage before
+  // it unlocks immediately. This prevents a middle gate from leaving earlier
+  // Hiring, NCLEX, Immigration, Deployment or Aftercare cards locked.
   let furthestReachedIndex = 0;
-
   sequencedStages.forEach((candidate, index) => {
-    if (isReachedStage(candidate)) {
+    if (isAuthoritativelyReached(candidate)) {
       furthestReachedIndex = Math.max(furthestReachedIndex, index);
     }
   });
 
-  // Every stage at or before the furthest reached stage must remain accessible.
-  if (currentIndex <= furthestReachedIndex) {
+  if (currentIndex <= furthestReachedIndex) return true;
+
+  // A closed explicit source gate remains reversible for the stage itself,
+  // unless a LATER authoritative stage already proves the candidate progressed
+  // beyond it (handled by the cascade above).
+  if (stage.source_trigger_unlocked === false || stage.trigger_unlocked === false) {
+    return false;
+  }
+
+  // If this exact stage has an explicit open gate, open it immediately.
+  if (
+    stage.source_trigger_unlocked === true ||
+    stage.trigger_unlocked === true ||
+    stage.crm_unlocked === true ||
+    stage.recruit_unlocked === true ||
+    stage.nclex_unlocked === true ||
+    stage.immigration_unlocked === true ||
+    stage.deployment_unlocked === true
+  ) {
     return true;
   }
 
-  // The stage immediately after the furthest reached stage opens only when
-  // that reached stage is actually complete.
+  if (stage.stage_category === "Aftercare") {
+    return aftercareOwnGateOpen(stage);
+  }
+
+  // Standard sequential behavior only applies to the first not-yet-reached
+  // stage after the universal furthest point.
   if (currentIndex === furthestReachedIndex + 1) {
-    return isPipelineStageComplete(
-      sequencedStages[furthestReachedIndex]
-    );
+    return isPipelineStageComplete(sequencedStages[furthestReachedIndex]);
   }
 
   return false;
