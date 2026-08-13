@@ -1799,7 +1799,7 @@ const CLICKABLE_STAGES = {
   "Hired": { clickable: true, type: "upload", uploadType: "hired", destination: "recruit" },
 
   // Current Immigration flow
-  "Immigration forms submitted": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+  "Immigration forms submitted": { clickable: false, type: "field" },
   "Request for further evidence": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
   "Foundations: Pillars": {
     label: "Foundations: Pillars",
@@ -1840,39 +1840,39 @@ const CLICKABLE_STAGES = {
       Object.keys(value || {}).length === 5 &&
       Object.values(value || {}).every(isCRMChecklistComplete)
   },
-  "Immigration approved": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
-  "Visa bill issued": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
-  "Visa bill paid": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
-  "DS-260 / Civil Document Submission": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+  "Immigration approved": { clickable: false, type: "field" },
+  "Visa bill issued": { clickable: false, type: "field" },
+  "Visa bill paid": { clickable: false, type: "field" },
+  "DS-260 / Civil Document Submission": { clickable: false, type: "field" },
   "Foundations: Cultural Readiness": { clickable: true, type: "view", viewType: "culturalReadiness" },
-  "Documentarily Qualified": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+  "Documentarily Qualified": { clickable: false, type: "field" },
   "Add/Remove Dependents": { clickable: true, type: "navigate", navigateTo: "/profile" },
   "Change Embassy Location": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
 
   // Current Deployment flow
   "Introduction to Deployment Call": { clickable: true, type: "view", viewType: "introductionDeployment" },
-  "Speciality Classes": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
-  "Final Self Assessment": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
+  "Speciality Classes": { clickable: false, type: "field" },
+  "Final Self Assessment": { clickable: false, type: "field" },
   "Speciality w/Trainer Skills Check": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
   "Deployment Eligible / Not Eligible": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
-  "Deployment Pre-Arrival Call": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
-  "Housing / Transportation Call": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
-  "Pre-Arrival Banking Call": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
+  "Deployment Pre-Arrival Call": { clickable: false, type: "field" },
+  "Housing / Transportation Call": { clickable: false, type: "field" },
+  "Pre-Arrival Banking Call": { clickable: false, type: "field" },
   "Mandatory Petitioner / Employer Call": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
   "deployMate Ready": { clickable: true, type: "view", viewType: "downloadApp" },
   "Arrival Itinerary": { clickable: true, type: "view", viewType: "welcomePacket" },
   "Receipt Submission": { clickable: true, type: "view", viewType: "reimbursement" },
-  "Arrived": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
+  "Arrived": { clickable: false, type: "field" },
 
   // Current Aftercare links
-  "1 Year Survey": { clickable: true, type: "external", url: "https://survey.zohopublic.com/zs/kJCsR0" },
+  "1 Year Survey": { clickable: true, type: "view", viewType: "oneYearSurvey" },
 
   // Visible Immigration / Deployment flow
-  "Immigration forms submitted": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+  "Immigration forms submitted": { clickable: false, type: "field" },
   "Request for further evidence": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
-  "Immigration approved": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
-  "Visa bill issued": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
-  "Visa bill paid": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+  "Immigration approved": { clickable: false, type: "field" },
+  "Visa bill issued": { clickable: false, type: "field" },
+  "Visa bill paid": { clickable: false, type: "field" },
   "Visa application & Civil docs submitted": { clickable: true, type: "navigate", navigateTo: "/documents" },
   "Documentarily qualified": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
   "Introduction to Deployment": { clickable: true, type: "view", viewType: "introductionDeployment" },
@@ -1941,19 +1941,19 @@ const CLICKABLE_STAGES = {
   "Submit Post-Arrival Documents": { clickable: true, type: "upload", uploadType: "postArrivalDocs" },
 
   // Aftercare stages
-  "Welcome Call/24 Hour Call": { clickable: true, type: "view", viewType: "aftercareCall" },
+  "Welcome Call/24 Hour Call": { clickable: false, type: "field" },
   "Relocation Survey": { clickable: true, type: "view", viewType: "relocationSurvey" },
   "Concierge Debrief": { clickable: true, type: "view", viewType: "aftercareCall" },
   "U.S. Integration Call (30 Day Call / Survey)": { clickable: true, type: "view", viewType: "thirtyDaySurvey" },
-  "Workplace Integration Call (60 Day Call)": { clickable: true, type: "view", viewType: "aftercareCall" },
-  "Placement Stability Check-in (90 Day Call)": { clickable: true, type: "view", viewType: "aftercareCall" },
+  "Workplace Integration Call (60 Day Call)": { clickable: false, type: "field" },
+  "Placement Stability Check-in (90 Day Call)": { clickable: false, type: "field" },
   // Legacy action aliases
   "24 Hour Call": { clickable: true, type: "view", viewType: "aftercareCall" },
-  "7 Day Call": { clickable: true, type: "view", viewType: "aftercareCall" },
-  "2 Week Call": { clickable: true, type: "view", viewType: "aftercareCall" },
+  "7 Day Call": { clickable: false, type: "field" },
+  "2 Week Call": { clickable: false, type: "field" },
   "30 Day Survey": { clickable: true, type: "view", viewType: "thirtyDaySurvey" },
   "90 Day Exit Call": { clickable: true, type: "view", viewType: "ninetyDaySurvey" },
-  "1 Year Survey": { clickable: true, type: "view", viewType: "aftercareCall" },
+  "1 Year Survey": { clickable: true, type: "view", viewType: "oneYearSurvey" },
 
   // Stage 5 - Reimbursement/Expenses
   "Reimbursement/Expenses": { clickable: true, type: "view", viewType: "reimbursementExpenses" },
@@ -3349,25 +3349,29 @@ const ImmigrationCRMChecklistView = ({ stageName, onClose, user, setStages, stag
       if (!token) throw new Error("Not authenticated");
 
       const response = await fetch(
-        `${API_BASE}/api/pipeline/field-status?_=${Date.now()}`,
+        `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(
+          user?.email || ""
+        )}&refresh=true&_=${Date.now()}`,
         {
           method: "GET",
           cache: "no-store",
           headers: {
-            Authorization:
-              `Bearer ${token}`
+            Authorization: `Bearer ${token}`,
+            "Cache-Control": "no-cache",
+            Pragma: "no-cache"
           }
         }
       );
 
+      const data = await response.json().catch(() => ({}));
+
       if (!response.ok) {
         throw new Error(
+          data?.error ||
+          data?.message ||
           "Failed to fetch progress from CRM"
         );
       }
-
-      const data =
-        await response.json();
 
       const userData = {
         ...(data.immigration || {})
@@ -3400,16 +3404,11 @@ const ImmigrationCRMChecklistView = ({ stageName, onClose, user, setStages, stag
         ];
 
       const allComplete =
-        typeof backendStatus
-          ?.completed === "boolean"
-          ? backendStatus.completed
-          : (
-              items.length > 0 &&
-              items.every(
-                item =>
-                  results[item.key]
-              )
-            );
+        items.length > 0 &&
+        items.every(
+          item =>
+            results[item.key] === true
+        );
 
       const completedAt =
         allComplete
@@ -3878,6 +3877,20 @@ const NinetyDaySurvey = ({ onClose, user, setStages }) => (
   />
 );
 
+
+const OneYearSurvey = ({ onClose, user, setStages }) => (
+  <SurveyView
+    title="1 Year Survey"
+    description="Please share your one-year integration feedback."
+    surveyUrl="https://survey.zohopublic.com/zs/kJCsR0"
+    onClose={onClose}
+    user={user}
+    setStages={setStages}
+    stageName="1 Year Survey"
+  />
+);
+
+
 // License Endorsement View (legacy/generic — no longer used for the Immigration
 // "License Endorsement" stage, which now uses ImmigrationCRMChecklistView.
 // Kept here in case other stages want a similar generic view in the future.)
@@ -4037,7 +4050,7 @@ const OrientationEndView = (props) => (
 
 
 
-const unwrapPipelineFieldValue = value => {
+function unwrapPipelineFieldValue(value) {
   if (value === undefined || value === null) return value;
 
   if (Array.isArray(value)) {
@@ -4066,7 +4079,7 @@ const unwrapPipelineFieldValue = value => {
   }
 
   return value;
-};
+}
 
 const hasFlowValue = value => {
   if (value === undefined || value === null || value === false) return false;
@@ -4317,44 +4330,193 @@ const DeploymentCRMStatusView = ({
   setStages
 }) => {
   const rule = DEPLOYMENT_CRM_STAGE_RULES[stage.stage_name];
+
+  const [liveStatus, setLiveStatus] = useState(status || {});
+  const [loadingLive, setLoadingLive] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadLiveCRM = async () => {
+      try {
+        setLoadingLive(true);
+        setLoadError("");
+
+        const token = localStorage.getItem("icp_auth_token");
+        if (!token) throw new Error("Not authenticated");
+
+        const response = await fetch(
+          `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(
+            user?.email || ""
+          )}&refresh=true&_=${Date.now()}`,
+          {
+            cache: "no-store",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Cache-Control": "no-cache",
+              Pragma: "no-cache"
+            }
+          }
+        );
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(
+            data?.error ||
+            data?.message ||
+            "Unable to fetch CRM field."
+          );
+        }
+
+        if (cancelled) return;
+
+        const merged = {
+          ...(data.deployment || {}),
+          ...(data.immigration || {}),
+          ...(data.recruit || {})
+        };
+
+        setLiveStatus(merged);
+
+        const liveStage = data.stageStatus?.[stage.stage_name];
+        if (typeof liveStage?.completed === "boolean") {
+          setStages(previous =>
+            previous.map(item =>
+              item.stage_name === stage.stage_name
+                ? {
+                    ...item,
+                    status: liveStage.completed
+                      ? "Completed"
+                      : (liveStage.status || "Not Started"),
+                    completed: liveStage.completed,
+                    is_completed: liveStage.completed,
+                    completed_date: liveStage.completed
+                      ? (
+                          liveStage.completed_date ||
+                          item.completed_date ||
+                          new Date().toISOString()
+                        )
+                      : null,
+                    source_trigger_unlocked:
+                      liveStage.completed === true ||
+                      liveStage.unlocked === true,
+                    trigger_unlocked:
+                      liveStage.completed === true ||
+                      liveStage.unlocked === true,
+                    crm_unlocked:
+                      liveStage.completed === true ||
+                      liveStage.unlocked === true,
+                    source_trigger_synced: true,
+                    crm_synced: true
+                  }
+                : item
+            )
+          );
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setLoadError(
+            error?.message ||
+            "Unable to fetch CRM field."
+          );
+        }
+      } finally {
+        if (!cancelled) setLoadingLive(false);
+      }
+    };
+
+    loadLiveCRM();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [stage.stage_name, user?.email, setStages]);
+
   const value = rule?.fields
-    ? Object.fromEntries(rule.fields.map(field => [field, status?.[field]]))
-    : status?.[rule?.field];
+    ? Object.fromEntries(
+        rule.fields.map(field => [
+          field,
+          getLivePipelineFieldValue(liveStatus, field)
+        ])
+      )
+    : getLivePipelineFieldValue(
+        liveStatus,
+        rule?.fieldsAny || rule?.field
+      );
+
   const complete = rule?.complete?.(value) === true;
   const postArrival = rule?.allowContinue?.(value) === true;
-  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!complete) return;
+
+    setStages(previous =>
+      previous.map(item =>
+        item.stage_name === stage.stage_name
+          ? {
+              ...item,
+              status: "Completed",
+              completed: true,
+              is_completed: true,
+              completed_date:
+                item.completed_date ||
+                new Date().toISOString(),
+              source_trigger_unlocked: true,
+              trigger_unlocked: true,
+              crm_unlocked: true,
+              source_trigger_synced: true,
+              crm_synced: true
+            }
+          : item
+      )
+    );
+  }, [complete, stage.stage_name, setStages]);
 
   const confirm = async () => {
     if (!complete && !postArrival) return;
+
     setSaving(true);
     try {
       const token = localStorage.getItem("icp_auth_token");
-      const response = await fetch(`${API_BASE}/api/pipeline/acknowledge-field-stage`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          email: user?.email,
-          stage_name: stage.stage_name,
-          allow_continue: postArrival
-        })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || "Unable to update the stage.");
+      const response = await fetch(
+        `${API_BASE}/api/pipeline/acknowledge-field-stage`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            email: user?.email,
+            stage_name: stage.stage_name,
+            allow_continue: postArrival
+          })
+        }
+      );
 
-      if (complete) {
-        setStages(prev => prev.map(item =>
-          item.stage_name === stage.stage_name
-            ? { ...item, status: "Completed", completed_date: data.stage?.completed_date || new Date().toISOString() }
-            : item
-        ));
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || "Unable to update the stage.");
       }
-      window.dispatchEvent(new CustomEvent("pipeline-updated", {
-        detail: { email: user?.email, stage_name: stage.stage_name }
-      }));
-      toast.success(postArrival ? "Marked to be completed after arrival." : "Stage completed.");
+
+      window.dispatchEvent(
+        new CustomEvent("pipeline-updated", {
+          detail: {
+            email: user?.email,
+            stage_name: stage.stage_name
+          }
+        })
+      );
+
+      toast.success(
+        postArrival
+          ? "Marked to be completed after arrival."
+          : "Stage completed."
+      );
+
       onClose();
     } catch (error) {
       toast.error(error.message);
@@ -4363,59 +4525,91 @@ const DeploymentCRMStatusView = ({
     }
   };
 
+  const displayValue = field => {
+    const raw = getLivePipelineFieldValue(liveStatus, field);
+    if (
+      raw === undefined ||
+      raw === null ||
+      String(raw).trim() === ""
+    ) {
+      return "Not available";
+    }
+    return String(raw);
+  };
+
   return (
     <div className="space-y-4">
+      {loadError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {loadError}
+        </div>
+      )}
+
       <div className="rounded-xl border p-4">
-        <p className="text-sm font-semibold">{rule?.label || stage.stage_name}</p>
-        {rule?.fields ? (
+        <p className="text-sm font-semibold">
+          {rule?.label || stage.stage_name}
+        </p>
+
+        {loadingLive ? (
+          <p className="mt-2 text-sm text-muted-foreground">
+            Fetching latest CRM value...
+          </p>
+        ) : rule?.fields ? (
           <div className="mt-3 space-y-2">
             {rule.fields.map(field => (
-              <div key={field} className="flex justify-between gap-4 text-sm">
+              <div
+                key={field}
+                className="flex justify-between gap-4 text-sm"
+              >
                 <span>
                   {rule?.fieldLabels?.[field] ||
                     field
                       .replace(/_/g, " ")
-                      .replace(/\b\w/g, character =>
-                        character.toUpperCase()
-                      )}
+                      .replace(/\b\w/g, c => c.toUpperCase())}
                 </span>
                 <span className="font-medium text-right">
-                  {field ===
-                    "IELTS_Scheduled_Exam_Date_if_applicable" &&
-                  status?.[field]
-                    ? formatPacketDate(status[field])
-                    : status?.[field] || "Not available"}
+                  {displayValue(field)}
                 </span>
               </div>
             ))}
           </div>
         ) : (
-          <p className="mt-2 text-sm font-medium">{value || "Not available"}</p>
+          <p className="mt-2 text-sm font-medium">
+            {value === undefined ||
+            value === null ||
+            String(value).trim() === ""
+              ? "Not available"
+              : String(value)}
+          </p>
         )}
       </div>
 
-      {postArrival && (
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
-          This item is scheduled to be done post arrival. You may continue.
-        </div>
-      )}
-      {!complete && !postArrival && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-          This stage is not complete yet.
-        </div>
-      )}
+      <div
+        className={`rounded-lg border p-3 text-sm ${
+          complete
+            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+            : "border-amber-200 bg-amber-50 text-amber-700"
+        }`}
+      >
+        {complete
+          ? "CRM criteria met. This stage is complete."
+          : "This stage is not complete yet."}
+      </div>
 
       <div className="flex justify-end gap-2">
-        <Button variant="outline" onClick={onClose}>Close</Button>
-        <Button onClick={confirm} disabled={saving || (!complete && !postArrival)}>
-          {saving ? "Saving..." : postArrival ? "Continue" : "Confirm"}
+        <Button variant="outline" onClick={onClose}>
+          Close
         </Button>
+        {(complete || postArrival) && (
+          <Button onClick={confirm} disabled={saving}>
+            {saving ? "Saving..." : "Continue"}
+          </Button>
+        )}
       </div>
     </div>
   );
 };
 
-// Welcome Packet View
 const WelcomePacketView = ({ onClose, user, setStages }) => {
   const [loading, setLoading] = useState(true);
   const [lookupLoading, setLookupLoading] = useState(false);
@@ -5503,8 +5697,7 @@ const DeploymateDownloadView = ({
   user,
   setStages
 }) => {
-  const [saving, setSaving] =
-    useState(false);
+  const [saving, setSaving] = useState(false);
 
   const options = [
     {
@@ -5531,19 +5724,49 @@ const DeploymateDownloadView = ({
     if (saving) return;
 
     setSaving(true);
+
+    // Optimistic cross-off immediately on the click itself.
+    setStages(previous =>
+      previous.map(stage =>
+        stage.stage_name === "deployMate Ready"
+          ? {
+              ...stage,
+              status: "Completed",
+              completed: true,
+              is_completed: true,
+              completed_date:
+                stage.completed_date ||
+                new Date().toISOString()
+            }
+          : stage
+      )
+    );
+
     try {
-      // Complete the CURRENT visible stage and keep the legacy alias for
-      // historical records. Previously only the hidden legacy row was updated,
-      // so "deployMate Ready" never crossed off.
       await updateStageStatus(
         user?.email,
         "deployMate Ready",
-        setStages
+        setStages,
+        "Completed"
       );
-      await updateStageStatus(
-        user?.email,
-        "Download Deploymate App",
-        setStages
+
+      window.dispatchEvent(
+        new CustomEvent("pipeline-updated", {
+          detail: {
+            stageName: "deployMate Ready",
+            source: "deploymate-link-click"
+          }
+        })
+      );
+
+      toast.success("deployMate Ready completed.");
+    } catch (error) {
+      console.error(
+        "[deployMate Ready] Could not persist click completion:",
+        error
+      );
+      toast.error(
+        "The link opened, but the completion could not be saved yet."
       );
     } finally {
       setSaving(false);
@@ -5553,7 +5776,7 @@ const DeploymateDownloadView = ({
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Open any version of Deploymate. This stage completes when one option is selected.
+        Open any Deploymate option below. The stage checks off as soon as you select a link.
       </p>
 
       <div className="grid gap-3">
@@ -5563,9 +5786,7 @@ const DeploymateDownloadView = ({
             type="button"
             variant="outline"
             disabled={saving}
-            onClick={() =>
-              openVersion(option.href)
-            }
+            onClick={() => openVersion(option.href)}
             className="justify-start"
           >
             {option.label}
@@ -5574,10 +5795,7 @@ const DeploymateDownloadView = ({
       </div>
 
       <div className="flex justify-end">
-        <Button
-          variant="outline"
-          onClick={onClose}
-        >
+        <Button variant="outline" onClick={onClose}>
           Close
         </Button>
       </div>
@@ -9530,7 +9748,9 @@ export default function Pipeline() {
               __sectionGates:
                 fieldPayload.sectionGates || {},
               __completionMap:
-                fieldPayload.completionMap || {}
+                fieldPayload.completionMap || {},
+              __immigrationChecklists:
+                fieldPayload.immigrationChecklists || {}
             });
 
             icpUSRNData = {
@@ -12066,19 +12286,24 @@ export default function Pipeline() {
       return;
     }
 
-    if (DEPLOYMENT_CRM_STAGE_RULES[stage.stage_name]) {
-      openModal(
-        stage.stage_name,
-        <DeploymentCRMStatusView
-          stage={stage}
-          status={deploymentFieldStatus}
-          onClose={closeModal}
-          user={user}
-          setStages={setStages}
-        />
-      );
+    const candidateActionStages = new Set([
+      "deployMate Ready",
+      "Arrival Itinerary",
+      "Receipt Submission",
+      "Relocation Survey",
+      "U.S. Integration Call (30 Day Call / Survey)",
+      "1 Year Survey"
+    ]);
+
+    // CRM-only stages are display/status rows, not candidate actions.
+    // They cross off automatically from CRM. Foundations are handled above.
+    if (
+      DEPLOYMENT_CRM_STAGE_RULES[stage.stage_name] &&
+      !candidateActionStages.has(stage.stage_name)
+    ) {
       return;
     }
+
     const action = getStageAction(stage.stage_name);
     
     if (!action || !action.clickable) {
@@ -12266,6 +12491,9 @@ export default function Pipeline() {
         case "thirtyDaySurvey":
           openModal("U.S. Integration Call (30 Day Call / Survey)", <ThirtyDaySurvey onClose={closeModal} user={user} setStages={setStages} />);
           break;
+        case "oneYearSurvey":
+          openModal("1 Year Survey", <OneYearSurvey onClose={closeModal} user={user} setStages={setStages} />);
+          break;
         case "ninetyDaySurvey":
           openModal("90 Day Survey", <NinetyDaySurvey onClose={closeModal} user={user} setStages={setStages} />);
           break;
@@ -12424,7 +12652,9 @@ export default function Pipeline() {
           __sectionGates:
             data.sectionGates || {},
           __completionMap:
-            data.completionMap || {}
+            data.completionMap || {},
+          __immigrationChecklists:
+            data.immigrationChecklists || {}
         });
 
         if (data.nclex && typeof data.nclex === "object") {
@@ -12893,7 +13123,10 @@ export default function Pipeline() {
     );
 
   const nclexBranchVisible =
-    transferStatusSelected;
+    transferStatusSelected ||
+    savedTransferEligibility ||
+    savedNCLEXHistoryExists ||
+    showNCLEX;
 
   const nclexProgress =
     transferStage
@@ -12901,7 +13134,11 @@ export default function Pipeline() {
     {};
 
   useEffect(() => {
-    setShowNCLEX(nclexBranchVisible);
+    // Once a verified Transfer/NCLEX history exists, keep the NCLEX branch
+    // visible even after Recruit Application_Status advances to a later stage.
+    if (nclexBranchVisible) {
+      setShowNCLEX(true);
+    }
   }, [
     nclexBranchVisible
   ]);
@@ -12923,7 +13160,7 @@ export default function Pipeline() {
       }
 
       if (stage.stage_name === "Transfer to ICP USRN School") {
-        return nclexBranchVisible;
+        return transferStatusSelected;
       }
 
       if (
@@ -12991,6 +13228,43 @@ export default function Pipeline() {
   // in the configured sequence whether a row is Completed, In Progress,
   // Not Started, Late or At Risk.
 
+  const LIVE_SOURCE_COMPLETION_STAGES = new Set([
+    // Recruit live trigger
+    "Transfer to ICP USRN School",
+
+    // Immigration direct CRM fields
+    "Immigration forms submitted",
+    "Foundations: Pillars",
+    "Foundations: Endorsement Discovery",
+    "Immigration approved",
+    "Visa bill issued",
+    "Visa bill paid",
+    "DS-260 / Civil Document Submission",
+    "Foundations: Cultural Readiness",
+    "Documentarily Qualified",
+
+    // Deployment direct CRM fields / direct portal completion
+    "Speciality Classes",
+    "Final Self Assessment",
+    "Speciality with Trainer Skills Check",
+    "Housing / Transportation Call",
+    "Deployment Pre-Arrival Call",
+    "Pre-Arrival Banking Call",
+    "Employer Pre-Arrival Call",
+    "deployMate Ready",
+    "Arrival Itinerary",
+    "Receipt Submission",
+    "Arrived",
+
+    // Aftercare source-driven completion
+    "Welcome Call/24 Hour Call",
+    "7 Day Call",
+    "2 Week Call",
+    "Workplace Integration Call (60 Day Call)",
+    "Placement Stability Check-in (90 Day Call)",
+    "1 Year Survey"
+  ]);
+
   const deriveLivePipelineStage = stage => {
     if (!stage) return stage;
 
@@ -13012,13 +13286,104 @@ export default function Pipeline() {
       ...stage
     };
 
+    if (
+      IMMIGRATION_CRM_CHECKLISTS?.[stage.stage_name]
+    ) {
+      const checklistItems =
+        IMMIGRATION_CRM_CHECKLISTS[
+          stage.stage_name
+        ] || [];
+
+      const backendChecklist =
+        deploymentFieldStatus
+          ?.__immigrationChecklists
+          ?.[stage.stage_name] ||
+        {};
+
+      const liveFoundationResults =
+        checklistItems.map(item => {
+          const backendItem =
+            backendChecklist?.[
+              item.key
+            ];
+
+          if (
+            typeof backendItem
+              ?.complete ===
+              "boolean"
+          ) {
+            return backendItem.complete;
+          }
+
+          const rawValue =
+            getLivePipelineFieldValue(
+              deploymentFieldStatus || {},
+              [
+                item.key,
+                ...(item.aliases || [])
+              ]
+            );
+
+          return isCRMChecklistComplete(
+            rawValue
+          );
+        });
+
+      const foundationComplete =
+        liveFoundationResults.length > 0 &&
+        liveFoundationResults.every(
+          Boolean
+        );
+
+      next = {
+        ...next,
+        status:
+          foundationComplete
+            ? "Completed"
+            : "Not Started",
+        completed:
+          foundationComplete,
+        is_completed:
+          foundationComplete,
+        completed_date:
+          foundationComplete
+            ? (
+                next.completed_date ||
+                new Date().toISOString()
+              )
+            : null,
+        crm_checklist_completed:
+          liveFoundationResults.filter(
+            Boolean
+          ).length,
+        crm_checklist_total:
+          liveFoundationResults.length,
+        source_trigger_unlocked:
+          foundationComplete,
+        trigger_unlocked:
+          foundationComplete,
+        crm_unlocked:
+          foundationComplete,
+        source_trigger_synced:
+          true,
+        crm_synced:
+          true
+      };
+    }
+
     const sectionGates =
       deploymentFieldStatus?.__sectionGates || {};
 
     const completionMap =
       deploymentFieldStatus?.__completionMap || {};
 
+    const useLiveCompletion =
+      LIVE_SOURCE_COMPLETION_STAGES.has(
+        stage.stage_name
+      );
+
     const explicitBackendCompletion =
+      useLiveCompletion &&
       typeof completionMap?.[stage.stage_name] === "boolean"
         ? completionMap[stage.stage_name]
         : null;
@@ -13065,7 +13430,12 @@ export default function Pipeline() {
 
     // Exact CRM/Recruit rule evaluation.
     // The raw field itself is authoritative when a rule exists.
-    if (rule && !forceSectionTriggerComplete) {
+    if (
+      useLiveCompletion &&
+      rule &&
+      !IMMIGRATION_CRM_CHECKLISTS?.[stage.stage_name] &&
+      !forceSectionTriggerComplete
+    ) {
       const value = rule.fields
         ? Object.fromEntries(
             rule.fields.map(field => [
@@ -13137,10 +13507,13 @@ export default function Pipeline() {
           value
       };
     } else if (
-      explicitBackendCompletion !== null ||
+      useLiveCompletion &&
       (
-        liveStageStatus?.evaluated === true &&
-        typeof liveStageStatus?.completed === "boolean"
+        explicitBackendCompletion !== null ||
+        (
+          liveStageStatus?.evaluated === true &&
+          typeof liveStageStatus?.completed === "boolean"
+        )
       )
     ) {
       const backendCompleted =
@@ -13763,8 +14136,17 @@ export default function Pipeline() {
                     </div>
                   </div>
                   {cat === "Hiring" &&
-                    stage.stage_name === "Transfer to ICP USRN School" &&
-                    nclexBranchVisible && (
+                    nclexBranchVisible &&
+                    (
+                      (
+                        transferStatusSelected &&
+                        stage.stage_name === "Transfer to ICP USRN School"
+                      ) ||
+                      (
+                        !transferStatusSelected &&
+                        stage.stage_name === "Associated with Job"
+                      )
+                    ) && (
                   <section className="border-t border-amber-200 bg-amber-50/40 p-5">
                             <div className="mb-4 flex items-center justify-between gap-3">
                               <div>
