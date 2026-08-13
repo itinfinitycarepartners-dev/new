@@ -1,3 +1,6 @@
+
+
+
 // @ts-nocheck
 // src/components/messaging/MessageList.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -49,7 +52,7 @@ export default function MessageList() {
   // Get user name from localStorage or use email
   const getUserName = useCallback(() => {
     const storedName = localStorage.getItem('userName');
-    if (storedName) return storedName;
+    if (storedName) return String(storedName).trim().split(/\s+/)[0];
     
     const token = tokenStorage.get();
     if (token) {
@@ -57,7 +60,7 @@ export default function MessageList() {
         const parts = token.split('.');
         if (parts.length > 1) {
           const payload = JSON.parse(atob(parts[1]));
-          return payload.name || payload.email?.split('@')[0] || 'User';
+          return String(payload.firstName || payload.First_Name || payload.name || payload.email?.split('@')[0] || 'User').trim().split(/\s+/)[0];
         }
       } catch (e) {
         return token.split('@')[0] || 'User';
@@ -415,7 +418,7 @@ export default function MessageList() {
     }
     
     if (message.senderName && message.senderName !== 'admin' && message.senderName !== 'Admin') {
-      return message.senderName;
+      return String(message.senderName).trim().split(/\s+/)[0];
     }
     
     if (message.senderEmail) {

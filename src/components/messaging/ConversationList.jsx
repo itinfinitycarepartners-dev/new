@@ -1,3 +1,6 @@
+
+
+
 // @ts-nocheck
 // src/components/messaging/ConversationList.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -61,7 +64,7 @@ export default function ConversationList({
 
   const getUserName = useCallback(() => {
     const storedName = localStorage.getItem('userName');
-    if (storedName) return storedName;
+    if (storedName) return String(storedName).trim().split(/\s+/)[0];
     
     const token = tokenStorage.get();
     if (token) {
@@ -69,7 +72,7 @@ export default function ConversationList({
         const parts = token.split('.');
         if (parts.length > 1) {
           const payload = JSON.parse(atob(parts[1]));
-          return payload.name || payload.email?.split('@')[0] || 'User';
+          return String(payload.firstName || payload.First_Name || payload.name || payload.email?.split('@')[0] || 'User').trim().split(/\s+/)[0];
         }
       } catch (e) {
         return token.split('@')[0] || 'User';
@@ -81,7 +84,7 @@ export default function ConversationList({
   const getSenderDisplayName = useCallback((message) => {
     const currentUserEmail = getCurrentUserEmail();
     if (message.senderEmail === currentUserEmail) return 'You';
-    if (message.senderName && message.senderName !== 'admin' && message.senderName !== 'Admin') return message.senderName;
+    if (message.senderName && message.senderName !== 'admin' && message.senderName !== 'Admin') return String(message.senderName).trim().split(/\s+/)[0];
     if (message.senderEmail) {
       if (message.senderEmail === 'admin' || message.senderEmail === 'admin@') return 'Admin';
       return message.senderEmail.split('@')[0];
@@ -225,7 +228,7 @@ export default function ConversationList({
       const response = await messaging.sendReply(selectedId, parentMessageId, content);
       if (response.success) {
         const newMessage = response.message;
-        const userName = getUserName();
+        const userName = response.message?.senderName || getUserName();
         setMessages(prev => prev.map(msg => {
           if (msg._id === parentMessageId) {
             return {
@@ -267,7 +270,7 @@ const sendMessage = useCallback(async () => {
     const response = await messaging.sendMessage(selectedId, newMessageContent, isAdminConversation ? 'direct' : 'text');
     
     if (response.success) {
-      const userName = getUserName();
+      const userName = response.message?.senderName || getUserName();
       const newMessage = { ...response.message, replies: [], senderName: userName };
       setMessages(prev => [...prev, newMessage]);
       setNewMessageContent('');

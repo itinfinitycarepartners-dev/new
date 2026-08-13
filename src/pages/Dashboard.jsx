@@ -1,6 +1,9 @@
 
 
 
+
+
+
 // @ts-nocheck
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
@@ -184,9 +187,25 @@ const REQUIRED_STAGE_ACTIONS = {
 };
 
 const getDashboardVisibleStages = (stages = [], applicationStatus = "") => {
-  const normalized = String(applicationStatus || "").trim().toLowerCase();
-  const complete = name => stages.some(stage => stage?.stage_name === name && (stage?.status === "Completed" || stage?.completed === true || stage?.is_completed === true || stage?.completed_date));
-  const progressed = stages.some(stage => ["Transfer to ICP USRN School","Select Prescreen Time","Prescreen Scheduled","Prescreen Completed","Client Documents & Video Provided","Pending Interview Selection","Mandatory Pre-Interview Coaching Call","Interview Scheduled","Interview Attended","Offer Made","Offer Accepted","Offer Declined","Employment Contract Sent","Employment Contract Signed","Documents Received","Hired"].includes(stage?.stage_name) && (stage?.status === "Completed" || stage?.status === "In Progress" || stage?.completed === true || stage?.completed_date));
+  const normalized = String(applicationStatus || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[–—]/g, "-")
+    .replace(/\s*-\s*/g, "-")
+    .replace(/\s+/g, " ");
+  const complete = name => stages.some(stage => stage?.stage_name === name && isPipelineStageComplete(stage));
+  const transferOrQualifiedMatch = [
+    "transfer to icp usrn school",
+    "transfer to ivp usrn school",
+    "qualified-match",
+    "qualified match"
+  ].includes(normalized);
+  const progressed = transferOrQualifiedMatch || stages.some(stage => [
+    "Transfer to ICP USRN School","Select Prescreen Time","Prescreen Scheduled","Prescreen Completed",
+    "Client Documents & Video Provided","Pending Interview Selection","Mandatory Pre-Interview Coaching Call",
+    "Interview Scheduled","Interview Attended","Offer Made","Offer Accepted","Offer Declined",
+    "Employment Contract Sent","Employment Contract Signed","Documents Received","Hired"
+  ].includes(stage?.stage_name) && (isPipelineStageComplete(stage) || String(stage?.status || "").toLowerCase() === "in progress"));
   const accepted = normalized === "offer accepted" || (normalized !== "offer declined" && complete("Offer Accepted"));
   const declined = normalized === "offer declined" || (normalized !== "offer accepted" && complete("Offer Declined"));
   return stages.filter(stage => {
@@ -889,9 +908,13 @@ export default function Dashboard() {
         user?.email
       ),
     staleTime:
-      30 * 60 * 1000,
-    refetchOnWindowFocus:
+      0,
+    refetchInterval:
+      15 * 1000,
+    refetchIntervalInBackground:
       false,
+    refetchOnWindowFocus:
+      true,
     queryFn:
       async () => {
         const token =
@@ -992,46 +1015,53 @@ export default function Dashboard() {
     hiddenStageNames.has(stage?.stage_name) ||
     (progressedPastQualification && ["Qualified Candidate Pool", "Not Qualified - to close"].includes(stage?.stage_name));
 
-  const activeStage =
-    obsoleteQualificationStage(rawActiveStage)
-      ? (visiblePipelineStages.length
-          ? visiblePipelineStages.find(stage => {
-              const status = String(stage?.status || "").toLowerCase();
-              return !obsoleteQualificationStage(stage) &&
-                (status === "in progress" || (!stage?.completed && status !== "completed"));
-            })
-          : null)
-      : rawActiveStage;
+  const orderedVisibleStages = [...visiblePipelineStages]
+    .filter(stage => !obsoleteQualificationStage(stage))
+    .sort((a, b) => Number(a?.stage_order || 0) - Number(b?.stage_order || 0));
 
-  const pendingNextStage =
-    obsoleteQualificationStage(rawPendingNextStage)
-      ? (visiblePipelineStages.length
-          ? visiblePipelineStages.find(stage =>
-              !obsoleteQualificationStage(stage) &&
-              Number(stage?.stage_order || 0) > Number(activeStage?.stage_order || 0) &&
-              String(stage?.status || "").toLowerCase() !== "completed"
-            )
-          : null)
-      : rawPendingNextStage;
+  const fallbackActiveStage =
+    orderedVisibleStages.find(stage =>
+      !isPipelineStageComplete(stage) &&
+      String(stage?.status || "").trim().toLowerCase() === "in progress"
+    ) ||
+    orderedVisibleStages.find(stage =>
+      !isPipelineStageComplete(stage) &&
+      (stage?.unlocked === true || stage?.is_unlocked === true || stage?.started_at || stage?.startedAt)
+    ) ||
+    null;
+
+  const activeStage =
+    !obsoleteQualificationStage(rawActiveStage) &&
+    rawActiveStage &&
+    !isPipelineStageComplete(rawActiveStage) &&
+    String(rawActiveStage?.status || "").trim().toLowerCase() === "in progress"
+      ? rawActiveStage
+      : fallbackActiveStage;
+
+  const pendingNextStage = activeStage
+    ? orderedVisibleStages.find(stage =>
+        Number(stage?.stage_order || 0) > Number(activeStage?.stage_order || 0) &&
+        !isPipelineStageComplete(stage) &&
+        (String(stage?.status || "").trim().toLowerCase() === "in progress" || stage?.unlocked === true || stage?.is_unlocked === true || stage?.started_at || stage?.startedAt)
+      ) || null
+    : null;
+
+  const serverTimerMatchesActive =
+    pipeline.timer?.stageName &&
+    activeStage?.stage_name &&
+    pipeline.timer.stageName === activeStage.stage_name;
 
   const activeTimer =
-    pipeline.timer ||
-    (
-      activeStage?.target_date
+    serverTimerMatchesActive
+      ? pipeline.timer
+      : activeStage?.target_date
         ? {
-            stageName:
-              activeStage.stage_name,
-            startedAt:
-              activeStage.started_at ||
-              null,
-            targetDate:
-              activeStage.target_date,
-            timingStatus:
-              activeStage.timing_status ||
-              null
+            stageName: activeStage.stage_name,
+            startedAt: activeStage.started_at || null,
+            targetDate: activeStage.target_date,
+            timingStatus: activeStage.timing_status || null
           }
-        : null
-    );
+        : null;
 
   const activeDeadline =
     activeTimer?.targetDate
@@ -1272,6 +1302,10 @@ export default function Dashboard() {
         refetch();
       };
 
+    websocket.on("pipeline-updated", refresh);
+    websocket.on("candidate-data-updated", refresh);
+    websocket.on("crm-recruit-updated", refresh);
+
     window.addEventListener(
       "pipeline-updated",
       refresh
@@ -1293,6 +1327,10 @@ export default function Dashboard() {
     );
 
     return () => {
+      websocket.off("pipeline-updated", refresh);
+      websocket.off("candidate-data-updated", refresh);
+      websocket.off("crm-recruit-updated", refresh);
+
       window.removeEventListener(
         "pipeline-updated",
         refresh
@@ -1365,6 +1403,48 @@ export default function Dashboard() {
           }
         : null
     ].filter(Boolean);
+
+  useEffect(() => {
+    const popupItems = [
+      ...(Array.isArray(updates) ? updates : []),
+      ...notifications
+    ];
+    if (popupItems.length === 0) return;
+
+    const userEmailKey = String(user?.email || "").trim().toLowerCase();
+
+    popupItems
+      .filter(item => item && item.is_read !== true)
+      .slice(0, 8)
+      .forEach(item => {
+        const notificationKey =
+          `dashboard_notification_seen:${userEmailKey}:${item.id || item._id || item.title || item.message}`;
+        if (sessionStorage.getItem(notificationKey)) return;
+
+        const text = String(item.message || item.text || item.title || "").trim();
+        const title = String(item.title || "Pipeline update").trim();
+        const combined = `${title} ${text}`.toLowerCase();
+        const isRFE =
+          combined.includes("request for evidence") ||
+          combined.includes("request for further evidence") ||
+          combined.includes("rfe");
+
+        if (isRFE) {
+          toast.warning(title || "Request for Evidence", {
+            description: text || "Your immigration record has a Request for Evidence update.",
+            duration: 10000
+          });
+        } else if (item.update_type || item.type === "stage") {
+          toast.info(title, {
+            description: text || "Your candidate record has changed.",
+            duration: 7000
+          });
+        }
+
+        sessionStorage.setItem(notificationKey, "1");
+      });
+  }, [updates, notifications, user?.email]);
+
 
   const quickLinks = [
     {
@@ -1474,7 +1554,7 @@ export default function Dashboard() {
         <div className="flex flex-col justify-between gap-6 md:flex-row md:items-center">
           <div>
             <h1 className="text-2xl font-bold tracking-tight lg:text-3xl">
-              {greeting()}, {profile?.candidateName || profile?.firstName || user?.full_name || "there"} 👋
+              {greeting()}, {String(profile?.firstName || profile?.First_Name || profile?.candidateName || user?.full_name || "there").trim().split(/\s+/)[0]} 👋
             </h1>
 
             <p className="mt-1 text-muted-foreground">

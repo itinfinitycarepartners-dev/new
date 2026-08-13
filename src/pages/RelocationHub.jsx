@@ -71,7 +71,9 @@ const fetchGeocodingInfo = async (cityName, stateName) => {
         lon: parseFloat(data[0].lon),
         displayName: data[0].display_name,
         city: address.city || address.town || address.village || cleanCityName,
-        state: address.state || stateName || ""
+        state: address.state || stateName || "",
+        countryCode: String(address.country_code || "").toLowerCase(),
+        country: address.country || ""
       };
     }
     return null;
@@ -269,7 +271,7 @@ export default function RelocationHub() {
   // Extract the profile intelligently, falling back to auth context if needed
   const profile = profiles[0] || candidateData || user;
 
-  // Helper to discard em-dash and empty spaces returned by the CRM
+  // Helper to discard em-dash and empty spaces returned by CRM / Recruit.
   const getValidField = (fieldValue) => {
     if (!fieldValue) return "";
     const cleanStr = String(fieldValue).trim();
@@ -277,60 +279,208 @@ export default function RelocationHub() {
     return cleanStr;
   };
 
-  // Prioritize "Port of Entry", fallback to "Destination City" or "Hired Location"
-  const rawCity = getValidField(profile?.entryport) 
-               || getValidField(profile?.destination_city) 
-               || getValidField(profile?.hiredlocation) 
-               || "";
-               
-  const rawState = getValidField(profile?.destination_state) || "";
+  // Read a CRM value by API name first, then by legacy aliases already used by the portal.
+  const getProfileField = (...names) => {
+    for (const name of names) {
+      const value = getValidField(profile?.[name]);
+      if (value) return value;
+    }
+    return "";
+  };
 
+  // Compare locations loosely so values such as "JFK - New York", "New York (JFK)"
+  // and "New York, NY" can still be recognized as referring to the same stop.
+  const normalizeLocation = (value) =>
+    getValidField(value)
+      .toLowerCase()
+      .replace(/\([^)]*\)/g, " " )
+      .replace(/\b(airport|international|intl|terminal|united states|united states of america|usa|u\.?s\.?a\.?|us)\b/g, " " )
+      .replace(/[^a-z0-9]+/g, " " )
+      .trim();
+
+  const locationsAreSimilar = (left, right) => {
+    const a = normalizeLocation(left);
+    const b = normalizeLocation(right);
+    if (!a || !b) return false;
+    if (a === b || a.includes(b) || b.includes(a)) return true;
+
+    const aWords = new Set(a.split(/\s+/).filter(word => word.length > 1));
+    const bWords = new Set(b.split(/\s+/).filter(word => word.length > 1));
+    const common = [...aWords].filter(word => bWords.has(word));
+    return common.length >= Math.min(2, aWords.size, bWords.size);
+  };
+
+  // CRM flight fields used by the Relocation Hub.
+  const layover1 = getProfileField(
+    "Layover_1_Location",
+    "layover_1_location",
+    "layover1location",
+    "layover1"
+  );
+  const layover2 = getProfileField(
+    "Layover_2_Location",
+    "layover_2_location",
+    "layover2location",
+    "layover2"
+  );
+  const layover3 = getProfileField(
+    "Layover_3_Location",
+    "layover_3_location",
+    "layover3location",
+    "layover3"
+  );
+  const portOfEntry = getProfileField(
+    "Port_of_Entry_in_US",
+    "port_of_entry_in_us",
+    "entryport",
+    "PortOfEntryInUS"
+  );
+
+  const destinationState = getProfileField(
+    "destination_state",
+    "Destination_State",
+    "state"
+  );
+
+  const fallbackDestination = getProfileField(
+    "destination_city",
+    "Destination_City",
+    "hiredlocation",
+    "Hired_Location"
+  );
+
+  const [selectedLocation, setSelectedLocation] = useState({ city: "", state: "" });
+
+  // Resolve the relocation city from the candidate's actual travel sequence.
+  // Rules:
+  // 1. Layover 3 is the relocation city when Layover 2 is the Port of Entry.
+  // 2. Layover 2 is the relocation city when Layover 1 is the Port of Entry,
+  //    Layover 2 is in the USA, and there is no Layover 3.
+  // 3. Layover 1 is used when it is the Port of Entry and no later layovers exist.
+  // 4. Port of Entry is used when it matches the final available layover.
   useEffect(() => {
-    if (!rawCity) return;
-    
-    const fetchAllInfo = async () => {
+    let cancelled = false;
+
+    const resolveRelocationLocation = async () => {
       setLoadingInfo(true);
       setError(null);
-      
-      try {
-        // Get coordinates and resolved location
-        const geoInfo = await fetchGeocodingInfo(rawCity, rawState);
-        
-        if (!geoInfo) {
-          setError("Could not resolve city location. Please check your destination information.");
+
+      let chosenCity = "";
+      let chosenState = destinationState;
+
+      const layover1MatchesPort = locationsAreSimilar(layover1, portOfEntry);
+      const layover2MatchesPort = locationsAreSimilar(layover2, portOfEntry);
+      const layover3MatchesPort = locationsAreSimilar(layover3, portOfEntry);
+
+      // If the traveler enters the U.S. at Layover 2, the next stop (Layover 3)
+      // is the relocation city. Layover 1 is intentionally ignored in this case.
+      if (layover3 && layover2MatchesPort) {
+        chosenCity = layover3;
+      }
+
+      // If the traveler enters the U.S. at Layover 1 and there is one later stop,
+      // use Layover 2 only when geocoding confirms that it is a U.S. location.
+      if (!chosenCity && !layover3 && layover2 && layover1MatchesPort) {
+        const layover2Geo = await fetchGeocodingInfo(layover2, "");
+        if (layover2Geo?.countryCode === "us") {
+          chosenCity = layover2;
+          chosenState = layover2Geo.state || chosenState;
+        }
+      }
+
+      // If Port of Entry is also the only/final stop, either value refers to the
+      // same place; keep the CRM Layover 1 wording when it is available.
+      if (!chosenCity && layover1 && layover1MatchesPort && !layover2 && !layover3) {
+        chosenCity = layover1;
+      }
+
+      // Explicit Port-of-Entry fallback rules from CRM.
+      if (!chosenCity && portOfEntry) {
+        const portMatchesFinalAvailableStop =
+          (layover1MatchesPort && !layover2 && !layover3) ||
+          (layover2MatchesPort && !layover3) ||
+          layover3MatchesPort;
+
+        if (portMatchesFinalAvailableStop) {
+          chosenCity = portOfEntry;
+        }
+      }
+
+      // Preserve the existing destination fallback when flight routing is not yet populated.
+      if (!chosenCity) {
+        chosenCity = portOfEntry || fallbackDestination || "";
+      }
+
+      if (!chosenCity) {
+        if (!cancelled) {
+          setSelectedLocation({ city: "", state: "" });
+          setCityInfo(null);
           setLoadingInfo(false);
+        }
+        return;
+      }
+
+      try {
+        const geoInfo = await fetchGeocodingInfo(chosenCity, chosenState);
+
+        if (!geoInfo) {
+          if (!cancelled) {
+            setSelectedLocation({ city: chosenCity, state: chosenState });
+            setCityInfo(null);
+            setError("Could not resolve city location. Please check your destination information.");
+          }
           return;
         }
-        
-        const displayCity = geoInfo.city || rawCity;
-        const displayState = geoInfo.state || rawState;
-        
-        // Fetch Wikipedia info and weather in parallel
+
+        const displayCity = geoInfo.city || chosenCity;
+        const displayState = geoInfo.state || chosenState;
+
         const [wikipedia, weather] = await Promise.all([
           fetchWikipediaInfo(displayCity, displayState),
           fetchWeather(geoInfo.lat, geoInfo.lon)
         ]);
-        
-        setCityInfo({
-          wikipedia,
-          weather,
-          coordinates: { lat: geoInfo.lat, lon: geoInfo.lon },
-          resolvedCity: displayCity,
-          resolvedState: displayState
-        });
+
+        if (!cancelled) {
+          setSelectedLocation({ city: chosenCity, state: chosenState });
+          setCityInfo({
+            wikipedia,
+            weather,
+            coordinates: { lat: geoInfo.lat, lon: geoInfo.lon },
+            resolvedCity: displayCity,
+            resolvedState: displayState
+          });
+        }
       } catch (err) {
         console.error("Error fetching city info:", err);
-        setError("Unable to fetch complete city information. Showing basic details.");
+        if (!cancelled) {
+          setSelectedLocation({ city: chosenCity, state: chosenState });
+          setCityInfo(null);
+          setError("Unable to fetch complete city information. Showing basic details.");
+        }
       } finally {
-        setLoadingInfo(false);
+        if (!cancelled) setLoadingInfo(false);
       }
     };
-    
-    fetchAllInfo();
-  }, [rawCity, rawState]);
 
-  // If no valid city is found (after ignoring the "—"), show the USA view!
-  if (!rawCity) {
+    resolveRelocationLocation();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    layover1,
+    layover2,
+    layover3,
+    portOfEntry,
+    destinationState,
+    fallbackDestination
+  ]);
+
+  const rawCity = selectedLocation.city;
+  const rawState = selectedLocation.state;
+
+  // If no valid city is found (after ignoring the "—"), show the USA view.
+  if (!loadingInfo && !rawCity) {
     return <USAGeneralInfo />;
   }
 

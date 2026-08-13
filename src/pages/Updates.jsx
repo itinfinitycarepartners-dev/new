@@ -1,12 +1,6 @@
-
-
-
 // @ts-nocheck
-import React, {
-  useCallback,
-  useEffect,
-  useState
-} from "react";
+// src/pages/Updates.jsx
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Bell,
   CheckCircle,
@@ -14,9 +8,10 @@ import {
   Info,
   Loader2,
   RefreshCw,
-  PlaneLanding
+  PlaneLanding,
+  AlertTriangle
 } from "lucide-react";
-import { tokenStorage } from "@/api/icpClient";
+import { tokenStorage, websocket } from "@/api/icpClient";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
@@ -24,264 +19,151 @@ const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
   "https://fictional-carnival-3inv.onrender.com";
 
+const AUTO_REFRESH_MS = 15000;
+
 const getUpdateIcon = type => {
-  switch (
-    String(type || "")
-      .toLowerCase()
-  ) {
-    case "arrival":
-      return (
-        <PlaneLanding className="h-5 w-5 text-blue-500" />
-      );
-    case "add":
-      return (
-        <CheckCircle className="h-5 w-5 text-green-500" />
-      );
-    case "edit":
-      return (
-        <Edit className="h-5 w-5 text-amber-500" />
-      );
-    default:
-      return (
-        <Info className="h-5 w-5 text-gray-400" />
-      );
-  }
+  const normalized = String(type || "").toLowerCase();
+  if (normalized === "arrival") return <PlaneLanding className="h-5 w-5 text-blue-500" />;
+  if (normalized === "add") return <CheckCircle className="h-5 w-5 text-green-500" />;
+  if (normalized === "edit") return <Edit className="h-5 w-5 text-amber-500" />;
+  if (normalized === "rfe" || normalized === "stage") return <AlertTriangle className="h-5 w-5 text-orange-500" />;
+  return <Info className="h-5 w-5 text-gray-400" />;
 };
 
 const formatDate = value => {
   if (!value) return "Just now";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Just now";
 
-  const date =
-    new Date(value);
-
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
-    return "Just now";
-  }
-
-  const diffMs =
-    Date.now() -
-    date.getTime();
-
-  const mins =
-    Math.floor(
-      diffMs / 60000
-    );
-
-  const hours =
-    Math.floor(
-      diffMs / 3600000
-    );
-
-  const days =
-    Math.floor(
-      diffMs / 86400000
-    );
+  const diffMs = Date.now() - date.getTime();
+  const mins = Math.floor(diffMs / 60000);
+  const hours = Math.floor(diffMs / 3600000);
+  const days = Math.floor(diffMs / 86400000);
 
   if (mins < 1) return "Just now";
   if (mins < 60) return `${mins} min ago`;
-  if (hours < 24) {
-    return `${hours} hour${hours === 1 ? "" : "s"} ago`;
-  }
-  if (days < 7) {
-    return `${days} day${days === 1 ? "" : "s"} ago`;
-  }
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  if (days < 7) return `${days} day${days === 1 ? "" : "s"} ago`;
 
-  return date.toLocaleDateString(
-    "en-US",
-    {
-      month: "short",
-      day: "numeric",
-      year: "numeric"
-    }
-  );
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
 };
 
 export default function Updates() {
-  const [updates, setUpdates] =
-    useState([]);
+  const [updates, setUpdates] = useState([]);
+  const [unread, setUnread] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const inFlightRef = useRef(false);
 
-  const [unread, setUnread] =
-    useState(0);
+  const loadUpdates = useCallback(async ({ refreshZoho = false, silent = false } = {}) => {
+    const token = tokenStorage.get();
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
 
-  const [loading, setLoading] =
-    useState(true);
+    try {
+      if (refreshZoho) {
+        await fetch(`${API_BASE}/api/zoho/my-deals?refresh=true&_=${Date.now()}`, {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${token}` }
+        }).catch(() => null);
+      }
 
-  const [refreshing, setRefreshing] =
-    useState(false);
+      const response = await fetch(`${API_BASE}/api/updates?limit=100&_=${Date.now()}`, {
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${token}` }
+      });
 
-  const loadUpdates =
-    useCallback(
-      async ({
-        refreshZoho = false
-      } = {}) => {
-        const token =
-          tokenStorage.get();
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || payload.message || "Unable to load updates.");
+      }
 
-        if (!token) {
-          setLoading(false);
-          return;
-        }
-
-        try {
-          if (refreshZoho) {
-            // User-triggered only. This bypasses the cache once so CRM/Recruit
-            // changes can be detected without background polling.
-            await fetch(
-              `${API_BASE}/api/zoho/my-deals?refresh=true`,
-              {
-                headers: {
-                  Authorization:
-                    `Bearer ${token}`
-                }
-              }
-            );
-          }
-
-          const response =
-            await fetch(
-              `${API_BASE}/api/updates?limit=100`,
-              {
-                headers: {
-                  Authorization:
-                    `Bearer ${token}`
-                }
-              }
-            );
-
-          const payload =
-            await response
-              .json()
-              .catch(
-                () => ({})
-              );
-
-          if (!response.ok) {
-            throw new Error(
-              payload.error ||
-              payload.message ||
-              "Unable to load updates."
-            );
-          }
-
-          setUpdates(
-            Array.isArray(
-              payload.updates
-            )
-              ? payload.updates
-              : []
-          );
-
-          setUnread(
-            Number(
-              payload.unread ||
-              0
-            )
-          );
-        } finally {
-          setLoading(false);
-        }
-      },
-      []
-    );
+      setUpdates(Array.isArray(payload.updates) ? payload.updates : []);
+      setUnread(Number(payload.unread || 0));
+    } catch (error) {
+      if (!silent) throw error;
+      console.warn("[Updates] Background refresh failed:", error.message);
+    } finally {
+      setLoading(false);
+      inFlightRef.current = false;
+    }
+  }, []);
 
   useEffect(() => {
     loadUpdates();
 
-    const handleUpdate =
-      () => loadUpdates();
+    const handleUpdate = () => loadUpdates({ silent: true });
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") {
+        loadUpdates({ refreshZoho: true, silent: true });
+      }
+    };
 
-    window.addEventListener(
-      "candidate-data-updated",
-      handleUpdate
-    );
+    window.addEventListener("candidate-data-updated", handleUpdate);
+    window.addEventListener("pipeline-updated", handleUpdate);
+    window.addEventListener("focus", handleVisible);
+    document.addEventListener("visibilitychange", handleVisible);
+    websocket?.on?.("candidate-data-updated", handleUpdate);
+    websocket?.on?.("pipeline-updated", handleUpdate);
 
-    window.addEventListener(
-      "pipeline-updated",
-      handleUpdate
-    );
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        loadUpdates({ refreshZoho: true, silent: true });
+      }
+    }, AUTO_REFRESH_MS);
 
     return () => {
-      window.removeEventListener(
-        "candidate-data-updated",
-        handleUpdate
-      );
-
-      window.removeEventListener(
-        "pipeline-updated",
-        handleUpdate
-      );
+      window.clearInterval(interval);
+      window.removeEventListener("candidate-data-updated", handleUpdate);
+      window.removeEventListener("pipeline-updated", handleUpdate);
+      window.removeEventListener("focus", handleVisible);
+      document.removeEventListener("visibilitychange", handleVisible);
+      websocket?.off?.("candidate-data-updated", handleUpdate);
+      websocket?.off?.("pipeline-updated", handleUpdate);
     };
   }, [loadUpdates]);
 
-  const manualRefresh =
-    async () => {
-      setRefreshing(true);
+  const manualRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await loadUpdates({ refreshZoho: true });
+      toast.success("Updates refreshed.");
+    } catch (error) {
+      toast.error(error.message || "Unable to refresh updates.");
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
-      try {
-        await loadUpdates({
-          refreshZoho: true
-        });
+  const markAllRead = async () => {
+    const token = tokenStorage.get();
+    if (!token) return;
 
-        toast.success(
-          "Updates refreshed."
-        );
-      } catch (error) {
-        toast.error(
-          error.message ||
-          "Unable to refresh updates."
-        );
-      } finally {
-        setRefreshing(false);
-      }
-    };
+    try {
+      const response = await fetch(`${API_BASE}/api/updates/mark-read`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        }
+      });
+      if (!response.ok) throw new Error("Unable to mark updates as read.");
 
-  const markAllRead =
-    async () => {
-      const token =
-        tokenStorage.get();
-
-      if (!token) return;
-
-      try {
-        await fetch(
-          `${API_BASE}/api/updates/mark-read`,
-          {
-            method: "POST",
-            headers: {
-              Authorization:
-                `Bearer ${token}`,
-              "Content-Type":
-                "application/json"
-            }
-          }
-        );
-
-        setUpdates(previous =>
-          previous.map(
-            update => ({
-              ...update,
-              is_read: true
-            })
-          )
-        );
-
-        setUnread(0);
-
-        window.dispatchEvent(
-          new CustomEvent(
-            "updates-read"
-          )
-        );
-      } catch {
-        toast.error(
-          "Unable to mark updates as read."
-        );
-      }
-    };
+      setUpdates(previous => previous.map(update => ({ ...update, is_read: true })));
+      setUnread(0);
+      window.dispatchEvent(new CustomEvent("updates-read"));
+    } catch (error) {
+      toast.error(error.message || "Unable to mark updates as read.");
+    }
+  };
 
   if (loading) {
     return (
@@ -295,45 +177,26 @@ export default function Updates() {
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Updates
-          </h1>
+          <h1 className="text-2xl font-bold tracking-tight">Updates</h1>
           <p className="text-sm text-muted-foreground">
-            CRM and Recruit changes relevant to your candidate record.
+            CRM, Recruit, RFE and pipeline-stage changes relevant to your candidate record.
           </p>
         </div>
 
         <div className="flex gap-2">
           {unread > 0 && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={
-                markAllRead
-              }
-            >
+            <Button type="button" variant="outline" onClick={markAllRead}>
               Mark all read
             </Button>
           )}
-
           <Button
             type="button"
             variant="outline"
-            onClick={
-              manualRefresh
-            }
-            disabled={
-              refreshing
-            }
+            onClick={manualRefresh}
+            disabled={refreshing}
             className="gap-2"
           >
-            <RefreshCw
-              className={`h-4 w-4 ${
-                refreshing
-                  ? "animate-spin"
-                  : ""
-              }`}
-            />
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
             Refresh
           </Button>
         </div>
@@ -351,60 +214,38 @@ export default function Updates() {
       {updates.length === 0 ? (
         <div className="rounded-xl border bg-card p-12 text-center">
           <Bell className="mx-auto h-10 w-10 text-muted-foreground" />
-          <p className="mt-3 font-medium">
-            No updates yet
-          </p>
+          <p className="mt-3 font-medium">No updates yet</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Changes from CRM and Recruit will appear here.
+            Changes from CRM, Recruit and your pipeline will appear here.
           </p>
         </div>
       ) : (
         <div className="space-y-3">
-          {updates.map(
-            update => (
-              <div
-                key={
-                  update.id ||
-                  update._id
-                }
-                className={`rounded-xl border p-4 ${
-                  update.is_read
-                    ? "bg-card"
-                    : "border-primary/20 bg-primary/5"
-                }`}
-              >
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5">
-                    {getUpdateIcon(
-                      update.update_type
-                    )}
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-3">
-                      <p className="font-medium">
-                        {update.title ||
-                          "Candidate record updated"}
-                      </p>
-
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {formatDate(
-                          update.created_date ||
-                          update.created_at
-                        )}
-                      </span>
-                    </div>
-
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {update.message ||
-                        update.text ||
-                        "Your record was updated."}
+          {updates.map(update => (
+            <div
+              key={update.id || update._id}
+              className={`rounded-xl border p-4 ${
+                update.is_read ? "bg-card" : "border-primary/20 bg-primary/5"
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5">{getUpdateIcon(update.update_type)}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="font-medium">
+                      {update.title || "Candidate record updated"}
                     </p>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {formatDate(update.created_date || update.created_at)}
+                    </span>
                   </div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {update.message || update.text || "Your record was updated."}
+                  </p>
                 </div>
               </div>
-            )
-          )}
+            </div>
+          ))}
         </div>
       )}
     </div>
