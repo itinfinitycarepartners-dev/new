@@ -394,13 +394,13 @@ const STAGES_CONFIG = [
   { id: 39, stage_name: "Receipt Submission", stage_category: "Deployment", stage_order: 39, days_from_start: 990 },
   { id: 40, stage_name: "Arrived", stage_category: "Deployment", stage_order: 40, days_from_start: 1000 },
 
-  // Stage 4 — Aftercare: EXACTLY 8 candidate-visible stages.
+  // Stage 4 — Aftercare: EXACTLY 8 stages.
   { id: 41, stage_name: "Welcome Call/24 Hour Call", stage_category: "Aftercare", stage_order: 41, days_from_arrival: 1 },
   { id: 42, stage_name: "Relocation Survey", stage_category: "Aftercare", stage_order: 42, days_from_arrival: 2 },
-  { id: 43, stage_name: "7 Day Call", stage_category: "Aftercare", stage_order: 43, days_from_arrival: 7 },
-  { id: 44, stage_name: "2 Week Call", stage_category: "Aftercare", stage_order: 44, days_from_arrival: 14 },
-  { id: 45, stage_name: "U.S. Integration Call (30 Day Call / Survey)", stage_category: "Aftercare", stage_order: 45, days_from_arrival: 30 },
-  { id: 46, stage_name: "Workplace Integration Call (60 Day Call)", stage_category: "Aftercare", stage_order: 46, days_from_arrival: 60 },
+  { id: 43, stage_name: "Concierge Debrief", stage_category: "Aftercare", stage_order: 43, days_from_arrival: 3 },
+  { id: 44, stage_name: "7 Day Call", stage_category: "Aftercare", stage_order: 44, days_from_arrival: 7 },
+  { id: 45, stage_name: "2 Week Call", stage_category: "Aftercare", stage_order: 45, days_from_arrival: 14 },
+  { id: 46, stage_name: "U.S. Integration Call (30 Day Call / Survey)", stage_category: "Aftercare", stage_order: 46, days_from_arrival: 30 },
   { id: 47, stage_name: "Placement Stability Check-in (90 Day Call)", stage_category: "Aftercare", stage_order: 47, days_from_arrival: 90 },
   { id: 48, stage_name: "1 Year Survey", stage_category: "Aftercare", stage_order: 48, days_from_arrival: 365 }
 ];
@@ -416,7 +416,7 @@ const REQUIRED_STAGE_NOTICES = {
   "deployMate Ready": "Complete the deployMate readiness requirements.",
   "Arrival Itinerary": "Review your arrival itinerary and relocation information.",
   "Receipt Submission": "Submit the receipts required for reimbursement processing.",
-  "Arrived": "Arrival confirmed. Continue to Aftercare."
+  "Arrived": "Arrival confirmed. Continue to Aftercare.",
 };
 
 // Use the CURRENT pipeline configuration as the authoritative visible order.
@@ -1261,17 +1261,6 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
     ]
   },
   {
-    name: "Credential Evaluation",
-    days: 77,
-    field: "Credentialing_Status",
-    type: "picklist",
-    accepted: [
-      "Completed",
-      "Complete",
-      "Evaluation Completed"
-    ]
-  },
-  {
     name: "Credential Evaluation Completed",
     days: 92,
     field: "Credential_Registration_Date",
@@ -1311,8 +1300,9 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
   {
     name: "Pearson Vue Registration",
     days: 150,
-    field: "Completed_BON_Requirements",
-    type: "complete"
+    field: "Pearson_Vue_Status",
+    type: "picklist",
+    accepted: ["Completed"]
   },
   {
     name: "Performance Check 3",
@@ -1543,14 +1533,6 @@ const NCLEX_STAGE_DETAILS = {
       "Payment of evaluation fees"
     ]
   },
-  "Removed Credential Evaluation": {
-    description: "Credential evaluation in progress.",
-    steps: [
-      "Document verification by evaluator",
-      "Primary source verification",
-      "Evaluation processing"
-    ]
-  },
   "Credential Evaluation Completed": {
     description: "Credential evaluation is complete.",
     steps: [
@@ -1778,7 +1760,6 @@ const PIPELINE_STAGE_COMMENTS = {
   "Relocation Survey": "This is your relocation experience tell all! Let us know how we did and what we can do to improve the experience of those arriving after you.",
   "U.S. Integration Call (30 Day Call / Survey)": "Our aftercare department will contact you 30 days after your arrival. Be ready to share your orientation start date, end date and how and what you have been doing professionally and personally to integrate into your new communities. This is an open line of communication so feel free to discuss whatever you would like to discuss; we want to know how you are doing!",
   "Concierge Debrief": "This is internal and applies not to the candidate pipeline.",
-  "Workplace Integration Call (60 Day Call)": "Like the 30 day call only now with an extra 30 days to discuss and explore your experiences. Let us know how you are doing and confirm your current work status.",
   "Placement Stability Check-in (90 Day Call)": "This call serves as a 90-day placement milestone check-in to confirm that you have successfully transitioned into independent practice at your facility. As a staffing partner, not the employer, we use this conversation to verify completion of the initial integration period, ensure you feel stable and supported in your role, and document that contractual readiness requirements have been met ensuring long-term success."
 };
 
@@ -1811,8 +1792,7 @@ const CLICKABLE_STAGES = {
       "Pillar_5_Patient_Centered_Care"
     ],
     complete: value =>
-      Object.keys(value || {}).length === 5 &&
-      Object.values(value || {}).every(isCRMChecklistComplete)
+      String(unwrapPipelineFieldValue(value) || "").trim().toLowerCase() === "completed"
   },
   "Foundations: Endorsement Discovery": {
     label: "Foundations: Endorsement Discovery",
@@ -1943,9 +1923,8 @@ const CLICKABLE_STAGES = {
   // Aftercare stages
   "Welcome Call/24 Hour Call": { clickable: false, type: "field" },
   "Relocation Survey": { clickable: true, type: "view", viewType: "relocationSurvey" },
-  "Concierge Debrief": { clickable: true, type: "view", viewType: "aftercareCall" },
+  "Concierge Debrief": { clickable: true, type: "view", viewType: "conciergeDebrief" },
   "U.S. Integration Call (30 Day Call / Survey)": { clickable: true, type: "view", viewType: "thirtyDaySurvey" },
-  "Workplace Integration Call (60 Day Call)": { clickable: false, type: "field" },
   "Placement Stability Check-in (90 Day Call)": { clickable: false, type: "field" },
   // Legacy action aliases
   "24 Hour Call": { clickable: true, type: "view", viewType: "aftercareCall" },
@@ -3351,7 +3330,7 @@ const ImmigrationCRMChecklistView = ({ stageName, onClose, user, setStages, stag
       const response = await fetch(
         `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(
           user?.email || ""
-        )}&refresh=true&_=${Date.now()}`,
+        )}&refresh=false&_=${Date.now()}`,
         {
           method: "GET",
           cache: "no-store",
@@ -3934,6 +3913,52 @@ const LicenseEndorsementView = ({ onClose }) => {
 };
 
 // Candidate date submission form used by the two Aftercare date stages.
+
+const ConciergeDebriefView = ({
+  onClose
+}) => {
+  const conciergeDebriefUrl =
+    "https://survey.zohopublic.com/zs/m10BSf";
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-purple-200 bg-purple-50 p-4">
+        <h3 className="font-semibold text-purple-900">
+          Concierge Debrief
+        </h3>
+
+        <p className="mt-1 text-sm text-purple-800">
+          Complete the internal Concierge Debrief form using the link below.
+        </p>
+      </div>
+
+      <Button
+        type="button"
+        className="w-full"
+        onClick={() =>
+          window.open(
+            conciergeDebriefUrl,
+            "_blank",
+            "noopener,noreferrer"
+          )
+        }
+      >
+        Open Concierge Debrief
+      </Button>
+
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onClose}
+        >
+          Close
+        </Button>
+      </div>
+    </div>
+  );
+};
+
 const AftercareDateSubmissionView = ({ onClose, user, setStages, stageName, title, description, fieldLabel, dateType }) => {
   const [selectedDate, setSelectedDate] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -4300,11 +4325,6 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
     field: "Thirty_Day_Call",
     complete: value => isCurrentOrPastDate(value) || hasFlowValue(value)
   },
-  "Workplace Integration Call (60 Day Call)": {
-    label: "60 Day Call",
-    field: "Sixty_Day_Call",
-    complete: value => isCurrentOrPastDate(value) || hasFlowValue(value)
-  },
   "7 Day Call": {
     label: "7 Day Call",
     field: "Day_Call",
@@ -4350,7 +4370,7 @@ const DeploymentCRMStatusView = ({
         const response = await fetch(
           `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(
             user?.email || ""
-          )}&refresh=true&_=${Date.now()}`,
+          )}&refresh=false&_=${Date.now()}`,
           {
             cache: "no-store",
             headers: {
@@ -9475,7 +9495,7 @@ export default function Pipeline() {
     // than Dashboard persistence and this listener previously re-locked stages.
 
     // Keep the page synchronized while it remains open without requiring refresh.
-    refreshTimer = window.setInterval(mergeDashboardPipeline, 30000);
+    refreshTimer = window.setInterval(mergeDashboardPipeline, 30 * 60 * 1000);
 
     return () => {
       cancelled = true;
@@ -9713,7 +9733,7 @@ export default function Pipeline() {
         // This response is not dependent on the larger cached candidate payload.
         try {
           const fieldResponse = await fetch(
-            `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(user.email)}&refresh=true&_=${Date.now()}`,
+            `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(user.email)}&refresh=false&_=${Date.now()}`,
             {
               method: "GET",
               cache: "no-store",
@@ -12470,6 +12490,15 @@ export default function Pipeline() {
             <WelcomePacketView onClose={closeModal} user={user} setStages={setStages} />
           );
           break;
+        case "conciergeDebrief":
+          openModal(
+            "Concierge Debrief",
+            <ConciergeDebriefView
+              onClose={closeModal}
+              user={user}
+            />
+          );
+          break;
         case "aftercareCall":
           openModal(
             stage.stage_name,
@@ -12634,7 +12663,7 @@ export default function Pipeline() {
       try {
         const token = localStorage.getItem("icp_auth_token");
         const response = await fetch(
-          `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(user.email)}&refresh=true&_=${Date.now()}`,
+          `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(user.email)}&refresh=false&_=${Date.now()}`,
           {
             cache: "no-store",
             headers: { Authorization: `Bearer ${token}` }
@@ -12899,20 +12928,38 @@ export default function Pipeline() {
       }
     };
 
+    // API-conservation mode: one cached load when the Pipeline mounts.
+    // No timed polling and no focus polling.
     loadExpiryAndDeploymentStatus();
-    const interval = window.setInterval(
-      loadExpiryAndDeploymentStatus,
-      5 * 1000
+
+    let lastRefreshAt = 0;
+    const MIN_CLIENT_REFRESH_GAP_MS =
+      30 * 60 * 1000;
+
+    const refreshOnDemand = () => {
+      const now = Date.now();
+      if (
+        now - lastRefreshAt <
+        MIN_CLIENT_REFRESH_GAP_MS
+      ) {
+        return;
+      }
+
+      lastRefreshAt = now;
+      loadExpiryAndDeploymentStatus();
+    };
+
+    window.addEventListener(
+      "crm-recruit-refresh",
+      refreshOnDemand
     );
 
-    const refreshOnFocus = () => loadExpiryAndDeploymentStatus();
-    window.addEventListener("focus", refreshOnFocus);
-    window.addEventListener("crm-recruit-refresh", refreshOnFocus);
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
-      window.removeEventListener("focus", refreshOnFocus);
-      window.removeEventListener("crm-recruit-refresh", refreshOnFocus);
+      window.removeEventListener(
+        "crm-recruit-refresh",
+        refreshOnDemand
+      );
     };
   }, [user?.email]);
 
@@ -13260,7 +13307,6 @@ export default function Pipeline() {
     "Welcome Call/24 Hour Call",
     "7 Day Call",
     "2 Week Call",
-    "Workplace Integration Call (60 Day Call)",
     "Placement Stability Check-in (90 Day Call)",
     "1 Year Survey"
   ]);
