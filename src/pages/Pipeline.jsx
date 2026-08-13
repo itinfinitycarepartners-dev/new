@@ -368,9 +368,10 @@ const STAGES_CONFIG = [
   { id: 19, stage_name: "Documents Received", stage_category: "Hiring", stage_order: 19, days_from_start: 15 },
   { id: 20, stage_name: "Hired", stage_category: "Hiring", stage_order: 20, days_from_start: 15 },
 
-  // Immigration — CRM-driven flow.
+  // Immigration — exact visible CRM-driven flow (9 stages).
   { id: 21, stage_name: "Immigration forms submitted", stage_category: "Immigration", stage_order: 21, days_from_start: 30 },
-  { id: 22, stage_name: "Request for further evidence", stage_category: "Immigration", stage_order: 22, days_from_start: 90, conditional_rfe: true },
+  // RFE remains backend/dashboard-notification driven and is not an extra permanent pipeline row.
+  { id: 22, stage_name: "Request for further evidence", stage_category: "Immigration", stage_order: 22, days_from_start: 90, conditional_rfe: true, hidden_from_main_flow: true, non_counted_section: true },
   { id: 23, stage_name: "Foundations: Pillars", stage_category: "Immigration", stage_order: 23, days_from_start: 120 },
   { id: 24, stage_name: "Foundations: Endorsement Discovery", stage_category: "Immigration", stage_order: 24, days_from_start: 150 },
   { id: 25, stage_name: "Immigration approved", stage_category: "Immigration", stage_order: 25, days_from_start: 180 },
@@ -379,15 +380,13 @@ const STAGES_CONFIG = [
   { id: 28, stage_name: "DS-260 / Civil Document Submission", stage_category: "Immigration", stage_order: 28, days_from_start: 480 },
   { id: 29, stage_name: "Foundations: Cultural Readiness", stage_category: "Immigration", stage_order: 29, days_from_start: 600 },
   { id: 30, stage_name: "Documentarily Qualified", stage_category: "Immigration", stage_order: 30, days_from_start: 840 },
-  
 
-  // Deployment — CRM-driven flow.
+  // Deployment — exact visible CRM-driven flow (11 stages).
   { id: 33, stage_name: "Speciality Classes", stage_category: "Deployment", stage_order: 33, days_from_start: 900 },
   { id: 34, stage_name: "Final Self Assessment", stage_category: "Deployment", stage_order: 34, days_from_start: 910 },
   { id: 35, stage_name: "Speciality with Trainer Skills Check", stage_category: "Deployment", stage_order: 35, days_from_start: 920 },
-  
-  { id: 38, stage_name: "Deployment Pre-Arrival Call", stage_category: "Deployment", stage_order: 38, days_from_start: 940 },
   { id: 37, stage_name: "Housing / Transportation Call", stage_category: "Deployment", stage_order: 37, days_from_start: 950 },
+  { id: 38, stage_name: "Deployment Pre-Arrival Call", stage_category: "Deployment", stage_order: 38, days_from_start: 940 },
   { id: 39, stage_name: "Pre-Arrival Banking Call", stage_category: "Deployment", stage_order: 39, days_from_start: 960 },
   { id: 40, stage_name: "Employer Pre-Arrival Call", stage_category: "Deployment", stage_order: 40, days_from_start: 970 },
   { id: 41, stage_name: "deployMate Ready", stage_category: "Deployment", stage_order: 41, days_from_start: 980 },
@@ -1876,6 +1875,7 @@ const CLICKABLE_STAGES = {
   "Change Embassy Location": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
 
   // Current Deployment flow
+  "Introduction to Deployment Call": { clickable: true, type: "view", viewType: "introductionDeployment" },
   "Speciality Classes": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
   "Final Self Assessment": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
   "Speciality w/Trainer Skills Check": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
@@ -2479,10 +2479,10 @@ const isStageUnlocked = (stage, allStages) => {
       explicitOpen ||
       sourceBackedComplete ||
       isPipelineStageComplete(candidate) ||
-      normalizedStatus === "in progress" ||
-      normalizedStatus === "current" ||
-      Boolean(candidate.started_at) ||
-      Boolean(candidate.startedAt)
+      // Only the single authoritative current stage may cascade backwards.
+      // Generic saved "In Progress"/started rows are not enough to unlock
+      // future gates.
+      candidate.dashboard_current === true
     );
   };
 
@@ -4422,6 +4422,38 @@ const selectedValues = value => {
   return String(value ?? "").split(/[;,|]/).map(item => item.trim().toLowerCase()).filter(Boolean);
 };
 
+// Resolve CRM/Recruit values defensively. Backend responses may expose the
+// same API field under its exact Zoho API name, a camelCase alias, or a
+// display-shaped key. Match normalized keys as a last resort so a populated
+// CRM field cannot fail to cross off its corresponding visible pipeline row.
+const normalizePipelineFieldKey = value =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+
+const getLivePipelineFieldValue = (source, fieldNames) => {
+  const names = Array.isArray(fieldNames) ? fieldNames : [fieldNames];
+  for (const name of names) {
+    if (!name) continue;
+    const direct = source?.[name];
+    if (direct !== undefined && direct !== null && direct !== "") return direct;
+  }
+
+  const normalizedWanted = new Set(
+    names.filter(Boolean).map(normalizePipelineFieldKey)
+  );
+
+  for (const [key, value] of Object.entries(source || {})) {
+    if (normalizedWanted.has(normalizePipelineFieldKey(key)) &&
+        value !== undefined && value !== null && value !== "") {
+      return value;
+    }
+  }
+
+  return null;
+};
+
 const DEPLOYMENT_CRM_STAGE_RULES = {
   "Immigration forms submitted": {
     label: "Submitted to Immigration",
@@ -4438,6 +4470,38 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
       "request for evidence",
       "request for further evidence"
     ].includes(String(value || "").trim().toLowerCase())
+  },
+  "Foundations: Pillars": {
+    label: "Foundations: Pillars",
+    fields: [
+      "Introduction_to_US_Healthcare",
+      "HIPAA_Discovery_Class",
+      "Professional_Communication_Discovery_Class",
+      "US_Healthcare_System_Discovery_Class",
+      "US_Nursing_Practice_Discovery_Class"
+    ],
+    complete: value => Object.values(value || {}).length > 0 && Object.values(value || {}).every(isCRMChecklistComplete)
+  },
+  "Foundations: Endorsement Discovery": {
+    label: "Foundations: Endorsement Discovery",
+    fields: [
+      "Introduction_License_Endorsement_Discovery_Class",
+      "Jurisprudence_Discovery_Class",
+      "Nursys_Discovery_Class",
+      "Visascreen_Discovery_Class"
+    ],
+    complete: value => Object.values(value || {}).length > 0 && Object.values(value || {}).every(isCRMChecklistComplete)
+  },
+  "Foundations: Cultural Readiness": {
+    label: "Foundations: Cultural Readiness",
+    fields: [
+      "Introduction_License_Endorsement_Discovery_Class",
+      "Introduction_U_S_Finances_Discovery_Class",
+      "Introduction_U_S_Healthcare_Discovery_Class",
+      "Introduction_U_S_Housing_Market_Discovery_Class",
+      "Introduction_U_S_Transportation_Discovery_Class"
+    ],
+    complete: value => Object.values(value || {}).length > 0 && Object.values(value || {}).every(isCRMChecklistComplete)
   },
   "Immigration approved": {
     label: "I-140 Approval Date",
@@ -4461,8 +4525,11 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
   },
   "Documentarily Qualified": {
     label: "All Clear",
-    field: "All_Clear_Documentary_Complete",
-    complete: value => String(value || "").trim().toLowerCase() === "yes"
+    fieldsAny: ["All_Clear_Documentary_Complete", "allClearSelection", "allClear"],
+    complete: value => {
+      const normalized = String(value || "").trim().toLowerCase();
+      return normalized === "yes" || value === true;
+    }
   },
   "Speciality Classes": {
     label: "Relias Skills Checklist",
@@ -4478,6 +4545,15 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
     label: "Speciality w/Trainer Skills Check",
     field: "Speciality_with_Trainer_Skills_Check",
     complete: value => isCRMChecklistComplete(value)
+  },
+  "Deployment Eligible / Not Eligible": {
+    label: "Deployment Eligibility",
+    fieldsAny: ["State_Licensure_Requirements", "stateLicensureRequirements", "Deployment_Eligibility"],
+    complete: value => selectedValues(value).some(item =>
+      item === "eligible" ||
+      item.startsWith("eligible -") ||
+      item.startsWith("eligible:")
+    )
   },
   "Deployment Pre-Arrival Call": {
     label: "Nurse Deployment Call",
@@ -5746,6 +5822,14 @@ const DeploymateDownloadView = ({
 
     setSaving(true);
     try {
+      // Complete the CURRENT visible stage and keep the legacy alias for
+      // historical records. Previously only the hidden legacy row was updated,
+      // so "deployMate Ready" never crossed off.
+      await updateStageStatus(
+        user?.email,
+        "deployMate Ready",
+        setStages
+      );
       await updateStageStatus(
         user?.email,
         "Download Deploymate App",
@@ -9222,7 +9306,9 @@ export default function Pipeline() {
             dashboardPipeline.applicationStatus ||
             dashboardPipeline.application_status;
           setApplicationStatus(nextApplicationStatus);
-          setShowNCLEX(isTransferToICPUSRNStatus(nextApplicationStatus));
+          if (isTransferToICPUSRNStatus(nextApplicationStatus)) {
+            setShowNCLEX(true);
+          }
         }
 
         if (!dashboardStages.length && !dashboardCurrentStage) return;
@@ -9272,10 +9358,12 @@ export default function Pipeline() {
             const remoteReached =
               remoteComplete ||
               isDashboardCurrent ||
-              ["in progress", "in-progress", "current", "active"].includes(normalizedStatus) ||
+              remoteStage?.source_trigger_unlocked === true ||
+              remoteStage?.trigger_unlocked === true ||
+              remoteStage?.crm_unlocked === true ||
+              remoteStage?.recruit_unlocked === true ||
               remoteStage?.unlocked === true ||
-              remoteStage?.is_unlocked === true ||
-              Boolean(remoteStage?.started_at || remoteStage?.startedAt);
+              remoteStage?.is_unlocked === true;
 
             return {
               ...localStage,
@@ -9298,6 +9386,7 @@ export default function Pipeline() {
               unlocked: remoteReached || remoteStage?.unlocked === true,
               is_unlocked: remoteReached || remoteStage?.is_unlocked === true,
               is_locked: remoteReached ? false : remoteStage?.is_locked,
+              dashboard_current: isDashboardCurrent,
               dashboard_synced: true
             };
           });
@@ -10654,6 +10743,57 @@ export default function Pipeline() {
             stage.stage_name
           ];
 
+        const backendStageStatus =
+          directComputedStageStatus?.[stage.stage_name];
+
+        const backendEvaluated =
+          backendStageStatus?.evaluated === true;
+
+        // Lead Management Status is the authoritative, reversible trigger for
+        // Transfer to ICP USRN School. When selected, the Hiring row crosses off
+        // immediately and the NCLEX mini-pipeline becomes visible. Clearing/changing
+        // the trigger reverses this row on the next live sync.
+        if (stage.stage_name === "Transfer to ICP USRN School") {
+          const transferComplete = isTransferToICPUSRNStatus(applicationStatus);
+          return {
+            ...stage,
+            status: transferComplete ? "Completed" : "Not Started",
+            completed: transferComplete,
+            is_completed: transferComplete,
+            completed_date: transferComplete
+              ? (stage.completed_date || new Date().toISOString())
+              : null,
+            source_trigger_unlocked: transferComplete,
+            trigger_unlocked: transferComplete,
+            recruit_unlocked: transferComplete,
+            synced_from_application_status: true
+          };
+        }
+
+        // The backend field-status endpoint evaluates all CRM/Recruit mapped
+        // stages, including the three Foundations rows. Apply that result even
+        // when this frontend has no local modal rule for the stage. This is the
+        // key reversible source-of-truth path: filled => crossed off; cleared =>
+        // Not Started again.
+        if (!rule && backendEvaluated && typeof backendStageStatus?.completed === "boolean") {
+          const backendComplete = backendStageStatus.completed === true;
+          const backendInProgress = String(backendStageStatus.status || "").trim().toLowerCase() === "in progress";
+          return {
+            ...stage,
+            status: backendComplete ? "Completed" : backendInProgress ? "In Progress" : "Not Started",
+            completed: backendComplete,
+            is_completed: backendComplete,
+            completed_date: backendComplete
+              ? (backendStageStatus.completed_date || stage.completed_date || new Date().toISOString())
+              : null,
+            source_trigger_unlocked: backendComplete || backendInProgress,
+            trigger_unlocked: backendComplete || backendInProgress,
+            crm_unlocked: backendComplete || backendInProgress,
+            source_trigger_synced: true,
+            source_trigger_fields: backendStageStatus.source_fields || stage.source_trigger_fields || []
+          };
+        }
+
         if (!rule) {
           return stage;
         }
@@ -10662,23 +10802,37 @@ export default function Pipeline() {
           ? Object.fromEntries(
               rule.fields.map(field => [
                 field,
-                sourceFieldValues[field]
+                getLivePipelineFieldValue(sourceFieldValues, field)
               ])
             )
-          : sourceFieldValues[
-              rule.field
-            ];
+          : getLivePipelineFieldValue(
+              sourceFieldValues,
+              rule.fieldsAny || rule.field
+            );
 
-        const completed =
-          rule.complete?.(value) === true;
-        const canContinue =
+        // field-status is computed from the same authenticated candidate CRM /
+        // Recruit records on the backend. Prefer its boolean result when it has
+        // evaluated this exact visible stage; otherwise evaluate the raw field
+        // locally. This keeps Dashboard and My Pipeline crossed-off state equal.
+        const completed = backendEvaluated &&
+          typeof backendStageStatus?.completed === "boolean"
+          ? backendStageStatus.completed
+          : rule.complete?.(value) === true;
+
+        const sourceInProgress =
           !completed &&
-          rule.allowContinue?.(value) ===
-            true;
+          (
+            rule.inProgress?.(value) === true ||
+            rule.allowContinue?.(value) === true ||
+            (backendEvaluated &&
+              String(backendStageStatus?.status || "")
+                .trim()
+                .toLowerCase() === "in progress")
+          );
 
         const nextStatus = completed
           ? "Completed"
-          : canContinue
+          : sourceInProgress
             ? "In Progress"
             : "Not Started";
 
@@ -10718,6 +10872,14 @@ export default function Pipeline() {
             value,
           synced_from_live_source:
             true,
+          source_trigger_synced:
+            true,
+          source_trigger_unlocked:
+            completed || sourceInProgress,
+          trigger_unlocked:
+            completed || sourceInProgress,
+          crm_unlocked:
+            completed || sourceInProgress,
           status:
             nextStatus,
           completed:
@@ -12422,12 +12584,10 @@ export default function Pipeline() {
               // false gate; older backend responses did not return it.
               source_trigger_unlocked:
                 live.unlocked === true ||
-                live.completed === true ||
-                String(live.status || "").trim().toLowerCase() === "in progress",
+                live.completed === true,
               trigger_unlocked:
                 live.unlocked === true ||
-                live.completed === true ||
-                String(live.status || "").trim().toLowerCase() === "in progress",
+                live.completed === true,
               source_trigger_gate: live.gate || stage.source_trigger_gate || null,
               source_trigger_gate_snapshot: live.gate_snapshot || null,
               source_trigger_synced: true
@@ -12701,10 +12861,7 @@ export default function Pipeline() {
       }
 
       if (stage.stage_name === "Request for further evidence") {
-        const currentI140 = String(deploymentFieldStatus?.i140 || "").trim().toLowerCase();
-        const rfeCurrent = ["rfe", "rfe (request for evidence)", "request for evidence", "request for further evidence"].includes(currentI140);
-        const rfePreviouslySeen = stage.rfe_seen === true || stage.rfe_seen_at || isPipelineStageComplete(stage);
-        if (!rfeCurrent && !rfePreviouslySeen) return false;
+        return false;
       }
 
       if (
@@ -12787,6 +12944,28 @@ export default function Pipeline() {
     displayStages.filter(stage =>
       !(stage?.stage_name === "Transfer to ICP USRN School" && !nclexBranchVisible)
     );
+
+  // NCLEX miniboxes are part of the same continuous Hiring progress whenever
+  // Transfer to ICP USRN School is active. Their crossed-off state is calculated
+  // directly from current Recruit CustomModule1 values so it is reversible.
+  if (nclexBranchVisible) {
+    const seenProgressNames = new Set(progressStages.map(stage => stage.stage_name));
+    ICP_USRN_SUBPROCESS_CONFIG.forEach((item, index) => {
+      if (seenProgressNames.has(item.name)) return;
+      const complete = isICPUSRNItemComplete(item, icpUSRNCRMData);
+      progressStages.push({
+        id: `nclex-progress-${index + 1}`,
+        stage_name: item.name,
+        stage_category: "Hiring",
+        stage_order: 6 + ((index + 1) / 100),
+        nclex_stage: true,
+        status: complete ? "Completed" : "Not Started",
+        completed: complete,
+        is_completed: complete
+      });
+      seenProgressNames.add(item.name);
+    });
+  }
 
   const completedCount =
     progressStages.filter(
@@ -12991,7 +13170,7 @@ export default function Pipeline() {
         </div>
       </div>
 
-      {false && nclexBranchVisible && (
+      {nclexBranchVisible && (
         <section className="rounded-xl border border-amber-200 bg-amber-50/40 p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
