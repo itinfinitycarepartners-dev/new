@@ -2365,95 +2365,7 @@ const isSamePipelineStage = (first, second) =>
     )
   );
 
-const isStageUnlocked = (stage, allStages) => {
-  if (!stage) return false;
-
-  const sequencedStages = getSequencedMainStages(allStages);
-  const currentIndex = sequencedStages.findIndex(candidate =>
-    isSamePipelineStage(candidate, stage)
-  );
-
-  if (currentIndex < 0) {
-    return (
-      stage.non_counted_section === true ||
-      stage.conditional_section === true ||
-      isPipelineStageComplete(stage) ||
-      stage.source_trigger_unlocked === true ||
-      stage.trigger_unlocked === true ||
-      stage.unlocked === true ||
-      stage.is_unlocked === true
-    );
-  }
-
-  if (currentIndex === 0 || stage.stage_name === "Applied") {
-    return true;
-  }
-
-  const ownSourceGateOpen =
-    stage.source_trigger_unlocked === true ||
-    stage.trigger_unlocked === true ||
-    stage.crm_unlocked === true ||
-    stage.recruit_unlocked === true ||
-    stage.nclex_unlocked === true ||
-    stage.immigration_unlocked === true ||
-    stage.deployment_unlocked === true ||
-    isPipelineStageComplete(stage);
-
-  // Aftercare has ONE section gate: Flight_Arrival_Time.
-  // If the arrival calendar date is today/past, Aftercare opens. Individual
-  // aftercare rows then use their target date; their CRM/survey fields still
-  // control whether the rows are crossed off.
-  if (stage.stage_category === "Aftercare") {
-    const gateValue =
-      stage.aftercare_gate_date ||
-      stage.aftercareGateDate ||
-      null;
-
-    const sectionOpen =
-      (stage.aftercare_unlocked === true ||
-        stage.aftercare_locked === false) &&
-      isArrivalCalendarDateTodayOrPast(
-        unwrapPipelineFieldValue(gateValue)
-      );
-
-    if (!sectionOpen) return false;
-    if (ownSourceGateOpen) return true;
-
-    const targetValue =
-      stage.target_date ||
-      stage.targetDate ||
-      null;
-
-    if (!targetValue) return true;
-
-    const targetDate = new Date(targetValue);
-    return (
-      Number.isNaN(targetDate.getTime()) ||
-      Date.now() >= targetDate.getTime()
-    );
-  }
-
-  const isSourceControlled =
-    Boolean(DEPLOYMENT_CRM_STAGE_RULES?.[stage.stage_name]) ||
-    Boolean(IMMIGRATION_CRM_CHECKLISTS?.[stage.stage_name]) ||
-    stage.synced_from_custom_module_1 === true ||
-    stage.source_trigger_synced === true ||
-    stage.crm_synced === true ||
-    stage.recruit_synced === true;
-
-  // CRM/Recruit-driven stages are true current-source gates.
-  if (isSourceControlled) {
-    return ownSourceGateOpen;
-  }
-
-  const previousStage =
-    sequencedStages[currentIndex - 1] || null;
-
-  return Boolean(
-    previousStage &&
-    isPipelineStageComplete(previousStage)
-  );
-};
+const isStageUnlocked = () => true;
 
 // Custom Modal Component
 const CustomModal = ({ isOpen, onClose, title, children }) => {
@@ -9237,6 +9149,37 @@ export default function Pipeline() {
               remoteStage?.unlocked === true ||
               remoteStage?.is_unlocked === true;
 
+            const localIsLiveSourceControlled =
+              localStage.source_trigger_synced === true ||
+              localStage.crm_synced === true ||
+              localStage.recruit_synced === true ||
+              localStage.synced_from_custom_module_1 === true ||
+              Boolean(DEPLOYMENT_CRM_STAGE_RULES?.[localStage.stage_name]) ||
+              Boolean(IMMIGRATION_CRM_CHECKLISTS?.[localStage.stage_name]);
+
+            // IMPORTANT: /api/pipeline/field-status is the authoritative source for
+            // CRM/Recruit-gated rows. Dashboard data can be a few seconds behind and
+            // must never relock or uncheck a stage that the live source already proved.
+            if (localIsLiveSourceControlled) {
+              return {
+                ...localStage,
+                candidate_email: normalizedEmail,
+                dashboard_current: isDashboardCurrent,
+                dashboard_synced: true,
+                // Dashboard may add context, but it may not replace live-source state.
+                dashboard_unlocked:
+                  remoteReached ||
+                  localStage.dashboard_unlocked === true
+              };
+            }
+
+            const localAftercareGateOpen =
+              localStage.stage_category === "Aftercare" &&
+              (
+                localStage.aftercare_unlocked === true ||
+                localStage.aftercare_locked === false
+              );
+
             return {
               ...localStage,
               ...(remoteStage || {}),
@@ -9249,15 +9192,41 @@ export default function Pipeline() {
               completed_date: remoteComplete
                 ? (remoteStage?.completed_date || remoteStage?.completed_at || localStage.completed_date || null)
                 : null,
-              // These flags are consumed by the universal cascade in
-              // isStageUnlocked. A later Dashboard-reached stage therefore
-              // unlocks itself AND every visible stage before it.
-              source_trigger_unlocked: remoteReached,
-              trigger_unlocked: remoteReached,
+              source_trigger_unlocked:
+                remoteReached ||
+                localStage.source_trigger_unlocked === true,
+              trigger_unlocked:
+                remoteReached ||
+                localStage.trigger_unlocked === true,
               dashboard_unlocked: remoteReached,
-              unlocked: remoteReached || remoteStage?.unlocked === true,
-              is_unlocked: remoteReached || remoteStage?.is_unlocked === true,
-              is_locked: remoteReached ? false : remoteStage?.is_locked,
+              unlocked:
+                remoteReached ||
+                localStage.unlocked === true ||
+                remoteStage?.unlocked === true,
+              is_unlocked:
+                remoteReached ||
+                localStage.is_unlocked === true ||
+                remoteStage?.is_unlocked === true,
+              is_locked:
+                (remoteReached || localAftercareGateOpen)
+                  ? false
+                  : remoteStage?.is_locked,
+              aftercare_unlocked:
+                localAftercareGateOpen
+                  ? true
+                  : remoteStage?.aftercare_unlocked,
+              aftercare_locked:
+                localAftercareGateOpen
+                  ? false
+                  : remoteStage?.aftercare_locked,
+              aftercare_gate_date:
+                localStage.aftercare_gate_date ||
+                remoteStage?.aftercare_gate_date ||
+                null,
+              target_date:
+                localStage.target_date ||
+                remoteStage?.target_date ||
+                null,
               dashboard_current: isDashboardCurrent,
               dashboard_synced: true
             };
@@ -9284,17 +9253,18 @@ export default function Pipeline() {
     const handleAuthoritativePipelineChange = () => mergeDashboardPipeline();
     window.addEventListener("pipeline-updated", handleAuthoritativePipelineChange);
     window.addEventListener("candidate-data-updated", handleAuthoritativePipelineChange);
-    window.addEventListener("crm-recruit-updated", handleAuthoritativePipelineChange);
+    // Do not bind crm-recruit-updated to Dashboard merge: field-status is newer
+    // than Dashboard persistence and this listener previously re-locked stages.
 
     // Keep the page synchronized while it remains open without requiring refresh.
-    refreshTimer = window.setInterval(mergeDashboardPipeline, 10000);
+    refreshTimer = window.setInterval(mergeDashboardPipeline, 30000);
 
     return () => {
       cancelled = true;
       if (refreshTimer) window.clearInterval(refreshTimer);
       window.removeEventListener("pipeline-updated", handleAuthoritativePipelineChange);
       window.removeEventListener("candidate-data-updated", handleAuthoritativePipelineChange);
-      window.removeEventListener("crm-recruit-updated", handleAuthoritativePipelineChange);
+      // No crm-recruit-updated Dashboard listener; live field-status owns those gates.
     };
   }, [user?.email]);
 
@@ -9556,7 +9526,11 @@ export default function Pipeline() {
             setDeploymentFieldStatus({
               ...directFieldStatus,
               __stageStatus:
-                directComputedStageStatus
+                directComputedStageStatus,
+              __sectionGates:
+                fieldPayload.sectionGates || {},
+              __completionMap:
+                fieldPayload.completionMap || {}
             });
 
             icpUSRNData = {
@@ -9695,6 +9669,29 @@ export default function Pipeline() {
           if (gateResponse.ok && gatePayload.success) {
             backendAftercareGateOpen =
               gatePayload.unlocked === true;
+
+            if (gatePayload.unlocked === true) {
+              const arrivalGateValue =
+                gatePayload.arrivalDate ||
+                gatePayload.rawArrival ||
+                null;
+
+              setStages(previous =>
+                previous.map(stage =>
+                  stage.stage_category === "Aftercare"
+                    ? {
+                        ...stage,
+                        aftercare_unlocked: true,
+                        aftercare_locked: false,
+                        aftercare_gate_date:
+                          arrivalGateValue ||
+                          stage.aftercare_gate_date ||
+                          null
+                      }
+                    : stage
+                )
+              );
+            }
 
             if (gatePayload.arrivalDate) {
               const gateDate = new Date(
@@ -12423,7 +12420,11 @@ export default function Pipeline() {
           ...(data.recruit || {}),
           ...(data.immigration || {}),
           __stageStatus:
-            data.stageStatus || {}
+            data.stageStatus || {},
+          __sectionGates:
+            data.sectionGates || {},
+          __completionMap:
+            data.completionMap || {}
         });
 
         if (data.nclex && typeof data.nclex === "object") {
@@ -12436,29 +12437,209 @@ export default function Pipeline() {
           setShowNCLEX(isTransferToICPUSRNStatus(liveApplicationStatus));
         }
 
+        if (data.sectionGates && typeof data.sectionGates === "object") {
+          setStages(previous =>
+            previous.map(stage => {
+              const sectionCompleted =
+                (
+                  stage.stage_name === "Immigration forms submitted" &&
+                  data.sectionGates?.immigration?.unlocked === true
+                ) ||
+                (
+                  stage.stage_name === "Speciality Classes" &&
+                  data.sectionGates?.deployment?.unlocked === true
+                ) ||
+                (
+                  stage.stage_name === "Arrived" &&
+                  data.sectionGates?.aftercare?.unlocked === true
+                );
+
+              if (!sectionCompleted) return stage;
+
+              return {
+                ...stage,
+                status: "Completed",
+                completed: true,
+                is_completed: true,
+                completed_date:
+                  stage.completed_date ||
+                  new Date().toISOString(),
+                source_trigger_unlocked: true,
+                trigger_unlocked: true,
+                crm_unlocked: true,
+                source_trigger_synced: true,
+                crm_synced: true
+              };
+            })
+          );
+        }
+
         if (data.stageStatus && typeof data.stageStatus === "object") {
+          const rawLiveFields = {
+            ...(data.deployment || {}),
+            ...(data.immigration || {}),
+            ...(data.recruit || {}),
+            ...(data.nclex || {})
+          };
+
           setStages(previous => previous.map(stage => {
-            const live = data.stageStatus[stage.stage_name];
-            if (!live?.evaluated) return stage;
+            const live = data.stageStatus?.[stage.stage_name];
+            const rule = DEPLOYMENT_CRM_STAGE_RULES?.[stage.stage_name];
+
+            // Evaluate exact CRM field mappings directly from the same live
+            // response. This is intentionally independent of live.evaluated:
+            // a populated CRM value must never remain locked because Zoho omitted
+            // the field from an auxiliary metadata check.
+            let rawRuleCompleted = null;
+            let rawRuleHasValue = false;
+
+            if (rule) {
+              const rawValue = rule.fields
+                ? Object.fromEntries(
+                    rule.fields.map(field => [
+                      field,
+                      getLivePipelineFieldValue(rawLiveFields, field)
+                    ])
+                  )
+                : getLivePipelineFieldValue(
+                    rawLiveFields,
+                    rule.fieldsAny || rule.field
+                  );
+
+              if (rule.fields) {
+                rawRuleHasValue = Object.values(rawValue || {}).some(value =>
+                  hasFlowValue(unwrapPipelineFieldValue(value))
+                );
+              } else {
+                rawRuleHasValue =
+                  hasFlowValue(unwrapPipelineFieldValue(rawValue));
+              }
+
+              rawRuleCompleted =
+                rule.complete?.(rawValue) === true;
+            }
+
+            const backendEvaluated =
+              live?.evaluated === true &&
+              typeof live?.completed === "boolean";
+
+            const completed =
+              rawRuleCompleted === true ||
+              (
+                rawRuleCompleted !== false &&
+                backendEvaluated &&
+                live.completed === true
+              ) ||
+              (
+                !rule &&
+                backendEvaluated &&
+                live.completed === true
+              );
+
+            const backendInProgress =
+              backendEvaluated &&
+              String(live?.status || "")
+                .trim()
+                .toLowerCase() === "in progress";
+
+            const liveOpen =
+              completed ||
+              backendInProgress ||
+              live?.unlocked === true;
+
+            // If this stage has a direct CRM rule, the direct raw field is the
+            // source of truth and is fully reversible. Empty / unmet => not complete.
+            if (rule) {
+              const nextCompleted =
+                rawRuleCompleted === true ||
+                (
+                  !rawRuleHasValue &&
+                  backendEvaluated &&
+                  live.completed === true
+                );
+
+              const nextOpen =
+                nextCompleted ||
+                (
+                  !rawRuleHasValue &&
+                  backendInProgress
+                );
+
+              return {
+                ...stage,
+                status: nextCompleted
+                  ? "Completed"
+                  : nextOpen
+                    ? "In Progress"
+                    : "Not Started",
+                completed: nextCompleted,
+                is_completed: nextCompleted,
+                completed_date: nextCompleted
+                  ? (
+                      live?.completed_date ||
+                      stage.completed_date ||
+                      new Date().toISOString()
+                    )
+                  : null,
+                source_trigger_unlocked: nextOpen,
+                trigger_unlocked: nextOpen,
+                crm_unlocked: nextOpen,
+                source_trigger_fields:
+                  live?.source_fields ||
+                  (
+                    rule.fields
+                      ? rule.fields
+                      : [rule.field].filter(Boolean)
+                  ),
+                source_trigger_synced: true,
+                crm_synced: true,
+                live_raw_gate_value:
+                  rule.fields
+                    ? Object.fromEntries(
+                        rule.fields.map(field => [
+                          field,
+                          getLivePipelineFieldValue(rawLiveFields, field)
+                        ])
+                      )
+                    : getLivePipelineFieldValue(
+                        rawLiveFields,
+                        rule.fieldsAny || rule.field
+                      )
+              };
+            }
+
+            if (!backendEvaluated) return stage;
+
             return {
               ...stage,
-              status: live.status || (live.completed ? "Completed" : "Not Started"),
-              completed: live.completed === true,
-              is_completed: live.completed === true,
-              completed_date: live.completed === true ? (live.completed_date || stage.completed_date || null) : null,
-              // A live stage is authoritative when the backend says it is
-              // unlocked OR when the source field itself proves completion /
-              // in-progress. Do not treat an omitted `unlocked` property as a
-              // false gate; older backend responses did not return it.
-              source_trigger_unlocked:
-                live.unlocked === true ||
-                live.completed === true,
-              trigger_unlocked:
-                live.unlocked === true ||
-                live.completed === true,
+              status: live.status || (completed ? "Completed" : "Not Started"),
+              completed,
+              is_completed: completed,
+              completed_date: completed
+                ? (live.completed_date || stage.completed_date || null)
+                : null,
+              source_trigger_unlocked: liveOpen,
+              trigger_unlocked: liveOpen,
+              crm_unlocked:
+                stage.stage_category !== "Hiring"
+                  ? liveOpen
+                  : stage.crm_unlocked,
+              recruit_unlocked:
+                stage.stage_category === "Hiring"
+                  ? liveOpen
+                  : stage.recruit_unlocked,
               source_trigger_gate: live.gate || stage.source_trigger_gate || null,
               source_trigger_gate_snapshot: live.gate_snapshot || null,
-              source_trigger_synced: true
+              source_trigger_fields: live.source_fields || stage.source_trigger_fields || [],
+              source_trigger_synced: true,
+              crm_synced:
+                stage.stage_category !== "Hiring"
+                  ? true
+                  : stage.crm_synced,
+              recruit_synced:
+                stage.stage_category === "Hiring"
+                  ? true
+                  : stage.recruit_synced
             };
           }));
         }
@@ -12491,7 +12672,7 @@ export default function Pipeline() {
     loadExpiryAndDeploymentStatus();
     const interval = window.setInterval(
       loadExpiryAndDeploymentStatus,
-      15 * 1000
+      5 * 1000
     );
 
     const refreshOnFocus = () => loadExpiryAndDeploymentStatus();
@@ -12809,9 +12990,305 @@ export default function Pipeline() {
   // Completion status never changes position. Deployment and Aftercare stay
   // in the configured sequence whether a row is Completed, In Progress,
   // Not Started, Late or At Risk.
+
+  const deriveLivePipelineStage = stage => {
+    if (!stage) return stage;
+
+    const liveFields = {
+      ...(deploymentFieldStatus || {})
+    };
+
+    const liveStageStatus =
+      deploymentFieldStatus?.__stageStatus?.[
+        stage.stage_name
+      ] || null;
+
+    const rule =
+      DEPLOYMENT_CRM_STAGE_RULES?.[
+        stage.stage_name
+      ] || null;
+
+    let next = {
+      ...stage
+    };
+
+    const sectionGates =
+      deploymentFieldStatus?.__sectionGates || {};
+
+    const completionMap =
+      deploymentFieldStatus?.__completionMap || {};
+
+    const explicitBackendCompletion =
+      typeof completionMap?.[stage.stage_name] === "boolean"
+        ? completionMap[stage.stage_name]
+        : null;
+
+    const forceSectionTriggerComplete =
+      (
+        stage.stage_name === "Immigration forms submitted" &&
+        (
+          sectionGates?.immigration?.unlocked === true ||
+          completionMap?.["Immigration forms submitted"] === true
+        )
+      ) ||
+      (
+        stage.stage_name === "Speciality Classes" &&
+        (
+          sectionGates?.deployment?.unlocked === true ||
+          completionMap?.["Speciality Classes"] === true
+        )
+      ) ||
+      (
+        stage.stage_name === "Arrived" &&
+        (
+          sectionGates?.aftercare?.unlocked === true ||
+          completionMap?.["Arrived"] === true
+        )
+      );
+
+    if (forceSectionTriggerComplete) {
+      next = {
+        ...next,
+        status: "Completed",
+        completed: true,
+        is_completed: true,
+        completed_date:
+          next.completed_date ||
+          new Date().toISOString(),
+        source_trigger_unlocked: true,
+        trigger_unlocked: true,
+        crm_unlocked: true,
+        source_trigger_synced: true,
+        crm_synced: true
+      };
+    }
+
+    // Exact CRM/Recruit rule evaluation.
+    // The raw field itself is authoritative when a rule exists.
+    if (rule && !forceSectionTriggerComplete) {
+      const value = rule.fields
+        ? Object.fromEntries(
+            rule.fields.map(field => [
+              field,
+              getLivePipelineFieldValue(
+                liveFields,
+                field
+              )
+            ])
+          )
+        : getLivePipelineFieldValue(
+            liveFields,
+            rule.fieldsAny ||
+            rule.field
+          );
+
+      const localRuleCompleted =
+        rule.complete?.(value) === true;
+
+      const rawCompleted =
+        explicitBackendCompletion !== null
+          ? explicitBackendCompletion
+          : localRuleCompleted;
+
+      const rawInProgress =
+        !rawCompleted &&
+        (
+          rule.inProgress?.(value) ===
+            true ||
+          rule.allowContinue?.(value) ===
+            true
+        );
+
+      next = {
+        ...next,
+        status: rawCompleted
+          ? "Completed"
+          : rawInProgress
+            ? "In Progress"
+            : "Not Started",
+        completed:
+          rawCompleted,
+        is_completed:
+          rawCompleted,
+        completed_date:
+          rawCompleted
+            ? (
+                next.completed_date ||
+                liveStageStatus
+                  ?.completed_date ||
+                new Date()
+                  .toISOString()
+              )
+            : null,
+        source_trigger_unlocked:
+          rawCompleted ||
+          rawInProgress,
+        trigger_unlocked:
+          rawCompleted ||
+          rawInProgress,
+        crm_unlocked:
+          rawCompleted ||
+          rawInProgress,
+        source_trigger_synced:
+          true,
+        crm_synced:
+          true,
+        live_raw_gate_value:
+          value
+      };
+    } else if (
+      explicitBackendCompletion !== null ||
+      (
+        liveStageStatus?.evaluated === true &&
+        typeof liveStageStatus?.completed === "boolean"
+      )
+    ) {
+      const backendCompleted =
+        explicitBackendCompletion !== null
+          ? explicitBackendCompletion
+          : liveStageStatus?.completed === true;
+
+      const backendInProgress =
+        String(
+          liveStageStatus.status || ""
+        )
+          .trim()
+          .toLowerCase() ===
+        "in progress";
+
+      next = {
+        ...next,
+        status:
+          backendCompleted
+            ? "Completed"
+            : backendInProgress
+              ? "In Progress"
+              : "Not Started",
+        completed:
+          backendCompleted,
+        is_completed:
+          backendCompleted,
+        completed_date:
+          backendCompleted
+            ? (
+                liveStageStatus
+                  .completed_date ||
+                next.completed_date ||
+                new Date()
+                  .toISOString()
+              )
+            : null,
+        source_trigger_unlocked:
+          backendCompleted ||
+          backendInProgress ||
+          liveStageStatus
+            ?.unlocked ===
+            true,
+        trigger_unlocked:
+          backendCompleted ||
+          backendInProgress ||
+          liveStageStatus
+            ?.unlocked ===
+            true,
+        source_trigger_synced:
+          true
+      };
+    }
+
+    // Aftercare opening is derived DIRECTLY from live Flight_Arrival_Time.
+    // It does not depend on saved pipeline state.
+    if (
+      next.stage_category ===
+      "Aftercare"
+    ) {
+      const rawArrival =
+        getLivePipelineFieldValue(
+          liveFields,
+          "Flight_Arrival_Time"
+        ) ||
+        finalArrivalDate
+          ?.toISOString?.() ||
+        next.aftercare_gate_date ||
+        next.aftercareGateDate ||
+        null;
+
+      const arrivalReached =
+        isArrivalCalendarDateTodayOrPast(
+          unwrapPipelineFieldValue(
+            rawArrival
+          )
+        ) ||
+        deploymentFieldStatus
+          ?.__sectionGates
+          ?.aftercare
+          ?.unlocked ===
+          true;
+
+      if (arrivalReached) {
+        const arrivalDate =
+          new Date(
+            unwrapPipelineFieldValue(
+              rawArrival
+            )
+          );
+
+        const validArrival =
+          !Number.isNaN(
+            arrivalDate.getTime()
+          );
+
+        next = {
+          ...next,
+          aftercare_unlocked:
+            true,
+          aftercare_locked:
+            false,
+          aftercare_gate_date:
+            validArrival
+              ? arrivalDate
+                  .toISOString()
+              : rawArrival,
+          live_arrival_gate:
+            rawArrival,
+          target_date:
+            validArrival &&
+            next.days_from_arrival !==
+              undefined
+              ? addDays(
+                  arrivalDate,
+                  Number(
+                    next.days_from_arrival ||
+                    0
+                  )
+                ).toISOString()
+              : next.target_date
+        };
+      }
+    }
+
+    if (
+      next.completed === true ||
+      next.is_completed === true
+    ) {
+      next = {
+        ...next,
+        status: "Completed",
+        completed: true,
+        is_completed: true,
+        completed_date:
+          next.completed_date ||
+          new Date().toISOString()
+      };
+    }
+
+    return next;
+  };
+
   const displayStages =
     sortStagesByConfiguredOrder(
       regularDisplayStages
+    ).map(
+      deriveLivePipelineStage
     );
 
   const categories = [
