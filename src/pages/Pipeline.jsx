@@ -397,7 +397,7 @@ const STAGES_CONFIG = [
   // Stage 4 — Aftercare: EXACTLY 8 stages.
   { id: 41, stage_name: "Welcome Call/24 Hour Call", stage_category: "Aftercare", stage_order: 41, days_from_arrival: 1 },
   { id: 42, stage_name: "Relocation Survey", stage_category: "Aftercare", stage_order: 42, days_from_arrival: 2 },
-  { id: 43, stage_name: "Concierge Debrief", stage_category: "Aftercare", stage_order: 43, days_from_arrival: 3 },
+  { id: 43, stage_name: "Concierge Debrief", stage_category: "Aftercare", stage_order: 43, days_from_arrival: 3, internal_only: true, hidden_from_candidate: true, candidate_read_only: true },
   { id: 44, stage_name: "7 Day Call", stage_category: "Aftercare", stage_order: 44, days_from_arrival: 7 },
   { id: 45, stage_name: "2 Week Call", stage_category: "Aftercare", stage_order: 45, days_from_arrival: 14 },
   { id: 46, stage_name: "U.S. Integration Call (30 Day Call / Survey)", stage_category: "Aftercare", stage_order: 46, days_from_arrival: 30 },
@@ -1923,11 +1923,16 @@ const CLICKABLE_STAGES = {
   // Aftercare stages
   "Welcome Call/24 Hour Call": { clickable: false, type: "field" },
   "Relocation Survey": { clickable: true, type: "view", viewType: "relocationSurvey" },
-  "Concierge Debrief": { clickable: true, type: "view", viewType: "conciergeDebrief" },
+  "Concierge Debrief": { clickable: false, type: "field", internal_only: true },
   "U.S. Integration Call (30 Day Call / Survey)": { clickable: true, type: "view", viewType: "thirtyDaySurvey" },
   "Placement Stability Check-in (90 Day Call)": { clickable: false, type: "field" },
   // Legacy action aliases
   "24 Hour Call": { clickable: true, type: "view", viewType: "aftercareCall" },
+  "Concierge Debrief": {
+    label: "Concierge Debrief",
+    field: "Concierge_Debrief",
+    complete: value => isCurrentOrPastDate(value)
+  },
   "7 Day Call": { clickable: false, type: "field" },
   "2 Week Call": { clickable: false, type: "field" },
   "30 Day Survey": { clickable: true, type: "view", viewType: "thirtyDaySurvey" },
@@ -3914,50 +3919,6 @@ const LicenseEndorsementView = ({ onClose }) => {
 
 // Candidate date submission form used by the two Aftercare date stages.
 
-const ConciergeDebriefView = ({
-  onClose
-}) => {
-  const conciergeDebriefUrl =
-    "https://survey.zohopublic.com/zs/m10BSf";
-
-  return (
-    <div className="space-y-4">
-      <div className="rounded-lg border border-purple-200 bg-purple-50 p-4">
-        <h3 className="font-semibold text-purple-900">
-          Concierge Debrief
-        </h3>
-
-        <p className="mt-1 text-sm text-purple-800">
-          Complete the internal Concierge Debrief form using the link below.
-        </p>
-      </div>
-
-      <Button
-        type="button"
-        className="w-full"
-        onClick={() =>
-          window.open(
-            conciergeDebriefUrl,
-            "_blank",
-            "noopener,noreferrer"
-          )
-        }
-      >
-        Open Concierge Debrief
-      </Button>
-
-      <div className="flex justify-end">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onClose}
-        >
-          Close
-        </Button>
-      </div>
-    </div>
-  );
-};
 
 const AftercareDateSubmissionView = ({ onClose, user, setStages, stageName, title, description, fieldLabel, dateType }) => {
   const [selectedDate, setSelectedDate] = useState("");
@@ -12488,15 +12449,6 @@ export default function Pipeline() {
           openModal(
             "ICP Welcome Packet",
             <WelcomePacketView onClose={closeModal} user={user} setStages={setStages} />
-          );
-          break;
-        case "conciergeDebrief":
-          openModal(
-            "Concierge Debrief",
-            <ConciergeDebriefView
-              onClose={closeModal}
-              user={user}
-            />
           );
           break;
         case "aftercareCall":
