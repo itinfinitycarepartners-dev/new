@@ -1,3 +1,4 @@
+
 // @ts-nocheck
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/AuthContext";
@@ -2358,8 +2359,12 @@ const getSequencedMainStages = (allStages) => {
       stage.hidden_from_main_flow !== true
     )
     .sort((first, second) => {
-      const firstOrder = Number(first.stage_order ?? first.order ?? 0);
-      const secondOrder = Number(second.stage_order ?? second.order ?? 0);
+      // Always use the CURRENT visible pipeline configuration for ordering.
+      // Saved Mongo rows can carry legacy stage_order values, which previously
+      // caused a Deployment stage to appear logically before/after the wrong
+      // section and remain locked even though its CRM gate was satisfied.
+      const firstOrder = getCanonicalStageOrder(first);
+      const secondOrder = getCanonicalStageOrder(second);
 
       if (firstOrder !== secondOrder) {
         return firstOrder - secondOrder;
@@ -2483,6 +2488,34 @@ const isStageUnlocked = (stage, allStages) => {
   });
 
   if (currentIndex <= furthestReachedIndex) return true;
+
+  // SECTION BRIDGE: the first visible stage of a section must open as soon as
+  // the preceding section's authoritative final gate is met. In particular,
+  // Documentarily Qualified is the hand-off into Deployment. This is evaluated
+  // from the live stage objects, so it works even when legacy DB ordering is
+  // stale and even when the candidate reaches the gate in the middle of a sync.
+  const section = String(stage.stage_category || "");
+  const previousStage = sequencedStages[currentIndex - 1] || null;
+  const isFirstVisibleStageInSection =
+    !previousStage || String(previousStage.stage_category || "") !== section;
+
+  if (isFirstVisibleStageInSection) {
+    if (section === "Deployment") {
+      const documentaryGate = sequencedStages.find(candidate =>
+        String(candidate.stage_name || "").trim().toLowerCase() ===
+        "documentarily qualified"
+      );
+      if (documentaryGate && isAuthoritativelyReached(documentaryGate)) {
+        return true;
+      }
+    }
+
+    // Generic section-to-section handoff: if the immediately preceding visible
+    // stage is authoritatively reached, the first stage of the new section opens.
+    if (previousStage && isAuthoritativelyReached(previousStage)) {
+      return true;
+    }
+  }
 
   // A closed explicit source gate remains reversible for the stage itself,
   // unless a LATER authoritative stage already proves the candidate progressed
@@ -12209,8 +12242,18 @@ export default function Pipeline() {
               completed: live.completed === true,
               is_completed: live.completed === true,
               completed_date: live.completed === true ? (live.completed_date || stage.completed_date || null) : null,
-              source_trigger_unlocked: live.unlocked !== false,
-              trigger_unlocked: live.unlocked !== false,
+              // A live stage is authoritative when the backend says it is
+              // unlocked OR when the source field itself proves completion /
+              // in-progress. Do not treat an omitted `unlocked` property as a
+              // false gate; older backend responses did not return it.
+              source_trigger_unlocked:
+                live.unlocked === true ||
+                live.completed === true ||
+                String(live.status || "").trim().toLowerCase() === "in progress",
+              trigger_unlocked:
+                live.unlocked === true ||
+                live.completed === true ||
+                String(live.status || "").trim().toLowerCase() === "in progress",
               source_trigger_gate: live.gate || stage.source_trigger_gate || null,
               source_trigger_gate_snapshot: live.gate_snapshot || null,
               source_trigger_synced: true
