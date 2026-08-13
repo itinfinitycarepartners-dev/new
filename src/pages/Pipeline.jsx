@@ -2409,7 +2409,16 @@ const isStageUnlocked = (stage, allStages) => {
     );
   }
 
-  if (currentIndex === 0 || stage.stage_name === "Applied") return true;
+  if (
+    currentIndex === 0 ||
+    stage.stage_name === "Applied" ||
+    (stage.stage_name === "Associated with Job" &&
+      sequencedStages.some(candidate =>
+        candidate.stage_name === "Associated with Job" &&
+        (isPipelineStageComplete(candidate) ||
+         String(candidate.status || "").trim().toLowerCase() === "in progress")
+      ))
+  ) return true;
 
   // Aftercare remains arrival-date based for its own due dates, but a later
   // authoritative Aftercare milestone can still prove all earlier pipeline
@@ -2456,6 +2465,7 @@ const isStageUnlocked = (stage, allStages) => {
       candidate.nclex_unlocked === true ||
       candidate.immigration_unlocked === true ||
       candidate.deployment_unlocked === true ||
+      candidate.dashboard_unlocked === true ||
       aftercareOwnGateOpen(candidate);
 
     const sourceBackedComplete =
@@ -2532,7 +2542,8 @@ const isStageUnlocked = (stage, allStages) => {
     stage.recruit_unlocked === true ||
     stage.nclex_unlocked === true ||
     stage.immigration_unlocked === true ||
-    stage.deployment_unlocked === true
+    stage.deployment_unlocked === true ||
+    stage.dashboard_unlocked === true
   ) {
     return true;
   }
@@ -9162,6 +9173,169 @@ export default function Pipeline() {
     setIsCheckingNCLEX(false);
     setIsLoading(false);
   }, [user?.email, pipelineCacheKey]);
+
+  // Keep My Pipeline on the same authoritative stage state used by Dashboard.
+  // Dashboard already receives the correctly-evaluated CRM/Recruit pipeline from
+  // /api/candidate/dashboard-summary, so merge that state immediately instead of
+  // letting a slower secondary field-status request leave the visible pipeline locked.
+  useEffect(() => {
+    if (!user?.email) return;
+
+    let cancelled = false;
+    let refreshTimer = null;
+
+    const normalizedEmail = String(user.email).trim().toLowerCase();
+
+    const mergeDashboardPipeline = async () => {
+      try {
+        const token =
+          localStorage.getItem("icp_auth_token") ||
+          localStorage.getItem("authToken") ||
+          localStorage.getItem("token");
+
+        if (!token) return;
+
+        const response = await fetch(
+          `${API_BASE}/api/candidate/dashboard-summary?_=${Date.now()}`,
+          {
+            method: "GET",
+            cache: "no-store",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Cache-Control": "no-cache",
+              Pragma: "no-cache"
+            }
+          }
+        );
+
+        const payload = await response.json().catch(() => ({}));
+        if (cancelled || !response.ok) return;
+
+        const dashboardPipeline = payload?.pipeline || {};
+        const dashboardStages = Array.isArray(dashboardPipeline?.stages)
+          ? dashboardPipeline.stages
+          : [];
+        const dashboardCurrentStage = dashboardPipeline?.currentStage || null;
+
+        if (dashboardPipeline?.applicationStatus || dashboardPipeline?.application_status) {
+          const nextApplicationStatus =
+            dashboardPipeline.applicationStatus ||
+            dashboardPipeline.application_status;
+          setApplicationStatus(nextApplicationStatus);
+          setShowNCLEX(isTransferToICPUSRNStatus(nextApplicationStatus));
+        }
+
+        if (!dashboardStages.length && !dashboardCurrentStage) return;
+
+        setStages(previous => {
+          const baseStages = previous?.length
+            ? previous
+            : STAGES_CONFIG.map(stage => ({
+                ...stage,
+                candidate_email: normalizedEmail,
+                status: "Not Started",
+                completed: false,
+                is_completed: false,
+                completed_date: null
+              }));
+
+          const dashboardByName = new Map();
+          for (const remoteStage of dashboardStages) {
+            if (!remoteStage?.stage_name) continue;
+            const remoteEmail = String(remoteStage?.candidate_email || normalizedEmail)
+              .trim()
+              .toLowerCase();
+            if (remoteEmail && remoteEmail !== normalizedEmail) continue;
+            dashboardByName.set(remoteStage.stage_name, remoteStage);
+          }
+
+          const currentName = dashboardCurrentStage?.stage_name || null;
+
+          const merged = baseStages.map(localStage => {
+            const remoteStage = dashboardByName.get(localStage.stage_name);
+            const isDashboardCurrent = currentName === localStage.stage_name;
+
+            if (!remoteStage && !isDashboardCurrent) return localStage;
+
+            const remoteStatus = String(
+              remoteStage?.status ||
+              dashboardCurrentStage?.status ||
+              (isDashboardCurrent ? "In Progress" : localStage.status || "Not Started")
+            ).trim();
+            const normalizedStatus = remoteStatus.toLowerCase();
+            const remoteComplete =
+              remoteStage?.completed === true ||
+              remoteStage?.is_completed === true ||
+              Boolean(remoteStage?.completed_date || remoteStage?.completed_at) ||
+              normalizedStatus === "completed" ||
+              normalizedStatus === "complete";
+            const remoteReached =
+              remoteComplete ||
+              isDashboardCurrent ||
+              ["in progress", "in-progress", "current", "active"].includes(normalizedStatus) ||
+              remoteStage?.unlocked === true ||
+              remoteStage?.is_unlocked === true ||
+              Boolean(remoteStage?.started_at || remoteStage?.startedAt);
+
+            return {
+              ...localStage,
+              ...(remoteStage || {}),
+              candidate_email: normalizedEmail,
+              status: remoteComplete
+                ? "Completed"
+                : (isDashboardCurrent ? "In Progress" : remoteStatus || localStage.status),
+              completed: remoteComplete,
+              is_completed: remoteComplete,
+              completed_date: remoteComplete
+                ? (remoteStage?.completed_date || remoteStage?.completed_at || localStage.completed_date || null)
+                : null,
+              // These flags are consumed by the universal cascade in
+              // isStageUnlocked. A later Dashboard-reached stage therefore
+              // unlocks itself AND every visible stage before it.
+              source_trigger_unlocked: remoteReached,
+              trigger_unlocked: remoteReached,
+              dashboard_unlocked: remoteReached,
+              unlocked: remoteReached || remoteStage?.unlocked === true,
+              is_unlocked: remoteReached || remoteStage?.is_unlocked === true,
+              is_locked: remoteReached ? false : remoteStage?.is_locked,
+              dashboard_synced: true
+            };
+          });
+
+          // If Dashboard returns a current stage that is not present in the local
+          // config for any reason, do not fabricate a duplicate row. The config
+          // remains the source of visible structure; the next refresh will merge
+          // it once the stage exists locally.
+          return merged;
+        });
+      } catch (dashboardSyncError) {
+        console.warn(
+          "[Pipeline] Dashboard pipeline sync failed:",
+          dashboardSyncError?.message || dashboardSyncError
+        );
+      }
+    };
+
+    // Run immediately so a candidate who already satisfied later gates does not
+    // wait for the slower CRM/Recruit field-status pass before seeing access.
+    mergeDashboardPipeline();
+
+    const handleAuthoritativePipelineChange = () => mergeDashboardPipeline();
+    window.addEventListener("pipeline-updated", handleAuthoritativePipelineChange);
+    window.addEventListener("candidate-data-updated", handleAuthoritativePipelineChange);
+    window.addEventListener("crm-recruit-updated", handleAuthoritativePipelineChange);
+
+    // Keep the page synchronized while it remains open without requiring refresh.
+    refreshTimer = window.setInterval(mergeDashboardPipeline, 10000);
+
+    return () => {
+      cancelled = true;
+      if (refreshTimer) window.clearInterval(refreshTimer);
+      window.removeEventListener("pipeline-updated", handleAuthoritativePipelineChange);
+      window.removeEventListener("candidate-data-updated", handleAuthoritativePipelineChange);
+      window.removeEventListener("crm-recruit-updated", handleAuthoritativePipelineChange);
+    };
+  }, [user?.email]);
 
   useEffect(() => {
     if (
