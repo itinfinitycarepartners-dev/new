@@ -9260,6 +9260,8 @@ export default function Pipeline() {
     let socket = null;
     let reconnectTimer = null;
     let pingTimer = null;
+    let liveCrmTimer = null;
+    let liveCrmRequestInFlight = false;
     let disposed = false;
     let reconnectAttempts = 0;
     let lastAppliedWebhookKey = "";
@@ -9450,9 +9452,97 @@ export default function Pipeline() {
           __stageStatus:
             nextStageStatus,
           __completionMap:
-            nextCompletionMap
+            nextCompletionMap,
+          __sectionGates:
+            message?.sectionGates &&
+            typeof message.sectionGates ===
+              "object"
+              ? {
+                  ...(
+                    current.__sectionGates ||
+                    {}
+                  ),
+                  ...message.sectionGates
+                }
+              : (
+                  current.__sectionGates ||
+                  {}
+                )
         };
       });
+
+      if (
+        message?.sectionGates &&
+        typeof message.sectionGates ===
+          "object"
+      ) {
+        setStages(previous =>
+          previous.map(stage => {
+            let completed = null;
+
+            if (
+              stage.stage_name ===
+              "Immigration forms submitted"
+            ) {
+              completed =
+                message.sectionGates
+                  ?.immigration
+                  ?.unlocked === true;
+            } else if (
+              stage.stage_name ===
+              "Speciality Classes"
+            ) {
+              completed =
+                message.sectionGates
+                  ?.deployment
+                  ?.unlocked === true;
+            } else if (
+              stage.stage_name ===
+              "Arrived"
+            ) {
+              completed =
+                message.sectionGates
+                  ?.aftercare
+                  ?.unlocked === true;
+            }
+
+            if (
+              completed === null
+            ) {
+              return stage;
+            }
+
+            return {
+              ...stage,
+              status:
+                completed
+                  ? "Completed"
+                  : "Not Started",
+              completed,
+              is_completed:
+                completed,
+              completed_date:
+                completed
+                  ? (
+                      stage.completed_date ||
+                      new Date()
+                        .toISOString()
+                    )
+                  : null,
+              source_trigger_unlocked:
+                completed,
+              trigger_unlocked:
+                completed,
+              crm_unlocked:
+                completed,
+              source_trigger_synced:
+                true,
+              crm_synced:
+                true
+            };
+          })
+        );
+      }
 
       window.dispatchEvent(
         new CustomEvent(
@@ -9472,6 +9562,138 @@ export default function Pipeline() {
         )
       );
     };
+
+    const loadDeterministicLiveCrm =
+      async () => {
+        if (
+          disposed ||
+          document.hidden ||
+          liveCrmRequestInFlight
+        ) {
+          return;
+        }
+
+        const authToken =
+          localStorage.getItem(
+            "icp_auth_token"
+          ) ||
+          localStorage.getItem(
+            "authToken"
+          ) ||
+          localStorage.getItem(
+            "token"
+          );
+
+        if (!authToken) return;
+
+        liveCrmRequestInFlight =
+          true;
+
+        try {
+          const response =
+            await fetch(
+              `${API_BASE}/api/pipeline/live-crm-state?_=${Date.now()}`,
+              {
+                method: "GET",
+                cache: "no-store",
+                headers: {
+                  Authorization:
+                    `Bearer ${authToken}`,
+                  "Cache-Control":
+                    "no-cache",
+                  Pragma:
+                    "no-cache"
+                }
+              }
+            );
+
+          const payload =
+            await response
+              .json()
+              .catch(() => ({}));
+
+          if (
+            disposed ||
+            !response.ok ||
+            payload?.success !== true
+          ) {
+            if (
+              !response.ok &&
+              payload?.error
+            ) {
+              console.warn(
+                "[Pipeline live CRM]",
+                payload.error
+              );
+            }
+            return;
+          }
+
+          // Feed the deterministic HTTP snapshot through exactly the same
+          // state updater as webhook/WebSocket messages.
+          applyWebhookState({
+            ...payload,
+            type:
+              "pipeline-updated",
+            event:
+              "deterministic-live-crm",
+            source:
+              "crm",
+            candidateEmail:
+              payload.candidateEmail ||
+              normalizedUserEmail,
+            timestamp:
+              payload.fetchedAt ||
+              new Date()
+                .toISOString()
+          });
+        } catch (error) {
+          if (!disposed) {
+            console.warn(
+              "[Pipeline live CRM] request failed:",
+              error?.message || error
+            );
+          }
+        } finally {
+          liveCrmRequestInFlight =
+            false;
+        }
+      };
+
+    const startLiveCrmPolling =
+      () => {
+        if (
+          disposed ||
+          document.hidden
+        ) {
+          return;
+        }
+
+        // Immediate fresh read on Pipeline load/focus.
+        loadDeterministicLiveCrm();
+
+        if (liveCrmTimer) {
+          window.clearInterval(
+            liveCrmTimer
+          );
+        }
+
+        liveCrmTimer =
+          window.setInterval(
+            loadDeterministicLiveCrm,
+            5000
+          );
+      };
+
+    const stopLiveCrmPolling =
+      () => {
+        if (liveCrmTimer) {
+          window.clearInterval(
+            liveCrmTimer
+          );
+          liveCrmTimer = null;
+        }
+      };
 
     const scheduleReconnect = () => {
       if (
@@ -9618,9 +9840,28 @@ export default function Pipeline() {
       }
     };
 
+    const handleVisibilityChange =
+      () => {
+        if (document.hidden) {
+          stopLiveCrmPolling();
+        } else {
+          startLiveCrmPolling();
+        }
+      };
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange
+    );
+
     connect();
+    startLiveCrmPolling();
 
     return () => {
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange
+      );
       disposed = true;
 
       if (reconnectTimer) {
@@ -9634,6 +9875,8 @@ export default function Pipeline() {
           pingTimer
         );
       }
+
+      stopLiveCrmPolling();
 
       if (
         socket &&
