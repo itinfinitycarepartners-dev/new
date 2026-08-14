@@ -12651,35 +12651,50 @@ export default function Pipeline() {
         if (data.sectionGates && typeof data.sectionGates === "object") {
           setStages(previous =>
             previous.map(stage => {
-              const sectionCompleted =
-                (
-                  stage.stage_name === "Immigration forms submitted" &&
-                  data.sectionGates?.immigration?.unlocked === true
-                ) ||
-                (
-                  stage.stage_name === "Speciality Classes" &&
-                  data.sectionGates?.deployment?.unlocked === true
-                ) ||
-                (
-                  stage.stage_name === "Arrived" &&
-                  data.sectionGates?.aftercare?.unlocked === true
-                );
+              let sectionCompleted = null;
 
-              if (!sectionCompleted) return stage;
+              if (stage.stage_name === "Immigration forms submitted") {
+                sectionCompleted =
+                  data.sectionGates?.immigration?.unlocked === true;
+              } else if (stage.stage_name === "Speciality Classes") {
+                sectionCompleted =
+                  data.sectionGates?.deployment?.unlocked === true;
+              } else if (stage.stage_name === "Arrived") {
+                sectionCompleted =
+                  data.sectionGates?.aftercare?.unlocked === true;
+              }
+
+              if (sectionCompleted === null) {
+                return stage;
+              }
 
               return {
                 ...stage,
-                status: "Completed",
-                completed: true,
-                is_completed: true,
+                status:
+                  sectionCompleted
+                    ? "Completed"
+                    : "Not Started",
+                completed:
+                  sectionCompleted,
+                is_completed:
+                  sectionCompleted,
                 completed_date:
-                  stage.completed_date ||
-                  new Date().toISOString(),
-                source_trigger_unlocked: true,
-                trigger_unlocked: true,
-                crm_unlocked: true,
-                source_trigger_synced: true,
-                crm_synced: true
+                  sectionCompleted
+                    ? (
+                        stage.completed_date ||
+                        new Date().toISOString()
+                      )
+                    : null,
+                source_trigger_unlocked:
+                  sectionCompleted,
+                trigger_unlocked:
+                  sectionCompleted,
+                crm_unlocked:
+                  sectionCompleted,
+                source_trigger_synced:
+                  true,
+                crm_synced:
+                  true
               };
             })
           );
@@ -12886,9 +12901,9 @@ export default function Pipeline() {
 
     let lastRefreshAt = 0;
     const MIN_CLIENT_REFRESH_GAP_MS =
-      30 * 60 * 1000;
+      10 * 60 * 1000;
 
-    const refreshOnDemand = () => {
+    const refreshOnDemand = async () => {
       const now = Date.now();
       if (
         now - lastRefreshAt <
@@ -12898,7 +12913,70 @@ export default function Pipeline() {
       }
 
       lastRefreshAt = now;
-      loadExpiryAndDeploymentStatus();
+
+      try {
+        const token =
+          localStorage.getItem(
+            "icp_auth_token"
+          );
+
+        if (!token) return;
+
+        const response = await fetch(
+          `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(
+            user.email
+          )}&refresh=true&_=${Date.now()}`,
+          {
+            cache: "no-store",
+            headers: {
+              Authorization:
+                `Bearer ${token}`,
+              "Cache-Control":
+                "no-cache",
+              Pragma:
+                "no-cache"
+            }
+          }
+        );
+
+        const data =
+          await response
+            .json()
+            .catch(() => ({}));
+
+        if (!response.ok) return;
+
+        setDeploymentFieldStatus({
+          ...(data.deployment || {}),
+          ...(data.recruit || {}),
+          ...(data.immigration || {}),
+          __stageStatus:
+            data.stageStatus || {},
+          __sectionGates:
+            data.sectionGates || {},
+          __completionMap:
+            data.completionMap || {},
+          __immigrationChecklists:
+            data.immigrationChecklists || {}
+        });
+
+        window.dispatchEvent(
+          new CustomEvent(
+            "pipeline-live-status-refreshed",
+            {
+              detail: {
+                email:
+                  user.email
+              }
+            }
+          )
+        );
+      } catch (error) {
+        console.warn(
+          "[Pipeline] Live refresh failed:",
+          error?.message || error
+        );
+      }
     };
 
     window.addEventListener(
@@ -13638,6 +13716,22 @@ export default function Pipeline() {
     }
 
     if (
+      useLiveCompletion &&
+      explicitBackendCompletion === false
+    ) {
+      next = {
+        ...next,
+        status: "Not Started",
+        completed: false,
+        is_completed: false,
+        completed_date: null,
+        source_trigger_unlocked: false,
+        trigger_unlocked: false,
+        crm_unlocked: false,
+        recruit_unlocked: false,
+        source_trigger_synced: true
+      };
+    } else if (
       next.completed === true ||
       next.is_completed === true
     ) {
