@@ -9251,6 +9251,381 @@ export default function Pipeline() {
   // Dashboard already receives the correctly-evaluated CRM/Recruit pipeline from
   // /api/candidate/dashboard-summary, so merge that state immediately instead of
   // letting a slower secondary field-status request leave the visible pipeline locked.
+  // ─── Instant Zoho webhook -> WebSocket pipeline updates ─────────────────
+  // This does NOT poll CRM/Recruit. The backend only pushes when Zoho reports
+  // an actual change, so updates are immediate without spending read credits.
+  useEffect(() => {
+    if (!user?.email) return;
+
+    let socket = null;
+    let reconnectTimer = null;
+    let pingTimer = null;
+    let disposed = false;
+    let reconnectAttempts = 0;
+
+    const normalizedUserEmail =
+      String(user.email)
+        .trim()
+        .toLowerCase();
+
+    const applyWebhookState = message => {
+      const targetEmail =
+        String(
+          message?.candidateEmail ||
+          message?.email ||
+          ""
+        )
+          .trim()
+          .toLowerCase();
+
+      if (
+        targetEmail &&
+        targetEmail !==
+          normalizedUserEmail
+      ) {
+        return;
+      }
+
+      const stageStatus =
+        message?.stageStatus &&
+        typeof message.stageStatus ===
+          "object"
+          ? message.stageStatus
+          : {};
+
+      const changedFields =
+        message?.changedFields &&
+        typeof message.changedFields ===
+          "object"
+          ? message.changedFields
+          : {};
+
+      // Apply true AND false states directly so reset CRM gates uncross instantly.
+      if (
+        Object.keys(stageStatus).length
+      ) {
+        setStages(previous =>
+          previous.map(stage => {
+            const live =
+              stageStatus[
+                stage.stage_name
+              ];
+
+            if (
+              !live ||
+              typeof live.completed !==
+                "boolean"
+            ) {
+              return stage;
+            }
+
+            const completed =
+              live.completed === true;
+
+            return {
+              ...stage,
+              status:
+                completed
+                  ? "Completed"
+                  : (
+                      live.status ||
+                      "Not Started"
+                    ),
+              completed,
+              is_completed:
+                completed,
+              completed_date:
+                completed
+                  ? (
+                      live.completed_date ||
+                      stage.completed_date ||
+                      new Date()
+                        .toISOString()
+                    )
+                  : null,
+              source_trigger_unlocked:
+                live.unlocked === true ||
+                completed,
+              trigger_unlocked:
+                live.unlocked === true ||
+                completed,
+              crm_unlocked:
+                message?.source === "crm"
+                  ? (
+                      live.unlocked === true ||
+                      completed
+                    )
+                  : false,
+              recruit_unlocked:
+                message?.source ===
+                  "recruit"
+                  ? (
+                      live.unlocked === true ||
+                      completed
+                    )
+                  : false,
+              source_trigger_synced:
+                true,
+              crm_synced:
+                message?.source === "crm"
+            };
+          })
+        );
+      }
+
+      // Update the exact live source object used by the pipeline renderer.
+      setDeploymentFieldStatus(previous => {
+        const current =
+          previous || {};
+
+        const nextStageStatus = {
+          ...(
+            current.__stageStatus ||
+            {}
+          )
+        };
+
+        const nextCompletionMap = {
+          ...(
+            current.__completionMap ||
+            {}
+          )
+        };
+
+        for (
+          const [stageName, live]
+          of Object.entries(
+            stageStatus
+          )
+        ) {
+          nextStageStatus[
+            stageName
+          ] = {
+            ...(
+              nextStageStatus[
+                stageName
+              ] || {}
+            ),
+            ...live,
+            evaluated: true
+          };
+
+          if (
+            typeof live?.completed ===
+              "boolean"
+          ) {
+            nextCompletionMap[
+              stageName
+            ] =
+              live.completed;
+          }
+        }
+
+        return {
+          ...current,
+          ...changedFields,
+          __stageStatus:
+            nextStageStatus,
+          __completionMap:
+            nextCompletionMap
+        };
+      });
+
+      window.dispatchEvent(
+        new CustomEvent(
+          "pipeline-webhook-applied",
+          {
+            detail: {
+              source:
+                message?.source,
+              stageStatus,
+              changedFields,
+              timestamp:
+                message?.timestamp ||
+                new Date()
+                  .toISOString()
+            }
+          }
+        )
+      );
+    };
+
+    const scheduleReconnect = () => {
+      if (
+        disposed ||
+        reconnectTimer
+      ) {
+        return;
+      }
+
+      reconnectAttempts += 1;
+
+      const delay =
+        Math.min(
+          1000 *
+            Math.pow(
+              2,
+              Math.min(
+                reconnectAttempts - 1,
+                4
+              )
+            ),
+          15000
+        );
+
+      reconnectTimer =
+        window.setTimeout(
+          () => {
+            reconnectTimer =
+              null;
+            connect();
+          },
+          delay
+        );
+    };
+
+    const connect = () => {
+      if (disposed) return;
+
+      const authToken =
+        localStorage.getItem(
+          "icp_auth_token"
+        );
+
+      if (!authToken) return;
+
+      try {
+        const parsedApi =
+          new URL(
+            API_BASE,
+            window.location.origin
+          );
+
+        const protocol =
+          parsedApi.protocol ===
+            "https:"
+            ? "wss:"
+            : "ws:";
+
+        const socketUrl =
+          `${protocol}//${parsedApi.host}/ws?token=${encodeURIComponent(
+            authToken
+          )}`;
+
+        socket =
+          new WebSocket(
+            socketUrl
+          );
+
+        socket.onopen = () => {
+          reconnectAttempts = 0;
+
+          if (pingTimer) {
+            window.clearInterval(
+              pingTimer
+            );
+          }
+
+          // Keeps the websocket alive; does not call Zoho.
+          pingTimer =
+            window.setInterval(
+              () => {
+                if (
+                  socket?.readyState ===
+                  WebSocket.OPEN
+                ) {
+                  socket.send(
+                    JSON.stringify({
+                      type: "ping"
+                    })
+                  );
+                }
+              },
+              25000
+            );
+        };
+
+        socket.onmessage = event => {
+          let message;
+
+          try {
+            message =
+              JSON.parse(
+                event.data
+              );
+          } catch {
+            return;
+          }
+
+          if (
+            message?.type ===
+              "pipeline-updated" ||
+            message?.type ===
+              "candidate-data-updated" ||
+            message?.type ===
+              "crm-recruit-updated"
+          ) {
+            applyWebhookState(
+              message
+            );
+          }
+        };
+
+        socket.onerror = () => {
+          // onclose handles reconnection
+        };
+
+        socket.onclose = () => {
+          if (pingTimer) {
+            window.clearInterval(
+              pingTimer
+            );
+            pingTimer = null;
+          }
+
+          scheduleReconnect();
+        };
+      } catch (error) {
+        console.warn(
+          "[Pipeline realtime] WebSocket setup failed:",
+          error?.message || error
+        );
+
+        scheduleReconnect();
+      }
+    };
+
+    connect();
+
+    return () => {
+      disposed = true;
+
+      if (reconnectTimer) {
+        window.clearTimeout(
+          reconnectTimer
+        );
+      }
+
+      if (pingTimer) {
+        window.clearInterval(
+          pingTimer
+        );
+      }
+
+      if (
+        socket &&
+        (
+          socket.readyState ===
+            WebSocket.OPEN ||
+          socket.readyState ===
+            WebSocket.CONNECTING
+        )
+      ) {
+        socket.close();
+      }
+    };
+  }, [user?.email]);
+
   useEffect(() => {
     if (!user?.email) return;
 
