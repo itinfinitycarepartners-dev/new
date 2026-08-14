@@ -9262,6 +9262,7 @@ export default function Pipeline() {
     let pingTimer = null;
     let disposed = false;
     let reconnectAttempts = 0;
+    let lastAppliedWebhookKey = "";
 
     const normalizedUserEmail =
       String(user.email)
@@ -9269,6 +9270,28 @@ export default function Pipeline() {
         .toLowerCase();
 
     const applyWebhookState = message => {
+      const webhookKey =
+        [
+          message?.source || "",
+          message?.candidateEmail ||
+            message?.email ||
+            "",
+          message?.timestamp || ""
+        ].join("|");
+
+      if (
+        webhookKey &&
+        webhookKey ===
+          lastAppliedWebhookKey
+      ) {
+        return;
+      }
+
+      if (webhookKey) {
+        lastAppliedWebhookKey =
+          webhookKey;
+      }
+
       const targetEmail =
         String(
           message?.candidateEmail ||
