@@ -2430,7 +2430,125 @@ const isSamePipelineStage = (first, second) =>
     )
   );
 
-const isStageUnlocked = () => true;
+const isAuthoritativePipelineGateSatisfied = stage => {
+  if (!stage) return false;
+
+  return (
+    isPipelineStageComplete(stage) ||
+    stage.source_trigger_unlocked === true ||
+    stage.trigger_unlocked === true ||
+    stage.crm_unlocked === true ||
+    stage.recruit_unlocked === true ||
+    stage.portal_unlocked === true ||
+    stage.nclex_unlocked === true ||
+    stage.aftercare_unlocked === true ||
+    stage.gate_satisfied === true
+  );
+};
+
+const isStageUnlocked = (
+  targetStage,
+  allStages
+) => {
+  if (!targetStage) return false;
+
+  // A completed stage must always remain accessible.
+  if (
+    isPipelineStageComplete(
+      targetStage
+    )
+  ) {
+    return true;
+  }
+
+  const sequence =
+    getSequencedMainStages(
+      allStages
+    );
+
+  if (!sequence.length) {
+    return true;
+  }
+
+  const targetIndex =
+    sequence.findIndex(stage =>
+      isSamePipelineStage(
+        stage,
+        targetStage
+      )
+    );
+
+  // Compatibility rows that are not part of the current visible sequence
+  // should not accidentally become permanently inaccessible.
+  if (targetIndex < 0) {
+    return (
+      isAuthoritativePipelineGateSatisfied(
+        targetStage
+      ) ||
+      targetStage.is_locked !== true
+    );
+  }
+
+  // The first visible stage is always available.
+  if (targetIndex === 0) {
+    return true;
+  }
+
+  // Rule 1: a stage whose OWN CRM / Recruit / portal gate is already met
+  // must open immediately, even when the candidate entered in the middle.
+  if (
+    isAuthoritativePipelineGateSatisfied(
+      sequence[targetIndex]
+    )
+  ) {
+    return true;
+  }
+
+  // Rule 2: normal forward flow — completing the immediately previous stage
+  // unlocks the next stage.
+  const previousStage =
+    sequence[targetIndex - 1];
+
+  if (
+    isPipelineStageComplete(
+      previousStage
+    )
+  ) {
+    return true;
+  }
+
+  // Rule 3: deep entry. If an authoritative gate is satisfied farther down
+  // the pipeline, unlock the PATH up to that point. Earlier rows become
+  // accessible, but they DO NOT become Completed unless their own trigger
+  // is actually satisfied.
+  let furthestSatisfiedIndex =
+    -1;
+
+  sequence.forEach(
+    (stage, index) => {
+      if (
+        isAuthoritativePipelineGateSatisfied(
+          stage
+        )
+      ) {
+        furthestSatisfiedIndex =
+          Math.max(
+            furthestSatisfiedIndex,
+            index
+          );
+      }
+    }
+  );
+
+  if (
+    furthestSatisfiedIndex >=
+      targetIndex
+  ) {
+    return true;
+  }
+
+  return false;
+};
 
 // Custom Modal Component
 const CustomModal = ({ isOpen, onClose, title, children }) => {
@@ -13241,6 +13359,24 @@ export default function Pipeline() {
   };
 
   const handleStageClick = (stage) => {
+    const stageUnlocked =
+      isStageUnlocked(
+        stage,
+        displayStages
+      );
+
+    if (
+      !stageUnlocked &&
+      !isPipelineStageComplete(
+        stage
+      )
+    ) {
+      toast.info(
+        "This stage is locked. Complete the previous stage or satisfy this stage's CRM/Recruit gate."
+      );
+      return;
+    }
+
     const normalizedStageName = String(
       stage?.stage_name || ""
     )
