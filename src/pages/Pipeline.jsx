@@ -2114,8 +2114,46 @@ const updateStageStatus = async (userEmail, stageName, setStages, nextStatus = "
 };
 
 // ============= Sequential unlock helpers =============
+
+const deployMateCompletionKey = email =>
+  `icp_deploymate_completed:${String(email || "")
+    .trim()
+    .toLowerCase()}`;
+
+const hasDeployMateStickyCompletion = email => {
+  try {
+    return (
+      localStorage.getItem(
+        deployMateCompletionKey(email)
+      ) === "1"
+    );
+  } catch {
+    return false;
+  }
+};
+
+const setDeployMateStickyCompletion = email => {
+  try {
+    localStorage.setItem(
+      deployMateCompletionKey(email),
+      "1"
+    );
+  } catch {}
+};
+
 const isPipelineStageComplete = (candidate) => {
   if (!candidate) return false;
+
+  if (
+    candidate.stage_name === "deployMate Ready" &&
+    hasDeployMateStickyCompletion(
+      candidate.candidate_email ||
+      candidate.email ||
+      candidate.user_email
+    )
+  ) {
+    return true;
+  }
 
   const normalizedStatus = String(
     candidate.status ||
@@ -2722,7 +2760,7 @@ const ImmigrationRenewalUpload = ({
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             <input
               type="file"
-              accept=".pdf"
+              accept=".pdf,image/*"
               disabled={submitting || results[item.key]?.success}
               onChange={event => setFiles(prev => ({
                 ...prev,
@@ -5803,7 +5841,38 @@ const DeploymateDownloadView = ({
   ];
 
   const openVersion = async href => {
-    window.open(
+    try {
+            const token = localStorage.getItem("icp_auth_token");
+            if (token) {
+              await fetch(`${API_BASE}/api/pipeline/deploymate-complete`, {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  "Content-Type": "application/json"
+                }
+              });
+            }
+          } catch (error) {
+            console.warn("[deployMate] Persist completion failed:", error);
+          }
+          setDeployMateStickyCompletion(user?.email);
+          setStages?.(previous =>
+            previous.map(stage =>
+              stage.stage_name === "deployMate Ready"
+                ? {
+                    ...stage,
+                    status: "Completed",
+                    completed: true,
+                    is_completed: true,
+                    completed_date:
+                      stage.completed_date || new Date().toISOString(),
+                    source_trigger_unlocked: true,
+                    trigger_unlocked: true
+                  }
+                : stage
+            )
+          );
+          window.open(
       href,
       "_blank",
       "noopener,noreferrer"
@@ -9180,54 +9249,124 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
     if (!isFormComplete()) {
-      toast.error("Please upload receipts and enter amounts for all uploaded receipts");
+      toast.error(
+        "Please upload at least one receipt and enter an amount for every uploaded receipt."
+      );
+      return;
+    }
+
+    const token = localStorage.getItem("icp_auth_token");
+    if (!token) {
+      toast.error("Your session has expired. Please sign in again.");
+      return;
+    }
+
+    const selectedReceipts = RECEIPT_CATEGORIES
+      .map(category => {
+        const receipt = receipts[category.id];
+        if (!receipt?.file) return null;
+
+        return {
+          categoryId: category.id,
+          categoryLabel: category.label,
+          amount: Number(receipt.total || 0),
+          currency: receipt.currency || "USD",
+          convertedUSD: convertToUSD(
+            receipt.total,
+            receipt.currency || "USD"
+          ),
+          file: receipt.file
+        };
+      })
+      .filter(Boolean);
+
+    if (!selectedReceipts.length) {
+      toast.error("Select at least one receipt.");
       return;
     }
 
     setIsSubmitting(true);
     setUploading(true);
-    let successCount = 0;
-    let failCount = 0;
 
     try {
-      for (const category of RECEIPT_CATEGORIES) {
-        const receipt = receipts[category.id];
-        if (receipt && receipt.file) {
-          try {
-            await uploadDocument(
-              receipt.file,
-              `${category.label} - ${format(new Date(), "MMM d, yyyy")}`,
-              "Reimbursement",
-              "crm",
-              user?.email,
-              {
-                crm_field_api_name:
-                  "Advance_Agreement",
-                pipeline_section:
-                  "deployment-expense-report"
-              }
-            );
-            successCount++;
-          } catch (error) {
-            console.error(`Error uploading ${category.label}:`, error);
-            failCount++;
-          }
+      const formData = new FormData();
+
+      selectedReceipts.forEach(item => {
+        formData.append("receipts", item.file, item.file.name);
+      });
+
+      formData.append(
+        "receipt_metadata",
+        JSON.stringify(
+          selectedReceipts.map(({ file, ...metadata }) => metadata)
+        )
+      );
+
+      formData.append("total_usd", String(totalUSD));
+
+      const response = await fetch(
+        `${API_BASE}/api/reimbursement/receipts/submit`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`
+          },
+          body: formData
         }
+      );
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || data.success !== true) {
+        throw new Error(
+          data.error ||
+          data.message ||
+          "Receipt upload failed."
+        );
       }
-      
-      if (successCount > 0) {
-        toast.success(`${successCount} receipt(s) submitted successfully!`);
-        toast.success(`💰 Total Reimbursement: $${totalUSD.toFixed(2)} USD`);
-        updateStageStatus(user?.email, "Reimbursement/Advance Payment Report Released", setStages);
-        setTimeout(() => { onClose(); }, 2000);
-      }
-      if (failCount > 0) {
-        toast.warning(`${failCount} receipt(s) failed to upload.`);
-      }
+
+      setStages?.(previous =>
+        previous.map(stage =>
+          stage.stage_name === "Receipt Submission"
+            ? {
+                ...stage,
+                status: "Completed",
+                completed: true,
+                is_completed: true,
+                completed_date:
+                  data.completedDate || new Date().toISOString(),
+                source_trigger_unlocked: true,
+                trigger_unlocked: true
+              }
+            : stage
+        )
+      );
+
+      toast.success(
+        `${Number(data.uploadedCount || selectedReceipts.length)} receipt(s) submitted successfully!`
+      );
+
+      window.dispatchEvent(
+        new CustomEvent("pipeline-updated", {
+          detail: {
+            email: user?.email,
+            stage_name: "Receipt Submission",
+            status: "Completed",
+            completed: true,
+            source: "receipt_submission"
+          }
+        })
+      );
+
+      setTimeout(onClose, 800);
     } catch (error) {
-      console.error('Submission error:', error);
-      toast.error(error.message || "Upload failed. Please try again.");
+      console.error("Receipt submission error:", error);
+      toast.error(
+        error.message ||
+        "Receipt upload failed. Please try again."
+      );
     } finally {
       setUploading(false);
       setIsSubmitting(false);
