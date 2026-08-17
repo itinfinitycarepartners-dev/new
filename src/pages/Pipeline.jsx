@@ -3034,7 +3034,7 @@ const RecruitUpload = ({ onClose, user, title, documentLabel, multiple = false, 
           type="file" 
           className="mt-2 text-sm"
           onChange={handleFileChange}
-          accept=".pdf,image/*"
+          accept=".pdf,image/jpeg,image/png,image/webp,image/heic,image/heif"
           multiple={multiple}
           required={files.length === 0}
         />
@@ -9375,18 +9375,6 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
       return;
     }
 
-    const token =
-      localStorage.getItem(
-        "icp_auth_token"
-      );
-
-    if (!token) {
-      toast.error(
-        "Your session has expired. Please sign in again."
-      );
-      return;
-    }
-
     const selectedReceipts =
       RECEIPT_CATEGORIES
         .map(category => {
@@ -9398,201 +9386,115 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
           }
 
           return {
-            categoryId:
-              category.id,
-            categoryLabel:
-              category.label,
-            amount:
-              Number(
-                receipt.total ||
-                0
-              ),
-            currency:
-              receipt.currency ||
-              "USD",
-            convertedUSD:
-              convertToUSD(
-                receipt.total,
-                receipt.currency ||
-                  "USD"
-              ),
-            file:
-              receipt.file
+            category,
+            receipt
           };
         })
         .filter(Boolean);
 
     if (!selectedReceipts.length) {
       toast.error(
-        "Select at least one receipt."
+        "Please select at least one receipt."
       );
       return;
     }
 
-    // One small multipart request per receipt is much more reliable than one
-    // large multipart request containing every selected file.
-    const submissionId =
-      (
-        globalThis.crypto?.randomUUID?.() ||
-        `receipt-${Date.now()}-${Math.random()
-          .toString(36)
-          .slice(2)}`
-      );
-
-    const uploadOneReceipt =
-      async (
-        item,
-        attempt = 1
-      ) => {
-        const formData =
-          new FormData();
-
-        formData.append(
-          "file",
-          item.file,
-          item.file.name
-        );
-        formData.append(
-          "submission_id",
-          submissionId
-        );
-        formData.append(
-          "category_id",
-          item.categoryId
-        );
-        formData.append(
-          "category_label",
-          item.categoryLabel
-        );
-        formData.append(
-          "amount",
-          String(item.amount)
-        );
-        formData.append(
-          "currency",
-          item.currency
-        );
-        formData.append(
-          "converted_usd",
-          String(item.convertedUSD)
-        );
-
-        const response =
-          await fetch(
-            `${API_BASE}/api/reimbursement/receipts/upload-one`,
-            {
-              method:
-                "POST",
-              headers: {
-                Authorization:
-                  `Bearer ${token}`
-              },
-              body:
-                formData
-            }
-          );
-
-        const data =
-          await response
-            .json()
-            .catch(() => ({}));
-
-        if (
-          !response.ok ||
-          data.success !== true
-        ) {
-          const error =
-            new Error(
-              data.error ||
-              data.message ||
-              `Unable to upload ${item.file.name}.`
-            );
-
-          if (
-            attempt < 2 &&
-            response.status >= 500
-          ) {
-            await new Promise(
-              resolve =>
-                setTimeout(
-                  resolve,
-                  800
-                )
-            );
-
-            return uploadOneReceipt(
-              item,
-              attempt + 1
-            );
-          }
-
-          throw error;
-        }
-
-        return data;
-      };
-
-    setIsSubmitting(true);
     setUploading(true);
+    setIsSubmitting(true);
+
+    const uploaded = [];
+    const failed = [];
 
     try {
-      const uploaded = [];
-
       for (
         const item
         of selectedReceipts
       ) {
-        const result =
-          await uploadOneReceipt(
-            item
+        const {
+          category,
+          receipt
+        } = item;
+
+        try {
+          // Use the same document route used successfully by the rest of the
+          // portal. "expense-report" is the Document Library category already
+          // mapped by the backend to Receipt Submission.
+          const result =
+            await uploadDocument(
+              receipt.file,
+              `${category.label} - ${receipt.file.name}`,
+              "Reimbursement",
+              "crm",
+              user?.email,
+              {
+                document_category:
+                  "expense-report",
+                library_category:
+                  "expense-report",
+                document_library_upload:
+                  "true",
+                document_department:
+                  "Deployment",
+                pipeline_section:
+                  "Deployment",
+                receipt_category:
+                  category.id,
+                receipt_category_label:
+                  category.label,
+                receipt_amount:
+                  receipt.total,
+                receipt_currency:
+                  receipt.currency ||
+                  "USD",
+                receipt_amount_usd:
+                  convertToUSD(
+                    receipt.total,
+                    receipt.currency ||
+                      "USD"
+                  )
+              }
+            );
+
+          uploaded.push({
+            category:
+              category.label,
+            result
+          });
+        } catch (error) {
+          console.error(
+            `[Receipt Upload] ${category.label}:`,
+            error
           );
 
-        uploaded.push(
-          result.receipt
-        );
+          failed.push({
+            category:
+              category.label,
+            error:
+              error?.message ||
+              "Upload failed"
+          });
+        }
       }
 
-      // Finalize only AFTER every chosen receipt is safely in CRM.
-      const finalizeResponse =
-        await fetch(
-          `${API_BASE}/api/reimbursement/receipts/finalize`,
-          {
-            method:
-              "POST",
-            headers: {
-              Authorization:
-                `Bearer ${token}`,
-              "Content-Type":
-                "application/json"
-            },
-            body:
-              JSON.stringify({
-                submission_id:
-                  submissionId,
-                total_usd:
-                  totalUSD,
-                expected_count:
-                  selectedReceipts.length
-              })
-          }
-        );
-
-      const finalizeData =
-        await finalizeResponse
-          .json()
-          .catch(() => ({}));
-
-      if (
-        !finalizeResponse.ok ||
-        finalizeData.success !== true
-      ) {
+      if (failed.length) {
         throw new Error(
-          finalizeData.error ||
-          finalizeData.message ||
-          "Receipts uploaded, but the submission could not be finalized."
+          failed
+            .map(
+              item =>
+                `${item.category}: ${item.error}`
+            )
+            .join(" | ")
         );
       }
 
+      if (!uploaded.length) {
+        throw new Error(
+          "No receipts were uploaded."
+        );
+      }
+
+      // The backend document-library synchronizer completes the canonical
+      // Receipt Submission row. Mirror that immediately in the open UI.
       setStages?.(
         previous =>
           applyOrderedLocksWithDeepEntry(
@@ -9609,21 +9511,19 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
                       is_completed:
                         true,
                       completed_date:
-                        finalizeData.completedDate ||
+                        stage.completed_date ||
                         new Date()
                           .toISOString(),
                       source_trigger_unlocked:
                         true,
                       trigger_unlocked:
-                        true
+                        true,
+                      completion_source:
+                        "expense-report"
                     }
                   : stage
             )
           )
-      );
-
-      toast.success(
-        `${uploaded.length} receipt(s) submitted successfully.`
       );
 
       window.dispatchEvent(
@@ -9640,10 +9540,20 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
               completed:
                 true,
               source:
-                "receipt_submission"
+                "expense-report"
             }
           }
         )
+      );
+
+      toast.success(
+        `${uploaded.length} receipt(s) submitted successfully.`
+      );
+
+      toast.success(
+        `Total Reimbursement: $${Number(
+          totalUSD || 0
+        ).toFixed(2)} USD`
       );
 
       setTimeout(
@@ -9657,8 +9567,8 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
       );
 
       toast.error(
-        error.message ||
-        "Receipt upload failed. Please try again."
+        error?.message ||
+        "Receipt submission failed. Please try again."
       );
     } finally {
       setUploading(false);
