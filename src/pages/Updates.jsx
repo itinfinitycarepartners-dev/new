@@ -109,10 +109,12 @@ export default function Updates() {
 
     window.addEventListener("candidate-data-updated", handleUpdate);
     window.addEventListener("pipeline-updated", handleUpdate);
+    window.addEventListener("crm-recruit-updated", handleUpdate);
     window.addEventListener("focus", handleVisible);
     document.addEventListener("visibilitychange", handleVisible);
     websocket?.on?.("candidate-data-updated", handleUpdate);
     websocket?.on?.("pipeline-updated", handleUpdate);
+    websocket?.on?.("crm-recruit-updated", handleUpdate);
 
     const interval = window.setInterval(() => {
       if (document.visibilityState === "visible") {
@@ -124,10 +126,12 @@ export default function Updates() {
       window.clearInterval(interval);
       window.removeEventListener("candidate-data-updated", handleUpdate);
       window.removeEventListener("pipeline-updated", handleUpdate);
+      window.removeEventListener("crm-recruit-updated", handleUpdate);
       window.removeEventListener("focus", handleVisible);
       document.removeEventListener("visibilitychange", handleVisible);
       websocket?.off?.("candidate-data-updated", handleUpdate);
       websocket?.off?.("pipeline-updated", handleUpdate);
+      websocket?.off?.("crm-recruit-updated", handleUpdate);
     };
   }, [loadUpdates]);
 

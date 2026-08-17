@@ -183,6 +183,46 @@ const ga = (data, ...fieldNames) => {
 };
 
 
+
+const normalizePortalDateInput = value => {
+  const digits = String(value || "")
+    .replace(/\D/g, "")
+    .slice(0, 6);
+
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) {
+    return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  }
+
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 6)}`;
+};
+
+const parsePortalDate = value => {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(\d{2})\/(\d{2})\/(\d{2})$/);
+
+  if (!match) return null;
+
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  const year = 2000 + Number(match[3]);
+
+  const parsed = new Date(year, month - 1, day);
+
+  if (
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return parsed;
+};
+
+const isValidPortalDate = value =>
+  parsePortalDate(value) instanceof Date;
+
 const getLocalDateKey = (
   date = new Date()
 ) => {
@@ -381,7 +421,8 @@ const STAGES_CONFIG = [
   { id: 28, stage_name: "Foundations: Cultural Readiness", stage_category: "Immigration", stage_order: 28, days_from_start: 600 },
   { id: 29, stage_name: "Documentarily Qualified", stage_category: "Immigration", stage_order: 29, days_from_start: 840 },
 
-  // Stage 3 — Deployment: EXACTLY 11 candidate-visible stages.
+  // Stage 3 — Deployment. Introduction to Deployment Call is the first step.
+  { id: 29.5, stage_name: "Introduction to Deployment Call", stage_category: "Deployment", stage_order: 29.5, days_from_start: 890 },
   { id: 30, stage_name: "Speciality Classes", stage_category: "Deployment", stage_order: 30, days_from_start: 900 },
   { id: 31, stage_name: "Final Self Assessment", stage_category: "Deployment", stage_order: 31, days_from_start: 910 },
   { id: 32, stage_name: "Speciality with Trainer Skills Check", stage_category: "Deployment", stage_order: 32, days_from_start: 920 },
@@ -1302,7 +1343,7 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
     days: 150,
     field: "Pearson_Vue_Status",
     type: "picklist",
-    accepted: ["Completed"]
+    accepted: ["Complete"]
   },
   {
     name: "Performance Check 3",
@@ -1746,6 +1787,7 @@ const PIPELINE_STAGE_COMMENTS = {
   "DS-260 / Civil Document Submission": "Complete your DS-260 and submit any remaining civil documents through the required process.",
   "Foundations: Cultural Readiness": "These foundations courses provide critical cultural insight that will prepare you in your transition to the United States.",
   "Documentarily Qualified": "The NVC has determined and marked your case complete and ready for embassy interview scheduling.",
+  "Introduction to Deployment Call": "Your Stage 3 introduction call starts the Deployment phase.",
   "Final Self Assessment": "The final skills assessment is a personal assessment of your nursing skills.",
   "Speciality with Trainer Skills Check": "Department-specific academic preparation courses designed to assess and equip you with the knowledge and expectations of your future clinical role in the United States. These courses will be tailored to your nursing specialty. At the conclusion, a member of the ICP academic team will evaluate your knowledge in a one-on-one oral assessment.",
   "Deployment Pre-Arrival Call": "The Deployment Call covers all things pre and post arrival.",
@@ -1831,6 +1873,7 @@ const CLICKABLE_STAGES = {
 
   // Current Deployment flow
   "Introduction to Deployment Call": { clickable: true, type: "view", viewType: "introductionDeployment" },
+  "Introduction to Deployment Call": { clickable: false, type: "field" },
   "Speciality Classes": { clickable: false, type: "field" },
   "Final Self Assessment": { clickable: false, type: "field" },
   "Speciality w/Trainer Skills Check": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
@@ -4188,11 +4231,16 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
   "Visa bill issued": {
     label: "Visa Fee Bill Stage",
     field: "Visa_Fee_Bill",
-    complete: value =>
-      String(
+    complete: value => {
+      const normalized = String(
         unwrapPipelineFieldValue(value) || ""
-      ).trim().toLowerCase() ===
-      "received - ready to be paid"
+      ).trim().toLowerCase();
+
+      return [
+        "received - ready to be paid",
+        "paid"
+      ].includes(normalized);
+    }
   },
   "Visa bill paid": {
     label: "Visa Fee Bill Stage",
@@ -4217,6 +4265,28 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
       const raw = unwrapPipelineFieldValue(value);
       const normalized = String(raw || "").trim().toLowerCase();
       return normalized === "yes" || raw === true;
+    }
+  },
+  "Introduction to Deployment Call": {
+    label: "Stage 3 Intro Call",
+    field: "Stage_3_Intro_Call",
+    complete: value => {
+      const raw = unwrapPipelineFieldValue(value);
+      if (
+        raw === true ||
+        ["yes", "complete", "completed", "done", "attended", "pass"]
+          .includes(String(raw || "").trim().toLowerCase())
+      ) {
+        return true;
+      }
+
+      if (!raw) return false;
+
+      const parsed = new Date(raw);
+      return (
+        !Number.isNaN(parsed.getTime()) &&
+        parsed.getTime() <= Date.now()
+      );
     }
   },
   "Speciality Classes": {
@@ -4591,7 +4661,7 @@ const DeploymentCRMStatusView = ({
   );
 };
 
-const WelcomePacketView = ({ onClose, user, setStages }) => {
+const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus }) => {
   const [loading, setLoading] = useState(true);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [acknowledging, setAcknowledging] = useState(false);
@@ -5153,23 +5223,60 @@ const WelcomePacketView = ({ onClose, user, setStages }) => {
       }
 
       setStages?.(prev => prev.map(stage =>
-        ["ICP Welcome Packet", "ICP Welcome Packet & Itinerary", "Welcome Packet"].includes(stage.stage_name)
+        stage.stage_name === "Arrival Itinerary"
           ? {
               ...stage,
-              stage_name: "ICP Welcome Packet",
               status: "Completed",
               completed: true,
               is_completed: true,
-              completed_date: data.stage?.completed_date || new Date().toISOString()
+              completed_date:
+                data.stage?.completed_date ||
+                data.completed_date ||
+                new Date().toISOString(),
+              acknowledged_at:
+                data.stage?.acknowledged_at ||
+                data.acknowledged_at ||
+                new Date().toISOString(),
+              source_trigger_unlocked: true,
+              trigger_unlocked: true
             }
           : stage
       ));
 
+      setDeploymentFieldStatus?.(previous => {
+        const current = previous || {};
+        return {
+          ...current,
+          __stageStatus: {
+            ...(current.__stageStatus || {}),
+            "Arrival Itinerary": {
+              ...(current.__stageStatus?.["Arrival Itinerary"] || {}),
+              evaluated: true,
+              completed: true,
+              is_completed: true,
+              status: "Completed",
+              completed_date:
+                data.stage?.completed_date ||
+                data.completed_date ||
+                new Date().toISOString(),
+              unlocked: true,
+              source_fields: ["candidate_acknowledgement"]
+            }
+          },
+          __completionMap: {
+            ...(current.__completionMap || {}),
+            "Arrival Itinerary": true
+          }
+        };
+      });
+
       window.dispatchEvent(new CustomEvent("pipeline-updated", {
         detail: {
           email: user?.email,
-          stage_name: "ICP Welcome Packet",
-          status: "Completed"
+          stage_name: "Arrival Itinerary",
+          status: "Completed",
+          completed: true,
+          source: "candidate_acknowledgement"
         }
       }));
 
@@ -6870,6 +6977,14 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
     numBathrooms: "",
     housingPreference: "",
     hasPets: "",
+    petType: "",
+    petWeight: "",
+    petAge: "",
+    petColor: "",
+    petBreed: "",
+    petName: "",
+    petGender: "",
+    petSpayedNeutered: "",
     smokes: "",
     hasDriversLicense: "",
     licenseIssued: "",
@@ -6899,7 +7014,7 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
     cosignerZip: "",
     cosignerEmail: "",
     cosignerPhone: "",
-    consentFullName: "",
+    consentFullName: user?.displayName || user?.name || "",
     consentDate: "",
     consentSignature: "",
     waiverHousing: "",
@@ -6907,6 +7022,50 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
   });
 
   const [dependents, setDependents] = useState([]);
+  const housingDraftKey =
+    user?.email
+      ? `icp_housing_form_draft:${String(user.email).trim().toLowerCase()}`
+      : null;
+
+  useEffect(() => {
+    if (!housingDraftKey) return;
+
+    try {
+      const raw = sessionStorage.getItem(housingDraftKey);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+
+      if (saved?.formData) {
+        setFormData(previous => ({
+          ...previous,
+          ...saved.formData,
+          email:
+            saved.formData.email ||
+            previous.email ||
+            user?.email ||
+            ""
+        }));
+      }
+
+      if (Array.isArray(saved?.dependents)) {
+        setDependents(saved.dependents);
+      }
+    } catch (error) {
+      console.warn("[Housing] Could not restore form draft:", error?.message || error);
+    }
+  }, [housingDraftKey]);
+
+  useEffect(() => {
+    if (!housingDraftKey) return;
+
+    sessionStorage.setItem(
+      housingDraftKey,
+      JSON.stringify({
+        formData,
+        dependents
+      })
+    );
+  }, [housingDraftKey, formData, dependents]);
   const [showDependentForm, setShowDependentForm] = useState(false);
   const [newDependent, setNewDependent] = useState({
     firstName: "",
@@ -6932,7 +7091,7 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
         field => String(newDependent[field] || "").trim()
       )
     ) {
-      const dob = new Date(newDependent.dateOfBirth);
+      const dob = parsePortalDate(newDependent.dateOfBirth);
       const today = new Date();
       let age = today.getFullYear() - dob.getFullYear();
       const monthDifference = today.getMonth() - dob.getMonth();
@@ -6977,10 +7136,31 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    const conditionalPetFields = new Set([
+      "petType",
+      "petWeight",
+      "petAge",
+      "petColor",
+      "petBreed",
+      "petName",
+      "petGender",
+      "petSpayedNeutered"
+    ]);
+
+    const optionalFields = new Set([
+      "middleName",
+      "waiverHousing",
+      "waiverConcierge"
+    ]);
+
     const requiredFields = Object.keys(formData).filter(
       field =>
         !field.startsWith("cosigner") &&
-        field !== "middleName"
+        !optionalFields.has(field) &&
+        !(
+          conditionalPetFields.has(field) &&
+          String(formData.hasPets || "").toLowerCase() !== "yes"
+        )
     );
     const missingFields = requiredFields.filter(
       field => String(formData[field] ?? "").trim() === ""
@@ -7007,8 +7187,8 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
         return;
       }
 
-      const dob = new Date(dependent.dateOfBirth);
-      if (!Number.isNaN(dob.getTime())) {
+      const dob = parsePortalDate(dependent.dateOfBirth);
+      if (dob && !Number.isNaN(dob.getTime())) {
         const today = new Date();
         let age = today.getFullYear() - dob.getFullYear();
         const monthDifference = today.getMonth() - dob.getMonth();
@@ -7091,6 +7271,9 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
 
       const crmSaved = data?.attachments?.crm?.success === true || data?.crm?.success === true;
       if (!crmSaved) throw new Error("The housing form was not attached to CRM.");
+      if (housingDraftKey) {
+        sessionStorage.removeItem(housingDraftKey);
+      }
       toast.success("Housing form submitted and attached to CRM.");
       onClose();
     } catch (error) {
@@ -7109,10 +7292,12 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
           <label className="text-sm font-medium">DATE COMPLETED</label>
         </div>
         <input
-          type="date"
+          type="text"
+          inputMode="numeric"
           name="dateCompleted"
           value={formData.dateCompleted}
-          onChange={handleChange}
+          placeholder="MM/DD/YY"
+          onChange={(e) => setFormData(prev => ({ ...prev, dateCompleted: normalizePortalDateInput(e.target.value) }))}
           className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary"
         />
       </div>
@@ -7139,7 +7324,7 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
           <div>
             <label className="text-sm font-medium block mb-1">Date of Birth</label>
-            <input type="date" name="dateOfBirth" value={formData.dateOfBirth} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+            <input type="text" inputMode="numeric" name="dateOfBirth" placeholder="MM/DD/YY" value={formData.dateOfBirth} onChange={(e) => setFormData(prev => ({ ...prev, dateOfBirth: normalizePortalDateInput(e.target.value) }))} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
           </div>
           <div>
             <label className="text-sm font-medium block mb-1">Email <span className="text-red-500">*</span></label>
@@ -7249,6 +7434,36 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
             </select>
           </div>
         </div>
+
+        {String(formData.hasPets || "").toLowerCase() === "yes" && (
+          <div className="mt-4 rounded-lg border border-blue-100 bg-white/70 p-4">
+            <p className="mb-3 text-sm font-semibold text-blue-800">
+              Pet information
+            </p>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+              <select name="petType" value={formData.petType} onChange={handleChange} className="w-full rounded-lg border border-border bg-background px-3 py-2">
+                <option value="">Type of pet</option>
+                <option value="Cat">Cat</option>
+                <option value="Dog">Dog</option>
+              </select>
+              <input type="number" min="0" step="0.1" name="petWeight" placeholder="Weight in pounds" value={formData.petWeight} onChange={handleChange} className="w-full rounded-lg border border-border bg-background px-3 py-2" />
+              <input type="text" name="petAge" placeholder="Age" value={formData.petAge} onChange={handleChange} className="w-full rounded-lg border border-border bg-background px-3 py-2" />
+              <input type="text" name="petColor" placeholder="Color" value={formData.petColor} onChange={handleChange} className="w-full rounded-lg border border-border bg-background px-3 py-2" />
+              <input type="text" name="petBreed" placeholder="Breed" value={formData.petBreed} onChange={handleChange} className="w-full rounded-lg border border-border bg-background px-3 py-2" />
+              <input type="text" name="petName" placeholder="Name" value={formData.petName} onChange={handleChange} className="w-full rounded-lg border border-border bg-background px-3 py-2" />
+              <select name="petGender" value={formData.petGender} onChange={handleChange} className="w-full rounded-lg border border-border bg-background px-3 py-2">
+                <option value="">Gender</option>
+                <option value="Female">Female</option>
+                <option value="Male">Male</option>
+              </select>
+              <select name="petSpayedNeutered" value={formData.petSpayedNeutered} onChange={handleChange} className="w-full rounded-lg border border-border bg-background px-3 py-2">
+                <option value="">Spayed or neutered?</option>
+                <option value="Yes">Yes</option>
+                <option value="No">No</option>
+              </select>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="bg-amber-50/50 rounded-lg p-4 border border-amber-200">
@@ -7276,7 +7491,7 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
           <div>
             <label className="text-sm font-medium block mb-1">When does it expire?</label>
-            <input type="date" name="licenseExpiry" value={formData.licenseExpiry} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+            <input type="text" inputMode="numeric" name="licenseExpiry" placeholder="MM/DD/YY" value={formData.licenseExpiry} onChange={(e) => setFormData(prev => ({ ...prev, licenseExpiry: normalizePortalDateInput(e.target.value) }))} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
           </div>
           <div>
             <label className="text-sm font-medium block mb-1">Who will be driving? You, your spouse, or both?</label>
@@ -7333,7 +7548,7 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
               <input type="text" placeholder="Last Name *" value={newDependent.lastName} onChange={(e) => setNewDependent({ ...newDependent, lastName: e.target.value })} className="px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
               <input type="email" placeholder="Email" value={newDependent.email} onChange={(e) => setNewDependent({ ...newDependent, email: e.target.value })} className="px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
               <input type="text" placeholder="Relationship" value={newDependent.relationship} onChange={(e) => setNewDependent({ ...newDependent, relationship: e.target.value })} className="px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
-              <input type="date" placeholder="Date of Birth" value={newDependent.dateOfBirth} onChange={(e) => setNewDependent({ ...newDependent, dateOfBirth: e.target.value })} className="px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+              <input type="text" inputMode="numeric" placeholder="MM/DD/YY" value={newDependent.dateOfBirth} onChange={(e) => setNewDependent(prev => ({ ...prev, dateOfBirth: normalizePortalDateInput(e.target.value) }))} className="px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
             </div>
             <div className="flex gap-2 mt-3">
               <Button type="button" onClick={handleAddDependent} size="sm"><Plus className="h-4 w-4 mr-1" /> Add Dependent</Button>
@@ -7495,7 +7710,7 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
           </div>
           <div>
             <label className="text-sm font-medium block mb-1">Date</label>
-            <input type="date" name="consentDate" value={formData.consentDate} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+            <input type="text" inputMode="numeric" name="consentDate" placeholder="MM/DD/YY" value={formData.consentDate} onChange={(e) => setFormData(prev => ({ ...prev, consentDate: normalizePortalDateInput(e.target.value) }))} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
           </div>
         </div>
       </div>
@@ -7558,10 +7773,18 @@ const RLFormInput = ({
     </span>
     <input
       name={field}
-      type={type}
+      type={type === "date" ? "text" : type}
+      inputMode={type === "date" ? "numeric" : undefined}
       value={value ?? ""}
-      onChange={(event) => onChange(field, event.target.value)}
-      placeholder={placeholder}
+      onChange={(event) =>
+        onChange(
+          field,
+          type === "date"
+            ? normalizePortalDateInput(event.target.value)
+            : event.target.value
+        )
+      }
+      placeholder={type === "date" ? "MM/DD/YY" : placeholder}
       disabled={disabled}
       autoComplete="off"
       className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:bg-gray-100"
@@ -7819,7 +8042,7 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
   const [uploadResults, setUploadResults] = useState({});
   const [submissionResult, setSubmissionResult] = useState(null);
   const [form, setForm] = useState({
-    name: user?.displayName || user?.name || "", email: user?.email || "", employerName: "",
+    name: user?.displayName || user?.name || "", email: user?.email || "",
     height: "", weight: "", clothingSize: "", aboutYou: "", resignationPeriod: "",
     anticipatedLastDay: "", departureCity: "", wheelchair: "No", checkedBags: "0",
     carryOn: "0", boxes: "0", pets: "No", travelCash: "", carSeats: "No",
@@ -7841,10 +8064,40 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
     }]
   });
 
+  const rlDraftKey =
+    user?.email
+      ? `icp_rl_form_draft:${String(user.email).trim().toLowerCase()}`
+      : null;
+
+  useEffect(() => {
+    if (!rlDraftKey) return;
+    try {
+      const raw = sessionStorage.getItem(rlDraftKey);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (saved && typeof saved === "object") {
+        setForm(previous => ({
+          ...previous,
+          ...saved,
+          email: saved.email || previous.email || user?.email || ""
+        }));
+      }
+    } catch (error) {
+      console.warn("[R&L] Could not restore form draft:", error?.message || error);
+    }
+  }, [rlDraftKey]);
+
+  useEffect(() => {
+    if (!rlDraftKey) return;
+    sessionStorage.setItem(
+      rlDraftKey,
+      JSON.stringify(form)
+    );
+  }, [rlDraftKey, form]);
+
   const RL_REQUIRED_FIELDS = [
     "name",
     "email",
-    "employerName",
     "birthDate",
     "gender",
     "phone",
@@ -7890,8 +8143,8 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
 
   const getAgeFromDate = value => {
     if (!value) return null;
-    const dob = new Date(value);
-    if (Number.isNaN(dob.getTime())) return null;
+    const dob = parsePortalDate(value);
+    if (!dob || Number.isNaN(dob.getTime())) return null;
     const today = new Date();
     let age = today.getFullYear() - dob.getFullYear();
     const monthDifference = today.getMonth() - dob.getMonth();
@@ -8055,6 +8308,10 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
         }
       }));
 
+      if (rlDraftKey) {
+        sessionStorage.removeItem(rlDraftKey);
+      }
+
       toast.success(
         `R&L form attached to CRM and stage completed. ${
           (data.supporting || []).length
@@ -8118,7 +8375,7 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
         </div>
       </div>
       <div className="grid md:grid-cols-2 gap-4">
-        <RLFormInput label="Name" field="name" required value={form.name} onChange={setField} /><RLFormInput label="U.S. Employer Name (work location)" field="employerName" required value={form.employerName} onChange={setField} />
+        <RLFormInput label="Name" field="name" required value={form.name} onChange={setField} />
         <RLFormInput label="Birth Date" field="birthDate" type="date" required value={form.birthDate} onChange={setField} /><RLFormInput label="Gender" field="gender" required value={form.gender} onChange={setField} />
         <RLFormInput label="Candidate Email" field="email" type="email" required value={form.email} onChange={setField} /><RLFormInput label="Phone Number" field="phone" required value={form.phone} onChange={setField} />
         <RLFormInput label="Height (feet and inches)" field="height" value={form.height} onChange={setField} /><RLFormInput label="Weight (lbs.)" field="weight" type="number" value={form.weight} onChange={setField} />
@@ -9345,7 +9602,8 @@ export default function Pipeline() {
             }
 
             const completed =
-              live.completed === true;
+              live.completed === true ||
+              isPipelineStageComplete(stage);
 
             return {
               ...stage,
@@ -12669,6 +12927,7 @@ export default function Pipeline() {
           onClose={closeModal}
           user={user}
           setStages={setStages}
+          setDeploymentFieldStatus={setDeploymentFieldStatus}
         />
       );
     }
@@ -13089,7 +13348,12 @@ export default function Pipeline() {
         case "welcomePacket":
           openModal(
             "ICP Welcome Packet",
-            <WelcomePacketView onClose={closeModal} user={user} setStages={setStages} />
+            <WelcomePacketView
+              onClose={closeModal}
+              user={user}
+              setStages={setStages}
+              setDeploymentFieldStatus={setDeploymentFieldStatus}
+            />
           );
           break;
         case "aftercareCall":
@@ -13962,6 +14226,7 @@ export default function Pipeline() {
     "Documentarily Qualified",
 
     // Deployment direct CRM fields / direct portal completion
+    "Introduction to Deployment Call",
     "Speciality Classes",
     "Final Self Assessment",
     "Speciality with Trainer Skills Check",
@@ -13970,7 +14235,7 @@ export default function Pipeline() {
     "Pre-Arrival Banking Call",
     "Employer Pre-Arrival Call",
     "deployMate Ready",
-    "Arrival Itinerary",
+    // Arrival Itinerary is completed by candidate acknowledgement, not CRM.
     "Receipt Submission",
     "Arrived",
 
@@ -14358,7 +14623,8 @@ export default function Pipeline() {
 
     if (
       useLiveCompletion &&
-      explicitBackendCompletion === false
+      explicitBackendCompletion === false &&
+      !isPipelineStageComplete(next)
     ) {
       next = {
         ...next,

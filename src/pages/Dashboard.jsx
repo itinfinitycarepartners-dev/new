@@ -1033,18 +1033,25 @@ export default function Dashboard() {
   const activeStage =
     !obsoleteQualificationStage(rawActiveStage) &&
     rawActiveStage &&
-    !isPipelineStageComplete(rawActiveStage) &&
-    String(rawActiveStage?.status || "").trim().toLowerCase() === "in progress"
+    !isPipelineStageComplete(rawActiveStage)
       ? rawActiveStage
-      : fallbackActiveStage;
+      : fallbackActiveStage ||
+        orderedVisibleStages.find(stage =>
+          !isPipelineStageComplete(stage)
+        ) ||
+        null;
 
-  const pendingNextStage = activeStage
-    ? orderedVisibleStages.find(stage =>
-        Number(stage?.stage_order || 0) > Number(activeStage?.stage_order || 0) &&
-        !isPipelineStageComplete(stage) &&
-        (String(stage?.status || "").trim().toLowerCase() === "in progress" || stage?.unlocked === true || stage?.is_unlocked === true || stage?.started_at || stage?.startedAt)
-      ) || null
-    : null;
+  const pendingNextStage =
+    !obsoleteQualificationStage(rawPendingNextStage) &&
+    rawPendingNextStage &&
+    !isPipelineStageComplete(rawPendingNextStage)
+      ? rawPendingNextStage
+      : activeStage
+        ? orderedVisibleStages.find(stage =>
+            Number(stage?.stage_order || 0) > Number(activeStage?.stage_order || 0) &&
+            !isPipelineStageComplete(stage)
+          ) || null
+        : null;
 
   const serverTimerMatchesActive =
     pipeline.timer?.stageName &&
