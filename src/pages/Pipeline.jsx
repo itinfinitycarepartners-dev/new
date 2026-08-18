@@ -88,7 +88,7 @@ const API_BASE =
   "https://fictional-carnival-3inv.onrender.com";
 
 const PRESCREEN_BOOKING_URL =
-  "https://bookings.cloud.microsoft/book/Prescreen@Infinitycarepartners.com/s/80GsIx6AjkuAYAnb7DcVPw2?ismsaljsauthenabled";
+  "https://outlook.office.com/book/Prescreen@Infinitycarepartners.com/?ismsaljsauthenabled";
 
 // Bank details are protected twice in transit:
 // 1) HTTPS/TLS for the request itself.
@@ -1327,6 +1327,13 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
     accepted: ["Paid by ICP", "Sponsored by ICP", "To be Sponsored by Infinity", "Paid by Infinity"]
   },
   {
+    name: "Select Meeting Time",
+    days: 120,
+    type: "booking",
+    nonCounted: true,
+    bookingType: "prescreen"
+  },
+  {
     name: "Performance Check 2",
     days: 120,
     type: "performance",
@@ -1415,6 +1422,7 @@ const isNCLEXPerformanceGateSatisfied = (gate, data = {}) => {
 
 const isICPUSRNItemComplete = (item, data = {}) => {
   if (!item || item.type === "navigation") return false;
+  if (item.type === "booking" && item.nonCounted === true) return false;
   if (item.type === "performance") {
     return isNCLEXPerformanceGateSatisfied(item.performanceGate, data);
   }
@@ -1492,6 +1500,20 @@ const isICPUSRNItemUnlocked = (item, index, data = {}) => {
   // Only the first stage after the furthest source-reached point follows the
   // ordinary sequential rule.
   const previousItem = ICP_USRN_SUBPROCESS_CONFIG[index - 1];
+
+  if (
+    previousItem?.type === "booking" &&
+    previousItem?.nonCounted === true
+  ) {
+    const beforeBooking =
+      ICP_USRN_SUBPROCESS_CONFIG[Math.max(0, index - 2)];
+
+    return (
+      !beforeBooking ||
+      isICPUSRNItemComplete(beforeBooking, data)
+    );
+  }
+
   return isICPUSRNItemComplete(previousItem, data);
 };
 
@@ -1968,7 +1990,7 @@ const CLICKABLE_STAGES = {
   "Relocation Survey": { clickable: true, type: "view", viewType: "relocationSurvey" },
   "Concierge Debrief": { clickable: false, type: "field", internal_only: true },
   "U.S. Integration Call (30 Day Call / Survey)": { clickable: true, type: "view", viewType: "thirtyDaySurvey" },
-  "Placement Stability Check-in (90 Day Call)": { clickable: false, type: "field" },
+  "Placement Stability Check-in (90 Day Call)": { clickable: true, type: "view", viewType: "ninetyDaySurvey" },
   // Legacy action aliases
   "24 Hour Call": { clickable: true, type: "view", viewType: "aftercareCall" },
   "Concierge Debrief": {
@@ -2451,6 +2473,31 @@ const isStageUnlocked = (
   allStages
 ) => {
   if (!targetStage) return false;
+
+  if (
+    targetStage.stage_category === "Aftercare" &&
+    !isPipelineStageComplete(targetStage)
+  ) {
+    const target =
+      targetStage.target_date ||
+      targetStage.targetDate ||
+      null;
+
+    if (target) {
+      const targetTime = new Date(target).getTime();
+
+      if (
+        Number.isFinite(targetTime) &&
+        Date.now() < targetTime
+      ) {
+        return false;
+      }
+    }
+  }
+
+  if (targetStage.access_locked === true) {
+    return false;
+  }
 
   // A completed stage must always remain accessible.
   if (
@@ -3937,17 +3984,70 @@ const SurveyView = ({ title, description, surveyUrl, onClose, user, setStages, s
 
   const persistSurveySubmission = async () => {
     if (submitted || isSavingSubmission || !stageName || !user?.email) return;
+
+    const token = localStorage.getItem("icp_auth_token");
+    if (!token) {
+      toast.error("Your session has expired. Please sign in again.");
+      return;
+    }
+
     setIsSavingSubmission(true);
+
     try {
-      await updateStageStatus(user.email, stageName, setStages);
+      const response = await fetch(
+        `${API_BASE}/api/pipeline/aftercare-survey-submitted`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ stage_name: stageName })
+        }
+      );
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || "Unable to save the survey submission.");
+      }
+
       setSubmitted(true);
-      toast.success(`${title} submitted and completed!`);
-      window.dispatchEvent(new CustomEvent("pipeline-updated", {
-        detail: { stageName, source: "survey-submit" }
-      }));
+
+      if (data.completed === true) {
+        setStages?.(previous =>
+          previous.map(stage =>
+            stage.stage_name === stageName
+              ? {
+                  ...stage,
+                  completed: true,
+                  is_completed: true,
+                  status: "Completed",
+                  completed_date:
+                    data.completed_date || new Date().toISOString()
+                }
+              : stage
+          )
+        );
+        toast.success(`${title} submitted and completed.`);
+      } else {
+        toast.success(
+          `${title} submitted. This stage will cross off when the matching CRM completion field is also populated.`
+        );
+      }
+
+      window.dispatchEvent(
+        new CustomEvent("pipeline-updated", {
+          detail: {
+            stageName,
+            source: "survey-submit",
+            completed: data.completed === true
+          }
+        })
+      );
     } catch (error) {
       console.error(`[Aftercare Survey] Could not persist ${stageName}:`, error);
-      toast.error("Your survey was submitted, but the pipeline could not be updated yet. Please keep this window open and try again.");
+      toast.error(error.message || "The survey submission could not be saved.");
     } finally {
       setIsSavingSubmission(false);
     }
@@ -4056,7 +4156,7 @@ const NinetyDaySurvey = ({ onClose, user, setStages }) => (
     onClose={onClose}
     user={user}
     setStages={setStages}
-    stageName="90 Day Exit Call"
+    stageName="Placement Stability Check-in (90 Day Call)"
   />
 );
 
@@ -4498,19 +4598,22 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
     complete: isCurrentOrPastDate
   },
   "Welcome Call/24 Hour Call": {
-    label: "Welcome Call",
-    field: "Welcome_Call",
-    complete: isCurrentOrPastDate
+    label: "Candidate U.S. Welcome Text/Call",
+    field: "Candidate_U_S_Welcome_Text_Call",
+    complete: value =>
+      isCurrentOrPastDate(value) ||
+      isCRMChecklistComplete(value) ||
+      hasFlowValue(value)
   },
   "Relocation Survey": {
-    label: "Relocation Survey",
-    field: "Relocation_Survey",
-    complete: value => isCRMChecklistComplete(value) || hasFlowValue(value)
+    label: "Date Relocation Survey Submitted",
+    field: "Date_Relocation_Submitted",
+    complete: value => hasFlowValue(value)
   },
   "U.S. Integration Call (30 Day Call / Survey)": {
-    label: "30 Day Call",
-    field: "Thirty_Day_Call",
-    complete: value => isCurrentOrPastDate(value) || hasFlowValue(value)
+    label: "New 30 Day Completed Date",
+    field: "FY25_30_Day_Survey",
+    complete: value => hasFlowValue(value)
   },
   "7 Day Call": {
     label: "7 Day Call",
@@ -4522,9 +4625,14 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
     field: "Client_Post_Arrival_Survey_Due_90_Days",
     complete: isCurrentOrPastDate
   },
+  "Placement Stability Check-in (90 Day Call)": {
+    label: "New 90 Day Exit Call",
+    field: "FY25_90_Day_Exit_Call",
+    complete: value => hasFlowValue(value)
+  },
   "1 Year Survey": {
-    label: "1 Year Survey Result",
-    field: "Called_1_Yr_Results",
+    label: "1 yr Survey",
+    field: "Employment_Status_Date",
     complete: value => hasFlowValue(value)
   }
 };
@@ -10972,8 +11080,63 @@ export default function Pipeline() {
               __completionMap:
                 fieldPayload.completionMap || {},
               __immigrationChecklists:
-                fieldPayload.immigrationChecklists || {}
+                fieldPayload.immigrationChecklists || {},
+              __accessPolicy:
+                fieldPayload.accessPolicy || {
+                  mode: "normal",
+                  restricted: false,
+                  locked: false
+                }
             });
+
+            if (fieldPayload.accessPolicy) {
+              const policy = fieldPayload.accessPolicy;
+
+              setStages(previous =>
+                previous.map(stage => {
+                  const qPoolOrder =
+                    getCanonicalStageOrder({
+                      stage_name: "Qualified Candidate Pool"
+                    });
+
+                  const notQualifiedOrder =
+                    getCanonicalStageOrder({
+                      stage_name: "Not Qualified - to close"
+                    });
+
+                  const boundary =
+                    policy.mode === "qualified-pool"
+                      ? qPoolOrder
+                      : notQualifiedOrder;
+
+                  const shouldLock =
+                    policy.restricted === true &&
+                    policy.locked === true &&
+                    getCanonicalStageOrder(stage) > boundary;
+
+                  return {
+                    ...stage,
+                    access_locked:
+                      shouldLock
+                  };
+                })
+              );
+
+              if (
+                policy.message &&
+                policy.restricted === true
+              ) {
+                toast.info(
+                  policy.message,
+                  {
+                    id:
+                      `pipeline-access-${policy.mode}`,
+                    duration:
+                      10000
+                  }
+                );
+              }
+            }
 
             icpUSRNData = {
               ...icpUSRNData,
@@ -13562,6 +13725,28 @@ export default function Pipeline() {
         return;
       }
       
+      if (
+        stage.nclex_subprocess === true &&
+        [
+          "Program Prescreen",
+          "Credential Evaluation Set-up",
+          "Select Meeting Time"
+        ].includes(stage.stage_name)
+      ) {
+        window.open(
+          PRESCREEN_BOOKING_URL,
+          "_blank",
+          "noopener,noreferrer"
+        );
+
+        toast.success(
+          stage.stage_name === "Select Meeting Time"
+            ? "IdentoGo meeting booking opened."
+            : `${stage.stage_name} booking opened.`
+        );
+        return;
+      }
+
       if (stage.stage_category === "NCLEX Roadmap" && stage.stage_details) {
         const details = stage.stage_details;
         openModal(
@@ -13900,8 +14085,66 @@ export default function Pipeline() {
           __completionMap:
             data.completionMap || {},
           __immigrationChecklists:
-            data.immigrationChecklists || {}
+            data.immigrationChecklists || {},
+          __accessPolicy:
+            data.accessPolicy || {
+              mode: "normal",
+              restricted: false,
+              locked: false
+            }
         });
+
+        const policy =
+          data.accessPolicy || {
+            mode: "normal",
+            restricted: false,
+            locked: false
+          };
+
+        setStages(previous =>
+          previous.map(stage => {
+            const qPoolOrder =
+              getCanonicalStageOrder({
+                stage_name: "Qualified Candidate Pool"
+              });
+
+            const notQualifiedOrder =
+              getCanonicalStageOrder({
+                stage_name: "Not Qualified - to close"
+              });
+
+            const boundary =
+              policy.mode === "qualified-pool"
+                ? qPoolOrder
+                : notQualifiedOrder;
+
+            const shouldLock =
+              policy.restricted === true &&
+              policy.locked === true &&
+              getCanonicalStageOrder(stage) > boundary;
+
+            return {
+              ...stage,
+              access_locked:
+                shouldLock
+            };
+          })
+        );
+
+        if (
+          policy.message &&
+          policy.restricted === true
+        ) {
+          toast.info(
+            policy.message,
+            {
+              id:
+                `pipeline-access-${policy.mode}`,
+              duration:
+                10000
+            }
+          );
+        }
 
         if (data.nclex && typeof data.nclex === "object") {
           setICPUSRNCRMData({ ...data.nclex, __live: true });
@@ -15517,9 +15760,13 @@ export default function Pipeline() {
                                 </p>
                               </div>
                               <span className="rounded-full border border-amber-200 bg-white px-3 py-1 text-xs font-medium text-amber-800">
-                                {ICP_USRN_SUBPROCESS_CONFIG.filter(item =>
-                                  isICPUSRNItemComplete(item, icpUSRNCRMData)
-                                ).length}/{ICP_USRN_SUBPROCESS_CONFIG.length} complete
+                                {ICP_USRN_SUBPROCESS_CONFIG.filter(
+                                  item =>
+                                    item.nonCounted !== true &&
+                                    isICPUSRNItemComplete(item, icpUSRNCRMData)
+                                ).length}/{ICP_USRN_SUBPROCESS_CONFIG.filter(
+                                  item => item.nonCounted !== true
+                                ).length} complete
                               </span>
                             </div>
 
@@ -15588,7 +15835,13 @@ export default function Pipeline() {
                                       </div>
                                     )}
 
-                                    {item.name === "Credential Evaluation Set-up" ? (
+                                    {item.type === "booking" ? (
+                                      <div className="mt-2">
+                                        <span className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
+                                          Select meeting time
+                                        </span>
+                                      </div>
+                                    ) : item.name === "Credential Evaluation Set-up" ? (
                                       <div className="mt-2 space-y-1">
                                         <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
                                           Credentialing Status

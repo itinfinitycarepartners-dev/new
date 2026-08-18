@@ -1,3 +1,6 @@
+
+
+
 // @ts-nocheck
 // src/pages/MakeRequest.jsx
 import React, {
@@ -13,10 +16,13 @@ import {
   CheckCircle2,
   ExternalLink,
   BadgeHelp,
-  Calendar
+  Calendar,
+  Upload,
+  Image as ImageIcon
 } from "lucide-react";
 import {
-  tokenStorage
+  tokenStorage,
+  documentLibrary
 } from "@/api/icpClient";
 
 const API_BASE =
@@ -25,9 +31,11 @@ const API_BASE =
 
 const emptyDependant = () => ({
   name: "",
-  dob: "",
+  age: "",
   relationship: "",
-  needsCarSeat: false
+  passport: "",
+  passportFile: null,
+  passportPreview: ""
 });
 
 export default function MakeRequest() {
@@ -140,6 +148,8 @@ export default function MakeRequest() {
     requestType,
     details
   ) => {
+    if (submitting) return;
+
     setSubmitting(
       requestType
     );
@@ -171,11 +181,13 @@ export default function MakeRequest() {
 
       if (
         !response.ok ||
-        data.success !== true
+        data.success !== true ||
+        data.submittedToAdmin !== true
       ) {
         throw new Error(
           data.error ||
-          "The request could not be submitted."
+          data.message ||
+          "The request was not saved for admin review."
         );
       }
 
@@ -184,12 +196,12 @@ export default function MakeRequest() {
         "embassy_change"
       ) {
         setNotice(
-          "Embassy change request submitted for admin approval. CRM will update only after approval."
+          "Embassy change request sent to the admin approval queue. CRM will update only after approval."
         );
         setEmbassyReason("");
       } else {
         setNotice(
-          "Request submitted successfully."
+          "Your dependant request was submitted successfully and is awaiting admin approval."
         );
         setDependant(
           emptyDependant()
@@ -206,6 +218,144 @@ export default function MakeRequest() {
     } catch (error) {
       setNotice(
         error.message
+      );
+    } finally {
+      setSubmitting("");
+    }
+  };
+
+  const submitDependant = async () => {
+    if (submitting) return;
+
+    const name =
+      dependant.name.trim();
+    const age =
+      String(
+        dependant.age
+      ).trim();
+    const relationship =
+      dependant.relationship.trim();
+    const passportFile =
+      dependant.passportFile;
+
+    if (
+      !name ||
+      !age ||
+      !relationship ||
+      !passportFile
+    ) {
+      setNotice(
+        "Full name, age, relationship and a passport image are required."
+      );
+      return;
+    }
+
+    setSubmitting(
+      "add_dependant"
+    );
+    setNotice("");
+
+    try {
+      const uploadResult =
+        await documentLibrary.upload({
+          file:
+            passportFile,
+          category:
+            "dependant-passport",
+          destination:
+            "crm",
+          documentType:
+            `Dependant Passport - ${name}`,
+          pipelineSection:
+            "Dependants",
+          requirementKey:
+            "dependant-passport"
+        });
+
+      if (
+        !uploadResult ||
+        uploadResult.success !== true
+      ) {
+        throw new Error(
+          uploadResult?.error ||
+          uploadResult?.message ||
+          "The passport image could not be uploaded."
+        );
+      }
+
+      const response =
+        await fetch(
+          `${API_BASE}/api/requests`,
+          {
+            method:
+              "POST",
+            headers: {
+              ...getHeaders(),
+              "Content-Type":
+                "application/json"
+            },
+            body:
+              JSON.stringify({
+                requestType:
+                  "add_dependant",
+                details: {
+                  name,
+                  age,
+                  relationship,
+                  passport:
+                    passportFile.name,
+                  passportDocumentName:
+                    passportFile.name,
+                  passportUploaded:
+                    true
+                }
+              })
+          }
+        );
+
+      const data =
+        await response
+          .json()
+          .catch(() => ({}));
+
+      if (
+        !response.ok ||
+        data.success !== true ||
+        data.submittedToAdmin !== true
+      ) {
+        throw new Error(
+          data.error ||
+          data.message ||
+          "The dependant request was not saved for admin review."
+        );
+      }
+
+      if (
+        dependant.passportPreview
+      ) {
+        URL.revokeObjectURL(
+          dependant.passportPreview
+        );
+      }
+
+      setDependant(
+        emptyDependant()
+      );
+      setNotice(
+        "Your dependant request and passport image were sent to the admin approval queue."
+      );
+
+      await load();
+
+      window.dispatchEvent(
+        new CustomEvent(
+          "candidate-data-updated"
+        )
+      );
+    } catch (error) {
+      setNotice(
+        error.message ||
+        "The dependant approval request could not be submitted."
       );
     } finally {
       setSubmitting("");
@@ -281,10 +431,7 @@ export default function MakeRequest() {
             <h2 className="font-semibold">
               Embassy Change
             </h2>
-            <p className="text-sm text-slate-500">
-              Requests require admin approval before CRM Deals →
-              Embassy_Location is updated.
-            </p>
+            
           </div>
         </div>
 
@@ -370,7 +517,7 @@ export default function MakeRequest() {
               Add Dependants
             </h2>
             <p className="text-sm text-slate-500">
-              Add a dependant to your candidate record.
+              Submit a dependant for admin approval. Once approved, the dependant will appear on your profile.
             </p>
           </div>
         </div>
@@ -390,8 +537,11 @@ export default function MakeRequest() {
                     {" "}·{" "}
                     {item.relationship ||
                       "Dependant"}
-                    {item.dob
-                      ? ` · ${item.dob}`
+                    {item.age
+                      ? ` · Age ${item.age}`
+                      : ""}
+                    {item.passport
+                      ? " · Passport uploaded"
                       : ""}
                   </span>
                 </div>
@@ -416,12 +566,15 @@ export default function MakeRequest() {
 
           <input
             className="rounded-lg border px-3 py-2 text-sm"
-            type="date"
-            value={dependant.dob}
+            type="number"
+            min="0"
+            max="120"
+            placeholder="Age"
+            value={dependant.age}
             onChange={event =>
               setDependant(value => ({
                 ...value,
-                dob:
+                age:
                   event.target.value
               }))
             }
@@ -440,22 +593,89 @@ export default function MakeRequest() {
             }
           />
 
-          <label className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm">
+          <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-dashed px-3 py-3 text-sm md:col-span-2">
+            <Upload className="h-4 w-4 text-purple-600" />
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-slate-700">
+                Passport image
+              </p>
+              <p className="truncate text-xs text-slate-500">
+                {dependant.passportFile?.name ||
+                  "Upload a clear JPG, PNG, WEBP, or HEIC image"}
+              </p>
+            </div>
             <input
-              type="checkbox"
-              checked={
-                dependant.needsCarSeat
-              }
-              onChange={event =>
-                setDependant(value => ({
-                  ...value,
-                  needsCarSeat:
-                    event.target.checked
-                }))
-              }
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+              className="hidden"
+              onChange={event => {
+                const file =
+                  event.target.files?.[0] ||
+                  null;
+
+                if (!file) return;
+
+                if (
+                  !file.type.startsWith("image/")
+                ) {
+                  setNotice(
+                    "Passport must be uploaded as an image."
+                  );
+                  event.target.value = "";
+                  return;
+                }
+
+                if (
+                  file.size >
+                  15 * 1024 * 1024
+                ) {
+                  setNotice(
+                    "Passport image must be under 15MB."
+                  );
+                  event.target.value = "";
+                  return;
+                }
+
+                setNotice("");
+
+                setDependant(value => {
+                  if (
+                    value.passportPreview
+                  ) {
+                    URL.revokeObjectURL(
+                      value.passportPreview
+                    );
+                  }
+
+                  return {
+                    ...value,
+                    passportFile:
+                      file,
+                    passport:
+                      file.name,
+                    passportPreview:
+                      URL.createObjectURL(
+                        file
+                      )
+                  };
+                });
+              }}
             />
-            Child car seat required
           </label>
+
+          {dependant.passportPreview && (
+            <div className="md:col-span-2 rounded-lg border bg-slate-50 p-3">
+              <div className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-700">
+                <ImageIcon className="h-4 w-4 text-purple-600" />
+                Passport image selected
+              </div>
+              <img
+                src={dependant.passportPreview}
+                alt="Dependant passport preview"
+                className="max-h-52 rounded-md border object-contain"
+              />
+            </div>
+          )}
         </div>
 
         <button
@@ -464,13 +684,12 @@ export default function MakeRequest() {
             submitting ===
               "add_dependant" ||
             !dependant.name.trim() ||
-            !dependant.relationship.trim()
+            !String(dependant.age).trim() ||
+            !dependant.relationship.trim() ||
+            !dependant.passportFile
           }
-          onClick={() =>
-            submit(
-              "add_dependant",
-              dependant
-            )
+          onClick={
+            submitDependant
           }
           className="mt-4 inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
@@ -480,7 +699,7 @@ export default function MakeRequest() {
           ) : (
             <Plus className="h-4 w-4" />
           )}
-          Add Dependant
+          Submit Dependant for Approval
         </button>
       </section>
     </div>

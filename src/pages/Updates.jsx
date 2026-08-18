@@ -1,3 +1,6 @@
+
+
+
 // @ts-nocheck
 // src/pages/Updates.jsx
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -19,7 +22,7 @@ const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
   "https://fictional-carnival-3inv.onrender.com";
 
-const AUTO_REFRESH_MS = 15000;
+const AUTO_REFRESH_MS = 60000;
 
 const getUpdateIcon = type => {
   const normalized = String(type || "").toLowerCase();
@@ -103,7 +106,7 @@ export default function Updates() {
     const handleUpdate = () => loadUpdates({ silent: true });
     const handleVisible = () => {
       if (document.visibilityState === "visible") {
-        loadUpdates({ refreshZoho: true, silent: true });
+        loadUpdates({ silent: true });
       }
     };
 
@@ -118,7 +121,7 @@ export default function Updates() {
 
     const interval = window.setInterval(() => {
       if (document.visibilityState === "visible") {
-        loadUpdates({ refreshZoho: true, silent: true });
+        loadUpdates({ silent: true });
       }
     }, AUTO_REFRESH_MS);
 
@@ -183,7 +186,7 @@ export default function Updates() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Updates</h1>
           <p className="text-sm text-muted-foreground">
-            CRM, Recruit, RFE and pipeline-stage changes relevant to your candidate record.
+            Urgent alerts, expiration reminders, document requirements and important pipeline notifications.
           </p>
         </div>
 
@@ -220,7 +223,7 @@ export default function Updates() {
           <Bell className="mx-auto h-10 w-10 text-muted-foreground" />
           <p className="mt-3 font-medium">No updates yet</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Changes from CRM, Recruit and your pipeline will appear here.
+            Urgent candidate and pipeline notifications will appear here.
           </p>
         </div>
       ) : (

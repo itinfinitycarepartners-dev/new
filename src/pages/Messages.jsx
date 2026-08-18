@@ -1,11 +1,8 @@
-
-
-
 // @ts-nocheck
 // src/pages/Messages.jsx
 import React, { useState } from "react";
 import ConversationList from "../components/messaging/ConversationList";
-import { tokenStorage } from "@/api/icpClient";
+import { messaging } from "@/api/icpClient";
 import { Megaphone, Loader2, X, CheckCircle2 } from "lucide-react";
 
 const API_BASE =
@@ -21,55 +18,66 @@ export default function Messages() {
 
   const sendBroadcast = async event => {
     event.preventDefault();
-    if (!content.trim()) {
-      setError("Enter a broadcast message.");
+
+    const message =
+      content.trim();
+
+    if (!message) {
+      setError(
+        "Enter a community message."
+      );
       return;
     }
+
+    if (sending) return;
 
     setSending(true);
     setError("");
     setSuccess("");
 
     try {
-      const authToken = tokenStorage.get();
-      if (!authToken) {
-        throw new Error("Your session has expired. Please sign in again.");
-      }
+      const data =
+        await messaging.sendUserBroadcast(
+          message
+        );
 
-      const response = await fetch(`${API_BASE}/api/messaging/user-broadcast`, {
-        method: "POST",
-        credentials: "omit",
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ content: content.trim() })
-      });
-
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.success !== true) {
+      if (
+        !data ||
+        data.success !== true
+      ) {
         throw new Error(
-          data.error || data.message || "The broadcast could not be sent."
+          data?.error ||
+          data?.message ||
+          "The community message could not be posted."
         );
       }
 
       setContent("");
       setShowBroadcast(false);
-      setSuccess("Community message posted.");
+      setSuccess(
+        "Community message posted."
+      );
 
-      // The backend now owns sender naming. It resolves the sender's first name
-      // from the authenticated candidate record instead of using an email label.
       window.dispatchEvent(
-        new CustomEvent("messaging-updated", {
-          detail: {
-            conversationId:
-              data.conversation?._id || data.conversation?.id || null,
-            type: "broadcast"
+        new CustomEvent(
+          "messaging-updated",
+          {
+            detail: {
+              conversationId:
+                data.conversation?._id ||
+                data.conversation?.id ||
+                "community",
+              type:
+                "broadcast"
+            }
           }
-        })
+        )
       );
     } catch (sendError) {
-      setError(sendError.message || "The broadcast could not be sent.");
+      setError(
+        sendError?.message ||
+        "The community message could not be posted."
+      );
     } finally {
       setSending(false);
     }
@@ -173,6 +181,7 @@ export default function Messages() {
               </button>
               <button
                 type="submit"
+                onClick={sendBroadcast}
                 disabled={sending || !content.trim()}
                 className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
               >

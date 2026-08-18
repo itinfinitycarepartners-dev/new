@@ -1,9 +1,3 @@
-
-
-
-
-
-
 // @ts-nocheck
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
@@ -928,8 +922,10 @@ export default function Dashboard() {
 
         const response =
           await fetch(
-            `${API_BASE}/api/candidate/dashboard-summary`,
+            `${API_BASE}/api/candidate/dashboard-summary?_=${Date.now()}`,
             {
+              cache:
+                "no-store",
               headers: {
                 Authorization:
                   `Bearer ${token}`
@@ -1030,28 +1026,52 @@ export default function Dashboard() {
     ) ||
     null;
 
+  const furthestReachedStage =
+    orderedVisibleStages.reduce(
+      (furthest, stage) => {
+        const reached =
+          isPipelineStageComplete(stage) ||
+          stage?.source_trigger_unlocked === true ||
+          stage?.trigger_unlocked === true ||
+          stage?.crm_unlocked === true ||
+          stage?.recruit_unlocked === true ||
+          stage?.nclex_unlocked === true ||
+          String(stage?.status || "").trim().toLowerCase() === "in progress";
+
+        if (!reached) return furthest;
+
+        return !furthest ||
+          Number(stage?.stage_order || 0) >
+            Number(furthest?.stage_order || 0)
+          ? stage
+          : furthest;
+      },
+      null
+    );
+
   const activeStage =
-    !obsoleteQualificationStage(rawActiveStage) &&
-    rawActiveStage &&
-    !isPipelineStageComplete(rawActiveStage)
-      ? rawActiveStage
-      : fallbackActiveStage ||
+    furthestReachedStage &&
+    !isPipelineStageComplete(furthestReachedStage)
+      ? furthestReachedStage
+      : orderedVisibleStages.find(stage =>
+          Number(stage?.stage_order || 0) >
+            Number(furthestReachedStage?.stage_order ?? -Infinity) &&
+          !isPipelineStageComplete(stage)
+        ) ||
+        fallbackActiveStage ||
         orderedVisibleStages.find(stage =>
           !isPipelineStageComplete(stage)
         ) ||
         null;
 
   const pendingNextStage =
-    !obsoleteQualificationStage(rawPendingNextStage) &&
-    rawPendingNextStage &&
-    !isPipelineStageComplete(rawPendingNextStage)
-      ? rawPendingNextStage
-      : activeStage
-        ? orderedVisibleStages.find(stage =>
-            Number(stage?.stage_order || 0) > Number(activeStage?.stage_order || 0) &&
-            !isPipelineStageComplete(stage)
-          ) || null
-        : null;
+    activeStage
+      ? orderedVisibleStages.find(stage =>
+          Number(stage?.stage_order || 0) >
+            Number(activeStage?.stage_order || 0) &&
+          !isPipelineStageComplete(stage)
+        ) || null
+      : null;
 
   const serverTimerMatchesActive =
     pipeline.timer?.stageName &&
@@ -1097,11 +1117,39 @@ export default function Dashboard() {
       ? summary.documents
       : [];
 
+  const DASHBOARD_UPDATE_TYPES =
+    new Set([
+      "urgent",
+      "rfe",
+      "expiry",
+      "expired",
+      "document-required",
+      "pipeline",
+      "stage",
+      "access"
+    ]);
+
   const updates =
     Array.isArray(
       summary?.updates
     )
-      ? summary.updates
+      ? summary.updates.filter(
+          update =>
+            DASHBOARD_UPDATE_TYPES.has(
+              String(
+                update?.update_type ||
+                ""
+              )
+                .trim()
+                .toLowerCase()
+            ) ||
+            /^pipeline:/i.test(
+              String(
+                update?.source ||
+                ""
+              )
+            )
+        )
       : [];
 
   const documentCount =
@@ -1829,7 +1877,7 @@ export default function Dashboard() {
 
           {updates.length === 0 ? (
             <p className="mt-4 text-sm text-muted-foreground">
-              No CRM or Recruit updates yet.
+              No updates yet.
             </p>
           ) : (
             <div className="mt-4 space-y-3">

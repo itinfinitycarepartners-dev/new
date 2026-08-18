@@ -35,6 +35,7 @@ export default function MessageList() {
   const [sendingReply, setSendingReply] = useState(false);
   const [newMessageContent, setNewMessageContent] = useState('');
   const [sendingNewMessage, setSendingNewMessage] = useState(false);
+  const [postError, setPostError] = useState("");
 
   // Image Upload State
   const [selectedImage, setSelectedImage] = useState(null);
@@ -194,71 +195,250 @@ export default function MessageList() {
 
   // Send a new top-level message (handles image & text)
   const handleSendNewMessage = async () => {
-    if (!newMessageContent.trim() && !selectedImage) return;
-    if (!conversationId) return;
-    
+    const text =
+      newMessageContent.trim();
+
+    if (
+      !text &&
+      !selectedImage
+    ) {
+      return;
+    }
+
+    if (!conversationId) {
+      return;
+    }
+
+    if (sendingNewMessage) {
+      return;
+    }
+
     setSendingNewMessage(true);
+    setPostError("");
+
     try {
-      const userName = getUserName();
-      let finalReplyTo = replyingTo ? replyingTo._id : null;
+      const userName =
+        getUserName();
 
-      // 1. Send image if attached
-      if (selectedImage) {
-         const base64Image = await fileToBase64(selectedImage);
-         const imageResponse = await messaging.sendMessage(
-           conversationId,
-           base64Image,
-           'image',
-           finalReplyTo
-         );
-         
-         if (imageResponse.success) {
-           const newImageMsg = {
-              ...imageResponse.message,
-              _id: imageResponse.message._id || Date.now().toString() + '_img',
-              createdAt: new Date().toISOString(),
-              senderEmail: tokenStorage.get(),
-              senderName: userName,
-              content: base64Image,
-              messageType: 'image',
-              replyTo: finalReplyTo,
-              replies: []
-           };
-           setMessages(prev => [...prev, newImageMsg]);
-         }
-      }
-
-      // 2. Send text if attached
-      if (newMessageContent.trim()) {
-        const textResponse = await messaging.sendMessage(
-          conversationId,
-          newMessageContent.trim(),
-          'text',
-          finalReplyTo
-        );
-        
-        if (textResponse.success) {
-          const newTextMsg = {
-            ...textResponse.message,
-            _id: textResponse.message._id || Date.now().toString() + '_txt',
-            createdAt: new Date().toISOString(),
-            senderEmail: tokenStorage.get(),
-            senderName: userName,
-            content: newMessageContent.trim(),
-            messageType: 'text',
-            replyTo: finalReplyTo,
-            replies: []
-          };
-          setMessages(prev => [...prev, newTextMsg]);
+      if (isCommunityConversation) {
+        if (!text) {
+          throw new Error(
+            "Enter a message before posting to Community."
+          );
         }
+
+        const response =
+          await messaging.sendUserBroadcast(
+            text
+          );
+
+        if (
+          !response ||
+          response.success !== true
+        ) {
+          throw new Error(
+            response?.error ||
+            response?.message ||
+            "The community post could not be sent."
+          );
+        }
+
+        const posted =
+          response.message || {
+            _id:
+              Date.now().toString(),
+            conversationId:
+              "community",
+            senderEmail:
+              getCurrentUserEmail(),
+            senderName:
+              userName,
+            content:
+              text,
+            messageType:
+              "text",
+            broadcast:
+              true,
+            createdAt:
+              new Date().toISOString()
+          };
+
+        setMessages(previous => {
+          const id =
+            String(
+              posted._id ||
+              ""
+            );
+
+          if (
+            id &&
+            previous.some(
+              item =>
+                String(item._id) ===
+                id
+            )
+          ) {
+            return previous;
+          }
+
+          return [
+            ...previous,
+            {
+              ...posted,
+              conversationId:
+                "community",
+              broadcast:
+                true
+            }
+          ];
+        });
+
+        setNewMessageContent("");
+        clearSelectedImage();
+
+        window.dispatchEvent(
+          new CustomEvent(
+            "messaging-updated",
+            {
+              detail: {
+                conversationId:
+                  "community",
+                type:
+                  "broadcast"
+              }
+            }
+          )
+        );
+
+        setTimeout(
+          () =>
+            scrollToBottom(true),
+          100
+        );
+
+        return;
       }
-      
-      setNewMessageContent('');
+
+      const finalReplyTo =
+        replyingTo
+          ? replyingTo._id
+          : null;
+
+      if (selectedImage) {
+        const base64Image =
+          await fileToBase64(
+            selectedImage
+          );
+
+        const imageResponse =
+          await messaging.sendMessage(
+            conversationId,
+            base64Image,
+            "image",
+            finalReplyTo
+          );
+
+        if (
+          !imageResponse?.success
+        ) {
+          throw new Error(
+            imageResponse?.error ||
+            imageResponse?.message ||
+            "The image could not be sent."
+          );
+        }
+
+        setMessages(previous => [
+          ...previous,
+          {
+            ...imageResponse.message,
+            _id:
+              imageResponse.message?._id ||
+              `${Date.now()}_img`,
+            createdAt:
+              imageResponse.message?.createdAt ||
+              new Date().toISOString(),
+            senderEmail:
+              getCurrentUserEmail(),
+            senderName:
+              userName,
+            content:
+              base64Image,
+            messageType:
+              "image",
+            replyTo:
+              finalReplyTo,
+            replies: []
+          }
+        ]);
+      }
+
+      if (text) {
+        const textResponse =
+          await messaging.sendMessage(
+            conversationId,
+            text,
+            "text",
+            finalReplyTo
+          );
+
+        if (
+          !textResponse?.success
+        ) {
+          throw new Error(
+            textResponse?.error ||
+            textResponse?.message ||
+            "The message could not be sent."
+          );
+        }
+
+        setMessages(previous => [
+          ...previous,
+          {
+            ...textResponse.message,
+            _id:
+              textResponse.message?._id ||
+              `${Date.now()}_txt`,
+            createdAt:
+              textResponse.message?.createdAt ||
+              new Date().toISOString(),
+            senderEmail:
+              getCurrentUserEmail(),
+            senderName:
+              userName,
+            content:
+              text,
+            messageType:
+              "text",
+            replyTo:
+              finalReplyTo,
+            replies: []
+          }
+        ]);
+      }
+
+      setNewMessageContent("");
       clearSelectedImage();
-      if (replyingTo) setReplyingTo(null);
-      setTimeout(() => scrollToBottom(true), 100);
+
+      if (replyingTo) {
+        setReplyingTo(null);
+      }
+
+      setTimeout(
+        () =>
+          scrollToBottom(true),
+        100
+      );
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error(
+        "Error sending message:",
+        error
+      );
+
+      setPostError(
+        error?.message ||
+        "The message could not be sent."
+      );
     } finally {
       setSendingNewMessage(false);
     }
@@ -764,6 +944,11 @@ export default function MessageList() {
 
       {/* New Message Input (Main bottom area) */}
       <div className="bg-white border-t border-slate-200 p-4 shrink-0 z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+        {postError && (
+          <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {postError}
+          </div>
+        )}
         <div className="flex items-start gap-3 max-w-4xl mx-auto">
           <div className="flex-shrink-0">
             <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center text-white text-sm font-bold mt-auto mb-1">
@@ -790,7 +975,12 @@ export default function MessageList() {
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 className="p-2 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-full transition-colors shrink-0"
-                disabled={sendingNewMessage}
+                disabled={sendingNewMessage || isCommunityConversation}
+                title={
+                  isCommunityConversation
+                    ? "Community posts are text messages."
+                    : "Attach image"
+                }
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
               </button>
@@ -798,7 +988,10 @@ export default function MessageList() {
               <input
                 type="text"
                 value={newMessageContent}
-                onChange={(e) => setNewMessageContent(e.target.value)}
+                onChange={(e) => {
+                  setNewMessageContent(e.target.value);
+                  if (postError) setPostError("");
+                }}
                 onKeyPress={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
