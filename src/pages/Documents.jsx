@@ -38,7 +38,7 @@ const API_BASE = (() => {
       return import.meta.env.VITE_API_BASE_URL;
     }
   } catch {
-    // Use deployed API fallback.
+
   }
 
   return "https://fictional-carnival-3inv.onrender.com";
