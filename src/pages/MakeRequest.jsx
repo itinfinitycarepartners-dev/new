@@ -31,7 +31,9 @@ const emptyDependant = () => ({
   name: "",
   age: "",
   relationship: "",
-  passport: ""
+  passport: "",
+  passportFile: null,
+  passportPreview: ""
 });
 
 export default function MakeRequest() {
@@ -217,6 +219,179 @@ export default function MakeRequest() {
     } catch (error) {
       setNotice(
         error.message
+      );
+    } finally {
+      setSubmitting("");
+    }
+  };
+
+  const submitDependantRequest = async () => {
+    if (
+      !dependant.name.trim() ||
+      !String(dependant.age).trim() ||
+      !dependant.relationship.trim() ||
+      !dependant.passportFile
+    ) {
+      setNotice(
+        "Name, age, relationship and a passport image are required."
+      );
+      return;
+    }
+
+    setSubmitting(
+      "add_dependant"
+    );
+    setNotice("");
+
+    try {
+      const token =
+        tokenStorage.get();
+
+      if (!token) {
+        throw new Error(
+          "Your session has expired. Please sign in again."
+        );
+      }
+
+      const passportData =
+        new FormData();
+
+      passportData.append(
+        "passport",
+        dependant.passportFile
+      );
+
+      const passportResponse =
+        await fetch(
+          `${API_BASE}/api/requests/dependant-passport`,
+          {
+            method: "POST",
+            headers: {
+              Authorization:
+                `Bearer ${token}`
+            },
+            body:
+              passportData
+          }
+        );
+
+      const passportResult =
+        await passportResponse
+          .json()
+          .catch(() => ({}));
+
+      if (
+        !passportResponse.ok ||
+        passportResult.success !== true
+      ) {
+        throw new Error(
+          passportResult.error ||
+          "The passport image could not be uploaded."
+        );
+      }
+
+      const passport =
+        passportResult.passport ||
+        {};
+
+      const response =
+        await fetch(
+          `${API_BASE}/api/requests`,
+          {
+            method: "POST",
+            headers: {
+              ...getHeaders(),
+              "Content-Type":
+                "application/json"
+            },
+            body:
+              JSON.stringify({
+                requestType:
+                  "add_dependant",
+                details: {
+                  name:
+                    dependant.name.trim(),
+                  age:
+                    String(
+                      dependant.age
+                    ).trim(),
+                  relationship:
+                    dependant.relationship.trim(),
+                  passport:
+                    passport.name ||
+                    dependant.passportFile.name,
+                  passportDocumentName:
+                    passport.name ||
+                    dependant.passportFile.name,
+                  passportUploaded:
+                    true,
+                  passportSource:
+                    passport.source ||
+                    "crm",
+                  passportAttachmentId:
+                    passport.attachmentId ||
+                    "",
+                  passportDealId:
+                    passport.dealId ||
+                    "",
+                  passportMimeType:
+                    passport.mimeType ||
+                    dependant.passportFile.type
+                }
+              })
+          }
+        );
+
+      const data =
+        await response
+          .json()
+          .catch(() => ({}));
+
+      if (
+        !response.ok ||
+        data.success !== true
+      ) {
+        throw new Error(
+          data.error ||
+          "The dependant request could not be submitted."
+        );
+      }
+
+      if (
+        dependant.passportPreview
+      ) {
+        URL.revokeObjectURL(
+          dependant.passportPreview
+        );
+      }
+
+      setDependant(
+        emptyDependant()
+      );
+
+      const message =
+        data.message ||
+        "Your dependant request and passport image were submitted for admin approval.";
+
+      setNotice(
+        message
+      );
+
+      toast.success(
+        "Request submitted successfully."
+      );
+
+      await load();
+
+      window.dispatchEvent(
+        new CustomEvent(
+          "candidate-data-updated"
+        )
+      );
+    } catch (error) {
+      setNotice(
+        error.message ||
+        "The dependant request could not be submitted."
       );
     } finally {
       setSubmitting("");
@@ -457,18 +632,54 @@ export default function MakeRequest() {
             }
           />
 
-          <input
-            className="rounded-lg border px-3 py-2 text-sm"
-            placeholder="Passport"
-            value={dependant.passport}
-            onChange={event =>
-              setDependant(value => ({
-                ...value,
-                passport:
-                  event.target.value
-              }))
-            }
-          />
+          <div className="rounded-lg border p-3">
+            <label className="block text-xs font-semibold text-slate-600">
+              Passport image
+            </label>
+            <input
+              type="file"
+              accept="image/*"
+              className="mt-2 block w-full text-sm"
+              onChange={event => {
+                const file =
+                  event.target.files?.[0] ||
+                  null;
+
+                setDependant(value => {
+                  if (
+                    value.passportPreview
+                  ) {
+                    URL.revokeObjectURL(
+                      value.passportPreview
+                    );
+                  }
+
+                  return {
+                    ...value,
+                    passport:
+                      file?.name ||
+                      "",
+                    passportFile:
+                      file,
+                    passportPreview:
+                      file
+                        ? URL.createObjectURL(
+                            file
+                          )
+                        : ""
+                  };
+                });
+              }}
+            />
+
+            {dependant.passportPreview && (
+              <img
+                src={dependant.passportPreview}
+                alt="Dependant passport preview"
+                className="mt-3 max-h-44 rounded-lg border object-contain"
+              />
+            )}
+          </div>
         </div>
 
         <button
@@ -479,13 +690,10 @@ export default function MakeRequest() {
             !dependant.name.trim() ||
             !String(dependant.age).trim() ||
             !dependant.relationship.trim() ||
-            !dependant.passport.trim()
+            !dependant.passportFile
           }
-          onClick={() =>
-            submit(
-              "add_dependant",
-              dependant
-            )
+          onClick={
+            submitDependantRequest
           }
           className="mt-4 inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >

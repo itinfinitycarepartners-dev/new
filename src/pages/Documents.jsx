@@ -1109,6 +1109,10 @@ export default function Documents() {
           "library_category",
           "expense-report"
         );
+        formData.append(
+          "uploaded_via",
+          "documents"
+        );
       }
 
       setUploading(

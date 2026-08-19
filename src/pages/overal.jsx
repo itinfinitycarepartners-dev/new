@@ -405,8 +405,29 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
             )}`
           : "";
 
+      const recordParam =
+        doc.source === "crm"
+          ? `&crmRecordId=${encodeURIComponent(
+              doc.deal_id ||
+              doc.crm_record_id ||
+              doc.crm_deal_id ||
+              ""
+            )}`
+          : `&recruitRecordId=${encodeURIComponent(
+              doc.candidate_id ||
+              doc.recruit_record_id ||
+              ""
+            )}`;
+
+      const fieldUploadParam =
+        doc.crm_file_upload_field === true
+          ? "&fieldUpload=true"
+          : "";
+
       const res = await fetch(
-        `${API_BASE}/api/documents/download/${encodeURIComponent(docId)}${emailParam}${sourceParam}${fieldParam}`,
+        `${API_BASE}/api/admin/documents/download/${encodeURIComponent(
+          docId
+        )}${emailParam}${sourceParam}${fieldParam}${recordParam}${fieldUploadParam}`,
         {
           headers,
           credentials: 'include'
@@ -1506,6 +1527,7 @@ const AdminRequestsPanel = ({ onOpenUser }) => {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
+  const [selectedCandidate, setSelectedCandidate] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -1610,12 +1632,83 @@ const AdminRequestsPanel = ({ onOpenUser }) => {
                     {String(request.request_type || "request").replaceAll("_"," ")}
                   </p>
                   <div className="mt-2 text-sm text-gray-600">
-                    {Object.entries(details).map(([key,value]) => (
-                      <div key={key}>
-                        <span className="font-medium">{key.replaceAll("_"," ")}:</span>{" "}
-                        {String(value ?? "")}
-                      </div>
-                    ))}
+                    {Object.entries(details)
+                      .filter(([key]) =>
+                        ![
+                          "passport_attachment_id",
+                          "passport_deal_id",
+                          "passport_source",
+                          "passport_mime_type"
+                        ].includes(key)
+                      )
+                      .map(([key,value]) => (
+                        <div key={key}>
+                          <span className="font-medium">{key.replaceAll("_"," ")}:</span>{" "}
+                          {String(value ?? "")}
+                        </div>
+                      ))}
+
+                    {request.request_type === "add_dependant" &&
+                      details.passport_attachment_id && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const { adminToken } = getTokens();
+                              const response = await fetch(
+                                `${API_BASE}/api/admin/documents/download/${encodeURIComponent(
+                                  details.passport_attachment_id
+                                )}?email=${encodeURIComponent(
+                                  request.candidate_email
+                                )}&source=crm&crmRecordId=${encodeURIComponent(
+                                  details.passport_deal_id || ""
+                                )}`,
+                                {
+                                  headers: {
+                                    Authorization:
+                                      `AdminBearer ${adminToken}`,
+                                    "x-admin-token":
+                                      adminToken
+                                  },
+                                  credentials:
+                                    "include"
+                                }
+                              );
+
+                              if (!response.ok) {
+                                throw new Error(
+                                  `Server returned ${response.status}`
+                                );
+                              }
+
+                              const blob =
+                                await response.blob();
+
+                              const url =
+                                URL.createObjectURL(blob);
+
+                              window.open(
+                                url,
+                                "_blank",
+                                "noopener,noreferrer"
+                              );
+
+                              setTimeout(
+                                () => URL.revokeObjectURL(url),
+                                60000
+                              );
+                            } catch (error) {
+                              alert(
+                                error.message ||
+                                "Unable to open passport image."
+                              );
+                            }
+                          }}
+                          className="mt-3 rounded-lg border border-purple-200 px-3 py-2 text-xs font-semibold text-purple-700"
+                        >
+                          View Passport Image
+                        </button>
+                      )}
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -1707,11 +1800,19 @@ const AdminReceiptsPanel = () => {
 
       const response =
         await fetch(
-          `${API_BASE}/api/documents/download/${encodeURIComponent(
+          `${API_BASE}/api/admin/documents/download/${encodeURIComponent(
             attachmentId
           )}?email=${encodeURIComponent(
             receipt.candidate_email
-          )}&source=${encodeURIComponent(source)}`,
+          )}&source=${encodeURIComponent(
+            source
+          )}&crmRecordId=${encodeURIComponent(
+            receipt.crm_deal_id ||
+            ""
+          )}&recruitRecordId=${encodeURIComponent(
+            receipt.recruit_candidate_id ||
+            ""
+          )}`,
           {
             headers: {
               Authorization:
@@ -1809,55 +1910,144 @@ const AdminReceiptsPanel = () => {
         </p>
       </div>
       {receipts.length === 0 ? (
-        <div className="rounded-xl border bg-white p-8 text-center text-gray-500">No receipts submitted yet.</div>
+        <div className="rounded-xl border bg-white p-8 text-center text-gray-500">
+          No receipts uploaded from the Documents section yet.
+        </div>
+      ) : !selectedCandidate ? (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {Object.entries(
+            receipts.reduce((groups, receipt) => {
+              const email =
+                receipt.candidate_email ||
+                "Unknown candidate";
+
+              if (!groups[email]) {
+                groups[email] = [];
+              }
+
+              groups[email].push(receipt);
+              return groups;
+            }, {})
+          ).map(([email, candidateReceipts]) => (
+            <button
+              key={email}
+              type="button"
+              onClick={() =>
+                setSelectedCandidate(email)
+              }
+              className="rounded-xl border bg-white p-4 text-left hover:border-purple-300 hover:bg-purple-50/40"
+            >
+              <p className="font-semibold text-purple-800">
+                {email}
+              </p>
+              <p className="mt-1 text-sm text-gray-500">
+                {candidateReceipts.length} receipt{candidateReceipts.length === 1 ? "" : "s"}
+              </p>
+              <p className="mt-3 text-xs font-semibold text-purple-600">
+                Open user receipts →
+              </p>
+            </button>
+          ))}
+        </div>
       ) : (
-        receipts.map(receipt => {
-          const id = String(receipt.id || receipt._id);
-          return (
-            <div key={id} className="rounded-xl border bg-white p-4">
-              <div className="grid gap-4 md:grid-cols-[1.2fr_1fr_1fr_auto] md:items-end">
-                <div>
-                  <p className="font-semibold">{receipt.category_label || receipt.category_id || "Receipt"}</p>
-                  <p className="text-xs text-gray-500">{receipt.candidate_email}</p>
-                  <p className="text-xs text-gray-500">{receipt.original_name || receipt.document_name}</p>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-gray-600">Candidate amount</label>
-                  <div className="mt-1 rounded-lg border bg-gray-50 px-3 py-2 text-sm">
-                    {receipt.currency || "USD"} {Number(receipt.amount || 0).toFixed(2)}
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={() =>
+              setSelectedCandidate("")
+            }
+            className="text-sm font-semibold text-purple-700"
+          >
+            ← Back to candidates
+          </button>
+
+          <div className="rounded-xl border bg-purple-50 p-4">
+            <p className="text-xs uppercase tracking-wide text-purple-500">
+              Candidate receipts
+            </p>
+            <p className="font-semibold text-purple-900">
+              {selectedCandidate}
+            </p>
+          </div>
+
+          {receipts
+            .filter(receipt =>
+              receipt.candidate_email ===
+              selectedCandidate
+            )
+            .map(receipt => {
+              const id =
+                String(
+                  receipt.id ||
+                  receipt._id
+                );
+
+              return (
+                <div key={id} className="rounded-xl border bg-white p-4">
+                  <div className="grid gap-4 md:grid-cols-[1.2fr_1fr_auto] md:items-end">
+                    <div>
+                      <p className="font-semibold">
+                        {receipt.category_label ||
+                          receipt.category_id ||
+                          "Receipt"}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {receipt.original_name ||
+                          receipt.document_name}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold text-gray-600">
+                        Verified amount for expense report
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={
+                          drafts[id] ??
+                          receipt.admin_correct_amount ??
+                          ""
+                        }
+                        onChange={event =>
+                          setDrafts(previous => ({
+                            ...previous,
+                            [id]:
+                              event.target.value
+                          }))
+                        }
+                        className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                      />
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          viewReceipt(receipt)
+                        }
+                        className="rounded-lg border px-3 py-2 text-sm font-semibold text-purple-700"
+                      >
+                        View
+                      </button>
+                      <button
+                        onClick={() =>
+                          save(receipt)
+                        }
+                        disabled={
+                          busyId === id
+                        }
+                        className="rounded-lg bg-purple-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                      >
+                        Save Amount
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <label className="text-xs font-semibold text-gray-600">Correct amount</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={drafts[id] ?? receipt.admin_correct_amount ?? ""}
-                    onChange={event => setDrafts(previous => ({...previous,[id]:event.target.value}))}
-                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => viewReceipt(receipt)}
-                    className="rounded-lg border px-3 py-2 text-sm font-semibold text-purple-700"
-                  >
-                    View
-                  </button>
-                  <button
-                    onClick={() => save(receipt)}
-                    disabled={busyId === id}
-                    className="rounded-lg bg-purple-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                  >
-                    Save
-                  </button>
-                </div>
-              </div>
-            </div>
-          );
-        })
+              );
+            })}
+        </div>
       )}
     </div>
   );

@@ -582,12 +582,6 @@ const applyVisibleFlowAliases = stagesToSync => {
   });
 };
 
-// Zoho Recruit Applications.Application_Status is the ONLY authoritative
-// Lead Management Status driving the Hiring pipeline. Candidates supplies
-// candidate/profile fields; CustomModule1 supplies NCLEX only.
-// Zoho Recruit Lead Management Status (API: Application_Status) -> portal stage.
-// The normalized map accepts spacing/hyphen variations from Recruit while keeping
-// the portal stage names aligned with the existing hiring pipeline.
 const normalizeApplicationStatus = (value) => String(value || "")
   .trim()
   .toLowerCase()
@@ -11153,8 +11147,6 @@ export default function Pipeline() {
               ...directFieldStatus
             };
 
-            // The NCLEX mini-cards read icpUSRNCRMData. Keep that state tied
-            // directly to CustomModule1 instead of the broader mixed user object.
             setICPUSRNCRMData(previous => ({
               ...previous,
               ...(fieldPayload.nclex || {})
@@ -13624,7 +13616,7 @@ export default function Pipeline() {
     return action?.clickable === true && action?.type === "view";
   };
 
-  const handleStageClick = (stage) => {
+  const handleStageClick = async (stage) => {
     const stageUnlocked =
       isStageUnlocked(
         stage,
@@ -13757,10 +13749,169 @@ export default function Pipeline() {
           "noopener,noreferrer"
         );
 
+        if (
+          stage.stage_name ===
+          "Select Meeting Time"
+        ) {
+          const completedAt =
+            new Date()
+              .toISOString();
+
+          try {
+            const token =
+              localStorage.getItem(
+                "icp_auth_token"
+              );
+
+            if (token) {
+              const response =
+                await fetch(
+                  `${API_BASE}/api/pipeline/update-stage`,
+                  {
+                    method: "POST",
+                    headers: {
+                      Authorization:
+                        `Bearer ${token}`,
+                      "Content-Type":
+                        "application/json"
+                    },
+                    body:
+                      JSON.stringify({
+                        stage_name:
+                          "Select Meeting Time",
+                        status:
+                          "Completed",
+                        completed_date:
+                          completedAt
+                      })
+                  }
+                );
+
+              const data =
+                await response
+                  .json()
+                  .catch(() => ({}));
+
+              if (
+                !response.ok ||
+                data.success !== true
+              ) {
+                throw new Error(
+                  data.error ||
+                  "Unable to save meeting selection."
+                );
+              }
+            }
+
+            setStages(previous => {
+              const exists =
+                previous.some(
+                  item =>
+                    item.stage_name ===
+                    "Select Meeting Time"
+                );
+
+              if (exists) {
+                return previous.map(item =>
+                  item.stage_name ===
+                    "Select Meeting Time"
+                    ? {
+                        ...item,
+                        status:
+                          "Completed",
+                        completed:
+                          true,
+                        is_completed:
+                          true,
+                        completed_date:
+                          completedAt,
+                        unlocked:
+                          true,
+                        is_unlocked:
+                          true,
+                        is_locked:
+                          false,
+                        access_locked:
+                          false,
+                        source_trigger_unlocked:
+                          true,
+                        trigger_unlocked:
+                          true
+                      }
+                    : item
+                );
+              }
+
+              return [
+                ...previous,
+                {
+                  stage_name:
+                    "Select Meeting Time",
+                  stage_category:
+                    "NCLEX Program",
+                  stage_order:
+                    6.105,
+                  status:
+                    "Completed",
+                  completed:
+                    true,
+                  is_completed:
+                    true,
+                  completed_date:
+                    completedAt,
+                  unlocked:
+                    true,
+                  is_unlocked:
+                    true,
+                  is_locked:
+                    false,
+                  access_locked:
+                    false,
+                  source_trigger_unlocked:
+                    true,
+                  trigger_unlocked:
+                    true,
+                  nclex_stage:
+                    true,
+                  non_counted_section:
+                    true
+                }
+              ];
+            });
+
+            setDeploymentFieldStatus(previous => ({
+              ...previous,
+              __stageStatus: {
+                ...(previous?.__stageStatus || {}),
+                "Select Meeting Time": {
+                  ...(previous?.__stageStatus?.["Select Meeting Time"] || {}),
+                  evaluated:
+                    true,
+                  completed:
+                    true,
+                  unlocked:
+                    true,
+                  status:
+                    "Completed",
+                  completed_date:
+                    completedAt
+                }
+              }
+            }));
+          } catch (error) {
+            console.warn(
+              "[NCLEX] Meeting selection could not be persisted:",
+              error?.message ||
+              error
+            );
+          }
+        }
+
         toast.success(
-          stage.stage_name === "Select Meeting Time"
-            ? "IdentoGo meeting booking opened."
-            : `${stage.stage_name} booking opened.`
+          stage.stage_name ===
+            "Select Meeting Time"
+            ? "Meeting booking opened and this step was marked complete."
+            : "Meeting booking opened. This step will complete when its existing Recruit trigger is met."
         );
         return;
       }
@@ -13815,8 +13966,105 @@ export default function Pipeline() {
         "noopener,noreferrer"
       );
 
+      if (
+        stage.stage_name ===
+        "Select Prescreen Time"
+      ) {
+        const completedAt =
+          new Date()
+            .toISOString();
+
+        try {
+          const token =
+            localStorage.getItem(
+              "icp_auth_token"
+            );
+
+          if (token) {
+            const response =
+              await fetch(
+                `${API_BASE}/api/pipeline/update-stage`,
+                {
+                  method:
+                    "POST",
+                  headers: {
+                    Authorization:
+                      `Bearer ${token}`,
+                    "Content-Type":
+                      "application/json"
+                  },
+                  body:
+                    JSON.stringify({
+                      stage_name:
+                        "Select Prescreen Time",
+                      status:
+                        "Completed",
+                      completed_date:
+                        completedAt
+                    })
+                }
+              );
+
+            const data =
+              await response
+                .json()
+                .catch(() => ({}));
+
+            if (
+              !response.ok ||
+              data.success !== true
+            ) {
+              throw new Error(
+                data.error ||
+                "Unable to save the prescreen meeting selection."
+              );
+            }
+          }
+
+          setStages(previous =>
+            previous.map(item =>
+              item.stage_name ===
+                "Select Prescreen Time"
+                ? {
+                    ...item,
+                    status:
+                      "Completed",
+                    completed:
+                      true,
+                    is_completed:
+                      true,
+                    completed_date:
+                      completedAt,
+                    unlocked:
+                      true,
+                    is_unlocked:
+                      true,
+                    is_locked:
+                      false,
+                    access_locked:
+                      false,
+                    source_trigger_unlocked:
+                      true,
+                    trigger_unlocked:
+                      true
+                  }
+                : item
+            )
+          );
+        } catch (error) {
+          console.warn(
+            "[Hiring] Prescreen meeting selection could not be persisted:",
+            error?.message ||
+            error
+          );
+        }
+      }
+
       toast.success(
-        "Prescreen booking opened. This stage will check off automatically once Recruit shows Prescreen Scheduled."
+        stage.stage_name ===
+          "Select Prescreen Time"
+          ? "Prescreen booking opened and this step was marked complete."
+          : "Click to select meeting time."
       );
 
       return;
@@ -14107,18 +14355,38 @@ export default function Pipeline() {
             const [stageName, completed]
             of Object.entries(data.completion || {})
           ) {
+            const existing =
+              stageStatus[stageName] ||
+              {};
+
+            const persistedCompleted =
+              isPipelineStageComplete(
+                stages.find(
+                  stage =>
+                    stage?.stage_name ===
+                    stageName
+                )
+              );
+
+            const stickyCompleted =
+              completed === true ||
+              existing.completed === true ||
+              existing.status === "Completed" ||
+              persistedCompleted;
+
             stageStatus[stageName] = {
-              ...(stageStatus[stageName] || {}),
+              ...existing,
               evaluated: true,
-              completed: completed === true,
+              completed:
+                stickyCompleted,
               unlocked:
-                completed === true ||
-                stageStatus[stageName]?.unlocked === true,
+                stickyCompleted ||
+                existing.unlocked === true,
               status:
-                completed === true
+                stickyCompleted
                   ? "Completed"
                   : (
-                      stageStatus[stageName]?.status ||
+                      existing.status ||
                       "Not Started"
                     )
             };
@@ -15478,14 +15746,31 @@ export default function Pipeline() {
       !(stage?.stage_name === "Transfer to ICP USRN School" && !nclexBranchVisible)
     );
 
-  // NCLEX miniboxes are part of the same continuous Hiring progress whenever
-  // Transfer to ICP USRN School is active. Their crossed-off state is calculated
-  // directly from current Recruit CustomModule1 values so it is reversible.
+  
   if (nclexBranchVisible) {
     const seenProgressNames = new Set(progressStages.map(stage => stage.stage_name));
     ICP_USRN_SUBPROCESS_CONFIG.forEach((item, index) => {
       if (seenProgressNames.has(item.name)) return;
-      const complete = isICPUSRNItemComplete(item, icpUSRNCRMData);
+      const complete =
+        isICPUSRNItemComplete(
+          item,
+          icpUSRNCRMData
+        ) ||
+        deploymentFieldStatus
+          ?.__stageStatus
+          ?.[item.name]
+          ?.completed === true ||
+        nclexProgress
+          ?.[item.name]
+          ?.completed === true ||
+        isPipelineStageComplete(
+          stages.find(
+            stage =>
+              stage?.stage_name ===
+              item.name
+          )
+        );
+
       progressStages.push({
         id: `nclex-progress-${index + 1}`,
         stage_name: item.name,
@@ -15981,9 +16266,7 @@ export default function Pipeline() {
                                 <h2 className="font-semibold text-amber-900">
                                   NCLEX Program
                                 </h2>
-                                <p className="text-xs text-amber-700">
-                                  Your NCLEX milestones. Every stage is live-gated from Recruit CustomModule1 and re-locks if a threshold is no longer met.
-                                </p>
+                               
                               </div>
                               <span className="rounded-full border border-amber-200 bg-white px-3 py-1 text-xs font-medium text-amber-800">
                                 {ICP_USRN_SUBPROCESS_CONFIG.filter(item => {
@@ -15999,7 +16282,14 @@ export default function Pipeline() {
                                       ?.completed === true ||
                                     nclexProgress
                                       ?.[item.name]
-                                      ?.completed === true
+                                      ?.completed === true ||
+                                    isPipelineStageComplete(
+                                      stages.find(
+                                        stage =>
+                                          stage?.stage_name ===
+                                          item.name
+                                      )
+                                    )
                                   );
                                 }).length}/{ICP_USRN_SUBPROCESS_CONFIG.filter(
                                   item => item.nonCounted !== true
@@ -16012,6 +16302,13 @@ export default function Pipeline() {
                                 const savedItem =
                                   nclexProgress[item.name];
 
+                                const persistedStage =
+                                  stages.find(
+                                    stage =>
+                                      stage?.stage_name ===
+                                      item.name
+                                  );
+
                                 const backendItem =
                                   deploymentFieldStatus
                                     ?.__stageStatus
@@ -16023,7 +16320,10 @@ export default function Pipeline() {
                                     icpUSRNCRMData
                                   ) ||
                                   backendItem?.completed === true ||
-                                  savedItem?.completed === true;
+                                  savedItem?.completed === true ||
+                                  isPipelineStageComplete(
+                                    persistedStage
+                                  );
 
                                 const laterMilestoneReached =
                                   ICP_USRN_SUBPROCESS_CONFIG
@@ -16039,7 +16339,14 @@ export default function Pipeline() {
                                         ?.completed === true ||
                                       nclexProgress
                                         ?.[laterItem.name]
-                                        ?.completed === true
+                                        ?.completed === true ||
+                                      isPipelineStageComplete(
+                                        stages.find(
+                                          stage =>
+                                            stage?.stage_name ===
+                                            laterItem.name
+                                        )
+                                      )
                                     );
 
                                 const unlocked =
@@ -16109,25 +16416,31 @@ export default function Pipeline() {
                                       </div>
                                     )}
 
-                                    {item.type === "booking" ? (
-                                      <div className="mt-2">
+                                    {[
+                                      "Program Prescreen",
+                                      "Credential Evaluation Set-up",
+                                      "Select Meeting Time"
+                                    ].includes(item.name) ? (
+                                      <div className="mt-2 space-y-2">
                                         <span className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
-                                          Select meeting time
+                                          Click to select meeting time
                                         </span>
-                                      </div>
-                                    ) : item.name === "Credential Evaluation Set-up" ? (
-                                      <div className="mt-2 space-y-1">
-                                        <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                                          Credentialing Status
-                                        </p>
-                                        <span className={cn(
-                                          "inline-flex rounded-full border px-2 py-1 text-xs font-medium",
-                                          complete
-                                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                            : "border-slate-200 bg-slate-50 text-slate-700"
-                                        )}>
-                                          {icpUSRNCRMData?.Credentialing_Status || "None"}
-                                        </span>
+
+                                        {item.name === "Credential Evaluation Set-up" && (
+                                          <div className="space-y-1">
+                                            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                              Credentialing Status
+                                            </p>
+                                            <span className={cn(
+                                              "inline-flex rounded-full border px-2 py-1 text-xs font-medium",
+                                              complete
+                                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                                : "border-slate-200 bg-slate-50 text-slate-700"
+                                            )}>
+                                              {icpUSRNCRMData?.Credentialing_Status || "None"}
+                                            </span>
+                                          </div>
+                                        )}
                                       </div>
                                     ) : (
                                       <p className="mt-2 text-xs text-gray-500">
