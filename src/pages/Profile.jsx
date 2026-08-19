@@ -1,3 +1,6 @@
+
+
+
 // @ts-nocheck
 import { useAuth } from "@/lib/AuthContext";
 import { User, Phone, Mail, MapPin, Briefcase, Plane, Building2, UserCheck, Calendar, Award, FileText, FileCheck, Clock, Shield, CheckCircle, AlertCircle, Building, Loader2, Users, CalendarDays } from "lucide-react";
@@ -588,6 +591,12 @@ export default function Profile() {
                   )
                 }
                 icon={Calendar}
+                alwaysVisible
+              />
+              <InfoRow
+                label="Embassy Eligibility Status"
+                value={getFirstValue("State_Licensure_Requirements","embassyEligibilityStatus","Deployment_Eligibility")}
+                icon={UserCheck}
                 alwaysVisible
               />
             </div>

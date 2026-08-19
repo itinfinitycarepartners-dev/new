@@ -1,3 +1,9 @@
+
+
+
+
+
+
 // @ts-nocheck
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
@@ -971,13 +977,18 @@ export default function Dashboard() {
       .map(stage => stage?.stage_name)
   );
 
-  const rawActiveStage =
-    pipeline.currentStage ||
-    null;
-
-  const rawPendingNextStage =
-    pipeline.nextStage ||
-    null;
+  const dashboardApplicationStatus=String(
+    pipeline.applicationStatus||
+    pipeline.application_status||
+    profile.applicationStatus||
+    profile.Application_Status||
+    ""
+  ).trim().toLowerCase().replace(/[–—]/g,"-").replace(/\s*-\s*/g,"-").replace(/\s+/g," ");
+  const isQualifiedCandidatePool=["qualified-candidate pool","qualified candidate pool"].includes(dashboardApplicationStatus);
+  const rawActiveStage=isQualifiedCandidatePool
+    ? visiblePipelineStages.find(stage=>stage?.stage_name==="Qualified Candidate Pool")||{stage_name:"Qualified Candidate Pool",stage_category:"Hiring",stage_order:5,status:"In Progress"}
+    : pipeline.currentStage||null;
+  const rawPendingNextStage=isQualifiedCandidatePool?null:(pipeline.nextStage||null);
 
   const progressedPastQualification = (() => {
     const stages = visiblePipelineStages;
@@ -1877,7 +1888,7 @@ export default function Dashboard() {
 
           {updates.length === 0 ? (
             <p className="mt-4 text-sm text-muted-foreground">
-              No updates yet.
+              No CRM or Recruit updates yet.
             </p>
           ) : (
             <div className="mt-4 space-y-3">

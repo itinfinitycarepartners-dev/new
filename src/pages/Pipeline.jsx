@@ -88,7 +88,7 @@ const API_BASE =
   "https://fictional-carnival-3inv.onrender.com";
 
 const PRESCREEN_BOOKING_URL =
-  "https://outlook.office.com/book/Prescreen@Infinitycarepartners.com/?ismsaljsauthenabled";
+  "https://outlook.office.com/book/Prescreen@Infinitycarepartners.com/?ismsaljsauthenabledBookings";
 
 // Bank details are protected twice in transit:
 // 1) HTTPS/TLS for the request itself.
@@ -2499,7 +2499,18 @@ const isStageUnlocked = (
     return false;
   }
 
-  // A completed stage must always remain accessible.
+  const hasAuthoritativeSourceGate =
+    Array.isArray(targetStage.source_trigger_fields) &&
+    targetStage.source_trigger_fields.length > 0;
+
+  if (
+    hasAuthoritativeSourceGate &&
+    !isAuthoritativePipelineGateSatisfied(targetStage)
+  ) {
+    return false;
+  }
+
+  // Completed source-controlled stages remain accessible only while the trigger remains met.
   if (
     isPipelineStageComplete(
       targetStage
@@ -2557,9 +2568,8 @@ const isStageUnlocked = (
     sequence[targetIndex - 1];
 
   if (
-    isPipelineStageComplete(
-      previousStage
-    )
+    !hasAuthoritativeSourceGate &&
+    isPipelineStageComplete(previousStage)
   ) {
     return true;
   }
@@ -4507,20 +4517,19 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
       ).trim().toLowerCase() === "paid"
   },
   "DS-260 / Civil Document Submission": {
-    label: "DS260 Stage",
-    field: "DS260_STATUS",
+    label: "DS260 Stage / DS260 Civil Docs Submission Date",
+    fields: ["DS260_STATUS","DS260_Submission_Projected_Date"],
     complete: value =>
-      String(
-        unwrapPipelineFieldValue(value) || ""
-      ).trim().toLowerCase() === "submitted to nvc"
+      String(unwrapPipelineFieldValue(value?.DS260_STATUS)||"").trim().toLowerCase()==="submitted to nvc" ||
+      isCurrentOrPastDate(value?.DS260_Submission_Projected_Date)
   },
   "Documentarily Qualified": {
-    label: "All Clear",
-    fieldsAny: ["All_Clear_Documentary_Complete", "allClearSelection", "allClear"],
+    label: "All Clear / All Clear Date",
+    fields: ["All_Clear_Documentary_Complete","All_Clear_Date"],
     complete: value => {
-      const raw = unwrapPipelineFieldValue(value);
-      const normalized = String(raw || "").trim().toLowerCase();
-      return normalized === "yes" || raw === true;
+      const raw=unwrapPipelineFieldValue(value?.All_Clear_Documentary_Complete);
+      return String(raw||"").trim().toLowerCase()==="yes" || raw===true ||
+        isCRMChecklistComplete(raw) || isCurrentOrPastDate(value?.All_Clear_Date);
     }
   },
   "Introduction to Deployment Call": {

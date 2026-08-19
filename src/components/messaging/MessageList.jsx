@@ -1,6 +1,3 @@
-
-
-
 // @ts-nocheck
 // src/components/messaging/MessageList.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -17,9 +14,16 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
 
 export default function MessageList() {
   const { conversationId } = useParams();
-  const isCommunityConversation =
-    conversationId ===
-    "community";
+  const MESSAGE_SECTIONS={
+    admin:"Admin Messages",
+    public:"Public Messages",
+    immigration:"Immigration",
+    recruitment:"Recruitment",
+    deployment:"Deployment",
+    aftercare:"Aftercare"
+  };
+  const activeSection=MESSAGE_SECTIONS[conversationId]?conversationId:"admin";
+  const isCommunityConversation=activeSection==="public";
   const navigate = useNavigate();
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -142,7 +146,7 @@ export default function MessageList() {
     try {
       const response = await messaging.getConversations(1);
       if (response.success) {
-        const found = response.conversations?.find((c) => c._id === conversationId);
+        const found=response.conversations?.find(c=>c._id===conversationId||(conversationId==="community"&&c._id==="public"));
         if (found) {
           setConversation(found);
         }
@@ -302,7 +306,7 @@ export default function MessageList() {
             {
               detail: {
                 conversationId:
-                  "community",
+                  "public",
                 type:
                   "broadcast"
               }
