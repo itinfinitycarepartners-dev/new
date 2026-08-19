@@ -1315,67 +1315,96 @@ const MessagingPanel = ({ users, initialTarget }) => {
   const [selected, setSelected] = useState(initialTarget?.email || null);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [messageError, setMessageError] = useState('');
   const chatEndRef = useRef(null);
 
   useEffect(() => { if (initialTarget?.email) setSelected(initialTarget.email); }, [initialTarget]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
+  const getAdminHeaders = () => {
+    const { adminToken } = getTokens();
+    return {
+      'Content-Type': 'application/json',
+      ...(adminToken ? {
+        'Authorization': `AdminBearer ${adminToken}`,
+        'x-admin-token': adminToken
+      } : {})
+    };
+  };
+
+  const readResponse = async (response) => {
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.success !== true) {
+      throw new Error(data.error || data.message || `Request failed (${response.status})`);
+    }
+    return data;
+  };
+
+  useEffect(() => {
+    if (!selected) return;
+
+    let cancelled = false;
+    const loadHistory = async () => {
+      setLoadingHistory(true);
+      setMessageError('');
+      try {
+        const conversationsResponse = await fetch(`${API_BASE}/api/admin/messaging/conversations`, {
+          credentials: 'include',
+          headers: getAdminHeaders()
+        });
+        const conversationsData = await readResponse(conversationsResponse);
+        const conversation = (conversationsData.conversations || []).find(item =>
+          (item.participants || []).some(email => String(email).toLowerCase() === String(selected).toLowerCase())
+        );
+
+        if (!conversation) {
+          if (!cancelled) setMessages(prev => ({ ...prev, [selected]: [] }));
+          return;
+        }
+
+        const historyResponse = await fetch(
+          `${API_BASE}/api/admin/messaging/messages/${conversation._id}`,
+          { credentials: 'include', headers: getAdminHeaders() }
+        );
+        const historyData = await readResponse(historyResponse);
+        if (!cancelled) {
+          setMessages(prev => ({ ...prev, [selected]: historyData.messages || [] }));
+        }
+      } catch (error) {
+        if (!cancelled) setMessageError(error.message || 'Could not load this conversation.');
+      } finally {
+        if (!cancelled) setLoadingHistory(false);
+      }
+    };
+
+    loadHistory();
+    return () => { cancelled = true; };
+  }, [selected]);
+
   const sendMessage = async () => {
     if (!input.trim() || !selected || loading) return;
     setLoading(true);
+    setMessageError('');
     try {
-      const { userToken, adminToken } = getTokens();
-      const headers = { 
-        'Content-Type': 'application/json',
-        ...(adminToken ? { 
-          'Authorization': `AdminBearer ${adminToken}`,
-          'x-admin-token': adminToken 
-        } : {}),
-        ...(userToken && !adminToken ? { 'Authorization': `Bearer ${userToken}` } : {})
-      };
-
-      // Try the admin broadcast endpoint for admin messages
-      const res = await fetch(`${API_BASE}/api/admin/broadcast`, {
+      const content = input.trim();
+      // This route accepts an authenticated admin request and creates the same
+      // direct conversation without using email addresses as MongoDB Map keys.
+      const response = await fetch(`${API_BASE}/api/messaging/send`, {
         method: 'POST',
         credentials: 'include',
-        headers,
-        body: JSON.stringify({ 
-          message: input.trim(),
-          recipientEmails: [selected],
-          targetUsers: 'specific'
-        }),
+        headers: getAdminHeaders(),
+        body: JSON.stringify({ recipientEmail: selected, content }),
       });
-      const data = await res.json();
-
-      if (data.success) {
-        const msg = { id: Date.now().toString(), from: 'admin', text: input.trim(), time: new Date().toISOString() };
-        setMessages(prev => ({ ...prev, [selected]: [...(prev[selected] || []), msg] }));
-        setInput('');
-        alert(`Message sent to ${selected}`);
-      } else {
-        // Fallback to direct message
-        const fallbackRes = await fetch(`${API_BASE}/api/messaging/send`, {
-          method: 'POST',
-          credentials: 'include',
-          headers,
-          body: JSON.stringify({ 
-            recipientEmail: selected,
-            content: input.trim(),
-            messageType: 'text'
-          }),
-        });
-        const fallbackData = await fallbackRes.json();
-        if (fallbackData.success) {
-          const msg = { id: Date.now().toString(), from: 'admin', text: input.trim(), time: new Date().toISOString() };
-          setMessages(prev => ({ ...prev, [selected]: [...(prev[selected] || []), msg] }));
-          setInput('');
-        } else {
-          alert("Failed to send message: " + (fallbackData.error || "Unknown Error"));
-        }
-      }
+      const data = await readResponse(response);
+      const newMessage = data.message || {
+        _id: Date.now().toString(), senderEmail: 'admin', content, createdAt: new Date().toISOString()
+      };
+      setMessages(prev => ({ ...prev, [selected]: [...(prev[selected] || []), newMessage] }));
+      setInput('');
     } catch (err) { 
       console.error('Failed to send message:', err); 
-      alert("Network Error: Could not reach backend.");
+      setMessageError(err.message || 'Could not send the message.');
     }
     finally { setLoading(false); }
   };
@@ -1411,13 +1440,16 @@ const MessagingPanel = ({ users, initialTarget }) => {
               </div>
             </div>
             <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-gray-50/50">
-              {chat.length === 0 ? (
+              {messageError && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{messageError}</div>}
+              {loadingHistory ? (
+                <div className="text-center text-xs text-gray-400 mt-4">Loading conversation...</div>
+              ) : chat.length === 0 ? (
                 <div className="text-center text-xs text-gray-400 mt-4">This is the start of your conversation.</div>
               ) : (
                 chat.map((msg) => (
-                  <div key={msg.id} className={`flex ${msg.from === 'admin' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-sm shadow-sm ${msg.from === 'admin' ? 'text-white rounded-br-sm' : 'border bg-white text-gray-800 rounded-bl-sm'}`} style={{ background: msg.from === 'admin' ? THEME.brand : '' }}>
-                      {msg.text}
+                  <div key={msg._id || msg.id} className={`flex ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-sm shadow-sm ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'text-white rounded-br-sm' : 'border bg-white text-gray-800 rounded-bl-sm'}`} style={{ background: msg.senderEmail === 'admin' || msg.from === 'admin' ? THEME.brand : '' }}>
+                      {msg.content || msg.text}
                     </div>
                   </div>
                 ))
@@ -1448,6 +1480,11 @@ const AdminPanel = () => {
   const [msgTarget, setMsgTarget] = useState(null);
   const [stats, setStats] = useState({ total: 0, active: 0, expired: 0 });
   const [backendHealth, setBackendHealth] = useState({ zoho: false, db: false });
+
+  const openMessageThread = useCallback((user) => {
+    setMsgTarget(user);
+    setTab('messages');
+  }, []);
 
   const forceLogout = useCallback(() => {
     localStorage.removeItem('adminAuthenticated');
@@ -1679,13 +1716,13 @@ const AdminPanel = () => {
             </div>
           )}
 
-          {tab === 'users' && <UsersTable users={users} onSelectUser={setSelectedUser} onMessageUser={setMsgTarget} onBroadcast={handleBroadcast} />}
+          {tab === 'users' && <UsersTable users={users} onSelectUser={setSelectedUser} onMessageUser={openMessageThread} onBroadcast={handleBroadcast} />}
           {tab === 'analytics' && <AnalyticsPanel users={users} logs={logs} />}
           {tab === 'messages' && <MessagingPanel users={users} initialTarget={msgTarget} />}
 
         </div>
       </div>
-      {selectedUser && <UserDetailModal user={selectedUser} onClose={() => setSelectedUser(null)} onMessage={setMsgTarget} />}
+      {selectedUser && <UserDetailModal user={selectedUser} onClose={() => setSelectedUser(null)} onMessage={openMessageThread} />}
     </div>
   );
 };
