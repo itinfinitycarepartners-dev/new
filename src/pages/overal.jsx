@@ -1,3 +1,6 @@
+
+
+
 // @ts-nocheck
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
@@ -6,7 +9,7 @@ import {
   AlertTriangle, ServerCrash, Phone, Mail, MapPin, Briefcase, 
   Building2, Calendar, Award, FileText, CheckCircle, Building, 
   Loader2, CalendarDays, FolderOpen, Folder, Clock, User, 
-  Plane, HeartPulse, FileCheck, DollarSign, Activity, GitBranch,
+  Plane, HeartPulse, FileCheck, DollarSign, Activity, GitBranch, Receipt, ClipboardList,
   CheckCircle2, Circle, AlertCircle, Layers
 } from 'lucide-react';
 
@@ -217,6 +220,14 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   const [rejectingDocument, setRejectingDocument] = useState(null);
   const [rejectionReason, setRejectionReason] = useState("");
 
+  const userPendingRequests =
+    Array.isArray(user?.pendingRequests)
+      ? user.pendingRequests.filter(
+          request =>
+            request.status === "Pending Approval"
+        )
+      : [];
+
   useEffect(() => {
     if (!user) return;
 
@@ -363,8 +374,19 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   }, [user]);
 
   const handleViewDocument = async (doc) => {
-    const docId = doc.attachment_id || doc.id;
-    if (!docId) { setDocActionError('This document has no downloadable ID.'); return; }
+    const docId =
+      doc.attachment_id ||
+      doc.crm_attachment_id ||
+      doc.recruit_attachment_id ||
+      doc.document_id ||
+      doc.id;
+
+    if (!docId) {
+      setDocActionError(
+        'This document has no downloadable ID.'
+      );
+      return;
+    }
     setDocActionError(null);
     setViewingDocId(docId);
     try {
@@ -615,6 +637,16 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
         </div>
       )}
       <div className="bg-gray-50 rounded-2xl max-w-5xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+        {userPendingRequests.length > 0 && (
+          <div className="border-b border-amber-200 bg-amber-50 px-6 py-3">
+            <p className="text-sm font-bold text-amber-900">
+              {userPendingRequests.length} request{userPendingRequests.length === 1 ? "" : "s"} awaiting approval
+            </p>
+            <p className="text-xs text-amber-800">
+              This candidate has a pending request. Open the Requests panel before approving profile changes.
+            </p>
+          </div>
+        )}
         
         {/* HEADER */}
         <div className="bg-white border-b px-8 py-6 z-10 sticky top-0" style={{ borderColor: THEME.border }}>
@@ -1469,6 +1501,368 @@ const MessagingPanel = ({ users, initialTarget }) => {
   );
 };
 
+
+const AdminRequestsPanel = ({ onOpenUser }) => {
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const { adminToken, userToken } = getTokens();
+      const response = await fetch(
+        `${API_BASE}/api/admin/requests?pendingOnly=true&_=${Date.now()}`,
+        {
+          cache:"no-store",
+          credentials:"include",
+          headers:{
+            ...(adminToken ? {
+              Authorization:`AdminBearer ${adminToken}`,
+              "x-admin-token":adminToken
+            } : {}),
+            ...(!adminToken && userToken ? {
+              Authorization:`Bearer ${userToken}`
+            } : {})
+          }
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || "Unable to load requests.");
+      }
+      setRequests(Array.isArray(data.requests) ? data.requests : []);
+    } catch (error) {
+      console.error("[Admin Requests]", error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const interval = setInterval(load, 10000);
+    return () => clearInterval(interval);
+  }, [load]);
+
+  const decide = async (request, decision) => {
+    setBusyId(String(request._id));
+    try {
+      const { adminToken, userToken } = getTokens();
+      const response = await fetch(
+        `${API_BASE}/api/admin/requests/${request._id}/decision`,
+        {
+          method:"POST",
+          credentials:"include",
+          headers:{
+            "Content-Type":"application/json",
+            ...(adminToken ? {
+              Authorization:`AdminBearer ${adminToken}`,
+              "x-admin-token":adminToken
+            } : {}),
+            ...(!adminToken && userToken ? {
+              Authorization:`Bearer ${userToken}`
+            } : {})
+          },
+          body:JSON.stringify({decision})
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || "Unable to update request.");
+      }
+      await load();
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setBusyId("");
+    }
+  };
+
+  if (loading) {
+    return <div className="p-8 text-center text-gray-500">Loading candidate requests...</div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-xl font-bold">Candidate Requests</h2>
+        <p className="text-sm text-gray-500">
+          Requests are tied to the specific candidate and remain pending until an admin approves or rejects them.
+        </p>
+      </div>
+      {requests.length === 0 ? (
+        <div className="rounded-xl border bg-white p-8 text-center text-gray-500">No pending requests.</div>
+      ) : (
+        requests.map(request => {
+          const details = request.details || {};
+          return (
+            <div key={String(request._id)} className="rounded-xl border bg-white p-5">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => onOpenUser?.({email:request.candidate_email,pendingRequests:[request]})}
+                    className="font-bold text-purple-700 hover:underline"
+                  >
+                    {request.candidate_email}
+                  </button>
+                  <p className="mt-1 text-sm font-semibold capitalize">
+                    {String(request.request_type || "request").replaceAll("_"," ")}
+                  </p>
+                  <div className="mt-2 text-sm text-gray-600">
+                    {Object.entries(details).map(([key,value]) => (
+                      <div key={key}>
+                        <span className="font-medium">{key.replaceAll("_"," ")}:</span>{" "}
+                        {String(value ?? "")}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => decide(request,"approve")}
+                    disabled={busyId === String(request._id)}
+                    className="rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => decide(request,"reject")}
+                    disabled={busyId === String(request._id)}
+                    className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    Reject
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+};
+
+const AdminReceiptsPanel = () => {
+  const [receipts, setReceipts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [drafts, setDrafts] = useState({});
+  const [busyId, setBusyId] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const { adminToken, userToken } = getTokens();
+      const response = await fetch(
+        `${API_BASE}/api/admin/receipts?_=${Date.now()}`,
+        {
+          cache:"no-store",
+          credentials:"include",
+          headers:{
+            ...(adminToken ? {
+              Authorization:`AdminBearer ${adminToken}`,
+              "x-admin-token":adminToken
+            } : {}),
+            ...(!adminToken && userToken ? {
+              Authorization:`Bearer ${userToken}`
+            } : {})
+          }
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || "Unable to load receipts.");
+      }
+      setReceipts(Array.isArray(data.receipts) ? data.receipts : []);
+    } catch (error) {
+      console.error("[Admin Receipts]", error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const viewReceipt = async receipt => {
+    const attachmentId =
+      receipt.crm_attachment_id ||
+      receipt.recruit_attachment_id ||
+      receipt.attachment_id ||
+      null;
+
+    if (!attachmentId) {
+      alert("This receipt does not have a downloadable attachment ID.");
+      return;
+    }
+
+    try {
+      const { adminToken } =
+        getTokens();
+
+      const source =
+        receipt.crm_attachment_id
+          ? "crm"
+          : "recruit";
+
+      const response =
+        await fetch(
+          `${API_BASE}/api/documents/download/${encodeURIComponent(
+            attachmentId
+          )}?email=${encodeURIComponent(
+            receipt.candidate_email
+          )}&source=${encodeURIComponent(source)}`,
+          {
+            headers: {
+              Authorization:
+                `AdminBearer ${adminToken}`
+            },
+            credentials: "include"
+          }
+        );
+
+      if (!response.ok) {
+        throw new Error(
+          `Server returned ${response.status}`
+        );
+      }
+
+      const blob =
+        await response.blob();
+
+      const url =
+        URL.createObjectURL(blob);
+
+      window.open(
+        url,
+        "_blank",
+        "noopener,noreferrer"
+      );
+
+      window.setTimeout(
+        () => URL.revokeObjectURL(url),
+        60000
+      );
+    } catch (error) {
+      alert(
+        error.message ||
+        "Unable to open receipt."
+      );
+    }
+  };
+
+  const save = async receipt => {
+    const id = String(receipt.id || receipt._id);
+    const amount =
+      drafts[id] ??
+      receipt.admin_correct_amount ??
+      receipt.converted_usd ??
+      receipt.amount ??
+      "";
+
+    setBusyId(id);
+    try {
+      const { adminToken, userToken } = getTokens();
+      const response = await fetch(
+        `${API_BASE}/api/admin/receipts/${id}`,
+        {
+          method:"PATCH",
+          credentials:"include",
+          headers:{
+            "Content-Type":"application/json",
+            ...(adminToken ? {
+              Authorization:`AdminBearer ${adminToken}`,
+              "x-admin-token":adminToken
+            } : {}),
+            ...(!adminToken && userToken ? {
+              Authorization:`Bearer ${userToken}`
+            } : {})
+          },
+          body:JSON.stringify({
+            correctAmount:Number(amount),
+            correctAmountUsd:Number(amount)
+          })
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || "Unable to save corrected amount.");
+      }
+      await load();
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setBusyId("");
+    }
+  };
+
+  if (loading) {
+    return <div className="p-8 text-center text-gray-500">Loading receipts...</div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-xl font-bold">Receipts</h2>
+        <p className="text-sm text-gray-500">
+          Deployment receipts are listed by candidate and reimbursement category. Enter the verified amount and save it.
+        </p>
+      </div>
+      {receipts.length === 0 ? (
+        <div className="rounded-xl border bg-white p-8 text-center text-gray-500">No receipts submitted yet.</div>
+      ) : (
+        receipts.map(receipt => {
+          const id = String(receipt.id || receipt._id);
+          return (
+            <div key={id} className="rounded-xl border bg-white p-4">
+              <div className="grid gap-4 md:grid-cols-[1.2fr_1fr_1fr_auto] md:items-end">
+                <div>
+                  <p className="font-semibold">{receipt.category_label || receipt.category_id || "Receipt"}</p>
+                  <p className="text-xs text-gray-500">{receipt.candidate_email}</p>
+                  <p className="text-xs text-gray-500">{receipt.original_name || receipt.document_name}</p>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-600">Candidate amount</label>
+                  <div className="mt-1 rounded-lg border bg-gray-50 px-3 py-2 text-sm">
+                    {receipt.currency || "USD"} {Number(receipt.amount || 0).toFixed(2)}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-600">Correct amount</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={drafts[id] ?? receipt.admin_correct_amount ?? ""}
+                    onChange={event => setDrafts(previous => ({...previous,[id]:event.target.value}))}
+                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => viewReceipt(receipt)}
+                    className="rounded-lg border px-3 py-2 text-sm font-semibold text-purple-700"
+                  >
+                    View
+                  </button>
+                  <button
+                    onClick={() => save(receipt)}
+                    disabled={busyId === id}
+                    className="rounded-lg bg-purple-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+};
+
 const AdminPanel = () => {
   const [tab, setTab] = useState('overview');
   const [users, setUsers] = useState([]);
@@ -1480,6 +1874,8 @@ const AdminPanel = () => {
   const [msgTarget, setMsgTarget] = useState(null);
   const [stats, setStats] = useState({ total: 0, active: 0, expired: 0 });
   const [backendHealth, setBackendHealth] = useState({ zoho: false, db: false });
+  const [pendingRequestCount, setPendingRequestCount] = useState(0);
+  const [receiptCount, setReceiptCount] = useState(0);
 
   const openMessageThread = useCallback((user) => {
     setMsgTarget(user);
@@ -1618,11 +2014,78 @@ const AdminPanel = () => {
     }
   };
 
+  useEffect(() => {
+    let active = true;
+
+    const refreshAdminQueues = async () => {
+      try {
+        const { adminToken, userToken } = getTokens();
+        const headers = {
+          ...(adminToken ? {
+            Authorization:`AdminBearer ${adminToken}`,
+            "x-admin-token":adminToken
+          } : {}),
+          ...(!adminToken && userToken ? {
+            Authorization:`Bearer ${userToken}`
+          } : {})
+        };
+
+        const [requestsRes, receiptsRes] =
+          await Promise.all([
+            fetch(`${API_BASE}/api/admin/requests?pendingOnly=true&_=${Date.now()}`, {
+              cache:"no-store",
+              credentials:"include",
+              headers
+            }),
+            fetch(`${API_BASE}/api/admin/receipts?_=${Date.now()}`, {
+              cache:"no-store",
+              credentials:"include",
+              headers
+            })
+          ]);
+
+        const requestsData =
+          await requestsRes.json().catch(() => ({}));
+        const receiptsData =
+          await receiptsRes.json().catch(() => ({}));
+
+        if (!active) return;
+
+        if (requestsRes.ok && requestsData.success === true) {
+          setPendingRequestCount(
+            Array.isArray(requestsData.requests)
+              ? requestsData.requests.length
+              : 0
+          );
+        }
+
+        if (receiptsRes.ok && receiptsData.success === true) {
+          setReceiptCount(
+            Array.isArray(receiptsData.receipts)
+              ? receiptsData.receipts.length
+              : 0
+          );
+        }
+      } catch {
+      }
+    };
+
+    refreshAdminQueues();
+    const interval = setInterval(refreshAdminQueues, 10000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
   const navItems = [
     { id: 'overview', icon: <Home className="w-4 h-4" />, label: 'Overview' },
     { id: 'users', icon: <Users className="w-4 h-4" />, label: 'Users', badge: stats.total },
     { id: 'analytics', icon: <BarChart3 className="w-4 h-4" />, label: 'Analytics' },
     { id: 'messages', icon: <MessageSquare className="w-4 h-4" />, label: 'Messages' },
+    { id: 'requests', icon: <ClipboardList className="w-4 h-4" />, label: 'Requests', badge: pendingRequestCount },
+    { id: 'receipts', icon: <Receipt className="w-4 h-4" />, label: 'Receipts', badge: receiptCount },
   ];
 
   return (
@@ -1719,6 +2182,8 @@ const AdminPanel = () => {
           {tab === 'users' && <UsersTable users={users} onSelectUser={setSelectedUser} onMessageUser={openMessageThread} onBroadcast={handleBroadcast} />}
           {tab === 'analytics' && <AnalyticsPanel users={users} logs={logs} />}
           {tab === 'messages' && <MessagingPanel users={users} initialTarget={msgTarget} />}
+          {tab === 'requests' && <AdminRequestsPanel onOpenUser={setSelectedUser} />}
+          {tab === 'receipts' && <AdminReceiptsPanel />}
 
         </div>
       </div>

@@ -405,7 +405,7 @@ const STAGES_CONFIG = [
   { id: 14, stage_name: "Offer Made", stage_category: "Hiring", stage_order: 14, days_from_start: 8 },
   { id: 15, stage_name: "Offer Accepted", stage_category: "Hiring", stage_order: 15, days_from_start: 10 },
   { id: 16, stage_name: "Offer Declined", stage_category: "Hiring", stage_order: 16, days_from_start: 10 },
-  { id: 17, stage_name: "Employment Contract Sent", stage_category: "Hiring", stage_order: 17, days_from_start: 11 },
+  { id: 17, stage_name: "Employment Contract Sent", stage_category: "Hiring", stage_order: 17, days_from_start: 10 },
   { id: 18, stage_name: "Employment Contract Signed", stage_category: "Hiring", stage_order: 18, days_from_start: 13 },
   { id: 19, stage_name: "Documents Received", stage_category: "Hiring", stage_order: 19, days_from_start: 15 },
   { id: 20, stage_name: "Hired", stage_category: "Hiring", stage_order: 20, days_from_start: 15 },
@@ -432,6 +432,7 @@ const STAGES_CONFIG = [
   { id: 36, stage_name: "Employer Pre-Arrival Call", stage_category: "Deployment", stage_order: 36, days_from_start: 960 },
   { id: 37, stage_name: "deployMate Ready", stage_category: "Deployment", stage_order: 37, days_from_start: 970 },
   { id: 38, stage_name: "Arrival Itinerary", stage_category: "Deployment", stage_order: 38, days_from_start: 980 },
+  { id: 39, stage_name: "Receipt Submission", stage_category: "Deployment", stage_order: 39, days_from_start: 990 },
   { id: 40, stage_name: "Arrived", stage_category: "Deployment", stage_order: 40, days_from_start: 1000 },
 
   // Stage 4 — Aftercare: EXACTLY 8 stages.
@@ -455,6 +456,7 @@ const REQUIRED_STAGE_NOTICES = {
   "Pre-Arrival Banking Call": "Attend the pre-arrival banking call.",
   "deployMate Ready": "Complete the deployMate readiness requirements.",
   "Arrival Itinerary": "Review your arrival itinerary and relocation information.",
+  "Receipt Submission": "Submit eligible reimbursement receipts before arrival.",
   "Arrived": "Arrival confirmed. Continue to Aftercare.",
 };
 
@@ -1246,12 +1248,6 @@ const updateRecruitField = async (userEmail, stageName) => {
 
 const ICP_USRN_SUBPROCESS_CONFIG = [
   {
-    name: "Pipeline Start",
-    days: 0,
-    field: "Date_Received",
-    type: "present"
-  },
-  {
     name: "Complete Pre-assessment",
     days: 5,
     field: "NCLEX_Pre_Exam",
@@ -1903,6 +1899,7 @@ const CLICKABLE_STAGES = {
   "Mandatory Petitioner / Employer Call": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
   "deployMate Ready": { clickable: true, type: "view", viewType: "downloadApp" },
   "Arrival Itinerary": { clickable: true, type: "view", viewType: "welcomePacket" },
+  "Receipt Submission": { clickable: true, type: "view", viewType: "reimbursementExpenses" },
   "Arrived": { clickable: false, type: "field" },
 
   // Current Aftercare links
@@ -2000,8 +1997,7 @@ const CLICKABLE_STAGES = {
   "90 Day Exit Call": { clickable: true, type: "view", viewType: "ninetyDaySurvey" },
   "1 Year Survey": { clickable: true, type: "view", viewType: "oneYearSurvey" },
 
-  // Stage 5 - Reimbursement/Expenses
-  "Reimbursement/Expenses": { clickable: true, type: "view", viewType: "reimbursementExpenses" },
+  // Reimbursement is merged into Deployment -> Receipt Submission.
   "Upload New Documents": { clickable: true, type: "view", viewType: "immigrationRenewal" },
 };
 
@@ -2471,8 +2467,7 @@ const isStageUnlocked = (
   if (!targetStage) return false;
 
   if (
-    targetStage.stage_category === "Aftercare" &&
-    !isPipelineStageComplete(targetStage)
+    targetStage.stage_category === "Aftercare"
   ) {
     const target =
       targetStage.target_date ||
@@ -4418,6 +4413,13 @@ const getLivePipelineFieldValue = (source, fieldNames) => {
 
   return null;
 };
+
+const AFTERCARE_SURVEY_STAGE_NAMES = new Set([
+  "Relocation Survey",
+  "U.S. Integration Call (30 Day Call / Survey)",
+  "Placement Stability Check-in (90 Day Call)",
+  "1 Year Survey"
+]);
 
 const DEPLOYMENT_CRM_STAGE_RULES = {
   "Immigration forms submitted": {
@@ -8586,6 +8588,63 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
       setUploadResults(nextUploadResults);
       setSubmissionResult(data);
 
+      try {
+        const travelSummaryResponse =
+          await fetch(
+            `${API_BASE}/api/profile/extended`,
+            {
+              method:"PUT",
+              headers:{
+                Authorization:`Bearer ${token}`,
+                "Content-Type":"application/json"
+              },
+              body:JSON.stringify({
+                travelSummary:{
+                  departureCity:form.departureCity,
+                  checkedBags:form.checkedBags,
+                  carryOn:form.carryOn,
+                  boxes:form.boxes,
+                  pets:form.pets,
+                  travelCash:form.travelCash,
+                  carSeats:form.carSeats,
+                  wheelchair:form.wheelchair,
+                  phoneModelCarrier:form.phoneModelCarrier,
+                  simUnlocked:form.simUnlocked,
+                  drivingPlan:form.drivingPlan,
+                  carPurchasePlan:form.carPurchasePlan
+                }
+              })
+            }
+          );
+
+        const travelSummaryData =
+          await travelSummaryResponse
+            .json()
+            .catch(() => ({}));
+
+        if (
+          travelSummaryResponse.ok &&
+          travelSummaryData.success === true
+        ) {
+          window.dispatchEvent(
+            new CustomEvent(
+              "candidate-data-updated"
+            )
+          );
+        } else {
+          console.warn(
+            "[R&L] Travel Summary was not copied to Profile:",
+            travelSummaryData.error ||
+            "Unknown error"
+          );
+        }
+      } catch (travelSummaryError) {
+        console.warn(
+          "[R&L] Travel Summary Profile sync failed:",
+          travelSummaryError.message
+        );
+      }
+
       // The backend completes the stage and starts the next timer atomically.
       // Refresh the complete pipeline from MongoDB instead of manually checking it.
       window.dispatchEvent(new CustomEvent("pipeline-updated", {
@@ -9246,16 +9305,23 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
 };
 
 const RECEIPT_CATEGORIES = [
-  { id: "ces_report", label: "CES REPORT TOTAL" },
-  { id: "visascreen", label: "VISASCREEN TOTAL" },
-  { id: "green_card", label: "GREEN CARD TOTAL" },
-  { id: "english_exam", label: "ENGLISH EXAMINATION TOTAL" },
-  { id: "nclex_exam", label: "NCLEX EXAMINATION TOTAL" },
-  { id: "nclex_scheduling", label: "NCLEX SCHEDULING FEE TOTAL" },
-  { id: "medical_exam", label: "MEDICAL EXAMINATION TOTAL" },
-  { id: "license_endorsement", label: "LICENSE ENDORSEMENT TOTAL" },
-  { id: "nursys", label: "NURSYS TOTAL" },
-  { id: "fingerprints", label: "FINGERPRINTS TOTAL" },
+  { id: "visa_screen", label: "VISA Screen" },
+  { id: "nclex_exam", label: "NCLEX Exam and Scheduling Fee" },
+  { id: "green_card", label: "Green Card" },
+  { id: "license_endorsement", label: "Licensure Application" },
+  { id: "nursys", label: "NURSYS" },
+  { id: "ces_report", label: "CES Report" },
+  { id: "english_exam", label: "English Exam" },
+  { id: "fingerprints", label: "Background / Fingerprinting" },
+  { id: "medical_exam", label: "Medical Exam" },
+  { id: "dependent_visa_fee", label: "Dependent VISA Fee Bill" },
+  { id: "dependents_after_i140", label: "Dependents Added after I-140" },
+  { id: "housing_stipend", label: "One-time Housing Stipend" },
+  { id: "housing_app_admin", label: "Housing App & Admin Fees" },
+  { id: "housing_deposit", label: "Housing Deposit" },
+  { id: "rent_move_in", label: "Rent / Move-in fees" },
+  { id: "insurance", label: "Insurance" },
+  { id: "other", label: "Other" }
 ];
 
 // Reimbursement Upload Component (Deployment stage)
@@ -12242,10 +12308,18 @@ export default function Pipeline() {
         // Recruit records on the backend. Prefer its boolean result when it has
         // evaluated this exact visible stage; otherwise evaluate the raw field
         // locally. This keeps Dashboard and My Pipeline crossed-off state equal.
-        const completed = backendEvaluated &&
+        const surveyRequiresSubmission =
+          AFTERCARE_SURVEY_STAGE_NAMES.has(
+            stage.stage_name
+          );
+
+        const completed =
+          backendEvaluated &&
           typeof backendStageStatus?.completed === "boolean"
-          ? backendStageStatus.completed
-          : rule.complete?.(value) === true;
+            ? backendStageStatus.completed
+            : surveyRequiresSubmission
+              ? false
+              : rule.complete?.(value) === true;
 
         const sourceInProgress =
           !completed &&
@@ -12590,7 +12664,7 @@ export default function Pipeline() {
 
       if (token && transferToICPUSRN) {
         await Promise.allSettled(
-          ["Applied", "Associated with Job", "Transfer to ICP USRN School"].map(
+          ["Applied", "Associated with Job", "Qualified - Match", "Transfer to ICP USRN School"].map(
             (stageName) =>
               fetch(`${API_BASE}/api/pipeline/update-stage`, {
                 method: "POST",
@@ -13637,6 +13711,7 @@ export default function Pipeline() {
     const candidateActionStages = new Set([
       "deployMate Ready",
       "Arrival Itinerary",
+      "Receipt Submission",
       "Relocation Survey",
       "U.S. Integration Call (30 Day Call / Survey)",
       "1 Year Survey"
@@ -13964,6 +14039,125 @@ export default function Pipeline() {
 
     let cancelled = false;
 
+    const refreshNCLEXStatus = async () => {
+      try {
+        const token =
+          localStorage.getItem(
+            "icp_auth_token"
+          );
+
+        if (!token) return;
+
+        const response =
+          await fetch(
+            `${API_BASE}/api/pipeline/nclex-status?_=${Date.now()}`,
+            {
+              cache: "no-store",
+              headers: {
+                Authorization:
+                  `Bearer ${token}`
+              }
+            }
+          );
+
+        const data =
+          await response
+            .json()
+            .catch(() => ({}));
+
+        if (
+          cancelled ||
+          !response.ok ||
+          data.success !== true
+        ) {
+          return;
+        }
+
+        setICPUSRNCRMData(previous => ({
+          ...previous,
+          ...(data.fields || {}),
+          __live: true,
+          __recordId:
+            data.recordId || null
+        }));
+
+        if (
+          data.applicationStatus
+        ) {
+          setApplicationStatus(
+            data.applicationStatus
+          );
+        }
+
+        if (
+          data.nclexEligible === true ||
+          Object.values(
+            data.completion || {}
+          ).some(Boolean)
+        ) {
+          setShowNCLEX(true);
+        }
+
+        setDeploymentFieldStatus(previous => {
+          const stageStatus = {
+            ...(previous?.__stageStatus || {})
+          };
+
+          for (
+            const [stageName, completed]
+            of Object.entries(data.completion || {})
+          ) {
+            stageStatus[stageName] = {
+              ...(stageStatus[stageName] || {}),
+              evaluated: true,
+              completed: completed === true,
+              unlocked:
+                completed === true ||
+                stageStatus[stageName]?.unlocked === true,
+              status:
+                completed === true
+                  ? "Completed"
+                  : (
+                      stageStatus[stageName]?.status ||
+                      "Not Started"
+                    )
+            };
+          }
+
+          return {
+            ...previous,
+            ...(data.fields || {}),
+            __stageStatus: stageStatus
+          };
+        });
+      } catch (error) {
+        console.warn(
+          "[Pipeline] Dedicated NCLEX status refresh failed:",
+          error?.message || error
+        );
+      }
+    };
+
+    refreshNCLEXStatus();
+
+    const interval =
+      window.setInterval(
+        refreshNCLEXStatus,
+        15000
+      );
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [user?.email]);
+
+
+  useEffect(() => {
+    if (!user?.email) return;
+
+    let cancelled = false;
+
     const refreshReimbursementStatus = async () => {
       try {
         const token = localStorage.getItem("icp_auth_token");
@@ -14090,13 +14284,39 @@ export default function Pipeline() {
         }
 
         if (data.nclex && typeof data.nclex === "object") {
-          setICPUSRNCRMData({ ...data.nclex, __live: true });
+          setICPUSRNCRMData(previous => ({
+            ...previous,
+            ...data.nclex,
+            __live: true
+          }));
         }
 
-        const liveApplicationStatus = data.recruit?.Application_Status;
-        if (liveApplicationStatus !== undefined && liveApplicationStatus !== null) {
-          setApplicationStatus(liveApplicationStatus);
-          setShowNCLEX(isTransferToICPUSRNStatus(liveApplicationStatus));
+        const liveApplicationStatus =
+          data.recruit?.Application_Status;
+
+        if (
+          liveApplicationStatus !== undefined &&
+          liveApplicationStatus !== null
+        ) {
+          setApplicationStatus(
+            liveApplicationStatus
+          );
+
+          if (
+            isTransferToICPUSRNStatus(
+              liveApplicationStatus
+            ) ||
+            data.nclexAccess?.eligible === true ||
+            Object.values(
+              data.stageStatus || {}
+            ).some(
+              item =>
+                item?.nclex_stage === true &&
+                item?.completed === true
+            )
+          ) {
+            setShowNCLEX(true);
+          }
         }
 
         if (data.sectionGates && typeof data.sectionGates === "object") {
@@ -14654,7 +14874,17 @@ export default function Pipeline() {
     transferStatusSelected ||
     savedTransferEligibility ||
     savedNCLEXHistoryExists ||
-    showNCLEX;
+    showNCLEX ||
+    Object.values(
+      deploymentFieldStatus?.__stageStatus || {}
+    ).some(
+      state =>
+        state?.nclex_stage === true &&
+        (
+          state?.completed === true ||
+          state?.unlocked === true
+        )
+    );
 
   const nclexProgress =
     transferStage
@@ -14688,7 +14918,7 @@ export default function Pipeline() {
       }
 
       if (stage.stage_name === "Transfer to ICP USRN School") {
-        return transferStatusSelected;
+        return nclexBranchVisible;
       }
 
       if (
@@ -15201,19 +15431,47 @@ export default function Pipeline() {
     return next;
   };
 
-  const displayStages =
+  let displayStages =
     sortStagesByConfiguredOrder(
       regularDisplayStages
     ).map(
       deriveLivePipelineStage
     );
 
+  if (nclexBranchVisible) {
+    const prerequisites =
+      new Set([
+        "Applied",
+        "Associated with Job",
+        "Qualified - Match",
+        "Transfer to ICP USRN School"
+      ]);
+
+    displayStages =
+      displayStages.map(stage =>
+        prerequisites.has(stage.stage_name)
+          ? {
+              ...stage,
+              status: "Completed",
+              completed: true,
+              is_completed: true,
+              unlocked: true,
+              is_unlocked: true,
+              access_locked: false,
+              is_locked: false,
+              source_trigger_unlocked: true,
+              trigger_unlocked: true,
+              recruit_unlocked: true
+            }
+          : stage
+      );
+  }
+
   const categories = [
     "Hiring",
     "Immigration",
     "Deployment",
-    "Aftercare",
-    "Reimbursement"
+    "Aftercare"
   ];
   const progressStages =
     displayStages.filter(stage =>
@@ -15447,31 +15705,10 @@ export default function Pipeline() {
 
 
       {categories.map(cat => {
-        const baseCategoryStages = cat === "Reimbursement"
-          ? [{
-              id: "reimbursement-section",
-              stage_name: "Reimbursement/Expenses",
-              stage_category: "Reimbursement",
-              stage_order: 59,
-              status:
-                reimbursementSubmitted
-                  ? "Completed"
-                  : (
-                      stages.find(s => s?.stage_name === "Reimbursement/Expenses")?.status ||
-                      "Not Started"
-                    ),
-              completed_date:
-                stages.find(s => s?.stage_name === "Reimbursement/Expenses")?.completed_date ||
-                null,
-              non_counted_section: true
-            }]
-          : sortStagesByConfiguredOrder(
-              displayStages.filter(
-                stage =>
-                  stage?.stage_category ===
-                  cat
-              )
-            );
+        const baseCategoryStages =
+          displayStages.filter(stage =>
+            stage.stage_category === cat
+          );
 
         const catStages = [...baseCategoryStages];
 
@@ -15509,14 +15746,10 @@ export default function Pipeline() {
           <div key={cat} className="bg-card rounded-xl border border-border overflow-hidden">
             <div className={cn("px-5 py-3 flex items-center justify-between border-b border-border", colors.bg)}>
               <h2 className={cn("font-semibold text-sm", colors.text)}>
-                {cat === "Reimbursement"
-                  ? "Reimbursement"
-                  : (isNCLEX ? "🎓" : `Stage ${categories.indexOf(cat) + 1}`)} – {cat}
+                {(isNCLEX ? "🎓" : `Stage ${categories.indexOf(cat) + 1}`)} – {cat}
               </h2>
               <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full border", colors.bg, colors.text, colors.border)}>
-                {cat === "Reimbursement"
-                  ? "Separate submission section"
-                  : `${catCompleted}/${countedCategoryStages.length} complete`}
+                {`${catCompleted}/${countedCategoryStages.length} complete`}
               </span>
             </div>
             
@@ -15545,6 +15778,51 @@ export default function Pipeline() {
                     stage.stage_name ===
                       "Immigration Call"
                   );
+                const hiringCountdown =
+                  isHiring &&
+                  !isPipelineStageComplete(stage) &&
+                  (stage.target_date || stage.targetDate)
+                    ? (() => {
+                        const target =
+                          new Date(
+                            stage.target_date ||
+                            stage.targetDate
+                          );
+
+                        if (Number.isNaN(target.getTime())) {
+                          return null;
+                        }
+
+                        const ms =
+                          target.getTime() -
+                          Date.now();
+
+                        const overdue =
+                          ms < 0;
+
+                        const abs =
+                          Math.abs(ms);
+
+                        const days =
+                          Math.floor(
+                            abs /
+                            86400000
+                          );
+
+                        const hours =
+                          Math.floor(
+                            (
+                              abs %
+                              86400000
+                            ) /
+                            3600000
+                          );
+
+                        return overdue
+                          ? `${days}d ${hours}h overdue`
+                          : `${days}d ${hours}h remaining`;
+                      })()
+                    : null;
                 const unlocked = stage.non_counted_section === true
                   ? true
                   : isStageUnlocked(stage, displayStages);
@@ -15648,6 +15926,12 @@ export default function Pipeline() {
                     </div>
 
                     <div className="ml-auto flex shrink-0 items-center gap-2 self-center">
+                      {hiringCountdown && (
+                        <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+                          {hiringCountdown}
+                        </span>
+                      )}
+
                       {showRisk &&
                         riskCfg && (
                           <span
@@ -15702,11 +15986,22 @@ export default function Pipeline() {
                                 </p>
                               </div>
                               <span className="rounded-full border border-amber-200 bg-white px-3 py-1 text-xs font-medium text-amber-800">
-                                {ICP_USRN_SUBPROCESS_CONFIG.filter(
-                                  item =>
-                                    item.nonCounted !== true &&
-                                    isICPUSRNItemComplete(item, icpUSRNCRMData)
-                                ).length}/{ICP_USRN_SUBPROCESS_CONFIG.filter(
+                                {ICP_USRN_SUBPROCESS_CONFIG.filter(item => {
+                                  if (item.nonCounted === true) return false;
+                                  return (
+                                    isICPUSRNItemComplete(
+                                      item,
+                                      icpUSRNCRMData
+                                    ) ||
+                                    deploymentFieldStatus
+                                      ?.__stageStatus
+                                      ?.[item.name]
+                                      ?.completed === true ||
+                                    nclexProgress
+                                      ?.[item.name]
+                                      ?.completed === true
+                                  );
+                                }).length}/{ICP_USRN_SUBPROCESS_CONFIG.filter(
                                   item => item.nonCounted !== true
                                 ).length} complete
                               </span>
@@ -15714,12 +16009,49 @@ export default function Pipeline() {
 
                             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                               {ICP_USRN_SUBPROCESS_CONFIG.map((item, index) => {
-                                const savedItem = nclexProgress[item.name];
-                                const liveLoaded = icpUSRNCRMData?.__live === true;
-                                const complete = liveLoaded
-                                  ? isICPUSRNItemComplete(item, icpUSRNCRMData)
-                                  : (savedItem?.completed === true || isICPUSRNItemComplete(item, icpUSRNCRMData));
-                                const unlocked = isICPUSRNItemUnlocked(item, index, icpUSRNCRMData);
+                                const savedItem =
+                                  nclexProgress[item.name];
+
+                                const backendItem =
+                                  deploymentFieldStatus
+                                    ?.__stageStatus
+                                    ?.[item.name];
+
+                                const complete =
+                                  isICPUSRNItemComplete(
+                                    item,
+                                    icpUSRNCRMData
+                                  ) ||
+                                  backendItem?.completed === true ||
+                                  savedItem?.completed === true;
+
+                                const laterMilestoneReached =
+                                  ICP_USRN_SUBPROCESS_CONFIG
+                                    .slice(index + 1)
+                                    .some(laterItem =>
+                                      isICPUSRNItemComplete(
+                                        laterItem,
+                                        icpUSRNCRMData
+                                      ) ||
+                                      deploymentFieldStatus
+                                        ?.__stageStatus
+                                        ?.[laterItem.name]
+                                        ?.completed === true ||
+                                      nclexProgress
+                                        ?.[laterItem.name]
+                                        ?.completed === true
+                                    );
+
+                                const unlocked =
+                                  complete ||
+                                  laterMilestoneReached ||
+                                  backendItem?.unlocked === true ||
+                                  isICPUSRNItemUnlocked(
+                                    item,
+                                    index,
+                                    icpUSRNCRMData
+                                  );
+
                                 const gate = item.performanceGate;
                                 const performance = getNCLEXPerformanceSnapshot(icpUSRNCRMData);
 

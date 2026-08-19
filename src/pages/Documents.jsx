@@ -1,3 +1,6 @@
+
+
+
 // @ts-nocheck
 import {
   useQuery,
@@ -46,6 +49,26 @@ const API_BASE = (() => {
 
 const getAuthToken = () =>
   localStorage.getItem("icp_auth_token") || "";
+
+const DEPLOYMENT_RECEIPT_TYPES = [
+  { id:"visa_screen", label:"VISA Screen" },
+  { id:"nclex_exam", label:"NCLEX Exam and Scheduling Fee" },
+  { id:"green_card", label:"Green Card" },
+  { id:"license_endorsement", label:"Licensure Application" },
+  { id:"nursys", label:"NURSYS" },
+  { id:"ces_report", label:"CES Report" },
+  { id:"english_exam", label:"English Exam" },
+  { id:"fingerprints", label:"Background / Fingerprinting" },
+  { id:"medical_exam", label:"Medical Exam" },
+  { id:"dependent_visa_fee", label:"Dependent VISA Fee Bill" },
+  { id:"dependents_after_i140", label:"Dependents Added after I-140" },
+  { id:"housing_stipend", label:"One-time Housing Stipend" },
+  { id:"housing_app_admin", label:"Housing App & Admin Fees" },
+  { id:"housing_deposit", label:"Housing Deposit" },
+  { id:"rent_move_in", label:"Rent / Move-in fees" },
+  { id:"insurance", label:"Insurance" },
+  { id:"other", label:"Other" }
+];
 
 const REQUIRED_PROFILE_DOCUMENT_TYPES = [
   { key: "candidate-passport-picture", label: "Candidate Passport Picture", section: "Profile", order: 1, defaultDestination: "crm" },
@@ -100,6 +123,8 @@ const getDocumentKey = document =>
     document.source || "unknown",
     document.crm_field_api_name || "",
     document.attachment_id ||
+      document.crm_attachment_id ||
+      document.recruit_attachment_id ||
       document.id ||
       document.document_id ||
       document.document_name
@@ -606,6 +631,11 @@ export default function Documents() {
   ] = useState(null);
 
   const [
+    selectedReceiptType,
+    setSelectedReceiptType
+  ] = useState("");
+
+  const [
     uploading,
     setUploading
   ] = useState(false);
@@ -934,6 +964,9 @@ export default function Documents() {
       setSelectedFile(
         null
       );
+      setSelectedReceiptType(
+        ""
+      );
       setShowUpload(
         false
       );
@@ -946,10 +979,15 @@ export default function Documents() {
       if (
         !selectedDepartment ||
         !selectedCategory ||
-        !selectedFile
+        !selectedFile ||
+        (
+          selectedDepartment === "Deployment" &&
+          selectedCategory === "expense-report" &&
+          !selectedReceiptType
+        )
       ) {
         toast.error(
-          "Choose a department, document type, and file."
+          "Choose a department, document type, receipt type when applicable, and file."
         );
         return;
       }
@@ -1045,6 +1083,31 @@ export default function Documents() {
         formData.append(
           "crm_field_api_name",
           category.crmFieldApiName
+        );
+      }
+
+      if (
+        selectedDepartment === "Deployment" &&
+        selectedCategory === "expense-report"
+      ) {
+        const receipt =
+          DEPLOYMENT_RECEIPT_TYPES.find(
+            item =>
+              item.id === selectedReceiptType
+          );
+
+        formData.append(
+          "receipt_category",
+          selectedReceiptType
+        );
+        formData.append(
+          "receipt_category_label",
+          receipt?.label ||
+          selectedReceiptType
+        );
+        formData.append(
+          "library_category",
+          "expense-report"
         );
       }
 
@@ -1315,6 +1378,9 @@ export default function Documents() {
                     setSelectedCategory(
                       ""
                     );
+                    setSelectedReceiptType(
+                      ""
+                    );
                   }
                 }
                 className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
@@ -1358,10 +1424,14 @@ export default function Documents() {
                   selectedCategory
                 }
                 onChange={
-                  event =>
+                  event => {
                     setSelectedCategory(
                       event.target.value
-                    )
+                    );
+                    setSelectedReceiptType(
+                      ""
+                    );
+                  }
                 }
                 disabled={
                   !selectedDepartment
@@ -1388,6 +1458,39 @@ export default function Documents() {
                 )}
               </select>
             </div>
+
+            {selectedDepartment === "Deployment" &&
+              selectedCategory === "expense-report" && (
+                <div>
+                  <label className="text-sm font-medium">
+                    Receipt Type
+                  </label>
+                  <select
+                    value={selectedReceiptType}
+                    onChange={event =>
+                      setSelectedReceiptType(
+                        event.target.value
+                      )
+                    }
+                    className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
+                    required
+                  >
+                    <option value="">
+                      Select receipt type
+                    </option>
+                    {DEPLOYMENT_RECEIPT_TYPES.map(
+                      receipt => (
+                        <option
+                          key={receipt.id}
+                          value={receipt.id}
+                        >
+                          {receipt.label}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </div>
+              )}
 
             <div>
               <label className="text-sm font-medium">

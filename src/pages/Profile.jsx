@@ -1,6 +1,9 @@
 
 
 
+
+
+
 // @ts-nocheck
 import { useAuth } from "@/lib/AuthContext";
 import { User, Phone, Mail, MapPin, Briefcase, Plane, Building2, UserCheck, Calendar, Award, FileText, FileCheck, Clock, Shield, CheckCircle, AlertCircle, Building, Loader2, Users, CalendarDays } from "lucide-react";
@@ -115,6 +118,7 @@ export default function Profile() {
     dependants: [],
     travelSummary: {}
   });
+  const [embassyEligibilityStatus, setEmbassyEligibilityStatus] = useState("");
 
   // Fetch profile data from Zoho API
   useEffect(() => {
@@ -271,11 +275,115 @@ export default function Profile() {
 
     loadExtendedProfile();
 
-    const refresh = () => loadExtendedProfile();
-    window.addEventListener("candidate-data-updated", refresh);
+    const refresh = () =>
+      loadExtendedProfile();
 
-    return () =>
-      window.removeEventListener("candidate-data-updated", refresh);
+    window.addEventListener(
+      "candidate-data-updated",
+      refresh
+    );
+
+    const interval =
+      window.setInterval(
+        loadExtendedProfile,
+        10000
+      );
+
+    return () => {
+      window.removeEventListener(
+        "candidate-data-updated",
+        refresh
+      );
+      window.clearInterval(
+        interval
+      );
+    };
+  }, [user?.email]);
+
+  useEffect(() => {
+    const loadEligibility = async () => {
+      if (!user?.email) return;
+
+      const token =
+        localStorage.getItem(
+          "icp_auth_token"
+        );
+
+      if (!token) return;
+
+      try {
+        const response =
+          await fetch(
+            `${API_BASE}/api/profile/source-data?refresh=true&_=${Date.now()}`,
+            {
+              cache:"no-store",
+              headers:{
+                Authorization:`Bearer ${token}`
+              }
+            }
+          );
+
+        const data =
+          await response
+            .json()
+            .catch(() => ({}));
+
+        const raw =
+          data?.mapped?.State_Licensure_Requirements ??
+          data?.mapped?.Deployment_Eligibility ??
+          data?.modules?.CRM_Deals?.State_Licensure_Requirements ??
+          "";
+
+        const formatEligibility =
+          value => {
+            if (
+              value === null ||
+              value === undefined ||
+              value === ""
+            ) {
+              return "";
+            }
+
+            if (Array.isArray(value)) {
+              return value
+                .map(formatEligibility)
+                .filter(Boolean)
+                .join(", ");
+            }
+
+            if (
+              typeof value === "object"
+            ) {
+              return formatEligibility(
+                value.value ??
+                value.name ??
+                value.label ??
+                value.display_value ??
+                value.displayValue ??
+                ""
+              );
+            }
+
+            return String(value).trim();
+          };
+
+        const value =
+          formatEligibility(raw);
+
+        if (value) {
+          setEmbassyEligibilityStatus(
+            value
+          );
+        }
+      } catch (error) {
+        console.warn(
+          "[Profile] Embassy eligibility fallback unavailable:",
+          error?.message || error
+        );
+      }
+    };
+
+    loadEligibility();
   }, [user?.email]);
 
   // Show loading state
@@ -595,7 +703,14 @@ export default function Profile() {
               />
               <InfoRow
                 label="Embassy Eligibility Status"
-                value={getFirstValue("State_Licensure_Requirements","embassyEligibilityStatus","Deployment_Eligibility")}
+                value={
+                  embassyEligibilityStatus ||
+                  getFirstValue(
+                    "State_Licensure_Requirements",
+                    "embassyEligibilityStatus",
+                    "Deployment_Eligibility"
+                  )
+                }
                 icon={UserCheck}
                 alwaysVisible
               />

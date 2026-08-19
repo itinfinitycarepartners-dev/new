@@ -4,6 +4,9 @@
 
 
 
+
+
+
 // @ts-nocheck
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
@@ -980,15 +983,30 @@ export default function Dashboard() {
   const dashboardApplicationStatus=String(
     pipeline.applicationStatus||
     pipeline.application_status||
+    pipeline.hiringState?.applicationStatus||
     profile.applicationStatus||
     profile.Application_Status||
     ""
   ).trim().toLowerCase().replace(/[–—]/g,"-").replace(/\s*-\s*/g,"-").replace(/\s+/g," ");
   const isQualifiedCandidatePool=["qualified-candidate pool","qualified candidate pool"].includes(dashboardApplicationStatus);
+  const isNotQualifiedToClose=[
+    "not qualified-to close",
+    "not qualified - to close",
+    "not qualified to close",
+    "unqualified"
+  ].includes(dashboardApplicationStatus);
+  const dashboardAccessPolicy=
+    pipeline.accessPolicy||
+    {mode:"normal",restricted:false,locked:false,message:""};
   const rawActiveStage=isQualifiedCandidatePool
     ? visiblePipelineStages.find(stage=>stage?.stage_name==="Qualified Candidate Pool")||{stage_name:"Qualified Candidate Pool",stage_category:"Hiring",stage_order:5,status:"In Progress"}
-    : pipeline.currentStage||null;
-  const rawPendingNextStage=isQualifiedCandidatePool?null:(pipeline.nextStage||null);
+    : isNotQualifiedToClose
+      ? visiblePipelineStages.find(stage=>stage?.stage_name==="Not Qualified - to close")||{stage_name:"Not Qualified - to close",stage_category:"Hiring",stage_order:3,status:"In Progress"}
+      : pipeline.currentStage||null;
+  const rawPendingNextStage=
+    (isQualifiedCandidatePool||isNotQualifiedToClose)
+      ? null
+      : (pipeline.nextStage||null);
 
   const progressedPastQualification = (() => {
     const stages = visiblePipelineStages;

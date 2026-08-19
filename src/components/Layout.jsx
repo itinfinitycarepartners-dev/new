@@ -352,7 +352,64 @@ export default function Layout() {
             const active = location.pathname === item.path;
             const isMessages = item.path === "/messages";
             
-            return (
+          
+  useEffect(() => {
+    if (!user?.email) return;
+
+    let cancelled = false;
+    let timer = null;
+
+    const enforceAccess = async () => {
+      try {
+        const authToken = tokenStorage.get();
+        if (!authToken) return;
+
+        const response = await fetch(
+          `${API_BASE}/api/pipeline/field-status?refresh=false&_=${Date.now()}`,
+          {
+            cache:"no-store",
+            headers:{
+              Authorization:`Bearer ${authToken}`
+            }
+          }
+        );
+
+        const data = await response.json().catch(() => ({}));
+        if (
+          cancelled ||
+          !response.ok ||
+          data.success !== true
+        ) {
+          return;
+        }
+
+        const policy = data.accessPolicy || {};
+        if (
+          policy.mode === "not-qualified" &&
+          policy.locked === true
+        ) {
+          sessionStorage.setItem(
+            "candidate-access-message",
+            policy.message ||
+            "You are currently not qualified to continue."
+          );
+          await logout();
+          navigate("/login");
+        }
+      } catch {
+      }
+    };
+
+    enforceAccess();
+    timer = window.setInterval(enforceAccess, 30000);
+
+    return () => {
+      cancelled = true;
+      if (timer) window.clearInterval(timer);
+    };
+  }, [user?.email, logout, navigate]);
+
+  return (
               <Link
                 key={item.path}
                 to={item.path}
