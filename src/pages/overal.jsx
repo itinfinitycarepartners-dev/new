@@ -20,6 +20,24 @@ const THEME = {
   border: '#ede9f0', text: '#1a1025', muted: '#7c6f85', subtle: '#c4b8cc',
 };
 
+const DOCUMENT_REJECTION_REASONS = [
+  {
+    value: "Expired",
+    label: "Expired",
+    description: "The document that you have provided has either expired or is set to expire outside of the processing window"
+  },
+  {
+    value: "Not applicable",
+    label: "Not applicable",
+    description: "The document that you have provided does not apply to the document requested"
+  },
+  {
+    value: "Inconclusive",
+    label: "Inconclusive",
+    description: "The document that you have provided does not provide sufficient evidence to determine the documents viability (signature, date, etc.)"
+  }
+];
+
 // ─── PIPELINE CONFIG ─────────────────────────────────────────────────────────
 const STAGES_CONFIG = [
   { id: 1, stage_name: "Applied", category: "Hiring" },
@@ -196,6 +214,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   const [docActionError, setDocActionError] = useState(null);
   const [viewingDocId, setViewingDocId] = useState(null);
   const [approvalBusyKey, setApprovalBusyKey] = useState(null);
+  const [rejectingDocument, setRejectingDocument] = useState(null);
+  const [rejectionReason, setRejectionReason] = useState("");
 
   useEffect(() => {
     if (!user) return;
@@ -388,7 +408,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
   const updateDocumentApproval = async (
     doc,
-    action
+    action,
+    selectedReason = ""
   ) => {
     const approvalKey =
       doc.approval_key ||
@@ -408,12 +429,13 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       return;
     }
 
-    const reason =
-      action === "reject"
-        ? window.prompt(
-            "Reason for rejecting this document:"
-          ) || ""
-        : "";
+    if (action === "reject" && !selectedReason) {
+      setRejectingDocument(doc);
+      setRejectionReason("");
+      return;
+    }
+
+    const reason = action === "reject" ? selectedReason : "";
 
     if (
       action === "reject" &&
@@ -518,6 +540,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
             : item;
         })
       );
+      setRejectingDocument(null);
+      setRejectionReason("");
     } catch (error) {
       setDocActionError(
         error.message ||
@@ -547,6 +571,49 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+      {rejectingDocument && (
+        <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl">
+            <h2 className="text-lg font-bold text-gray-900">Reject document</h2>
+            <p className="mt-2 text-sm text-gray-600">
+              Select the reason that should be sent to the candidate.
+            </p>
+            <label className="mt-5 block text-sm font-semibold text-gray-900" htmlFor="document-rejection-reason">
+              Reason for rejection
+            </label>
+            <select
+              id="document-rejection-reason"
+              value={rejectionReason}
+              onChange={event => setRejectionReason(event.target.value)}
+              className="mt-2 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900"
+            >
+              <option value="">Select a reason</option>
+              {DOCUMENT_REJECTION_REASONS.map(reason => (
+                <option key={reason.value} value={`${reason.label} - ${reason.description}`}>
+                  {reason.label} - {reason.description}
+                </option>
+              ))}
+            </select>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => { setRejectingDocument(null); setRejectionReason(""); }}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!rejectionReason}
+                onClick={() => updateDocumentApproval(rejectingDocument, "reject", rejectionReason)}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                Reject document
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="bg-gray-50 rounded-2xl max-w-5xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
         
         {/* HEADER */}

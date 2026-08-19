@@ -8342,8 +8342,7 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
     anticipatedLastDay: "", departureCity: "", wheelchair: "No", checkedBags: "0",
     carryOn: "0", boxes: "0", pets: "No", travelCash: "", carSeats: "No",
     phoneModelCarrier: "", simUnlocked: "", drivingPlan: "", carPurchasePlan: "",
-    foundationsCompleted: "", spouseEmployment: "", relocationPolicyAccepted: false,
-    relocationSignature: "",
+    foundationsCompleted: "", spouseEmployment: "",
     photoReleaseAccepted: false,
     photoReleaseSignature: "",
     dependents: [{
@@ -8416,7 +8415,6 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
     "carPurchasePlan",
     "foundationsCompleted",
     "spouseEmployment",
-    "relocationSignature",
     "photoReleaseSignature"
   ];
 
@@ -8528,7 +8526,6 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
     allRLFieldsComplete &&
     allRLDocumentsAttached &&
     rlDependentsValidation.valid &&
-    form.relocationPolicyAccepted === true &&
     form.photoReleaseAccepted === true;
 
   const handleSubmit = async () => {
@@ -8561,7 +8558,7 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
         return;
       }
 
-      toast.error("Read both policy documents and provide both signatures.");
+      toast.error("Read the photo and video release and provide its signature.");
       return;
     }
     setSubmitting(true);
@@ -8617,23 +8614,6 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
     } catch (error) { toast.error(error.message || "Unable to submit the R&L form"); }
     finally { setSubmitting(false); }
   };
-
-  if (activePolicyDocument === "relocation") {
-    return (
-      <RLPolicyDocumentViewer
-        title="Relocation Travel Policy"
-        description="ICP Travel and Housing Policy 2025"
-        documentType="relocation"
-        alreadyRead={form.relocationPolicyAccepted === true}
-        onBack={() => setActivePolicyDocument(null)}
-        onMarkRead={() => {
-          setField("relocationPolicyAccepted", true);
-          setActivePolicyDocument(null);
-          toast.success("Relocation policy marked as read.");
-        }}
-      />
-    );
-  }
 
   if (activePolicyDocument === "photoRelease") {
     return (
@@ -8724,38 +8704,6 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
 
     <section className="rounded-xl border bg-white p-5 space-y-5">
       <h4 className="font-bold">Policies and signatures</h4>
-
-      <div className="rounded-lg border p-4">
-        <p className="font-semibold">Relocation Travel Policy</p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Read the policy and sign below.
-        </p>
-        <button
-          type="button"
-          onClick={() => setActivePolicyDocument("relocation")}
-          className="mt-3 text-sm font-semibold text-purple-700 hover:underline"
-        >
-          {form.relocationPolicyAccepted
-            ? "View Relocation Policy Again"
-            : "Read the Candidate Relocation Travel Policy"}
-        </button>
-        {form.relocationPolicyAccepted && (
-          <p className="mt-2 flex items-center gap-1 text-xs font-semibold text-emerald-600">
-            <CheckCircle2 className="h-4 w-4" />
-            Document read
-          </p>
-        )}
-        <label className="mt-4 flex gap-3">
-          <input
-            type="checkbox"
-            checked={form.relocationPolicyAccepted}
-            disabled
-            readOnly
-          />
-          <span className="text-sm">I have read and agree to the relocation policy.</span>
-        </label>
-        <RLFormInput label="Signature for Relocation Policy" field="relocationSignature" required value={form.relocationSignature} onChange={setField} />
-      </div>
 
       <div className="rounded-lg border p-4">
         <p className="font-semibold">Video and Photo Release</p>

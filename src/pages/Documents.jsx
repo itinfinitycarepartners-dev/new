@@ -1181,7 +1181,18 @@ export default function Documents() {
                     ).toLocaleDateString()}
                   </span>
                 )}
+                {document.approval_status === "rejected" && (
+                  <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 font-medium text-red-700">
+                    Rejected
+                  </span>
+                )}
               </div>
+
+              {document.approval_status === "rejected" && document.rejection_reason && (
+                <p className="mt-2 text-xs text-red-700">
+                  Reason: {document.rejection_reason}
+                </p>
+              )}
             </div>
           </div>
 
@@ -1489,6 +1500,12 @@ export default function Documents() {
       ) > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           {Number(documentData.pending_count)} document{Number(documentData.pending_count) === 1 ? " is" : "s are"} awaiting administrator approval.
+        </div>
+      )}
+
+      {Number(documentData?.rejected_count || 0) > 0 && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          {Number(documentData.rejected_count)} document{Number(documentData.rejected_count) === 1 ? " has" : "s have"} been rejected. Review the reason below and upload a replacement.
         </div>
       )}
 
