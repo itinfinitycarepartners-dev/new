@@ -88,7 +88,7 @@ const API_BASE =
   "https://fictional-carnival-3inv.onrender.com";
 
 const PRESCREEN_BOOKING_URL =
-  "https://outlook.office.com/book/Prescreen@Infinitycarepartners.com/?ismsaljsauthenabledBookings";
+  "https://outlook.office.com/book/Prescreen@Infinitycarepartners.com/?ismsaljsauthenabled";
 
 // Bank details are protected twice in transit:
 // 1) HTTPS/TLS for the request itself.
@@ -182,46 +182,6 @@ const ga = (data, ...fieldNames) => {
   return null;
 };
 
-
-
-const normalizePortalDateInput = value => {
-  const digits = String(value || "")
-    .replace(/\D/g, "")
-    .slice(0, 6);
-
-  if (digits.length <= 2) return digits;
-  if (digits.length <= 4) {
-    return `${digits.slice(0, 2)}/${digits.slice(2)}`;
-  }
-
-  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 6)}`;
-};
-
-const parsePortalDate = value => {
-  const raw = String(value || "").trim();
-  const match = raw.match(/^(\d{2})\/(\d{2})\/(\d{2})$/);
-
-  if (!match) return null;
-
-  const month = Number(match[1]);
-  const day = Number(match[2]);
-  const year = 2000 + Number(match[3]);
-
-  const parsed = new Date(year, month - 1, day);
-
-  if (
-    parsed.getFullYear() !== year ||
-    parsed.getMonth() !== month - 1 ||
-    parsed.getDate() !== day
-  ) {
-    return null;
-  }
-
-  return parsed;
-};
-
-const isValidPortalDate = value =>
-  parsePortalDate(value) instanceof Date;
 
 const getLocalDateKey = (
   date = new Date()
@@ -421,8 +381,7 @@ const STAGES_CONFIG = [
   { id: 28, stage_name: "Foundations: Cultural Readiness", stage_category: "Immigration", stage_order: 28, days_from_start: 600 },
   { id: 29, stage_name: "Documentarily Qualified", stage_category: "Immigration", stage_order: 29, days_from_start: 840 },
 
-  // Stage 3 — Deployment. Introduction to Deployment Call is the first step.
-  { id: 29.5, stage_name: "Introduction to Deployment Call", stage_category: "Deployment", stage_order: 29.5, days_from_start: 890 },
+  // Stage 3 — Deployment: EXACTLY 11 candidate-visible stages.
   { id: 30, stage_name: "Speciality Classes", stage_category: "Deployment", stage_order: 30, days_from_start: 900 },
   { id: 31, stage_name: "Final Self Assessment", stage_category: "Deployment", stage_order: 31, days_from_start: 910 },
   { id: 32, stage_name: "Speciality with Trainer Skills Check", stage_category: "Deployment", stage_order: 32, days_from_start: 920 },
@@ -435,13 +394,13 @@ const STAGES_CONFIG = [
   { id: 39, stage_name: "Receipt Submission", stage_category: "Deployment", stage_order: 39, days_from_start: 990 },
   { id: 40, stage_name: "Arrived", stage_category: "Deployment", stage_order: 40, days_from_start: 1000 },
 
-  // Stage 4 — Aftercare: EXACTLY 8 stages.
+  // Stage 4 — Aftercare: EXACTLY 8 candidate-visible stages.
   { id: 41, stage_name: "Welcome Call/24 Hour Call", stage_category: "Aftercare", stage_order: 41, days_from_arrival: 1 },
   { id: 42, stage_name: "Relocation Survey", stage_category: "Aftercare", stage_order: 42, days_from_arrival: 2 },
-  { id: 43, stage_name: "Concierge Debrief", stage_category: "Aftercare", stage_order: 43, days_from_arrival: 3, internal_only: true, hidden_from_candidate: true, candidate_read_only: true },
-  { id: 44, stage_name: "7 Day Call", stage_category: "Aftercare", stage_order: 44, days_from_arrival: 7 },
-  { id: 45, stage_name: "2 Week Call", stage_category: "Aftercare", stage_order: 45, days_from_arrival: 14 },
-  { id: 46, stage_name: "U.S. Integration Call (30 Day Call / Survey)", stage_category: "Aftercare", stage_order: 46, days_from_arrival: 30 },
+  { id: 43, stage_name: "7 Day Call", stage_category: "Aftercare", stage_order: 43, days_from_arrival: 7 },
+  { id: 44, stage_name: "2 Week Call", stage_category: "Aftercare", stage_order: 44, days_from_arrival: 14 },
+  { id: 45, stage_name: "U.S. Integration Call (30 Day Call / Survey)", stage_category: "Aftercare", stage_order: 45, days_from_arrival: 30 },
+  { id: 46, stage_name: "Workplace Integration Call (60 Day Call)", stage_category: "Aftercare", stage_order: 46, days_from_arrival: 60 },
   { id: 47, stage_name: "Placement Stability Check-in (90 Day Call)", stage_category: "Aftercare", stage_order: 47, days_from_arrival: 90 },
   { id: 48, stage_name: "1 Year Survey", stage_category: "Aftercare", stage_order: 48, days_from_arrival: 365 }
 ];
@@ -457,7 +416,7 @@ const REQUIRED_STAGE_NOTICES = {
   "deployMate Ready": "Complete the deployMate readiness requirements.",
   "Arrival Itinerary": "Review your arrival itinerary and relocation information.",
   "Receipt Submission": "Submit the receipts required for reimbursement processing.",
-  "Arrived": "Arrival confirmed. Continue to Aftercare.",
+  "Arrived": "Arrival confirmed. Continue to Aftercare."
 };
 
 // Use the CURRENT pipeline configuration as the authoritative visible order.
@@ -1250,8 +1209,8 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
   {
     name: "Pipeline Start",
     days: 0,
-    field: "Date_Received",
-    type: "present"
+    field: "Application_Status",
+    type: "transfer"
   },
   {
     name: "Complete Pre-assessment",
@@ -1302,6 +1261,17 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
     ]
   },
   {
+    name: "Credential Evaluation",
+    days: 77,
+    field: "Credentialing_Status",
+    type: "picklist",
+    accepted: [
+      "Completed",
+      "Complete",
+      "Evaluation Completed"
+    ]
+  },
+  {
     name: "Credential Evaluation Completed",
     days: 92,
     field: "Credential_Registration_Date",
@@ -1327,13 +1297,6 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
     accepted: ["Paid by ICP", "Sponsored by ICP", "To be Sponsored by Infinity", "Paid by Infinity"]
   },
   {
-    name: "Select Meeting Time",
-    days: 120,
-    type: "booking",
-    nonCounted: true,
-    bookingType: "prescreen"
-  },
-  {
     name: "Performance Check 2",
     days: 120,
     type: "performance",
@@ -1348,9 +1311,8 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
   {
     name: "Pearson Vue Registration",
     days: 150,
-    field: "Pearson_Vue_Status",
-    type: "picklist",
-    accepted: ["Complete"]
+    field: "Completed_BON_Requirements",
+    type: "complete"
   },
   {
     name: "Performance Check 3",
@@ -1422,7 +1384,6 @@ const isNCLEXPerformanceGateSatisfied = (gate, data = {}) => {
 
 const isICPUSRNItemComplete = (item, data = {}) => {
   if (!item || item.type === "navigation") return false;
-  if (item.type === "booking" && item.nonCounted === true) return false;
   if (item.type === "performance") {
     return isNCLEXPerformanceGateSatisfied(item.performanceGate, data);
   }
@@ -1435,6 +1396,9 @@ const isICPUSRNItemComplete = (item, data = {}) => {
     item.field.charAt(0).toLowerCase() + item.field.slice(1)
   );
 
+  if (item.type === "transfer") {
+    return normalizeCRMValue(value) === "transfer to icp usrn school";
+  }
   if (item.type === "present") return hasCRMValue(value);
   if (item.type === "boolean") return isTruthyField(value);
   if (item.type === "complete") {
@@ -1500,20 +1464,6 @@ const isICPUSRNItemUnlocked = (item, index, data = {}) => {
   // Only the first stage after the furthest source-reached point follows the
   // ordinary sequential rule.
   const previousItem = ICP_USRN_SUBPROCESS_CONFIG[index - 1];
-
-  if (
-    previousItem?.type === "booking" &&
-    previousItem?.nonCounted === true
-  ) {
-    const beforeBooking =
-      ICP_USRN_SUBPROCESS_CONFIG[Math.max(0, index - 2)];
-
-    return (
-      !beforeBooking ||
-      isICPUSRNItemComplete(beforeBooking, data)
-    );
-  }
-
   return isICPUSRNItemComplete(previousItem, data);
 };
 
@@ -1594,6 +1544,14 @@ const NCLEX_STAGE_DETAILS = {
       "CGFNS account creation (2 weeks)",
       "Submit transcripts and documents",
       "Payment of evaluation fees"
+    ]
+  },
+  "Removed Credential Evaluation": {
+    description: "Credential evaluation in progress.",
+    steps: [
+      "Document verification by evaluator",
+      "Primary source verification",
+      "Evaluation processing"
     ]
   },
   "Credential Evaluation Completed": {
@@ -1809,7 +1767,6 @@ const PIPELINE_STAGE_COMMENTS = {
   "DS-260 / Civil Document Submission": "Complete your DS-260 and submit any remaining civil documents through the required process.",
   "Foundations: Cultural Readiness": "These foundations courses provide critical cultural insight that will prepare you in your transition to the United States.",
   "Documentarily Qualified": "The NVC has determined and marked your case complete and ready for embassy interview scheduling.",
-  "Introduction to Deployment Call": "Your Stage 3 introduction call starts the Deployment phase.",
   "Final Self Assessment": "The final skills assessment is a personal assessment of your nursing skills.",
   "Speciality with Trainer Skills Check": "Department-specific academic preparation courses designed to assess and equip you with the knowledge and expectations of your future clinical role in the United States. These courses will be tailored to your nursing specialty. At the conclusion, a member of the ICP academic team will evaluate your knowledge in a one-on-one oral assessment.",
   "Deployment Pre-Arrival Call": "The Deployment Call covers all things pre and post arrival.",
@@ -1824,6 +1781,7 @@ const PIPELINE_STAGE_COMMENTS = {
   "Relocation Survey": "This is your relocation experience tell all! Let us know how we did and what we can do to improve the experience of those arriving after you.",
   "U.S. Integration Call (30 Day Call / Survey)": "Our aftercare department will contact you 30 days after your arrival. Be ready to share your orientation start date, end date and how and what you have been doing professionally and personally to integrate into your new communities. This is an open line of communication so feel free to discuss whatever you would like to discuss; we want to know how you are doing!",
   "Concierge Debrief": "This is internal and applies not to the candidate pipeline.",
+  "Workplace Integration Call (60 Day Call)": "Like the 30 day call only now with an extra 30 days to discuss and explore your experiences. Let us know how you are doing and confirm your current work status.",
   "Placement Stability Check-in (90 Day Call)": "This call serves as a 90-day placement milestone check-in to confirm that you have successfully transitioned into independent practice at your facility. As a staffing partner, not the employer, we use this conversation to verify completion of the initial integration period, ensure you feel stable and supported in your role, and document that contractual readiness requirements have been met ensuring long-term success."
 };
 
@@ -1844,7 +1802,7 @@ const CLICKABLE_STAGES = {
   "Hired": { clickable: true, type: "upload", uploadType: "hired", destination: "recruit" },
 
   // Current Immigration flow
-  "Immigration forms submitted": { clickable: false, type: "field" },
+  "Immigration forms submitted": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
   "Request for further evidence": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
   "Foundations: Pillars": {
     label: "Foundations: Pillars",
@@ -1856,7 +1814,8 @@ const CLICKABLE_STAGES = {
       "Pillar_5_Patient_Centered_Care"
     ],
     complete: value =>
-      String(unwrapPipelineFieldValue(value) || "").trim().toLowerCase() === "completed"
+      Object.keys(value || {}).length === 5 &&
+      Object.values(value || {}).every(isCRMChecklistComplete)
   },
   "Foundations: Endorsement Discovery": {
     label: "Foundations: Endorsement Discovery",
@@ -1884,40 +1843,39 @@ const CLICKABLE_STAGES = {
       Object.keys(value || {}).length === 5 &&
       Object.values(value || {}).every(isCRMChecklistComplete)
   },
-  "Immigration approved": { clickable: false, type: "field" },
-  "Visa bill issued": { clickable: false, type: "field" },
-  "Visa bill paid": { clickable: false, type: "field" },
-  "DS-260 / Civil Document Submission": { clickable: false, type: "field" },
+  "Immigration approved": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+  "Visa bill issued": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+  "Visa bill paid": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+  "DS-260 / Civil Document Submission": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
   "Foundations: Cultural Readiness": { clickable: true, type: "view", viewType: "culturalReadiness" },
-  "Documentarily Qualified": { clickable: false, type: "field" },
+  "Documentarily Qualified": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
   "Add/Remove Dependents": { clickable: true, type: "navigate", navigateTo: "/profile" },
   "Change Embassy Location": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
 
   // Current Deployment flow
   "Introduction to Deployment Call": { clickable: true, type: "view", viewType: "introductionDeployment" },
-  "Introduction to Deployment Call": { clickable: false, type: "field" },
-  "Speciality Classes": { clickable: false, type: "field" },
-  "Final Self Assessment": { clickable: false, type: "field" },
+  "Speciality Classes": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
+  "Final Self Assessment": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
   "Speciality w/Trainer Skills Check": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
   "Deployment Eligible / Not Eligible": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
-  "Deployment Pre-Arrival Call": { clickable: false, type: "field" },
-  "Housing / Transportation Call": { clickable: false, type: "field" },
-  "Pre-Arrival Banking Call": { clickable: false, type: "field" },
+  "Deployment Pre-Arrival Call": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
+  "Housing / Transportation Call": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
+  "Pre-Arrival Banking Call": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
   "Mandatory Petitioner / Employer Call": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
   "deployMate Ready": { clickable: true, type: "view", viewType: "downloadApp" },
   "Arrival Itinerary": { clickable: true, type: "view", viewType: "welcomePacket" },
   "Receipt Submission": { clickable: true, type: "view", viewType: "reimbursement" },
-  "Arrived": { clickable: false, type: "field" },
+  "Arrived": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
 
   // Current Aftercare links
-  "1 Year Survey": { clickable: true, type: "view", viewType: "oneYearSurvey" },
+  "1 Year Survey": { clickable: true, type: "external", url: "https://survey.zohopublic.com/zs/kJCsR0" },
 
   // Visible Immigration / Deployment flow
-  "Immigration forms submitted": { clickable: false, type: "field" },
+  "Immigration forms submitted": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
   "Request for further evidence": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
-  "Immigration approved": { clickable: false, type: "field" },
-  "Visa bill issued": { clickable: false, type: "field" },
-  "Visa bill paid": { clickable: false, type: "field" },
+  "Immigration approved": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+  "Visa bill issued": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
+  "Visa bill paid": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
   "Visa application & Civil docs submitted": { clickable: true, type: "navigate", navigateTo: "/documents" },
   "Documentarily qualified": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
   "Introduction to Deployment": { clickable: true, type: "view", viewType: "introductionDeployment" },
@@ -1986,23 +1944,19 @@ const CLICKABLE_STAGES = {
   "Submit Post-Arrival Documents": { clickable: true, type: "upload", uploadType: "postArrivalDocs" },
 
   // Aftercare stages
-  "Welcome Call/24 Hour Call": { clickable: false, type: "field" },
+  "Welcome Call/24 Hour Call": { clickable: true, type: "view", viewType: "aftercareCall" },
   "Relocation Survey": { clickable: true, type: "view", viewType: "relocationSurvey" },
-  "Concierge Debrief": { clickable: false, type: "field", internal_only: true },
+  "Concierge Debrief": { clickable: true, type: "view", viewType: "aftercareCall" },
   "U.S. Integration Call (30 Day Call / Survey)": { clickable: true, type: "view", viewType: "thirtyDaySurvey" },
-  "Placement Stability Check-in (90 Day Call)": { clickable: true, type: "view", viewType: "ninetyDaySurvey" },
+  "Workplace Integration Call (60 Day Call)": { clickable: true, type: "view", viewType: "aftercareCall" },
+  "Placement Stability Check-in (90 Day Call)": { clickable: true, type: "view", viewType: "aftercareCall" },
   // Legacy action aliases
   "24 Hour Call": { clickable: true, type: "view", viewType: "aftercareCall" },
-  "Concierge Debrief": {
-    label: "Concierge Debrief",
-    field: "Concierge_Debrief",
-    complete: value => isCurrentOrPastDate(value)
-  },
-  "7 Day Call": { clickable: false, type: "field" },
-  "2 Week Call": { clickable: false, type: "field" },
+  "7 Day Call": { clickable: true, type: "view", viewType: "aftercareCall" },
+  "2 Week Call": { clickable: true, type: "view", viewType: "aftercareCall" },
   "30 Day Survey": { clickable: true, type: "view", viewType: "thirtyDaySurvey" },
   "90 Day Exit Call": { clickable: true, type: "view", viewType: "ninetyDaySurvey" },
-  "1 Year Survey": { clickable: true, type: "view", viewType: "oneYearSurvey" },
+  "1 Year Survey": { clickable: true, type: "view", viewType: "aftercareCall" },
 
   // Stage 5 - Reimbursement/Expenses
   "Reimbursement/Expenses": { clickable: true, type: "view", viewType: "reimbursementExpenses" },
@@ -2136,46 +2090,8 @@ const updateStageStatus = async (userEmail, stageName, setStages, nextStatus = "
 };
 
 // ============= Sequential unlock helpers =============
-
-const deployMateCompletionKey = email =>
-  `icp_deploymate_completed:${String(email || "")
-    .trim()
-    .toLowerCase()}`;
-
-const hasDeployMateStickyCompletion = email => {
-  try {
-    return (
-      localStorage.getItem(
-        deployMateCompletionKey(email)
-      ) === "1"
-    );
-  } catch {
-    return false;
-  }
-};
-
-const setDeployMateStickyCompletion = email => {
-  try {
-    localStorage.setItem(
-      deployMateCompletionKey(email),
-      "1"
-    );
-  } catch {}
-};
-
 const isPipelineStageComplete = (candidate) => {
   if (!candidate) return false;
-
-  if (
-    candidate.stage_name === "deployMate Ready" &&
-    hasDeployMateStickyCompletion(
-      candidate.candidate_email ||
-      candidate.email ||
-      candidate.user_email
-    )
-  ) {
-    return true;
-  }
 
   const normalizedStatus = String(
     candidate.status ||
@@ -2452,159 +2368,94 @@ const isSamePipelineStage = (first, second) =>
     )
   );
 
-const isAuthoritativePipelineGateSatisfied = stage => {
+const isStageUnlocked = (stage, allStages) => {
   if (!stage) return false;
 
-  return (
-    isPipelineStageComplete(stage) ||
+  const sequencedStages = getSequencedMainStages(allStages);
+  const currentIndex = sequencedStages.findIndex(candidate =>
+    isSamePipelineStage(candidate, stage)
+  );
+
+  if (currentIndex < 0) {
+    return (
+      stage.non_counted_section === true ||
+      stage.conditional_section === true ||
+      isPipelineStageComplete(stage) ||
+      stage.source_trigger_unlocked === true ||
+      stage.trigger_unlocked === true ||
+      stage.unlocked === true ||
+      stage.is_unlocked === true
+    );
+  }
+
+  if (currentIndex === 0 || stage.stage_name === "Applied") {
+    return true;
+  }
+
+  const ownSourceGateOpen =
     stage.source_trigger_unlocked === true ||
     stage.trigger_unlocked === true ||
     stage.crm_unlocked === true ||
     stage.recruit_unlocked === true ||
-    stage.portal_unlocked === true ||
     stage.nclex_unlocked === true ||
-    stage.aftercare_unlocked === true ||
-    stage.gate_satisfied === true
-  );
-};
+    stage.immigration_unlocked === true ||
+    stage.deployment_unlocked === true ||
+    isPipelineStageComplete(stage);
 
-const isStageUnlocked = (
-  targetStage,
-  allStages
-) => {
-  if (!targetStage) return false;
-
-  if (
-    targetStage.stage_category === "Aftercare" &&
-    !isPipelineStageComplete(targetStage)
-  ) {
-    const target =
-      targetStage.target_date ||
-      targetStage.targetDate ||
+  // Aftercare has ONE section gate: Flight_Arrival_Time.
+  // If the arrival calendar date is today/past, Aftercare opens. Individual
+  // aftercare rows then use their target date; their CRM/survey fields still
+  // control whether the rows are crossed off.
+  if (stage.stage_category === "Aftercare") {
+    const gateValue =
+      stage.aftercare_gate_date ||
+      stage.aftercareGateDate ||
       null;
 
-    if (target) {
-      const targetTime = new Date(target).getTime();
+    const sectionOpen =
+      (stage.aftercare_unlocked === true ||
+        stage.aftercare_locked === false) &&
+      isArrivalCalendarDateTodayOrPast(
+        unwrapPipelineFieldValue(gateValue)
+      );
 
-      if (
-        Number.isFinite(targetTime) &&
-        Date.now() < targetTime
-      ) {
-        return false;
-      }
-    }
-  }
+    if (!sectionOpen) return false;
+    if (ownSourceGateOpen) return true;
 
-  if (targetStage.access_locked === true) {
-    return false;
-  }
+    const targetValue =
+      stage.target_date ||
+      stage.targetDate ||
+      null;
 
-  const hasAuthoritativeSourceGate =
-    Array.isArray(targetStage.source_trigger_fields) &&
-    targetStage.source_trigger_fields.length > 0;
+    if (!targetValue) return true;
 
-  if (
-    hasAuthoritativeSourceGate &&
-    !isAuthoritativePipelineGateSatisfied(targetStage)
-  ) {
-    return false;
-  }
-
-  // Completed source-controlled stages remain accessible only while the trigger remains met.
-  if (
-    isPipelineStageComplete(
-      targetStage
-    )
-  ) {
-    return true;
-  }
-
-  const sequence =
-    getSequencedMainStages(
-      allStages
-    );
-
-  if (!sequence.length) {
-    return true;
-  }
-
-  const targetIndex =
-    sequence.findIndex(stage =>
-      isSamePipelineStage(
-        stage,
-        targetStage
-      )
-    );
-
-  // Compatibility rows that are not part of the current visible sequence
-  // should not accidentally become permanently inaccessible.
-  if (targetIndex < 0) {
+    const targetDate = new Date(targetValue);
     return (
-      isAuthoritativePipelineGateSatisfied(
-        targetStage
-      ) ||
-      targetStage.is_locked !== true
+      Number.isNaN(targetDate.getTime()) ||
+      Date.now() >= targetDate.getTime()
     );
   }
 
-  // The first visible stage is always available.
-  if (targetIndex === 0) {
-    return true;
+  const isSourceControlled =
+    Boolean(DEPLOYMENT_CRM_STAGE_RULES?.[stage.stage_name]) ||
+    Boolean(IMMIGRATION_CRM_CHECKLISTS?.[stage.stage_name]) ||
+    stage.synced_from_custom_module_1 === true ||
+    stage.source_trigger_synced === true ||
+    stage.crm_synced === true ||
+    stage.recruit_synced === true;
+
+  // CRM/Recruit-driven stages are true current-source gates.
+  if (isSourceControlled) {
+    return ownSourceGateOpen;
   }
 
-  // Rule 1: a stage whose OWN CRM / Recruit / portal gate is already met
-  // must open immediately, even when the candidate entered in the middle.
-  if (
-    isAuthoritativePipelineGateSatisfied(
-      sequence[targetIndex]
-    )
-  ) {
-    return true;
-  }
-
-  // Rule 2: normal forward flow — completing the immediately previous stage
-  // unlocks the next stage.
   const previousStage =
-    sequence[targetIndex - 1];
+    sequencedStages[currentIndex - 1] || null;
 
-  if (
-    !hasAuthoritativeSourceGate &&
+  return Boolean(
+    previousStage &&
     isPipelineStageComplete(previousStage)
-  ) {
-    return true;
-  }
-
-  // Rule 3: deep entry. If an authoritative gate is satisfied farther down
-  // the pipeline, unlock the PATH up to that point. Earlier rows become
-  // accessible, but they DO NOT become Completed unless their own trigger
-  // is actually satisfied.
-  let furthestSatisfiedIndex =
-    -1;
-
-  sequence.forEach(
-    (stage, index) => {
-      if (
-        isAuthoritativePipelineGateSatisfied(
-          stage
-        )
-      ) {
-        furthestSatisfiedIndex =
-          Math.max(
-            furthestSatisfiedIndex,
-            index
-          );
-      }
-    }
   );
-
-  if (
-    furthestSatisfiedIndex >=
-      targetIndex
-  ) {
-    return true;
-  }
-
-  return false;
 };
 
 // Custom Modal Component
@@ -2935,7 +2786,7 @@ const ImmigrationRenewalUpload = ({
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             <input
               type="file"
-              accept=".pdf,image/*"
+              accept=".pdf"
               disabled={submitting || results[item.key]?.success}
               onChange={event => setFiles(prev => ({
                 ...prev,
@@ -3091,7 +2942,7 @@ const RecruitUpload = ({ onClose, user, title, documentLabel, multiple = false, 
           type="file" 
           className="mt-2 text-sm"
           onChange={handleFileChange}
-          accept=".pdf,image/jpeg,image/png,image/webp,image/heic,image/heif"
+          accept=".pdf"
           multiple={multiple}
           required={files.length === 0}
         />
@@ -3589,29 +3440,25 @@ const ImmigrationCRMChecklistView = ({ stageName, onClose, user, setStages, stag
       if (!token) throw new Error("Not authenticated");
 
       const response = await fetch(
-        `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(
-          user?.email || ""
-        )}&refresh=false&_=${Date.now()}`,
+        `${API_BASE}/api/pipeline/field-status?_=${Date.now()}`,
         {
           method: "GET",
           cache: "no-store",
           headers: {
-            Authorization: `Bearer ${token}`,
-            "Cache-Control": "no-cache",
-            Pragma: "no-cache"
+            Authorization:
+              `Bearer ${token}`
           }
         }
       );
 
-      const data = await response.json().catch(() => ({}));
-
       if (!response.ok) {
         throw new Error(
-          data?.error ||
-          data?.message ||
           "Failed to fetch progress from CRM"
         );
       }
+
+      const data =
+        await response.json();
 
       const userData = {
         ...(data.immigration || {})
@@ -3644,11 +3491,16 @@ const ImmigrationCRMChecklistView = ({ stageName, onClose, user, setStages, stag
         ];
 
       const allComplete =
-        items.length > 0 &&
-        items.every(
-          item =>
-            results[item.key] === true
-        );
+        typeof backendStatus
+          ?.completed === "boolean"
+          ? backendStatus.completed
+          : (
+              items.length > 0 &&
+              items.every(
+                item =>
+                  results[item.key]
+              )
+            );
 
       const completedAt =
         allComplete
@@ -3994,70 +3846,17 @@ const SurveyView = ({ title, description, surveyUrl, onClose, user, setStages, s
 
   const persistSurveySubmission = async () => {
     if (submitted || isSavingSubmission || !stageName || !user?.email) return;
-
-    const token = localStorage.getItem("icp_auth_token");
-    if (!token) {
-      toast.error("Your session has expired. Please sign in again.");
-      return;
-    }
-
     setIsSavingSubmission(true);
-
     try {
-      const response = await fetch(
-        `${API_BASE}/api/pipeline/aftercare-survey-submitted`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ stage_name: stageName })
-        }
-      );
-
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok || data.success !== true) {
-        throw new Error(data.error || "Unable to save the survey submission.");
-      }
-
+      await updateStageStatus(user.email, stageName, setStages);
       setSubmitted(true);
-
-      if (data.completed === true) {
-        setStages?.(previous =>
-          previous.map(stage =>
-            stage.stage_name === stageName
-              ? {
-                  ...stage,
-                  completed: true,
-                  is_completed: true,
-                  status: "Completed",
-                  completed_date:
-                    data.completed_date || new Date().toISOString()
-                }
-              : stage
-          )
-        );
-        toast.success(`${title} submitted and completed.`);
-      } else {
-        toast.success(
-          `${title} submitted. This stage will cross off when the matching CRM completion field is also populated.`
-        );
-      }
-
-      window.dispatchEvent(
-        new CustomEvent("pipeline-updated", {
-          detail: {
-            stageName,
-            source: "survey-submit",
-            completed: data.completed === true
-          }
-        })
-      );
+      toast.success(`${title} submitted and completed!`);
+      window.dispatchEvent(new CustomEvent("pipeline-updated", {
+        detail: { stageName, source: "survey-submit" }
+      }));
     } catch (error) {
       console.error(`[Aftercare Survey] Could not persist ${stageName}:`, error);
-      toast.error(error.message || "The survey submission could not be saved.");
+      toast.error("Your survey was submitted, but the pipeline could not be updated yet. Please keep this window open and try again.");
     } finally {
       setIsSavingSubmission(false);
     }
@@ -4166,23 +3965,9 @@ const NinetyDaySurvey = ({ onClose, user, setStages }) => (
     onClose={onClose}
     user={user}
     setStages={setStages}
-    stageName="Placement Stability Check-in (90 Day Call)"
+    stageName="90 Day Exit Call"
   />
 );
-
-
-const OneYearSurvey = ({ onClose, user, setStages }) => (
-  <SurveyView
-    title="1 Year Survey"
-    description="Please share your one-year integration feedback."
-    surveyUrl="https://survey.zohopublic.com/zs/kJCsR0"
-    onClose={onClose}
-    user={user}
-    setStages={setStages}
-    stageName="1 Year Survey"
-  />
-);
-
 
 // License Endorsement View (legacy/generic — no longer used for the Immigration
 // "License Endorsement" stage, which now uses ImmigrationCRMChecklistView.
@@ -4227,8 +4012,6 @@ const LicenseEndorsementView = ({ onClose }) => {
 };
 
 // Candidate date submission form used by the two Aftercare date stages.
-
-
 const AftercareDateSubmissionView = ({ onClose, user, setStages, stageName, title, description, fieldLabel, dateType }) => {
   const [selectedDate, setSelectedDate] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -4345,7 +4128,7 @@ const OrientationEndView = (props) => (
 
 
 
-function unwrapPipelineFieldValue(value) {
+const unwrapPipelineFieldValue = value => {
   if (value === undefined || value === null) return value;
 
   if (Array.isArray(value)) {
@@ -4374,7 +4157,7 @@ function unwrapPipelineFieldValue(value) {
   }
 
   return value;
-}
+};
 
 const hasFlowValue = value => {
   if (value === undefined || value === null || value === false) return false;
@@ -4497,16 +4280,11 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
   "Visa bill issued": {
     label: "Visa Fee Bill Stage",
     field: "Visa_Fee_Bill",
-    complete: value => {
-      const normalized = String(
+    complete: value =>
+      String(
         unwrapPipelineFieldValue(value) || ""
-      ).trim().toLowerCase();
-
-      return [
-        "received - ready to be paid",
-        "paid"
-      ].includes(normalized);
-    }
+      ).trim().toLowerCase() ===
+      "received - ready to be paid"
   },
   "Visa bill paid": {
     label: "Visa Fee Bill Stage",
@@ -4517,41 +4295,20 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
       ).trim().toLowerCase() === "paid"
   },
   "DS-260 / Civil Document Submission": {
-    label: "DS260 Stage / DS260 Civil Docs Submission Date",
-    fields: ["DS260_STATUS","DS260_Submission_Projected_Date"],
+    label: "DS260 Stage",
+    field: "DS260_STATUS",
     complete: value =>
-      String(unwrapPipelineFieldValue(value?.DS260_STATUS)||"").trim().toLowerCase()==="submitted to nvc" ||
-      isCurrentOrPastDate(value?.DS260_Submission_Projected_Date)
+      String(
+        unwrapPipelineFieldValue(value) || ""
+      ).trim().toLowerCase() === "submitted to nvc"
   },
   "Documentarily Qualified": {
-    label: "All Clear / All Clear Date",
-    fields: ["All_Clear_Documentary_Complete","All_Clear_Date"],
-    complete: value => {
-      const raw=unwrapPipelineFieldValue(value?.All_Clear_Documentary_Complete);
-      return String(raw||"").trim().toLowerCase()==="yes" || raw===true ||
-        isCRMChecklistComplete(raw) || isCurrentOrPastDate(value?.All_Clear_Date);
-    }
-  },
-  "Introduction to Deployment Call": {
-    label: "Stage 3 Intro Call",
-    field: "Stage_3_Intro_Call",
+    label: "All Clear",
+    fieldsAny: ["All_Clear_Documentary_Complete", "allClearSelection", "allClear"],
     complete: value => {
       const raw = unwrapPipelineFieldValue(value);
-      if (
-        raw === true ||
-        ["yes", "complete", "completed", "done", "attended", "pass"]
-          .includes(String(raw || "").trim().toLowerCase())
-      ) {
-        return true;
-      }
-
-      if (!raw) return false;
-
-      const parsed = new Date(raw);
-      return (
-        !Number.isNaN(parsed.getTime()) &&
-        parsed.getTime() <= Date.now()
-      );
+      const normalized = String(raw || "").trim().toLowerCase();
+      return normalized === "yes" || raw === true;
     }
   },
   "Speciality Classes": {
@@ -4607,22 +4364,24 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
     complete: isCurrentOrPastDate
   },
   "Welcome Call/24 Hour Call": {
-    label: "Candidate U.S. Welcome Text/Call",
-    field: "Candidate_U_S_Welcome_Text_Call",
-    complete: value =>
-      isCurrentOrPastDate(value) ||
-      isCRMChecklistComplete(value) ||
-      hasFlowValue(value)
+    label: "Welcome Call",
+    field: "Welcome_Call",
+    complete: isCurrentOrPastDate
   },
   "Relocation Survey": {
-    label: "Date Relocation Survey Submitted",
-    field: "Date_Relocation_Submitted",
-    complete: value => hasFlowValue(value)
+    label: "Relocation Survey",
+    field: "Relocation_Survey",
+    complete: value => isCRMChecklistComplete(value) || hasFlowValue(value)
   },
   "U.S. Integration Call (30 Day Call / Survey)": {
-    label: "New 30 Day Completed Date",
-    field: "FY25_30_Day_Survey",
-    complete: value => hasFlowValue(value)
+    label: "30 Day Call",
+    field: "Thirty_Day_Call",
+    complete: value => isCurrentOrPastDate(value) || hasFlowValue(value)
+  },
+  "Workplace Integration Call (60 Day Call)": {
+    label: "60 Day Call",
+    field: "Sixty_Day_Call",
+    complete: value => isCurrentOrPastDate(value) || hasFlowValue(value)
   },
   "7 Day Call": {
     label: "7 Day Call",
@@ -4634,14 +4393,9 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
     field: "Client_Post_Arrival_Survey_Due_90_Days",
     complete: isCurrentOrPastDate
   },
-  "Placement Stability Check-in (90 Day Call)": {
-    label: "New 90 Day Exit Call",
-    field: "FY25_90_Day_Exit_Call",
-    complete: value => hasFlowValue(value)
-  },
   "1 Year Survey": {
-    label: "1 yr Survey",
-    field: "Employment_Status_Date",
+    label: "1 Year Survey Result",
+    field: "Called_1_Yr_Results",
     complete: value => hasFlowValue(value)
   }
 };
@@ -4654,193 +4408,44 @@ const DeploymentCRMStatusView = ({
   setStages
 }) => {
   const rule = DEPLOYMENT_CRM_STAGE_RULES[stage.stage_name];
-
-  const [liveStatus, setLiveStatus] = useState(status || {});
-  const [loadingLive, setLoadingLive] = useState(true);
-  const [loadError, setLoadError] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadLiveCRM = async () => {
-      try {
-        setLoadingLive(true);
-        setLoadError("");
-
-        const token = localStorage.getItem("icp_auth_token");
-        if (!token) throw new Error("Not authenticated");
-
-        const response = await fetch(
-          `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(
-            user?.email || ""
-          )}&refresh=false&_=${Date.now()}`,
-          {
-            cache: "no-store",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Cache-Control": "no-cache",
-              Pragma: "no-cache"
-            }
-          }
-        );
-
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-          throw new Error(
-            data?.error ||
-            data?.message ||
-            "Unable to fetch CRM field."
-          );
-        }
-
-        if (cancelled) return;
-
-        const merged = {
-          ...(data.deployment || {}),
-          ...(data.immigration || {}),
-          ...(data.recruit || {})
-        };
-
-        setLiveStatus(merged);
-
-        const liveStage = data.stageStatus?.[stage.stage_name];
-        if (typeof liveStage?.completed === "boolean") {
-          setStages(previous =>
-            previous.map(item =>
-              item.stage_name === stage.stage_name
-                ? {
-                    ...item,
-                    status: liveStage.completed
-                      ? "Completed"
-                      : (liveStage.status || "Not Started"),
-                    completed: liveStage.completed,
-                    is_completed: liveStage.completed,
-                    completed_date: liveStage.completed
-                      ? (
-                          liveStage.completed_date ||
-                          item.completed_date ||
-                          new Date().toISOString()
-                        )
-                      : null,
-                    source_trigger_unlocked:
-                      liveStage.completed === true ||
-                      liveStage.unlocked === true,
-                    trigger_unlocked:
-                      liveStage.completed === true ||
-                      liveStage.unlocked === true,
-                    crm_unlocked:
-                      liveStage.completed === true ||
-                      liveStage.unlocked === true,
-                    source_trigger_synced: true,
-                    crm_synced: true
-                  }
-                : item
-            )
-          );
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setLoadError(
-            error?.message ||
-            "Unable to fetch CRM field."
-          );
-        }
-      } finally {
-        if (!cancelled) setLoadingLive(false);
-      }
-    };
-
-    loadLiveCRM();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [stage.stage_name, user?.email, setStages]);
-
   const value = rule?.fields
-    ? Object.fromEntries(
-        rule.fields.map(field => [
-          field,
-          getLivePipelineFieldValue(liveStatus, field)
-        ])
-      )
-    : getLivePipelineFieldValue(
-        liveStatus,
-        rule?.fieldsAny || rule?.field
-      );
-
+    ? Object.fromEntries(rule.fields.map(field => [field, status?.[field]]))
+    : status?.[rule?.field];
   const complete = rule?.complete?.(value) === true;
   const postArrival = rule?.allowContinue?.(value) === true;
-
-  useEffect(() => {
-    if (!complete) return;
-
-    setStages(previous =>
-      previous.map(item =>
-        item.stage_name === stage.stage_name
-          ? {
-              ...item,
-              status: "Completed",
-              completed: true,
-              is_completed: true,
-              completed_date:
-                item.completed_date ||
-                new Date().toISOString(),
-              source_trigger_unlocked: true,
-              trigger_unlocked: true,
-              crm_unlocked: true,
-              source_trigger_synced: true,
-              crm_synced: true
-            }
-          : item
-      )
-    );
-  }, [complete, stage.stage_name, setStages]);
+  const [saving, setSaving] = useState(false);
 
   const confirm = async () => {
     if (!complete && !postArrival) return;
-
     setSaving(true);
     try {
       const token = localStorage.getItem("icp_auth_token");
-      const response = await fetch(
-        `${API_BASE}/api/pipeline/acknowledge-field-stage`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            email: user?.email,
-            stage_name: stage.stage_name,
-            allow_continue: postArrival
-          })
-        }
-      );
-
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data.error || "Unable to update the stage.");
-      }
-
-      window.dispatchEvent(
-        new CustomEvent("pipeline-updated", {
-          detail: {
-            email: user?.email,
-            stage_name: stage.stage_name
-          }
+      const response = await fetch(`${API_BASE}/api/pipeline/acknowledge-field-stage`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          email: user?.email,
+          stage_name: stage.stage_name,
+          allow_continue: postArrival
         })
-      );
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Unable to update the stage.");
 
-      toast.success(
-        postArrival
-          ? "Marked to be completed after arrival."
-          : "Stage completed."
-      );
-
+      if (complete) {
+        setStages(prev => prev.map(item =>
+          item.stage_name === stage.stage_name
+            ? { ...item, status: "Completed", completed_date: data.stage?.completed_date || new Date().toISOString() }
+            : item
+        ));
+      }
+      window.dispatchEvent(new CustomEvent("pipeline-updated", {
+        detail: { email: user?.email, stage_name: stage.stage_name }
+      }));
+      toast.success(postArrival ? "Marked to be completed after arrival." : "Stage completed.");
       onClose();
     } catch (error) {
       toast.error(error.message);
@@ -4849,92 +4454,60 @@ const DeploymentCRMStatusView = ({
     }
   };
 
-  const displayValue = field => {
-    const raw = getLivePipelineFieldValue(liveStatus, field);
-    if (
-      raw === undefined ||
-      raw === null ||
-      String(raw).trim() === ""
-    ) {
-      return "Not available";
-    }
-    return String(raw);
-  };
-
   return (
     <div className="space-y-4">
-      {loadError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {loadError}
-        </div>
-      )}
-
       <div className="rounded-xl border p-4">
-        <p className="text-sm font-semibold">
-          {rule?.label || stage.stage_name}
-        </p>
-
-        {loadingLive ? (
-          <p className="mt-2 text-sm text-muted-foreground">
-            Fetching latest CRM value...
-          </p>
-        ) : rule?.fields ? (
+        <p className="text-sm font-semibold">{rule?.label || stage.stage_name}</p>
+        {rule?.fields ? (
           <div className="mt-3 space-y-2">
             {rule.fields.map(field => (
-              <div
-                key={field}
-                className="flex justify-between gap-4 text-sm"
-              >
+              <div key={field} className="flex justify-between gap-4 text-sm">
                 <span>
                   {rule?.fieldLabels?.[field] ||
                     field
                       .replace(/_/g, " ")
-                      .replace(/\b\w/g, c => c.toUpperCase())}
+                      .replace(/\b\w/g, character =>
+                        character.toUpperCase()
+                      )}
                 </span>
                 <span className="font-medium text-right">
-                  {displayValue(field)}
+                  {field ===
+                    "IELTS_Scheduled_Exam_Date_if_applicable" &&
+                  status?.[field]
+                    ? formatPacketDate(status[field])
+                    : status?.[field] || "Not available"}
                 </span>
               </div>
             ))}
           </div>
         ) : (
-          <p className="mt-2 text-sm font-medium">
-            {value === undefined ||
-            value === null ||
-            String(value).trim() === ""
-              ? "Not available"
-              : String(value)}
-          </p>
+          <p className="mt-2 text-sm font-medium">{value || "Not available"}</p>
         )}
       </div>
 
-      <div
-        className={`rounded-lg border p-3 text-sm ${
-          complete
-            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-            : "border-amber-200 bg-amber-50 text-amber-700"
-        }`}
-      >
-        {complete
-          ? "CRM criteria met. This stage is complete."
-          : "This stage is not complete yet."}
-      </div>
+      {postArrival && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
+          This item is scheduled to be done post arrival. You may continue.
+        </div>
+      )}
+      {!complete && !postArrival && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+          This stage is not complete yet.
+        </div>
+      )}
 
       <div className="flex justify-end gap-2">
-        <Button variant="outline" onClick={onClose}>
-          Close
+        <Button variant="outline" onClick={onClose}>Close</Button>
+        <Button onClick={confirm} disabled={saving || (!complete && !postArrival)}>
+          {saving ? "Saving..." : postArrival ? "Continue" : "Confirm"}
         </Button>
-        {(complete || postArrival) && (
-          <Button onClick={confirm} disabled={saving}>
-            {saving ? "Saving..." : "Continue"}
-          </Button>
-        )}
       </div>
     </div>
   );
 };
 
-const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus }) => {
+// Welcome Packet View
+const WelcomePacketView = ({ onClose, user, setStages }) => {
   const [loading, setLoading] = useState(true);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [acknowledging, setAcknowledging] = useState(false);
@@ -5496,60 +5069,23 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
       }
 
       setStages?.(prev => prev.map(stage =>
-        stage.stage_name === "Arrival Itinerary"
+        ["ICP Welcome Packet", "ICP Welcome Packet & Itinerary", "Welcome Packet"].includes(stage.stage_name)
           ? {
               ...stage,
+              stage_name: "ICP Welcome Packet",
               status: "Completed",
               completed: true,
               is_completed: true,
-              completed_date:
-                data.stage?.completed_date ||
-                data.completed_date ||
-                new Date().toISOString(),
-              acknowledged_at:
-                data.stage?.acknowledged_at ||
-                data.acknowledged_at ||
-                new Date().toISOString(),
-              source_trigger_unlocked: true,
-              trigger_unlocked: true
+              completed_date: data.stage?.completed_date || new Date().toISOString()
             }
           : stage
       ));
 
-      setDeploymentFieldStatus?.(previous => {
-        const current = previous || {};
-        return {
-          ...current,
-          __stageStatus: {
-            ...(current.__stageStatus || {}),
-            "Arrival Itinerary": {
-              ...(current.__stageStatus?.["Arrival Itinerary"] || {}),
-              evaluated: true,
-              completed: true,
-              is_completed: true,
-              status: "Completed",
-              completed_date:
-                data.stage?.completed_date ||
-                data.completed_date ||
-                new Date().toISOString(),
-              unlocked: true,
-              source_fields: ["candidate_acknowledgement"]
-            }
-          },
-          __completionMap: {
-            ...(current.__completionMap || {}),
-            "Arrival Itinerary": true
-          }
-        };
-      });
-
       window.dispatchEvent(new CustomEvent("pipeline-updated", {
         detail: {
           email: user?.email,
-          stage_name: "Arrival Itinerary",
-          status: "Completed",
-          completed: true,
-          source: "candidate_acknowledgement"
+          stage_name: "ICP Welcome Packet",
+          status: "Completed"
         }
       }));
 
@@ -6058,7 +5594,8 @@ const DeploymateDownloadView = ({
   user,
   setStages
 }) => {
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] =
+    useState(false);
 
   const options = [
     {
@@ -6076,38 +5613,7 @@ const DeploymateDownloadView = ({
   ];
 
   const openVersion = async href => {
-    try {
-            const token = localStorage.getItem("icp_auth_token");
-            if (token) {
-              await fetch(`${API_BASE}/api/pipeline/deploymate-complete`, {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  "Content-Type": "application/json"
-                }
-              });
-            }
-          } catch (error) {
-            console.warn("[deployMate] Persist completion failed:", error);
-          }
-          setDeployMateStickyCompletion(user?.email);
-          setStages?.(previous =>
-            previous.map(stage =>
-              stage.stage_name === "deployMate Ready"
-                ? {
-                    ...stage,
-                    status: "Completed",
-                    completed: true,
-                    is_completed: true,
-                    completed_date:
-                      stage.completed_date || new Date().toISOString(),
-                    source_trigger_unlocked: true,
-                    trigger_unlocked: true
-                  }
-                : stage
-            )
-          );
-          window.open(
+    window.open(
       href,
       "_blank",
       "noopener,noreferrer"
@@ -6116,49 +5622,19 @@ const DeploymateDownloadView = ({
     if (saving) return;
 
     setSaving(true);
-
-    // Optimistic cross-off immediately on the click itself.
-    setStages(previous =>
-      previous.map(stage =>
-        stage.stage_name === "deployMate Ready"
-          ? {
-              ...stage,
-              status: "Completed",
-              completed: true,
-              is_completed: true,
-              completed_date:
-                stage.completed_date ||
-                new Date().toISOString()
-            }
-          : stage
-      )
-    );
-
     try {
+      // Complete the CURRENT visible stage and keep the legacy alias for
+      // historical records. Previously only the hidden legacy row was updated,
+      // so "deployMate Ready" never crossed off.
       await updateStageStatus(
         user?.email,
         "deployMate Ready",
-        setStages,
-        "Completed"
+        setStages
       );
-
-      window.dispatchEvent(
-        new CustomEvent("pipeline-updated", {
-          detail: {
-            stageName: "deployMate Ready",
-            source: "deploymate-link-click"
-          }
-        })
-      );
-
-      toast.success("deployMate Ready completed.");
-    } catch (error) {
-      console.error(
-        "[deployMate Ready] Could not persist click completion:",
-        error
-      );
-      toast.error(
-        "The link opened, but the completion could not be saved yet."
+      await updateStageStatus(
+        user?.email,
+        "Download Deploymate App",
+        setStages
       );
     } finally {
       setSaving(false);
@@ -6168,7 +5644,7 @@ const DeploymateDownloadView = ({
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Open any Deploymate option below. The stage checks off as soon as you select a link.
+        Open any version of Deploymate. This stage completes when one option is selected.
       </p>
 
       <div className="grid gap-3">
@@ -6178,7 +5654,9 @@ const DeploymateDownloadView = ({
             type="button"
             variant="outline"
             disabled={saving}
-            onClick={() => openVersion(option.href)}
+            onClick={() =>
+              openVersion(option.href)
+            }
             className="justify-start"
           >
             {option.label}
@@ -6187,7 +5665,10 @@ const DeploymateDownloadView = ({
       </div>
 
       <div className="flex justify-end">
-        <Button variant="outline" onClick={onClose}>
+        <Button
+          variant="outline"
+          onClick={onClose}
+        >
           Close
         </Button>
       </div>
@@ -7281,14 +6762,6 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
     numBathrooms: "",
     housingPreference: "",
     hasPets: "",
-    petType: "",
-    petWeight: "",
-    petAge: "",
-    petColor: "",
-    petBreed: "",
-    petName: "",
-    petGender: "",
-    petSpayedNeutered: "",
     smokes: "",
     hasDriversLicense: "",
     licenseIssued: "",
@@ -7318,7 +6791,7 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
     cosignerZip: "",
     cosignerEmail: "",
     cosignerPhone: "",
-    consentFullName: user?.displayName || user?.name || "",
+    consentFullName: "",
     consentDate: "",
     consentSignature: "",
     waiverHousing: "",
@@ -7326,50 +6799,6 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
   });
 
   const [dependents, setDependents] = useState([]);
-  const housingDraftKey =
-    user?.email
-      ? `icp_housing_form_draft:${String(user.email).trim().toLowerCase()}`
-      : null;
-
-  useEffect(() => {
-    if (!housingDraftKey) return;
-
-    try {
-      const raw = sessionStorage.getItem(housingDraftKey);
-      if (!raw) return;
-      const saved = JSON.parse(raw);
-
-      if (saved?.formData) {
-        setFormData(previous => ({
-          ...previous,
-          ...saved.formData,
-          email:
-            saved.formData.email ||
-            previous.email ||
-            user?.email ||
-            ""
-        }));
-      }
-
-      if (Array.isArray(saved?.dependents)) {
-        setDependents(saved.dependents);
-      }
-    } catch (error) {
-      console.warn("[Housing] Could not restore form draft:", error?.message || error);
-    }
-  }, [housingDraftKey]);
-
-  useEffect(() => {
-    if (!housingDraftKey) return;
-
-    sessionStorage.setItem(
-      housingDraftKey,
-      JSON.stringify({
-        formData,
-        dependents
-      })
-    );
-  }, [housingDraftKey, formData, dependents]);
   const [showDependentForm, setShowDependentForm] = useState(false);
   const [newDependent, setNewDependent] = useState({
     firstName: "",
@@ -7395,7 +6824,7 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
         field => String(newDependent[field] || "").trim()
       )
     ) {
-      const dob = parsePortalDate(newDependent.dateOfBirth);
+      const dob = new Date(newDependent.dateOfBirth);
       const today = new Date();
       let age = today.getFullYear() - dob.getFullYear();
       const monthDifference = today.getMonth() - dob.getMonth();
@@ -7440,31 +6869,10 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    const conditionalPetFields = new Set([
-      "petType",
-      "petWeight",
-      "petAge",
-      "petColor",
-      "petBreed",
-      "petName",
-      "petGender",
-      "petSpayedNeutered"
-    ]);
-
-    const optionalFields = new Set([
-      "middleName",
-      "waiverHousing",
-      "waiverConcierge"
-    ]);
-
     const requiredFields = Object.keys(formData).filter(
       field =>
         !field.startsWith("cosigner") &&
-        !optionalFields.has(field) &&
-        !(
-          conditionalPetFields.has(field) &&
-          String(formData.hasPets || "").toLowerCase() !== "yes"
-        )
+        field !== "middleName"
     );
     const missingFields = requiredFields.filter(
       field => String(formData[field] ?? "").trim() === ""
@@ -7491,8 +6899,8 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
         return;
       }
 
-      const dob = parsePortalDate(dependent.dateOfBirth);
-      if (dob && !Number.isNaN(dob.getTime())) {
+      const dob = new Date(dependent.dateOfBirth);
+      if (!Number.isNaN(dob.getTime())) {
         const today = new Date();
         let age = today.getFullYear() - dob.getFullYear();
         const monthDifference = today.getMonth() - dob.getMonth();
@@ -7575,9 +6983,6 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
 
       const crmSaved = data?.attachments?.crm?.success === true || data?.crm?.success === true;
       if (!crmSaved) throw new Error("The housing form was not attached to CRM.");
-      if (housingDraftKey) {
-        sessionStorage.removeItem(housingDraftKey);
-      }
       toast.success("Housing form submitted and attached to CRM.");
       onClose();
     } catch (error) {
@@ -7596,12 +7001,10 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
           <label className="text-sm font-medium">DATE COMPLETED</label>
         </div>
         <input
-          type="text"
-          inputMode="numeric"
+          type="date"
           name="dateCompleted"
           value={formData.dateCompleted}
-          placeholder="MM/DD/YY"
-          onChange={(e) => setFormData(prev => ({ ...prev, dateCompleted: normalizePortalDateInput(e.target.value) }))}
+          onChange={handleChange}
           className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary"
         />
       </div>
@@ -7628,7 +7031,7 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
           <div>
             <label className="text-sm font-medium block mb-1">Date of Birth</label>
-            <input type="text" inputMode="numeric" name="dateOfBirth" placeholder="MM/DD/YY" value={formData.dateOfBirth} onChange={(e) => setFormData(prev => ({ ...prev, dateOfBirth: normalizePortalDateInput(e.target.value) }))} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+            <input type="date" name="dateOfBirth" value={formData.dateOfBirth} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
           </div>
           <div>
             <label className="text-sm font-medium block mb-1">Email <span className="text-red-500">*</span></label>
@@ -7738,36 +7141,6 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
             </select>
           </div>
         </div>
-
-        {String(formData.hasPets || "").toLowerCase() === "yes" && (
-          <div className="mt-4 rounded-lg border border-blue-100 bg-white/70 p-4">
-            <p className="mb-3 text-sm font-semibold text-blue-800">
-              Pet information
-            </p>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-              <select name="petType" value={formData.petType} onChange={handleChange} className="w-full rounded-lg border border-border bg-background px-3 py-2">
-                <option value="">Type of pet</option>
-                <option value="Cat">Cat</option>
-                <option value="Dog">Dog</option>
-              </select>
-              <input type="number" min="0" step="0.1" name="petWeight" placeholder="Weight in pounds" value={formData.petWeight} onChange={handleChange} className="w-full rounded-lg border border-border bg-background px-3 py-2" />
-              <input type="text" name="petAge" placeholder="Age" value={formData.petAge} onChange={handleChange} className="w-full rounded-lg border border-border bg-background px-3 py-2" />
-              <input type="text" name="petColor" placeholder="Color" value={formData.petColor} onChange={handleChange} className="w-full rounded-lg border border-border bg-background px-3 py-2" />
-              <input type="text" name="petBreed" placeholder="Breed" value={formData.petBreed} onChange={handleChange} className="w-full rounded-lg border border-border bg-background px-3 py-2" />
-              <input type="text" name="petName" placeholder="Name" value={formData.petName} onChange={handleChange} className="w-full rounded-lg border border-border bg-background px-3 py-2" />
-              <select name="petGender" value={formData.petGender} onChange={handleChange} className="w-full rounded-lg border border-border bg-background px-3 py-2">
-                <option value="">Gender</option>
-                <option value="Female">Female</option>
-                <option value="Male">Male</option>
-              </select>
-              <select name="petSpayedNeutered" value={formData.petSpayedNeutered} onChange={handleChange} className="w-full rounded-lg border border-border bg-background px-3 py-2">
-                <option value="">Spayed or neutered?</option>
-                <option value="Yes">Yes</option>
-                <option value="No">No</option>
-              </select>
-            </div>
-          </div>
-        )}
       </div>
 
       <div className="bg-amber-50/50 rounded-lg p-4 border border-amber-200">
@@ -7795,7 +7168,7 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
           <div>
             <label className="text-sm font-medium block mb-1">When does it expire?</label>
-            <input type="text" inputMode="numeric" name="licenseExpiry" placeholder="MM/DD/YY" value={formData.licenseExpiry} onChange={(e) => setFormData(prev => ({ ...prev, licenseExpiry: normalizePortalDateInput(e.target.value) }))} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+            <input type="date" name="licenseExpiry" value={formData.licenseExpiry} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
           </div>
           <div>
             <label className="text-sm font-medium block mb-1">Who will be driving? You, your spouse, or both?</label>
@@ -7852,7 +7225,7 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
               <input type="text" placeholder="Last Name *" value={newDependent.lastName} onChange={(e) => setNewDependent({ ...newDependent, lastName: e.target.value })} className="px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
               <input type="email" placeholder="Email" value={newDependent.email} onChange={(e) => setNewDependent({ ...newDependent, email: e.target.value })} className="px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
               <input type="text" placeholder="Relationship" value={newDependent.relationship} onChange={(e) => setNewDependent({ ...newDependent, relationship: e.target.value })} className="px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
-              <input type="text" inputMode="numeric" placeholder="MM/DD/YY" value={newDependent.dateOfBirth} onChange={(e) => setNewDependent(prev => ({ ...prev, dateOfBirth: normalizePortalDateInput(e.target.value) }))} className="px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+              <input type="date" placeholder="Date of Birth" value={newDependent.dateOfBirth} onChange={(e) => setNewDependent({ ...newDependent, dateOfBirth: e.target.value })} className="px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
             </div>
             <div className="flex gap-2 mt-3">
               <Button type="button" onClick={handleAddDependent} size="sm"><Plus className="h-4 w-4 mr-1" /> Add Dependent</Button>
@@ -8014,7 +7387,7 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
           </div>
           <div>
             <label className="text-sm font-medium block mb-1">Date</label>
-            <input type="text" inputMode="numeric" name="consentDate" placeholder="MM/DD/YY" value={formData.consentDate} onChange={(e) => setFormData(prev => ({ ...prev, consentDate: normalizePortalDateInput(e.target.value) }))} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+            <input type="date" name="consentDate" value={formData.consentDate} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
           </div>
         </div>
       </div>
@@ -8077,18 +7450,10 @@ const RLFormInput = ({
     </span>
     <input
       name={field}
-      type={type === "date" ? "text" : type}
-      inputMode={type === "date" ? "numeric" : undefined}
+      type={type}
       value={value ?? ""}
-      onChange={(event) =>
-        onChange(
-          field,
-          type === "date"
-            ? normalizePortalDateInput(event.target.value)
-            : event.target.value
-        )
-      }
-      placeholder={type === "date" ? "MM/DD/YY" : placeholder}
+      onChange={(event) => onChange(field, event.target.value)}
+      placeholder={placeholder}
       disabled={disabled}
       autoComplete="off"
       className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:bg-gray-100"
@@ -8346,12 +7711,13 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
   const [uploadResults, setUploadResults] = useState({});
   const [submissionResult, setSubmissionResult] = useState(null);
   const [form, setForm] = useState({
-    name: user?.displayName || user?.name || "", email: user?.email || "",
+    name: user?.displayName || user?.name || "", email: user?.email || "", employerName: "",
     height: "", weight: "", clothingSize: "", aboutYou: "", resignationPeriod: "",
     anticipatedLastDay: "", departureCity: "", wheelchair: "No", checkedBags: "0",
     carryOn: "0", boxes: "0", pets: "No", travelCash: "", carSeats: "No",
     phoneModelCarrier: "", simUnlocked: "", drivingPlan: "", carPurchasePlan: "",
-    foundationsCompleted: "", spouseEmployment: "",
+    foundationsCompleted: "", spouseEmployment: "", relocationPolicyAccepted: false,
+    relocationSignature: "",
     photoReleaseAccepted: false,
     photoReleaseSignature: "",
     dependents: [{
@@ -8367,40 +7733,10 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
     }]
   });
 
-  const rlDraftKey =
-    user?.email
-      ? `icp_rl_form_draft:${String(user.email).trim().toLowerCase()}`
-      : null;
-
-  useEffect(() => {
-    if (!rlDraftKey) return;
-    try {
-      const raw = sessionStorage.getItem(rlDraftKey);
-      if (!raw) return;
-      const saved = JSON.parse(raw);
-      if (saved && typeof saved === "object") {
-        setForm(previous => ({
-          ...previous,
-          ...saved,
-          email: saved.email || previous.email || user?.email || ""
-        }));
-      }
-    } catch (error) {
-      console.warn("[R&L] Could not restore form draft:", error?.message || error);
-    }
-  }, [rlDraftKey]);
-
-  useEffect(() => {
-    if (!rlDraftKey) return;
-    sessionStorage.setItem(
-      rlDraftKey,
-      JSON.stringify(form)
-    );
-  }, [rlDraftKey, form]);
-
   const RL_REQUIRED_FIELDS = [
     "name",
     "email",
+    "employerName",
     "birthDate",
     "gender",
     "phone",
@@ -8424,6 +7760,7 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
     "carPurchasePlan",
     "foundationsCompleted",
     "spouseEmployment",
+    "relocationSignature",
     "photoReleaseSignature"
   ];
 
@@ -8445,8 +7782,8 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
 
   const getAgeFromDate = value => {
     if (!value) return null;
-    const dob = parsePortalDate(value);
-    if (!dob || Number.isNaN(dob.getTime())) return null;
+    const dob = new Date(value);
+    if (Number.isNaN(dob.getTime())) return null;
     const today = new Date();
     let age = today.getFullYear() - dob.getFullYear();
     const monthDifference = today.getMonth() - dob.getMonth();
@@ -8535,6 +7872,7 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
     allRLFieldsComplete &&
     allRLDocumentsAttached &&
     rlDependentsValidation.valid &&
+    form.relocationPolicyAccepted === true &&
     form.photoReleaseAccepted === true;
 
   const handleSubmit = async () => {
@@ -8567,7 +7905,7 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
         return;
       }
 
-      toast.error("Read the photo and video release and provide its signature.");
+      toast.error("Read both policy documents and provide both signatures.");
       return;
     }
     setSubmitting(true);
@@ -8609,10 +7947,6 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
         }
       }));
 
-      if (rlDraftKey) {
-        sessionStorage.removeItem(rlDraftKey);
-      }
-
       toast.success(
         `R&L form attached to CRM and stage completed. ${
           (data.supporting || []).length
@@ -8623,6 +7957,23 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
     } catch (error) { toast.error(error.message || "Unable to submit the R&L form"); }
     finally { setSubmitting(false); }
   };
+
+  if (activePolicyDocument === "relocation") {
+    return (
+      <RLPolicyDocumentViewer
+        title="Relocation Travel Policy"
+        description="ICP Travel and Housing Policy 2025"
+        documentType="relocation"
+        alreadyRead={form.relocationPolicyAccepted === true}
+        onBack={() => setActivePolicyDocument(null)}
+        onMarkRead={() => {
+          setField("relocationPolicyAccepted", true);
+          setActivePolicyDocument(null);
+          toast.success("Relocation policy marked as read.");
+        }}
+      />
+    );
+  }
 
   if (activePolicyDocument === "photoRelease") {
     return (
@@ -8659,7 +8010,7 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
         </div>
       </div>
       <div className="grid md:grid-cols-2 gap-4">
-        <RLFormInput label="Name" field="name" required value={form.name} onChange={setField} />
+        <RLFormInput label="Name" field="name" required value={form.name} onChange={setField} /><RLFormInput label="U.S. Employer Name (work location)" field="employerName" required value={form.employerName} onChange={setField} />
         <RLFormInput label="Birth Date" field="birthDate" type="date" required value={form.birthDate} onChange={setField} /><RLFormInput label="Gender" field="gender" required value={form.gender} onChange={setField} />
         <RLFormInput label="Candidate Email" field="email" type="email" required value={form.email} onChange={setField} /><RLFormInput label="Phone Number" field="phone" required value={form.phone} onChange={setField} />
         <RLFormInput label="Height (feet and inches)" field="height" value={form.height} onChange={setField} /><RLFormInput label="Weight (lbs.)" field="weight" type="number" value={form.weight} onChange={setField} />
@@ -8713,6 +8064,38 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
 
     <section className="rounded-xl border bg-white p-5 space-y-5">
       <h4 className="font-bold">Policies and signatures</h4>
+
+      <div className="rounded-lg border p-4">
+        <p className="font-semibold">Relocation Travel Policy</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Read the policy and sign below.
+        </p>
+        <button
+          type="button"
+          onClick={() => setActivePolicyDocument("relocation")}
+          className="mt-3 text-sm font-semibold text-purple-700 hover:underline"
+        >
+          {form.relocationPolicyAccepted
+            ? "View Relocation Policy Again"
+            : "Read the Candidate Relocation Travel Policy"}
+        </button>
+        {form.relocationPolicyAccepted && (
+          <p className="mt-2 flex items-center gap-1 text-xs font-semibold text-emerald-600">
+            <CheckCircle2 className="h-4 w-4" />
+            Document read
+          </p>
+        )}
+        <label className="mt-4 flex gap-3">
+          <input
+            type="checkbox"
+            checked={form.relocationPolicyAccepted}
+            disabled
+            readOnly
+          />
+          <span className="text-sm">I have read and agree to the relocation policy.</span>
+        </label>
+        <RLFormInput label="Signature for Relocation Policy" field="relocationSignature" required value={form.relocationSignature} onChange={setField} />
+      </div>
 
       <div className="rounded-lg border p-4">
         <p className="font-semibold">Video and Photo Release</p>
@@ -9432,209 +8815,54 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     if (!isFormComplete()) {
-      toast.error(
-        "Please upload at least one receipt and enter an amount for every uploaded receipt."
-      );
+      toast.error("Please upload receipts and enter amounts for all uploaded receipts");
       return;
     }
 
-    const selectedReceipts =
-      RECEIPT_CATEGORIES
-        .map(category => {
-          const receipt =
-            receipts[category.id];
-
-          if (!receipt?.file) {
-            return null;
-          }
-
-          return {
-            category,
-            receipt
-          };
-        })
-        .filter(Boolean);
-
-    if (!selectedReceipts.length) {
-      toast.error(
-        "Please select at least one receipt."
-      );
-      return;
-    }
-
-    setUploading(true);
     setIsSubmitting(true);
-
-    const uploaded = [];
-    const failed = [];
+    setUploading(true);
+    let successCount = 0;
+    let failCount = 0;
 
     try {
-      for (
-        const item
-        of selectedReceipts
-      ) {
-        const {
-          category,
-          receipt
-        } = item;
-
-        try {
-          // Use the same document route used successfully by the rest of the
-          // portal. "expense-report" is the Document Library category already
-          // mapped by the backend to Receipt Submission.
-          const result =
+      for (const category of RECEIPT_CATEGORIES) {
+        const receipt = receipts[category.id];
+        if (receipt && receipt.file) {
+          try {
             await uploadDocument(
               receipt.file,
-              `${category.label} - ${receipt.file.name}`,
+              `${category.label} - ${format(new Date(), "MMM d, yyyy")}`,
               "Reimbursement",
               "crm",
               user?.email,
               {
-                document_category:
-                  "expense-report",
-                library_category:
-                  "expense-report",
-                document_library_upload:
-                  "true",
-                document_department:
-                  "Deployment",
+                crm_field_api_name:
+                  "Advance_Agreement",
                 pipeline_section:
-                  "Deployment",
-                receipt_category:
-                  category.id,
-                receipt_category_label:
-                  category.label,
-                receipt_amount:
-                  receipt.total,
-                receipt_currency:
-                  receipt.currency ||
-                  "USD",
-                receipt_amount_usd:
-                  convertToUSD(
-                    receipt.total,
-                    receipt.currency ||
-                      "USD"
-                  )
+                  "deployment-expense-report"
               }
             );
-
-          uploaded.push({
-            category:
-              category.label,
-            result
-          });
-        } catch (error) {
-          console.error(
-            `[Receipt Upload] ${category.label}:`,
-            error
-          );
-
-          failed.push({
-            category:
-              category.label,
-            error:
-              error?.message ||
-              "Upload failed"
-          });
+            successCount++;
+          } catch (error) {
+            console.error(`Error uploading ${category.label}:`, error);
+            failCount++;
+          }
         }
       }
-
-      if (failed.length) {
-        throw new Error(
-          failed
-            .map(
-              item =>
-                `${item.category}: ${item.error}`
-            )
-            .join(" | ")
-        );
+      
+      if (successCount > 0) {
+        toast.success(`${successCount} receipt(s) submitted successfully!`);
+        toast.success(`💰 Total Reimbursement: $${totalUSD.toFixed(2)} USD`);
+        updateStageStatus(user?.email, "Reimbursement/Advance Payment Report Released", setStages);
+        setTimeout(() => { onClose(); }, 2000);
       }
-
-      if (!uploaded.length) {
-        throw new Error(
-          "No receipts were uploaded."
-        );
+      if (failCount > 0) {
+        toast.warning(`${failCount} receipt(s) failed to upload.`);
       }
-
-      // The backend document-library synchronizer completes the canonical
-      // Receipt Submission row. Mirror that immediately in the open UI.
-      setStages?.(
-        previous =>
-          applyOrderedLocksWithDeepEntry(
-            previous.map(
-              stage =>
-                stage.stage_name ===
-                "Receipt Submission"
-                  ? {
-                      ...stage,
-                      status:
-                        "Completed",
-                      completed:
-                        true,
-                      is_completed:
-                        true,
-                      completed_date:
-                        stage.completed_date ||
-                        new Date()
-                          .toISOString(),
-                      source_trigger_unlocked:
-                        true,
-                      trigger_unlocked:
-                        true,
-                      completion_source:
-                        "expense-report"
-                    }
-                  : stage
-            )
-          )
-      );
-
-      window.dispatchEvent(
-        new CustomEvent(
-          "pipeline-updated",
-          {
-            detail: {
-              email:
-                user?.email,
-              stage_name:
-                "Receipt Submission",
-              status:
-                "Completed",
-              completed:
-                true,
-              source:
-                "expense-report"
-            }
-          }
-        )
-      );
-
-      toast.success(
-        `${uploaded.length} receipt(s) submitted successfully.`
-      );
-
-      toast.success(
-        `Total Reimbursement: $${Number(
-          totalUSD || 0
-        ).toFixed(2)} USD`
-      );
-
-      setTimeout(
-        onClose,
-        700
-      );
     } catch (error) {
-      console.error(
-        "[Receipt Submission]",
-        error
-      );
-
-      toast.error(
-        error?.message ||
-        "Receipt submission failed. Please try again."
-      );
+      console.error('Submission error:', error);
+      toast.error(error.message || "Upload failed. Please try again.");
     } finally {
       setUploading(false);
       setIsSubmitting(false);
@@ -9915,648 +9143,6 @@ export default function Pipeline() {
   // Dashboard already receives the correctly-evaluated CRM/Recruit pipeline from
   // /api/candidate/dashboard-summary, so merge that state immediately instead of
   // letting a slower secondary field-status request leave the visible pipeline locked.
-  // ─── Instant Zoho webhook -> WebSocket pipeline updates ─────────────────
-  // This does NOT poll CRM/Recruit. The backend only pushes when Zoho reports
-  // an actual change, so updates are immediate without spending read credits.
-  useEffect(() => {
-    if (!user?.email) return;
-
-    let socket = null;
-    let reconnectTimer = null;
-    let pingTimer = null;
-    let liveCrmTimer = null;
-    let liveCrmRequestInFlight = false;
-    let disposed = false;
-    let reconnectAttempts = 0;
-    let lastAppliedWebhookKey = "";
-
-    const normalizedUserEmail =
-      String(user.email)
-        .trim()
-        .toLowerCase();
-
-    const applyWebhookState = message => {
-      const webhookKey =
-        [
-          message?.source || "",
-          message?.candidateEmail ||
-            message?.email ||
-            "",
-          message?.timestamp || ""
-        ].join("|");
-
-      if (
-        webhookKey &&
-        webhookKey ===
-          lastAppliedWebhookKey
-      ) {
-        return;
-      }
-
-      if (webhookKey) {
-        lastAppliedWebhookKey =
-          webhookKey;
-      }
-
-      const targetEmail =
-        String(
-          message?.candidateEmail ||
-          message?.email ||
-          ""
-        )
-          .trim()
-          .toLowerCase();
-
-      if (
-        targetEmail &&
-        targetEmail !==
-          normalizedUserEmail
-      ) {
-        return;
-      }
-
-      const stageStatus =
-        message?.stageStatus &&
-        typeof message.stageStatus ===
-          "object"
-          ? message.stageStatus
-          : {};
-
-      const changedFields =
-        message?.changedFields &&
-        typeof message.changedFields ===
-          "object"
-          ? message.changedFields
-          : {};
-
-      // Apply true AND false states directly so reset CRM gates uncross instantly.
-      if (
-        Object.keys(stageStatus).length
-      ) {
-        setStages(previous =>
-          previous.map(stage => {
-            const live =
-              stageStatus[
-                stage.stage_name
-              ];
-
-            if (
-              !live ||
-              typeof live.completed !==
-                "boolean"
-            ) {
-              return stage;
-            }
-
-            const completed =
-              live.completed === true ||
-              isPipelineStageComplete(stage);
-
-            return {
-              ...stage,
-              status:
-                completed
-                  ? "Completed"
-                  : (
-                      live.status ||
-                      "Not Started"
-                    ),
-              completed,
-              is_completed:
-                completed,
-              completed_date:
-                completed
-                  ? (
-                      live.completed_date ||
-                      stage.completed_date ||
-                      new Date()
-                        .toISOString()
-                    )
-                  : null,
-              source_trigger_unlocked:
-                live.unlocked === true ||
-                completed,
-              trigger_unlocked:
-                live.unlocked === true ||
-                completed,
-              crm_unlocked:
-                message?.source === "crm"
-                  ? (
-                      live.unlocked === true ||
-                      completed
-                    )
-                  : false,
-              recruit_unlocked:
-                message?.source ===
-                  "recruit"
-                  ? (
-                      live.unlocked === true ||
-                      completed
-                    )
-                  : false,
-              source_trigger_synced:
-                true,
-              crm_synced:
-                message?.source === "crm"
-            };
-          })
-        );
-      }
-
-      // Update the exact live source object used by the pipeline renderer.
-      setDeploymentFieldStatus(previous => {
-        const current =
-          previous || {};
-
-        const nextStageStatus = {
-          ...(
-            current.__stageStatus ||
-            {}
-          )
-        };
-
-        const nextCompletionMap = {
-          ...(
-            current.__completionMap ||
-            {}
-          )
-        };
-
-        for (
-          const [stageName, live]
-          of Object.entries(
-            stageStatus
-          )
-        ) {
-          nextStageStatus[
-            stageName
-          ] = {
-            ...(
-              nextStageStatus[
-                stageName
-              ] || {}
-            ),
-            ...live,
-            evaluated: true
-          };
-
-          if (
-            typeof live?.completed ===
-              "boolean"
-          ) {
-            nextCompletionMap[
-              stageName
-            ] =
-              live.completed;
-          }
-        }
-
-        return {
-          ...current,
-          ...changedFields,
-          __stageStatus:
-            nextStageStatus,
-          __completionMap:
-            nextCompletionMap,
-          __sectionGates:
-            message?.sectionGates &&
-            typeof message.sectionGates ===
-              "object"
-              ? {
-                  ...(
-                    current.__sectionGates ||
-                    {}
-                  ),
-                  ...message.sectionGates
-                }
-              : (
-                  current.__sectionGates ||
-                  {}
-                )
-        };
-      });
-
-      if (
-        message?.sectionGates &&
-        typeof message.sectionGates ===
-          "object"
-      ) {
-        setStages(previous =>
-          previous.map(stage => {
-            let completed = null;
-
-            if (
-              stage.stage_name ===
-              "Immigration forms submitted"
-            ) {
-              completed =
-                message.sectionGates
-                  ?.immigration
-                  ?.unlocked === true;
-            } else if (
-              stage.stage_name ===
-              "Speciality Classes"
-            ) {
-              completed =
-                message.sectionGates
-                  ?.deployment
-                  ?.unlocked === true;
-            } else if (
-              stage.stage_name ===
-              "Arrived"
-            ) {
-              completed =
-                message.sectionGates
-                  ?.aftercare
-                  ?.unlocked === true;
-            }
-
-            if (
-              completed === null
-            ) {
-              return stage;
-            }
-
-            return {
-              ...stage,
-              status:
-                completed
-                  ? "Completed"
-                  : "Not Started",
-              completed,
-              is_completed:
-                completed,
-              completed_date:
-                completed
-                  ? (
-                      stage.completed_date ||
-                      new Date()
-                        .toISOString()
-                    )
-                  : null,
-              source_trigger_unlocked:
-                completed,
-              trigger_unlocked:
-                completed,
-              crm_unlocked:
-                completed,
-              source_trigger_synced:
-                true,
-              crm_synced:
-                true
-            };
-          })
-        );
-      }
-
-      window.dispatchEvent(
-        new CustomEvent(
-          "pipeline-webhook-applied",
-          {
-            detail: {
-              source:
-                message?.source,
-              stageStatus,
-              changedFields,
-              timestamp:
-                message?.timestamp ||
-                new Date()
-                  .toISOString()
-            }
-          }
-        )
-      );
-    };
-
-    const loadDeterministicLiveCrm =
-      async () => {
-        if (
-          disposed ||
-          document.hidden ||
-          liveCrmRequestInFlight
-        ) {
-          return;
-        }
-
-        const authToken =
-          localStorage.getItem(
-            "icp_auth_token"
-          ) ||
-          localStorage.getItem(
-            "authToken"
-          ) ||
-          localStorage.getItem(
-            "token"
-          );
-
-        if (!authToken) return;
-
-        liveCrmRequestInFlight =
-          true;
-
-        try {
-          const response =
-            await fetch(
-              `${API_BASE}/api/pipeline/live-crm-state?_=${Date.now()}`,
-              {
-                method: "GET",
-                cache: "no-store",
-                headers: {
-                  Authorization:
-                    `Bearer ${authToken}`,
-                  "Cache-Control":
-                    "no-cache",
-                  Pragma:
-                    "no-cache"
-                }
-              }
-            );
-
-          const payload =
-            await response
-              .json()
-              .catch(() => ({}));
-
-          if (
-            disposed ||
-            !response.ok ||
-            payload?.success !== true
-          ) {
-            if (
-              !response.ok &&
-              payload?.error
-            ) {
-              console.warn(
-                "[Pipeline live CRM]",
-                payload.error
-              );
-            }
-            return;
-          }
-
-          // Feed the deterministic HTTP snapshot through exactly the same
-          // state updater as webhook/WebSocket messages.
-          applyWebhookState({
-            ...payload,
-            type:
-              "pipeline-updated",
-            event:
-              "deterministic-live-crm",
-            source:
-              "crm",
-            candidateEmail:
-              payload.candidateEmail ||
-              normalizedUserEmail,
-            timestamp:
-              payload.fetchedAt ||
-              new Date()
-                .toISOString()
-          });
-        } catch (error) {
-          if (!disposed) {
-            console.warn(
-              "[Pipeline live CRM] request failed:",
-              error?.message || error
-            );
-          }
-        } finally {
-          liveCrmRequestInFlight =
-            false;
-        }
-      };
-
-    const startLiveCrmPolling =
-      () => {
-        if (
-          disposed ||
-          document.hidden
-        ) {
-          return;
-        }
-
-        // Immediate fresh read on Pipeline load/focus.
-        loadDeterministicLiveCrm();
-
-        if (liveCrmTimer) {
-          window.clearInterval(
-            liveCrmTimer
-          );
-        }
-
-        liveCrmTimer =
-          window.setInterval(
-            loadDeterministicLiveCrm,
-            5000
-          );
-      };
-
-    const stopLiveCrmPolling =
-      () => {
-        if (liveCrmTimer) {
-          window.clearInterval(
-            liveCrmTimer
-          );
-          liveCrmTimer = null;
-        }
-      };
-
-    const scheduleReconnect = () => {
-      if (
-        disposed ||
-        reconnectTimer
-      ) {
-        return;
-      }
-
-      reconnectAttempts += 1;
-
-      const delay =
-        Math.min(
-          1000 *
-            Math.pow(
-              2,
-              Math.min(
-                reconnectAttempts - 1,
-                4
-              )
-            ),
-          15000
-        );
-
-      reconnectTimer =
-        window.setTimeout(
-          () => {
-            reconnectTimer =
-              null;
-            connect();
-          },
-          delay
-        );
-    };
-
-    const connect = () => {
-      if (disposed) return;
-
-      const authToken =
-        localStorage.getItem(
-          "icp_auth_token"
-        );
-
-      if (!authToken) return;
-
-      try {
-        const parsedApi =
-          new URL(
-            API_BASE,
-            window.location.origin
-          );
-
-        const protocol =
-          parsedApi.protocol ===
-            "https:"
-            ? "wss:"
-            : "ws:";
-
-        const socketUrl =
-          `${protocol}//${parsedApi.host}/ws?token=${encodeURIComponent(
-            authToken
-          )}`;
-
-        socket =
-          new WebSocket(
-            socketUrl
-          );
-
-        socket.onopen = () => {
-          reconnectAttempts = 0;
-
-          if (pingTimer) {
-            window.clearInterval(
-              pingTimer
-            );
-          }
-
-          // Keeps the websocket alive; does not call Zoho.
-          pingTimer =
-            window.setInterval(
-              () => {
-                if (
-                  socket?.readyState ===
-                  WebSocket.OPEN
-                ) {
-                  socket.send(
-                    JSON.stringify({
-                      type: "ping"
-                    })
-                  );
-                }
-              },
-              25000
-            );
-        };
-
-        socket.onmessage = event => {
-          let message;
-
-          try {
-            message =
-              JSON.parse(
-                event.data
-              );
-          } catch {
-            return;
-          }
-
-          if (
-            message?.type ===
-              "pipeline-updated" ||
-            message?.type ===
-              "candidate-data-updated" ||
-            message?.type ===
-              "crm-recruit-updated"
-          ) {
-            applyWebhookState(
-              message
-            );
-          }
-        };
-
-        socket.onerror = () => {
-          // onclose handles reconnection
-        };
-
-        socket.onclose = () => {
-          if (pingTimer) {
-            window.clearInterval(
-              pingTimer
-            );
-            pingTimer = null;
-          }
-
-          scheduleReconnect();
-        };
-      } catch (error) {
-        console.warn(
-          "[Pipeline realtime] WebSocket setup failed:",
-          error?.message || error
-        );
-
-        scheduleReconnect();
-      }
-    };
-
-    const handleVisibilityChange =
-      () => {
-        if (document.hidden) {
-          stopLiveCrmPolling();
-        } else {
-          startLiveCrmPolling();
-        }
-      };
-
-    document.addEventListener(
-      "visibilitychange",
-      handleVisibilityChange
-    );
-
-    connect();
-    startLiveCrmPolling();
-
-    return () => {
-      document.removeEventListener(
-        "visibilitychange",
-        handleVisibilityChange
-      );
-      disposed = true;
-
-      if (reconnectTimer) {
-        window.clearTimeout(
-          reconnectTimer
-        );
-      }
-
-      if (pingTimer) {
-        window.clearInterval(
-          pingTimer
-        );
-      }
-
-      stopLiveCrmPolling();
-
-      if (
-        socket &&
-        (
-          socket.readyState ===
-            WebSocket.OPEN ||
-          socket.readyState ===
-            WebSocket.CONNECTING
-        )
-      ) {
-        socket.close();
-      }
-    };
-  }, [user?.email]);
-
   useEffect(() => {
     if (!user?.email) return;
 
@@ -10654,37 +9240,6 @@ export default function Pipeline() {
               remoteStage?.unlocked === true ||
               remoteStage?.is_unlocked === true;
 
-            const localIsLiveSourceControlled =
-              localStage.source_trigger_synced === true ||
-              localStage.crm_synced === true ||
-              localStage.recruit_synced === true ||
-              localStage.synced_from_custom_module_1 === true ||
-              Boolean(DEPLOYMENT_CRM_STAGE_RULES?.[localStage.stage_name]) ||
-              Boolean(IMMIGRATION_CRM_CHECKLISTS?.[localStage.stage_name]);
-
-            // IMPORTANT: /api/pipeline/field-status is the authoritative source for
-            // CRM/Recruit-gated rows. Dashboard data can be a few seconds behind and
-            // must never relock or uncheck a stage that the live source already proved.
-            if (localIsLiveSourceControlled) {
-              return {
-                ...localStage,
-                candidate_email: normalizedEmail,
-                dashboard_current: isDashboardCurrent,
-                dashboard_synced: true,
-                // Dashboard may add context, but it may not replace live-source state.
-                dashboard_unlocked:
-                  remoteReached ||
-                  localStage.dashboard_unlocked === true
-              };
-            }
-
-            const localAftercareGateOpen =
-              localStage.stage_category === "Aftercare" &&
-              (
-                localStage.aftercare_unlocked === true ||
-                localStage.aftercare_locked === false
-              );
-
             return {
               ...localStage,
               ...(remoteStage || {}),
@@ -10697,41 +9252,15 @@ export default function Pipeline() {
               completed_date: remoteComplete
                 ? (remoteStage?.completed_date || remoteStage?.completed_at || localStage.completed_date || null)
                 : null,
-              source_trigger_unlocked:
-                remoteReached ||
-                localStage.source_trigger_unlocked === true,
-              trigger_unlocked:
-                remoteReached ||
-                localStage.trigger_unlocked === true,
+              // These flags are consumed by the universal cascade in
+              // isStageUnlocked. A later Dashboard-reached stage therefore
+              // unlocks itself AND every visible stage before it.
+              source_trigger_unlocked: remoteReached,
+              trigger_unlocked: remoteReached,
               dashboard_unlocked: remoteReached,
-              unlocked:
-                remoteReached ||
-                localStage.unlocked === true ||
-                remoteStage?.unlocked === true,
-              is_unlocked:
-                remoteReached ||
-                localStage.is_unlocked === true ||
-                remoteStage?.is_unlocked === true,
-              is_locked:
-                (remoteReached || localAftercareGateOpen)
-                  ? false
-                  : remoteStage?.is_locked,
-              aftercare_unlocked:
-                localAftercareGateOpen
-                  ? true
-                  : remoteStage?.aftercare_unlocked,
-              aftercare_locked:
-                localAftercareGateOpen
-                  ? false
-                  : remoteStage?.aftercare_locked,
-              aftercare_gate_date:
-                localStage.aftercare_gate_date ||
-                remoteStage?.aftercare_gate_date ||
-                null,
-              target_date:
-                localStage.target_date ||
-                remoteStage?.target_date ||
-                null,
+              unlocked: remoteReached || remoteStage?.unlocked === true,
+              is_unlocked: remoteReached || remoteStage?.is_unlocked === true,
+              is_locked: remoteReached ? false : remoteStage?.is_locked,
               dashboard_current: isDashboardCurrent,
               dashboard_synced: true
             };
@@ -10758,18 +9287,17 @@ export default function Pipeline() {
     const handleAuthoritativePipelineChange = () => mergeDashboardPipeline();
     window.addEventListener("pipeline-updated", handleAuthoritativePipelineChange);
     window.addEventListener("candidate-data-updated", handleAuthoritativePipelineChange);
-    // Do not bind crm-recruit-updated to Dashboard merge: field-status is newer
-    // than Dashboard persistence and this listener previously re-locked stages.
+    window.addEventListener("crm-recruit-updated", handleAuthoritativePipelineChange);
 
     // Keep the page synchronized while it remains open without requiring refresh.
-    refreshTimer = window.setInterval(mergeDashboardPipeline, 30 * 60 * 1000);
+    refreshTimer = window.setInterval(mergeDashboardPipeline, 10000);
 
     return () => {
       cancelled = true;
       if (refreshTimer) window.clearInterval(refreshTimer);
       window.removeEventListener("pipeline-updated", handleAuthoritativePipelineChange);
       window.removeEventListener("candidate-data-updated", handleAuthoritativePipelineChange);
-      // No crm-recruit-updated Dashboard listener; live field-status owns those gates.
+      window.removeEventListener("crm-recruit-updated", handleAuthoritativePipelineChange);
     };
   }, [user?.email]);
 
@@ -11000,7 +9528,7 @@ export default function Pipeline() {
         // This response is not dependent on the larger cached candidate payload.
         try {
           const fieldResponse = await fetch(
-            `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(user.email)}&refresh=false&_=${Date.now()}`,
+            `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(user.email)}&refresh=true&_=${Date.now()}`,
             {
               method: "GET",
               cache: "no-store",
@@ -11031,69 +9559,8 @@ export default function Pipeline() {
             setDeploymentFieldStatus({
               ...directFieldStatus,
               __stageStatus:
-                directComputedStageStatus,
-              __sectionGates:
-                fieldPayload.sectionGates || {},
-              __completionMap:
-                fieldPayload.completionMap || {},
-              __immigrationChecklists:
-                fieldPayload.immigrationChecklists || {},
-              __accessPolicy:
-                fieldPayload.accessPolicy || {
-                  mode: "normal",
-                  restricted: false,
-                  locked: false
-                }
+                directComputedStageStatus
             });
-
-            if (fieldPayload.accessPolicy) {
-              const policy = fieldPayload.accessPolicy;
-
-              setStages(previous =>
-                previous.map(stage => {
-                  const qPoolOrder =
-                    getCanonicalStageOrder({
-                      stage_name: "Qualified Candidate Pool"
-                    });
-
-                  const notQualifiedOrder =
-                    getCanonicalStageOrder({
-                      stage_name: "Not Qualified - to close"
-                    });
-
-                  const boundary =
-                    policy.mode === "qualified-pool"
-                      ? qPoolOrder
-                      : notQualifiedOrder;
-
-                  const shouldLock =
-                    policy.restricted === true &&
-                    policy.locked === true &&
-                    getCanonicalStageOrder(stage) > boundary;
-
-                  return {
-                    ...stage,
-                    access_locked:
-                      shouldLock
-                  };
-                })
-              );
-
-              if (
-                policy.message &&
-                policy.restricted === true
-              ) {
-                toast.info(
-                  policy.message,
-                  {
-                    id:
-                      `pipeline-access-${policy.mode}`,
-                    duration:
-                      10000
-                  }
-                );
-              }
-            }
 
             icpUSRNData = {
               ...icpUSRNData,
@@ -11231,29 +9698,6 @@ export default function Pipeline() {
           if (gateResponse.ok && gatePayload.success) {
             backendAftercareGateOpen =
               gatePayload.unlocked === true;
-
-            if (gatePayload.unlocked === true) {
-              const arrivalGateValue =
-                gatePayload.arrivalDate ||
-                gatePayload.rawArrival ||
-                null;
-
-              setStages(previous =>
-                previous.map(stage =>
-                  stage.stage_category === "Aftercare"
-                    ? {
-                        ...stage,
-                        aftercare_unlocked: true,
-                        aftercare_locked: false,
-                        aftercare_gate_date:
-                          arrivalGateValue ||
-                          stage.aftercare_gate_date ||
-                          null
-                      }
-                    : stage
-                )
-              );
-            }
 
             if (gatePayload.arrivalDate) {
               const gateDate = new Date(
@@ -12623,16 +11067,42 @@ export default function Pipeline() {
       }
 
       if (transferToICPUSRN || showNCLEX) {
+        const nclexHistoricalProgress =
+          ICP_USRN_SUBPROCESS_CONFIG.slice(1).some(item =>
+            isICPUSRNItemComplete(item, icpUSRNData)
+          ) ||
+          saved.some(stage =>
+            ICP_USRN_SUBPROCESS_CONFIG.slice(1).some(
+              item => item.name === stage?.stage_name
+            ) &&
+            (
+              isPipelineStageComplete(stage) ||
+              ["in progress", "in-progress"].includes(
+                String(stage?.status || "").trim().toLowerCase()
+              )
+            )
+          );
+
         const nclexStages = NCLEX_STAGES.map(stage => {
           const savedStage = savedByName.get(stage.stage_name);
           const triggerIndex = ICP_USRN_SUBPROCESS_CONFIG.findIndex(item => item.name === stage.stage_name);
           const trigger = triggerIndex >= 0 ? ICP_USRN_SUBPROCESS_CONFIG[triggerIndex] : null;
-          const crmCompleted = trigger
-            ? isICPUSRNItemComplete(trigger, icpUSRNData)
-            : false;
-          const crmUnlocked = trigger
-            ? isICPUSRNItemUnlocked(trigger, triggerIndex, icpUSRNData)
-            : false;
+          const isPipelineStart = stage.stage_name === "Pipeline Start";
+          const crmCompleted = isPipelineStart
+            ? (
+                transferToICPUSRN ||
+                transferStatusSelected ||
+                nclexHistoricalProgress ||
+                isPipelineStageComplete(savedStage)
+              )
+            : trigger
+              ? isICPUSRNItemComplete(trigger, icpUSRNData)
+              : false;
+          const crmUnlocked = isPipelineStart
+            ? crmCompleted
+            : trigger
+              ? isICPUSRNItemUnlocked(trigger, triggerIndex, icpUSRNData)
+              : false;
           return {
             ...stage,
             ...savedStage,
@@ -13389,7 +11859,6 @@ export default function Pipeline() {
           onClose={closeModal}
           user={user}
           setStages={setStages}
-          setDeploymentFieldStatus={setDeploymentFieldStatus}
         />
       );
     }
@@ -13564,24 +12033,6 @@ export default function Pipeline() {
   };
 
   const handleStageClick = (stage) => {
-    const stageUnlocked =
-      isStageUnlocked(
-        stage,
-        displayStages
-      );
-
-    if (
-      !stageUnlocked &&
-      !isPipelineStageComplete(
-        stage
-      )
-    ) {
-      toast.info(
-        "This stage is locked. Complete the previous stage or satisfy this stage's CRM/Recruit gate."
-      );
-      return;
-    }
-
     const normalizedStageName = String(
       stage?.stage_name || ""
     )
@@ -13647,24 +12098,19 @@ export default function Pipeline() {
       return;
     }
 
-    const candidateActionStages = new Set([
-      "deployMate Ready",
-      "Arrival Itinerary",
-      "Receipt Submission",
-      "Relocation Survey",
-      "U.S. Integration Call (30 Day Call / Survey)",
-      "1 Year Survey"
-    ]);
-
-    // CRM-only stages are display/status rows, not candidate actions.
-    // They cross off automatically from CRM. Foundations are handled above.
-    if (
-      DEPLOYMENT_CRM_STAGE_RULES[stage.stage_name] &&
-      !candidateActionStages.has(stage.stage_name)
-    ) {
+    if (DEPLOYMENT_CRM_STAGE_RULES[stage.stage_name]) {
+      openModal(
+        stage.stage_name,
+        <DeploymentCRMStatusView
+          stage={stage}
+          status={deploymentFieldStatus}
+          onClose={closeModal}
+          user={user}
+          setStages={setStages}
+        />
+      );
       return;
     }
-
     const action = getStageAction(stage.stage_name);
     
     if (!action || !action.clickable) {
@@ -13682,28 +12128,6 @@ export default function Pipeline() {
         return;
       }
       
-      if (
-        stage.nclex_subprocess === true &&
-        [
-          "Program Prescreen",
-          "Credential Evaluation Set-up",
-          "Select Meeting Time"
-        ].includes(stage.stage_name)
-      ) {
-        window.open(
-          PRESCREEN_BOOKING_URL,
-          "_blank",
-          "noopener,noreferrer"
-        );
-
-        toast.success(
-          stage.stage_name === "Select Meeting Time"
-            ? "IdentoGo meeting booking opened."
-            : `${stage.stage_name} booking opened.`
-        );
-        return;
-      }
-
       if (stage.stage_category === "NCLEX Roadmap" && stage.stage_details) {
         const details = stage.stage_details;
         openModal(
@@ -13850,12 +12274,7 @@ export default function Pipeline() {
         case "welcomePacket":
           openModal(
             "ICP Welcome Packet",
-            <WelcomePacketView
-              onClose={closeModal}
-              user={user}
-              setStages={setStages}
-              setDeploymentFieldStatus={setDeploymentFieldStatus}
-            />
+            <WelcomePacketView onClose={closeModal} user={user} setStages={setStages} />
           );
           break;
         case "aftercareCall":
@@ -13878,9 +12297,6 @@ export default function Pipeline() {
           break;
         case "thirtyDaySurvey":
           openModal("U.S. Integration Call (30 Day Call / Survey)", <ThirtyDaySurvey onClose={closeModal} user={user} setStages={setStages} />);
-          break;
-        case "oneYearSurvey":
-          openModal("1 Year Survey", <OneYearSurvey onClose={closeModal} user={user} setStages={setStages} />);
           break;
         case "ninetyDaySurvey":
           openModal("90 Day Survey", <NinetyDaySurvey onClose={closeModal} user={user} setStages={setStages} />);
@@ -14022,7 +12438,7 @@ export default function Pipeline() {
       try {
         const token = localStorage.getItem("icp_auth_token");
         const response = await fetch(
-          `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(user.email)}&refresh=false&_=${Date.now()}`,
+          `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(user.email)}&refresh=true&_=${Date.now()}`,
           {
             cache: "no-store",
             headers: { Authorization: `Bearer ${token}` }
@@ -14036,72 +12452,8 @@ export default function Pipeline() {
           ...(data.recruit || {}),
           ...(data.immigration || {}),
           __stageStatus:
-            data.stageStatus || {},
-          __sectionGates:
-            data.sectionGates || {},
-          __completionMap:
-            data.completionMap || {},
-          __immigrationChecklists:
-            data.immigrationChecklists || {},
-          __accessPolicy:
-            data.accessPolicy || {
-              mode: "normal",
-              restricted: false,
-              locked: false
-            }
+            data.stageStatus || {}
         });
-
-        const policy =
-          data.accessPolicy || {
-            mode: "normal",
-            restricted: false,
-            locked: false
-          };
-
-        setStages(previous =>
-          previous.map(stage => {
-            const qPoolOrder =
-              getCanonicalStageOrder({
-                stage_name: "Qualified Candidate Pool"
-              });
-
-            const notQualifiedOrder =
-              getCanonicalStageOrder({
-                stage_name: "Not Qualified - to close"
-              });
-
-            const boundary =
-              policy.mode === "qualified-pool"
-                ? qPoolOrder
-                : notQualifiedOrder;
-
-            const shouldLock =
-              policy.restricted === true &&
-              policy.locked === true &&
-              getCanonicalStageOrder(stage) > boundary;
-
-            return {
-              ...stage,
-              access_locked:
-                shouldLock
-            };
-          })
-        );
-
-        if (
-          policy.message &&
-          policy.restricted === true
-        ) {
-          toast.info(
-            policy.message,
-            {
-              id:
-                `pipeline-access-${policy.mode}`,
-              duration:
-                10000
-            }
-          );
-        }
 
         if (data.nclex && typeof data.nclex === "object") {
           setICPUSRNCRMData({ ...data.nclex, __live: true });
@@ -14113,224 +12465,29 @@ export default function Pipeline() {
           setShowNCLEX(isTransferToICPUSRNStatus(liveApplicationStatus));
         }
 
-        if (data.sectionGates && typeof data.sectionGates === "object") {
-          setStages(previous =>
-            previous.map(stage => {
-              let sectionCompleted = null;
-
-              if (stage.stage_name === "Immigration forms submitted") {
-                sectionCompleted =
-                  data.sectionGates?.immigration?.unlocked === true;
-              } else if (stage.stage_name === "Speciality Classes") {
-                sectionCompleted =
-                  data.sectionGates?.deployment?.unlocked === true;
-              } else if (stage.stage_name === "Arrived") {
-                sectionCompleted =
-                  data.sectionGates?.aftercare?.unlocked === true;
-              }
-
-              if (sectionCompleted === null) {
-                return stage;
-              }
-
-              return {
-                ...stage,
-                status:
-                  sectionCompleted
-                    ? "Completed"
-                    : "Not Started",
-                completed:
-                  sectionCompleted,
-                is_completed:
-                  sectionCompleted,
-                completed_date:
-                  sectionCompleted
-                    ? (
-                        stage.completed_date ||
-                        new Date().toISOString()
-                      )
-                    : null,
-                source_trigger_unlocked:
-                  sectionCompleted,
-                trigger_unlocked:
-                  sectionCompleted,
-                crm_unlocked:
-                  sectionCompleted,
-                source_trigger_synced:
-                  true,
-                crm_synced:
-                  true
-              };
-            })
-          );
-        }
-
         if (data.stageStatus && typeof data.stageStatus === "object") {
-          const rawLiveFields = {
-            ...(data.deployment || {}),
-            ...(data.immigration || {}),
-            ...(data.recruit || {}),
-            ...(data.nclex || {})
-          };
-
           setStages(previous => previous.map(stage => {
-            const live = data.stageStatus?.[stage.stage_name];
-            const rule = DEPLOYMENT_CRM_STAGE_RULES?.[stage.stage_name];
-
-            // Evaluate exact CRM field mappings directly from the same live
-            // response. This is intentionally independent of live.evaluated:
-            // a populated CRM value must never remain locked because Zoho omitted
-            // the field from an auxiliary metadata check.
-            let rawRuleCompleted = null;
-            let rawRuleHasValue = false;
-
-            if (rule) {
-              const rawValue = rule.fields
-                ? Object.fromEntries(
-                    rule.fields.map(field => [
-                      field,
-                      getLivePipelineFieldValue(rawLiveFields, field)
-                    ])
-                  )
-                : getLivePipelineFieldValue(
-                    rawLiveFields,
-                    rule.fieldsAny || rule.field
-                  );
-
-              if (rule.fields) {
-                rawRuleHasValue = Object.values(rawValue || {}).some(value =>
-                  hasFlowValue(unwrapPipelineFieldValue(value))
-                );
-              } else {
-                rawRuleHasValue =
-                  hasFlowValue(unwrapPipelineFieldValue(rawValue));
-              }
-
-              rawRuleCompleted =
-                rule.complete?.(rawValue) === true;
-            }
-
-            const backendEvaluated =
-              live?.evaluated === true &&
-              typeof live?.completed === "boolean";
-
-            const completed =
-              rawRuleCompleted === true ||
-              (
-                rawRuleCompleted !== false &&
-                backendEvaluated &&
-                live.completed === true
-              ) ||
-              (
-                !rule &&
-                backendEvaluated &&
-                live.completed === true
-              );
-
-            const backendInProgress =
-              backendEvaluated &&
-              String(live?.status || "")
-                .trim()
-                .toLowerCase() === "in progress";
-
-            const liveOpen =
-              completed ||
-              backendInProgress ||
-              live?.unlocked === true;
-
-            // If this stage has a direct CRM rule, the direct raw field is the
-            // source of truth and is fully reversible. Empty / unmet => not complete.
-            if (rule) {
-              const nextCompleted =
-                rawRuleCompleted === true ||
-                (
-                  !rawRuleHasValue &&
-                  backendEvaluated &&
-                  live.completed === true
-                );
-
-              const nextOpen =
-                nextCompleted ||
-                (
-                  !rawRuleHasValue &&
-                  backendInProgress
-                );
-
-              return {
-                ...stage,
-                status: nextCompleted
-                  ? "Completed"
-                  : nextOpen
-                    ? "In Progress"
-                    : "Not Started",
-                completed: nextCompleted,
-                is_completed: nextCompleted,
-                completed_date: nextCompleted
-                  ? (
-                      live?.completed_date ||
-                      stage.completed_date ||
-                      new Date().toISOString()
-                    )
-                  : null,
-                source_trigger_unlocked: nextOpen,
-                trigger_unlocked: nextOpen,
-                crm_unlocked: nextOpen,
-                source_trigger_fields:
-                  live?.source_fields ||
-                  (
-                    rule.fields
-                      ? rule.fields
-                      : [rule.field].filter(Boolean)
-                  ),
-                source_trigger_synced: true,
-                crm_synced: true,
-                live_raw_gate_value:
-                  rule.fields
-                    ? Object.fromEntries(
-                        rule.fields.map(field => [
-                          field,
-                          getLivePipelineFieldValue(rawLiveFields, field)
-                        ])
-                      )
-                    : getLivePipelineFieldValue(
-                        rawLiveFields,
-                        rule.fieldsAny || rule.field
-                      )
-              };
-            }
-
-            if (!backendEvaluated) return stage;
-
+            const live = data.stageStatus[stage.stage_name];
+            if (!live?.evaluated) return stage;
             return {
               ...stage,
-              status: live.status || (completed ? "Completed" : "Not Started"),
-              completed,
-              is_completed: completed,
-              completed_date: completed
-                ? (live.completed_date || stage.completed_date || null)
-                : null,
-              source_trigger_unlocked: liveOpen,
-              trigger_unlocked: liveOpen,
-              crm_unlocked:
-                stage.stage_category !== "Hiring"
-                  ? liveOpen
-                  : stage.crm_unlocked,
-              recruit_unlocked:
-                stage.stage_category === "Hiring"
-                  ? liveOpen
-                  : stage.recruit_unlocked,
+              status: live.status || (live.completed ? "Completed" : "Not Started"),
+              completed: live.completed === true,
+              is_completed: live.completed === true,
+              completed_date: live.completed === true ? (live.completed_date || stage.completed_date || null) : null,
+              // A live stage is authoritative when the backend says it is
+              // unlocked OR when the source field itself proves completion /
+              // in-progress. Do not treat an omitted `unlocked` property as a
+              // false gate; older backend responses did not return it.
+              source_trigger_unlocked:
+                live.unlocked === true ||
+                live.completed === true,
+              trigger_unlocked:
+                live.unlocked === true ||
+                live.completed === true,
               source_trigger_gate: live.gate || stage.source_trigger_gate || null,
               source_trigger_gate_snapshot: live.gate_snapshot || null,
-              source_trigger_fields: live.source_fields || stage.source_trigger_fields || [],
-              source_trigger_synced: true,
-              crm_synced:
-                stage.stage_category !== "Hiring"
-                  ? true
-                  : stage.crm_synced,
-              recruit_synced:
-                stage.stage_category === "Hiring"
-                  ? true
-                  : stage.recruit_synced
+              source_trigger_synced: true
             };
           }));
         }
@@ -14360,101 +12517,20 @@ export default function Pipeline() {
       }
     };
 
-    // API-conservation mode: one cached load when the Pipeline mounts.
-    // No timed polling and no focus polling.
     loadExpiryAndDeploymentStatus();
-
-    let lastRefreshAt = 0;
-    const MIN_CLIENT_REFRESH_GAP_MS =
-      10 * 60 * 1000;
-
-    const refreshOnDemand = async () => {
-      const now = Date.now();
-      if (
-        now - lastRefreshAt <
-        MIN_CLIENT_REFRESH_GAP_MS
-      ) {
-        return;
-      }
-
-      lastRefreshAt = now;
-
-      try {
-        const token =
-          localStorage.getItem(
-            "icp_auth_token"
-          );
-
-        if (!token) return;
-
-        const response = await fetch(
-          `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(
-            user.email
-          )}&refresh=true&_=${Date.now()}`,
-          {
-            cache: "no-store",
-            headers: {
-              Authorization:
-                `Bearer ${token}`,
-              "Cache-Control":
-                "no-cache",
-              Pragma:
-                "no-cache"
-            }
-          }
-        );
-
-        const data =
-          await response
-            .json()
-            .catch(() => ({}));
-
-        if (!response.ok) return;
-
-        setDeploymentFieldStatus({
-          ...(data.deployment || {}),
-          ...(data.recruit || {}),
-          ...(data.immigration || {}),
-          __stageStatus:
-            data.stageStatus || {},
-          __sectionGates:
-            data.sectionGates || {},
-          __completionMap:
-            data.completionMap || {},
-          __immigrationChecklists:
-            data.immigrationChecklists || {}
-        });
-
-        window.dispatchEvent(
-          new CustomEvent(
-            "pipeline-live-status-refreshed",
-            {
-              detail: {
-                email:
-                  user.email
-              }
-            }
-          )
-        );
-      } catch (error) {
-        console.warn(
-          "[Pipeline] Live refresh failed:",
-          error?.message || error
-        );
-      }
-    };
-
-    window.addEventListener(
-      "crm-recruit-refresh",
-      refreshOnDemand
+    const interval = window.setInterval(
+      loadExpiryAndDeploymentStatus,
+      15 * 1000
     );
 
+    const refreshOnFocus = () => loadExpiryAndDeploymentStatus();
+    window.addEventListener("focus", refreshOnFocus);
+    window.addEventListener("crm-recruit-refresh", refreshOnFocus);
     return () => {
       cancelled = true;
-      window.removeEventListener(
-        "crm-recruit-refresh",
-        refreshOnDemand
-      );
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshOnFocus);
+      window.removeEventListener("crm-recruit-refresh", refreshOnFocus);
     };
   }, [user?.email]);
 
@@ -14665,10 +12741,7 @@ export default function Pipeline() {
     );
 
   const nclexBranchVisible =
-    transferStatusSelected ||
-    savedTransferEligibility ||
-    savedNCLEXHistoryExists ||
-    showNCLEX;
+    transferStatusSelected;
 
   const nclexProgress =
     transferStage
@@ -14676,11 +12749,7 @@ export default function Pipeline() {
     {};
 
   useEffect(() => {
-    // Once a verified Transfer/NCLEX history exists, keep the NCLEX branch
-    // visible even after Recruit Application_Status advances to a later stage.
-    if (nclexBranchVisible) {
-      setShowNCLEX(true);
-    }
+    setShowNCLEX(nclexBranchVisible);
   }, [
     nclexBranchVisible
   ]);
@@ -14702,7 +12771,7 @@ export default function Pipeline() {
       }
 
       if (stage.stage_name === "Transfer to ICP USRN School") {
-        return transferStatusSelected;
+        return nclexBranchVisible;
       }
 
       if (
@@ -14769,458 +12838,9 @@ export default function Pipeline() {
   // Completion status never changes position. Deployment and Aftercare stay
   // in the configured sequence whether a row is Completed, In Progress,
   // Not Started, Late or At Risk.
-
-  const LIVE_SOURCE_COMPLETION_STAGES = new Set([
-    // Recruit live trigger
-    "Transfer to ICP USRN School",
-
-    // Immigration direct CRM fields
-    "Immigration forms submitted",
-    "Foundations: Pillars",
-    "Foundations: Endorsement Discovery",
-    "Immigration approved",
-    "Visa bill issued",
-    "Visa bill paid",
-    "DS-260 / Civil Document Submission",
-    "Foundations: Cultural Readiness",
-    "Documentarily Qualified",
-
-    // Deployment direct CRM fields / direct portal completion
-    "Introduction to Deployment Call",
-    "Speciality Classes",
-    "Final Self Assessment",
-    "Speciality with Trainer Skills Check",
-    "Housing / Transportation Call",
-    "Deployment Pre-Arrival Call",
-    "Pre-Arrival Banking Call",
-    "Employer Pre-Arrival Call",
-    "deployMate Ready",
-    // Arrival Itinerary is completed by candidate acknowledgement, not CRM.
-    "Receipt Submission",
-    "Arrived",
-
-    // Aftercare source-driven completion
-    "Welcome Call/24 Hour Call",
-    "7 Day Call",
-    "2 Week Call",
-    "Placement Stability Check-in (90 Day Call)",
-    "1 Year Survey"
-  ]);
-
-  const deriveLivePipelineStage = stage => {
-    if (!stage) return stage;
-
-    const liveFields = {
-      ...(deploymentFieldStatus || {})
-    };
-
-    const liveStageStatus =
-      deploymentFieldStatus?.__stageStatus?.[
-        stage.stage_name
-      ] || null;
-
-    const rule =
-      DEPLOYMENT_CRM_STAGE_RULES?.[
-        stage.stage_name
-      ] || null;
-
-    let next = {
-      ...stage
-    };
-
-    if (
-      IMMIGRATION_CRM_CHECKLISTS?.[stage.stage_name]
-    ) {
-      const checklistItems =
-        IMMIGRATION_CRM_CHECKLISTS[
-          stage.stage_name
-        ] || [];
-
-      const backendChecklist =
-        deploymentFieldStatus
-          ?.__immigrationChecklists
-          ?.[stage.stage_name] ||
-        {};
-
-      const liveFoundationResults =
-        checklistItems.map(item => {
-          const backendItem =
-            backendChecklist?.[
-              item.key
-            ];
-
-          if (
-            typeof backendItem
-              ?.complete ===
-              "boolean"
-          ) {
-            return backendItem.complete;
-          }
-
-          const rawValue =
-            getLivePipelineFieldValue(
-              deploymentFieldStatus || {},
-              [
-                item.key,
-                ...(item.aliases || [])
-              ]
-            );
-
-          return isCRMChecklistComplete(
-            rawValue
-          );
-        });
-
-      const foundationComplete =
-        liveFoundationResults.length > 0 &&
-        liveFoundationResults.every(
-          Boolean
-        );
-
-      next = {
-        ...next,
-        status:
-          foundationComplete
-            ? "Completed"
-            : "Not Started",
-        completed:
-          foundationComplete,
-        is_completed:
-          foundationComplete,
-        completed_date:
-          foundationComplete
-            ? (
-                next.completed_date ||
-                new Date().toISOString()
-              )
-            : null,
-        crm_checklist_completed:
-          liveFoundationResults.filter(
-            Boolean
-          ).length,
-        crm_checklist_total:
-          liveFoundationResults.length,
-        source_trigger_unlocked:
-          foundationComplete,
-        trigger_unlocked:
-          foundationComplete,
-        crm_unlocked:
-          foundationComplete,
-        source_trigger_synced:
-          true,
-        crm_synced:
-          true
-      };
-    }
-
-    const sectionGates =
-      deploymentFieldStatus?.__sectionGates || {};
-
-    const completionMap =
-      deploymentFieldStatus?.__completionMap || {};
-
-    const useLiveCompletion =
-      LIVE_SOURCE_COMPLETION_STAGES.has(
-        stage.stage_name
-      );
-
-    const explicitBackendCompletion =
-      useLiveCompletion &&
-      typeof completionMap?.[stage.stage_name] === "boolean"
-        ? completionMap[stage.stage_name]
-        : null;
-
-    const forceSectionTriggerComplete =
-      (
-        stage.stage_name === "Immigration forms submitted" &&
-        (
-          sectionGates?.immigration?.unlocked === true ||
-          completionMap?.["Immigration forms submitted"] === true
-        )
-      ) ||
-      (
-        stage.stage_name === "Speciality Classes" &&
-        (
-          sectionGates?.deployment?.unlocked === true ||
-          completionMap?.["Speciality Classes"] === true
-        )
-      ) ||
-      (
-        stage.stage_name === "Arrived" &&
-        (
-          sectionGates?.aftercare?.unlocked === true ||
-          completionMap?.["Arrived"] === true
-        )
-      );
-
-    if (forceSectionTriggerComplete) {
-      next = {
-        ...next,
-        status: "Completed",
-        completed: true,
-        is_completed: true,
-        completed_date:
-          next.completed_date ||
-          new Date().toISOString(),
-        source_trigger_unlocked: true,
-        trigger_unlocked: true,
-        crm_unlocked: true,
-        source_trigger_synced: true,
-        crm_synced: true
-      };
-    }
-
-    // Exact CRM/Recruit rule evaluation.
-    // The raw field itself is authoritative when a rule exists.
-    if (
-      useLiveCompletion &&
-      rule &&
-      !IMMIGRATION_CRM_CHECKLISTS?.[stage.stage_name] &&
-      !forceSectionTriggerComplete
-    ) {
-      const value = rule.fields
-        ? Object.fromEntries(
-            rule.fields.map(field => [
-              field,
-              getLivePipelineFieldValue(
-                liveFields,
-                field
-              )
-            ])
-          )
-        : getLivePipelineFieldValue(
-            liveFields,
-            rule.fieldsAny ||
-            rule.field
-          );
-
-      const localRuleCompleted =
-        rule.complete?.(value) === true;
-
-      const rawCompleted =
-        explicitBackendCompletion !== null
-          ? explicitBackendCompletion
-          : localRuleCompleted;
-
-      const rawInProgress =
-        !rawCompleted &&
-        (
-          rule.inProgress?.(value) ===
-            true ||
-          rule.allowContinue?.(value) ===
-            true
-        );
-
-      next = {
-        ...next,
-        status: rawCompleted
-          ? "Completed"
-          : rawInProgress
-            ? "In Progress"
-            : "Not Started",
-        completed:
-          rawCompleted,
-        is_completed:
-          rawCompleted,
-        completed_date:
-          rawCompleted
-            ? (
-                next.completed_date ||
-                liveStageStatus
-                  ?.completed_date ||
-                new Date()
-                  .toISOString()
-              )
-            : null,
-        source_trigger_unlocked:
-          rawCompleted ||
-          rawInProgress,
-        trigger_unlocked:
-          rawCompleted ||
-          rawInProgress,
-        crm_unlocked:
-          rawCompleted ||
-          rawInProgress,
-        source_trigger_synced:
-          true,
-        crm_synced:
-          true,
-        live_raw_gate_value:
-          value
-      };
-    } else if (
-      useLiveCompletion &&
-      (
-        explicitBackendCompletion !== null ||
-        (
-          liveStageStatus?.evaluated === true &&
-          typeof liveStageStatus?.completed === "boolean"
-        )
-      )
-    ) {
-      const backendCompleted =
-        explicitBackendCompletion !== null
-          ? explicitBackendCompletion
-          : liveStageStatus?.completed === true;
-
-      const backendInProgress =
-        String(
-          liveStageStatus.status || ""
-        )
-          .trim()
-          .toLowerCase() ===
-        "in progress";
-
-      next = {
-        ...next,
-        status:
-          backendCompleted
-            ? "Completed"
-            : backendInProgress
-              ? "In Progress"
-              : "Not Started",
-        completed:
-          backendCompleted,
-        is_completed:
-          backendCompleted,
-        completed_date:
-          backendCompleted
-            ? (
-                liveStageStatus
-                  .completed_date ||
-                next.completed_date ||
-                new Date()
-                  .toISOString()
-              )
-            : null,
-        source_trigger_unlocked:
-          backendCompleted ||
-          backendInProgress ||
-          liveStageStatus
-            ?.unlocked ===
-            true,
-        trigger_unlocked:
-          backendCompleted ||
-          backendInProgress ||
-          liveStageStatus
-            ?.unlocked ===
-            true,
-        source_trigger_synced:
-          true
-      };
-    }
-
-    // Aftercare opening is derived DIRECTLY from live Flight_Arrival_Time.
-    // It does not depend on saved pipeline state.
-    if (
-      next.stage_category ===
-      "Aftercare"
-    ) {
-      const rawArrival =
-        getLivePipelineFieldValue(
-          liveFields,
-          "Flight_Arrival_Time"
-        ) ||
-        finalArrivalDate
-          ?.toISOString?.() ||
-        next.aftercare_gate_date ||
-        next.aftercareGateDate ||
-        null;
-
-      const arrivalReached =
-        isArrivalCalendarDateTodayOrPast(
-          unwrapPipelineFieldValue(
-            rawArrival
-          )
-        ) ||
-        deploymentFieldStatus
-          ?.__sectionGates
-          ?.aftercare
-          ?.unlocked ===
-          true;
-
-      if (arrivalReached) {
-        const arrivalDate =
-          new Date(
-            unwrapPipelineFieldValue(
-              rawArrival
-            )
-          );
-
-        const validArrival =
-          !Number.isNaN(
-            arrivalDate.getTime()
-          );
-
-        next = {
-          ...next,
-          aftercare_unlocked:
-            true,
-          aftercare_locked:
-            false,
-          aftercare_gate_date:
-            validArrival
-              ? arrivalDate
-                  .toISOString()
-              : rawArrival,
-          live_arrival_gate:
-            rawArrival,
-          target_date:
-            validArrival &&
-            next.days_from_arrival !==
-              undefined
-              ? addDays(
-                  arrivalDate,
-                  Number(
-                    next.days_from_arrival ||
-                    0
-                  )
-                ).toISOString()
-              : next.target_date
-        };
-      }
-    }
-
-    if (
-      useLiveCompletion &&
-      explicitBackendCompletion === false &&
-      !isPipelineStageComplete(next)
-    ) {
-      next = {
-        ...next,
-        status: "Not Started",
-        completed: false,
-        is_completed: false,
-        completed_date: null,
-        source_trigger_unlocked: false,
-        trigger_unlocked: false,
-        crm_unlocked: false,
-        recruit_unlocked: false,
-        source_trigger_synced: true
-      };
-    } else if (
-      next.completed === true ||
-      next.is_completed === true
-    ) {
-      next = {
-        ...next,
-        status: "Completed",
-        completed: true,
-        is_completed: true,
-        completed_date:
-          next.completed_date ||
-          new Date().toISOString()
-      };
-    }
-
-    return next;
-  };
-
   const displayStages =
     sortStagesByConfiguredOrder(
       regularDisplayStages
-    ).map(
-      deriveLivePipelineStage
     );
 
   const categories = [
@@ -15695,17 +13315,8 @@ export default function Pipeline() {
                     </div>
                   </div>
                   {cat === "Hiring" &&
-                    nclexBranchVisible &&
-                    (
-                      (
-                        transferStatusSelected &&
-                        stage.stage_name === "Transfer to ICP USRN School"
-                      ) ||
-                      (
-                        !transferStatusSelected &&
-                        stage.stage_name === "Associated with Job"
-                      )
-                    ) && (
+                    stage.stage_name === "Transfer to ICP USRN School" &&
+                    nclexBranchVisible && (
                   <section className="border-t border-amber-200 bg-amber-50/40 p-5">
                             <div className="mb-4 flex items-center justify-between gap-3">
                               <div>
@@ -15717,13 +13328,9 @@ export default function Pipeline() {
                                 </p>
                               </div>
                               <span className="rounded-full border border-amber-200 bg-white px-3 py-1 text-xs font-medium text-amber-800">
-                                {ICP_USRN_SUBPROCESS_CONFIG.filter(
-                                  item =>
-                                    item.nonCounted !== true &&
-                                    isICPUSRNItemComplete(item, icpUSRNCRMData)
-                                ).length}/{ICP_USRN_SUBPROCESS_CONFIG.filter(
-                                  item => item.nonCounted !== true
-                                ).length} complete
+                                {ICP_USRN_SUBPROCESS_CONFIG.filter(item =>
+                                  isICPUSRNItemComplete(item, icpUSRNCRMData)
+                                ).length}/{ICP_USRN_SUBPROCESS_CONFIG.length} complete
                               </span>
                             </div>
 
@@ -15792,13 +13399,7 @@ export default function Pipeline() {
                                       </div>
                                     )}
 
-                                    {item.type === "booking" ? (
-                                      <div className="mt-2">
-                                        <span className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
-                                          Select meeting time
-                                        </span>
-                                      </div>
-                                    ) : item.name === "Credential Evaluation Set-up" ? (
+                                    {item.name === "Credential Evaluation Set-up" ? (
                                       <div className="mt-2 space-y-1">
                                         <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
                                           Credentialing Status
