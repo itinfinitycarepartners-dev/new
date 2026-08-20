@@ -16,14 +16,15 @@ export default function MessageList() {
   const { conversationId } = useParams();
   const MESSAGE_SECTIONS={
     admin:"Admin Messages",
-    public:"Public Messages",
+    community:"Community Messages",
+    public:"Community Messages",
     immigration:"Immigration",
     recruitment:"Recruitment",
     deployment:"Deployment",
     aftercare:"Aftercare"
   };
   const activeSection=MESSAGE_SECTIONS[conversationId]?conversationId:"admin";
-  const isCommunityConversation=activeSection==="public";
+  const isCommunityConversation=conversationId === "community" || conversationId === "public";
   const navigate = useNavigate();
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -914,7 +915,14 @@ export default function MessageList() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
           </svg>
         </button>
-        <h2 className="font-bold text-lg text-slate-800">Messages</h2>
+        <div>
+          <h2 className="font-bold text-lg text-slate-800">
+            {MESSAGE_SECTIONS[activeSection]}
+          </h2>
+          <p className="text-xs text-slate-500">
+            {isCommunityConversation ? "Shared community conversation" : "Private conversation with the ICP team"}
+          </p>
+        </div>
       </div>
 
       {/* Messages */}

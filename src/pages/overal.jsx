@@ -1366,10 +1366,19 @@ const UsersTable = ({ users, onSelectUser, onMessageUser, onBroadcast }) => {
 const MessagingPanel = ({ users, initialTarget }) => { 
   const [messages, setMessages] = useState({});
   const [selected, setSelected] = useState(initialTarget?.email || null);
+  const [department, setDepartment] = useState('admin');
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [messageError, setMessageError] = useState('');
+  const [departmentConversations, setDepartmentConversations] = useState([]);
+  const [expandedDepartments, setExpandedDepartments] = useState({
+    admin: true,
+    deployment: true,
+    recruitment: true,
+    immigration: true,
+    aftercare: true
+  });
   const chatEndRef = useRef(null);
 
   useEffect(() => { if (initialTarget?.email) setSelected(initialTarget.email); }, [initialTarget]);
@@ -1395,8 +1404,6 @@ const MessagingPanel = ({ users, initialTarget }) => {
   };
 
   useEffect(() => {
-    if (!selected) return;
-
     let cancelled = false;
     const loadHistory = async () => {
       setLoadingHistory(true);
@@ -1407,8 +1414,13 @@ const MessagingPanel = ({ users, initialTarget }) => {
           headers: getAdminHeaders()
         });
         const conversationsData = await readResponse(conversationsResponse);
+        if (!cancelled) {
+          setDepartmentConversations(conversationsData.conversations || []);
+        }
+        if (!selected) return;
         const conversation = (conversationsData.conversations || []).find(item =>
-          (item.participants || []).some(email => String(email).toLowerCase() === String(selected).toLowerCase())
+          (item.participants || []).some(email => String(email).toLowerCase() === String(selected).toLowerCase()) &&
+          (item.department || 'admin') === department
         );
 
         if (!conversation) {
@@ -1433,7 +1445,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
 
     loadHistory();
     return () => { cancelled = true; };
-  }, [selected]);
+  }, [selected, department]);
 
   const sendMessage = async () => {
     if (!input.trim() || !selected || loading) return;
@@ -1447,7 +1459,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
         method: 'POST',
         credentials: 'include',
         headers: getAdminHeaders(),
-        body: JSON.stringify({ recipientEmail: selected, content }),
+        body: JSON.stringify({ recipientEmail: selected, content, department }),
       });
       const data = await readResponse(response);
       const newMessage = data.message || {
@@ -1463,20 +1475,81 @@ const MessagingPanel = ({ users, initialTarget }) => {
   };
 
   const threads = users.map(u => ({ email: u.email, name: u.name, isActive: u.isActive }));
+  const departments = ['admin', 'deployment', 'recruitment', 'immigration', 'aftercare'];
+  const departmentLabel = value => `${value[0].toUpperCase()}${value.slice(1)}`;
+  const getConversationEmail = conversation =>
+    (conversation.participants || []).find(email => {
+      const normalized = String(email || '').trim().toLowerCase();
+      return normalized !== 'admin' && !normalized.startsWith('admin@');
+    });
+  const getConversationName = conversation => {
+    const email = getConversationEmail(conversation);
+    const thread = threads.find(item => String(item.email).toLowerCase() === String(email).toLowerCase());
+    return thread?.name || email?.split('@')[0] || 'Unknown user';
+  };
+  const conversationsByDepartment = department => {
+    const uniqueConversations = new Map();
+    departmentConversations
+      .filter(conversation =>
+        String(conversation.department || 'admin').trim().toLowerCase() === department &&
+        getConversationEmail(conversation)
+      )
+      .forEach(conversation => {
+        const email = getConversationEmail(conversation).trim().toLowerCase();
+        const existing = uniqueConversations.get(email);
+        if (!existing || new Date(conversation.lastMessageAt || 0) > new Date(existing.lastMessageAt || 0)) {
+          uniqueConversations.set(email, conversation);
+        }
+      });
+    return Array.from(uniqueConversations.values());
+  };
   const chat = selected ? messages[selected] || [] : [];
 
   return (
     <div className="bg-white rounded-xl border overflow-hidden h-[600px] flex shadow-sm">
       <div className="w-1/3 border-r overflow-y-auto bg-gray-50/30">
-        {threads.map((t) => (
-          <div key={t.email} onClick={() => setSelected(t.email)} className={`px-5 py-4 cursor-pointer border-b transition flex justify-between items-center ${selected === t.email ? 'bg-purple-50 border-purple-100' : 'hover:bg-gray-50'}`}>
-            <div>
-              <div className="text-sm font-bold text-gray-900">{t.name || t.email.split('@')[0]}</div>
-              <div className="text-xs text-gray-500 truncate mt-0.5">{t.email}</div>
+        {departments.map(item => {
+          const departmentThreads = conversationsByDepartment(item);
+          const isExpanded = expandedDepartments[item];
+          return (
+            <div key={item} className="border-b border-gray-200">
+              <button
+                type="button"
+                onClick={() => {
+                  setExpandedDepartments(previous => ({ ...previous, [item]: !previous[item] }));
+                  setDepartment(item);
+                }}
+                className={`w-full px-4 py-3 flex items-center justify-between text-left font-bold text-sm ${department === item ? 'bg-purple-50 text-purple-800' : 'bg-white text-gray-800 hover:bg-gray-50'}`}
+              >
+                <span>{departmentLabel(item)}</span>
+                <span className="text-xs font-semibold text-gray-400">{departmentThreads.length}</span>
+              </button>
+              {isExpanded && departmentThreads.length === 0 && (
+                <div className="px-7 py-2 text-xs italic text-gray-400 bg-gray-50">No messages</div>
+              )}
+              {isExpanded && departmentThreads.map(conversation => {
+                const email = getConversationEmail(conversation);
+                const thread = threads.find(user => String(user.email).toLowerCase() === String(email).toLowerCase());
+                return (
+                  <button
+                    type="button"
+                    key={conversation._id}
+                    onClick={() => { setDepartment(item); setSelected(email); }}
+                    className={`w-full px-7 py-3 text-left border-t border-gray-100 transition ${selected === email && department === item ? 'bg-purple-100' : 'bg-gray-50 hover:bg-purple-50'}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-gray-900 truncate">{getConversationName(conversation)}</div>
+                        <div className="text-xs text-gray-500 truncate">{email}</div>
+                      </div>
+                      {thread?.isActive && <div className="w-2 h-2 shrink-0 rounded-full bg-green-500" />}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
-            {t.isActive && <div className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-sm border border-white"></div>}
-          </div>
-        ))}
+          );
+        })}
       </div>
       <div className="w-2/3 flex flex-col bg-white">
         {!selected ? (

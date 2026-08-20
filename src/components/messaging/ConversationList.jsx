@@ -482,6 +482,10 @@ const sendMessage = useCallback(async () => {
       return "Admin Messages";
     }
 
+    if (conversation.department) {
+      return `${conversation.department[0].toUpperCase()}${conversation.department.slice(1)} Messages`;
+    }
+
     if (conversation.type === 'broadcast') return "Community Messages";
     if (conversation.type === 'group') return conversation.groupName || 'Group Chat';
     const currentUserEmail = getCurrentUserEmail();
@@ -675,7 +679,7 @@ const sendMessage = useCallback(async () => {
           <div className="p-4 border-b border-slate-200 sticky top-0 bg-white z-10">
             <div className="flex justify-between items-center flex-wrap gap-2">
               <div>
-                <h1 className="text-xl font-semibold text-slate-800">Messages</h1>
+                <h1 className="text-xl font-semibold text-slate-800">Departments</h1>
                 {unreadCount > 0 && <span className="text-sm text-purple-600 ml-2">{unreadCount} unread</span>}
               </div>
             </div>
@@ -714,9 +718,7 @@ const sendMessage = useCallback(async () => {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <span className={`font-medium ${isUnread ? 'text-slate-900' : 'text-slate-600'}`}>
-                          {isBroadcast
-                            ? "Community Messages"
-                            : "Admin Messages"}
+                          {isBroadcast ? "Community Messages" : name}
                         </span>
                         <span className="text-xs text-slate-400">{timeAgo}</span>
                       </div>
