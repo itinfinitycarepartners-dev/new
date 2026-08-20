@@ -1,4 +1,3 @@
-
 // @ts-nocheck
 import React, { useState, useEffect } from "react";
 import { useAuth } from "@/lib/AuthContext";
@@ -432,7 +431,7 @@ const STAGES_CONFIG = [
   { id: 36, stage_name: "Employer Pre-Arrival Call", stage_category: "Deployment", stage_order: 36, days_from_start: 960 },
   { id: 37, stage_name: "deployMate Ready", stage_category: "Deployment", stage_order: 37, days_from_start: 970 },
   { id: 38, stage_name: "Arrival Itinerary", stage_category: "Deployment", stage_order: 38, days_from_start: 980 },
-  { id: 39, stage_name: "Receipt Submission", stage_category: "Deployment", stage_order: 39, days_from_start: 990 },
+  { id: 39, stage_name: "Receipt Submission", display_name: "Expense Report", stage_category: "Deployment", stage_order: 39, days_from_start: 990 },
   { id: 40, stage_name: "Arrived", stage_category: "Deployment", stage_order: 40, days_from_start: 1000 },
 
   // Stage 4 — Aftercare: EXACTLY 8 stages.
@@ -456,7 +455,7 @@ const REQUIRED_STAGE_NOTICES = {
   "Pre-Arrival Banking Call": "Attend the pre-arrival banking call.",
   "deployMate Ready": "Complete the deployMate readiness requirements.",
   "Arrival Itinerary": "Review your arrival itinerary and relocation information.",
-  "Receipt Submission": "Submit eligible reimbursement receipts before arrival.",
+  "Receipt Submission": "Upload reimbursement receipts and review your Expense Report.",
   "Arrived": "Arrival confirmed. Continue to Aftercare.",
 };
 
@@ -8791,7 +8790,7 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
   </div>;
 };
 
-// ============= Reimbursement/Expenses Component (Aftercare) =============
+// ============= Expense Report / Reimbursement Component (Aftercare) =============
 // Loads the payment schedule and submission status securely.
 const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
   const [loading, setLoading] = useState(true);
@@ -8815,9 +8814,12 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState(null);
+  const [expenseReport, setExpenseReport] = useState(null);
+  const [expenseReportLoading, setExpenseReportLoading] = useState(true);
 
   useEffect(() => {
     fetchPaymentData();
+    fetchExpenseReport();
   }, []);
 
   const buildPaymentRecord = (userData, n) => ({
@@ -8869,6 +8871,69 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
       toast.error("Failed to load payment data");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchExpenseReport = async () => {
+    setExpenseReportLoading(
+      true
+    );
+
+    try {
+      const token =
+        localStorage.getItem(
+          "icp_auth_token"
+        );
+
+      if (!token) {
+        throw new Error(
+          "Not authenticated"
+        );
+      }
+
+      const response =
+        await fetch(
+          `${API_BASE}/api/reimbursement/expense-report?_=${Date.now()}`,
+          {
+            cache:
+              "no-store",
+            headers: {
+              Authorization:
+                `Bearer ${token}`
+            }
+          }
+        );
+
+      const data =
+        await response
+          .json()
+          .catch(
+            () => ({})
+          );
+
+      if (
+        !response.ok ||
+        data.success !== true
+      ) {
+        throw new Error(
+          data.error ||
+          "Unable to load Expense Report."
+        );
+      }
+
+      setExpenseReport(
+        data.report ||
+        null
+      );
+    } catch (error) {
+      console.warn(
+        "[Reimbursement/Expenses] Expense Report load failed:",
+        error
+      );
+    } finally {
+      setExpenseReportLoading(
+        false
+      );
     }
   };
 
@@ -9010,7 +9075,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
         <div className="bg-rose-50 rounded-lg p-4 border border-rose-200">
           <div className="flex items-center gap-2 mb-3">
             <DollarSign className="h-5 w-5 text-rose-600" />
-            <h3 className="font-semibold text-rose-800">Reimbursement/Expenses</h3>
+            <h3 className="font-semibold text-rose-800">Expense Report</h3>
           </div>
           <div className="flex flex-col items-center justify-center py-8">
             <Loader2 className="h-8 w-8 animate-spin text-rose-600" />
@@ -9061,6 +9126,229 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
         </div>
       )}
 
+      <div className="rounded-xl border bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-purple-600">
+              Expense Report
+            </p>
+            <h3 className="mt-1 text-xl font-bold text-slate-900">
+              Reimbursement Expense Report
+            </h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Amounts below are populated from receipts after ICP administration verifies the amount and marks it as a Credit or Deduction.
+            </p>
+          </div>
+        </div>
+
+        {expenseReportLoading ? (
+          <div className="py-6 text-center text-sm text-muted-foreground">
+            Loading Expense Report...
+          </div>
+        ) : expenseReport ? (
+          <>
+            <div className="grid gap-3 border-b py-4 text-sm md:grid-cols-3">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Candidate
+                </p>
+                <p className="font-semibold">
+                  {expenseReport.candidate_name || "—"}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Arrival Date
+                </p>
+                <p className="font-semibold">
+                  {expenseReport.arrival_date || "—"}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Facility
+                </p>
+                <p className="font-semibold">
+                  {expenseReport.facility || "—"}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 overflow-x-auto rounded-xl border">
+              <table className="w-full min-w-[760px] border-collapse text-sm">
+                <thead>
+                  <tr className="bg-slate-100">
+                    <th className="border-r px-4 py-3 text-left font-semibold text-slate-700">
+                      Expense / What the Amount Is For
+                    </th>
+                    <th className="border-r px-4 py-3 text-right font-semibold text-emerald-700">
+                      Credit
+                    </th>
+                    <th className="px-4 py-3 text-right font-semibold text-amber-700">
+                      Deduction
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {(expenseReport.rows || []).map(
+                    row => (
+                      <tr
+                        key={row.id}
+                        className="border-t bg-white"
+                      >
+                        <td className="border-r px-4 py-3 align-top">
+                          <div className="font-semibold text-slate-900">
+                            {row.label}
+                          </div>
+
+                          {row.receipt_name && (
+                            <div className="mt-1 text-xs text-slate-500">
+                              Receipt: {row.receipt_name}
+                            </div>
+                          )}
+
+                          {row.reference && (
+                            <div className="mt-1 text-xs text-slate-500">
+                              Reference amount: ${Number(
+                                row.reference
+                              ).toFixed(2)}
+                            </div>
+                          )}
+
+                          {row.note && (
+                            <div className="mt-1 text-xs text-slate-500">
+                              {row.note}
+                            </div>
+                          )}
+                        </td>
+
+                        <td className="border-r px-4 py-3 text-right align-top">
+                          {row.side === "credit" ? (
+                            row.reviewed ? (
+                              <div>
+                                <div className="font-semibold text-emerald-700">
+                                  ${Number(
+                                    row.amount || 0
+                                  ).toFixed(2)}
+                                </div>
+                                <div className="mt-1 text-xs text-slate-500">
+                                  Credit for {row.label}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-slate-400">
+                                Pending review
+                              </span>
+                            )
+                          ) : (
+                            <span className="text-slate-300">—</span>
+                          )}
+                        </td>
+
+                        <td className="px-4 py-3 text-right align-top">
+                          {row.side === "deduction" ? (
+                            row.reviewed ? (
+                              <div>
+                                <div className="font-semibold text-amber-700">
+                                  ${Number(
+                                    row.amount || 0
+                                  ).toFixed(2)}
+                                </div>
+                                <div className="mt-1 text-xs text-slate-500">
+                                  Deduction for {row.label}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-slate-400">
+                                Pending review
+                              </span>
+                            )
+                          ) : (
+                            <span className="text-slate-300">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  )}
+                </tbody>
+
+                <tfoot>
+                  <tr className="border-t-2 bg-emerald-50 font-semibold">
+                    <td className="border-r px-4 py-3">
+                      Total Credits
+                    </td>
+                    <td className="border-r px-4 py-3 text-right text-emerald-700">
+                      ${Number(
+                        expenseReport.totals?.credits || 0
+                      ).toFixed(2)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-slate-300">
+                      —
+                    </td>
+                  </tr>
+
+                  <tr className="border-t bg-amber-50 font-semibold">
+                    <td className="border-r px-4 py-3">
+                      Total Deductions
+                    </td>
+                    <td className="border-r px-4 py-3 text-right text-slate-300">
+                      —
+                    </td>
+                    <td className="px-4 py-3 text-right text-amber-700">
+                      ${Number(
+                        expenseReport.totals?.deductions || 0
+                      ).toFixed(2)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg border bg-emerald-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                  Credits
+                </p>
+                <p className="mt-1 text-lg font-bold text-emerald-800">
+                  ${Number(
+                    expenseReport.totals?.credits || 0
+                  ).toFixed(2)}
+                </p>
+              </div>
+
+              <div className="rounded-lg border bg-amber-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                  Deductions
+                </p>
+                <p className="mt-1 text-lg font-bold text-amber-800">
+                  ${Number(
+                    expenseReport.totals?.deductions || 0
+                  ).toFixed(2)}
+                </p>
+              </div>
+
+              <div className="rounded-lg border bg-purple-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-purple-700">
+                  Reimbursement Due to {expenseReport.totals?.due_to || "Neither"}
+                </p>
+                <p className="mt-1 text-lg font-bold text-purple-800">
+                  ${Number(
+                    expenseReport.totals?.amount_due || 0
+                  ).toFixed(2)}
+                </p>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="py-6 text-center text-sm text-muted-foreground">
+            No reviewed receipt amounts are available yet.
+          </div>
+        )}
+      </div>
+
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <p className="text-xs text-blue-700">
           <strong>Payment Type:</strong> {paymentData.nursePaymentType || "Not set"}
@@ -9074,7 +9362,15 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
             Payment Details
           </h3>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={fetchPaymentData} className="h-8 px-2 text-xs text-green-700 hover:text-green-900">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                fetchPaymentData();
+                fetchExpenseReport();
+              }}
+              className="h-8 px-2 text-xs text-green-700 hover:text-green-900"
+            >
               <RefreshCw className="h-3 w-3 mr-1" />
               Refresh
             </Button>
@@ -9305,6 +9601,8 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
   const [loadingRates, setLoadingRates] = useState(true);
   const [ratesError, setRatesError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [expenseReport, setExpenseReport] = useState(null);
+  const [expenseReportLoading, setExpenseReportLoading] = useState(true);
 
   const fetchExchangeRates = async () => {
     setLoadingRates(true);
@@ -9354,6 +9652,157 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
     });
     setReceipts(initialReceipts);
   }, []);
+
+  const loadExpenseReport = async () => {
+    setExpenseReportLoading(
+      true
+    );
+
+    try {
+      const token =
+        localStorage.getItem(
+          "icp_auth_token"
+        );
+
+      if (!token) {
+        return;
+      }
+
+      const response =
+        await fetch(
+          `${API_BASE}/api/reimbursement/expense-report?_=${Date.now()}`,
+          {
+            cache:
+              "no-store",
+            headers: {
+              Authorization:
+                `Bearer ${token}`
+            }
+          }
+        );
+
+      const data =
+        await response
+          .json()
+          .catch(
+            () => ({})
+          );
+
+      if (
+        response.ok &&
+        data.success === true
+      ) {
+        setExpenseReport(
+          data.report ||
+          null
+        );
+      }
+    } catch (
+      error
+    ) {
+      console.warn(
+        "[Expense Report] Load failed:",
+        error?.message ||
+        error
+      );
+    } finally {
+      setExpenseReportLoading(
+        false
+      );
+    }
+  };
+
+  useEffect(
+    () => {
+      loadExpenseReport();
+
+      const refresh =
+        () =>
+          loadExpenseReport();
+
+      window.addEventListener(
+        "candidate-data-updated",
+        refresh
+      );
+
+      return () =>
+        window.removeEventListener(
+          "candidate-data-updated",
+          refresh
+        );
+    },
+    []
+  );
+
+  const downloadExpenseReport =
+    async () => {
+      try {
+        const token =
+          localStorage.getItem(
+            "icp_auth_token"
+          );
+
+        if (!token) {
+          throw new Error(
+            "Please sign in again."
+          );
+        }
+
+        const response =
+          await fetch(
+            `${API_BASE}/api/reimbursement/expense-report/document`,
+            {
+              headers: {
+                Authorization:
+                  `Bearer ${token}`
+              }
+            }
+          );
+
+        if (!response.ok) {
+          const data =
+            await response
+              .json()
+              .catch(
+                () => ({})
+              );
+
+          throw new Error(
+            data.error ||
+            "Unable to create Expense Report."
+          );
+        }
+
+        const blob =
+          await response.blob();
+
+        const url =
+          URL.createObjectURL(
+            blob
+          );
+
+        window.open(
+          url,
+          "_blank",
+          "noopener,noreferrer"
+        );
+
+        setTimeout(
+          () =>
+            URL.revokeObjectURL(
+              url
+            ),
+          60000
+        );
+      } catch (
+        error
+      ) {
+        toast.error(
+          error.message ||
+          "Unable to open Expense Report."
+        );
+      }
+    };
 
   const handleFileChange = (categoryId, file) => {
     if (file) {
@@ -9640,6 +10089,8 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
         `${uploaded.length} receipt(s) submitted successfully.`
       );
 
+      await loadExpenseReport();
+
       toast.success(
         `Total Reimbursement: $${Number(
           totalUSD || 0
@@ -9668,6 +10119,244 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 max-h-[calc(90vh-80px)] overflow-y-auto pr-2">
+      <div className="rounded-xl border bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-purple-600">
+              Expense Report
+            </p>
+            <h3 className="mt-1 text-xl font-bold text-slate-900">
+              Reimbursement Expense Report
+            </h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Verified amounts and their Credit/Deduction classification populate after ICP administration reviews each uploaded receipt.
+            </p>
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={
+              downloadExpenseReport
+            }
+            disabled={
+              expenseReportLoading
+            }
+          >
+            <FileText className="mr-2 h-4 w-4" />
+            View Report
+          </Button>
+        </div>
+
+        {expenseReportLoading ? (
+          <div className="py-6 text-center text-sm text-muted-foreground">
+            Loading Expense Report...
+          </div>
+        ) : expenseReport ? (
+          <>
+            <div className="grid gap-3 border-b py-4 text-sm md:grid-cols-3">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Candidate
+                </p>
+                <p className="font-semibold">
+                  {expenseReport.candidate_name || "—"}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Arrival Date
+                </p>
+                <p className="font-semibold">
+                  {expenseReport.arrival_date || "—"}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Facility
+                </p>
+                <p className="font-semibold">
+                  {expenseReport.facility || "—"}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 overflow-x-auto rounded-xl border">
+              <table className="w-full min-w-[760px] border-collapse text-sm">
+                <thead>
+                  <tr className="bg-slate-100">
+                    <th className="border-r px-4 py-3 text-left font-semibold text-slate-700">
+                      Expense / What the Amount Is For
+                    </th>
+                    <th className="border-r px-4 py-3 text-right font-semibold text-emerald-700">
+                      Credit
+                    </th>
+                    <th className="px-4 py-3 text-right font-semibold text-amber-700">
+                      Deduction
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {(expenseReport.rows || []).map(
+                    row => (
+                      <tr
+                        key={row.id}
+                        className="border-t bg-white"
+                      >
+                        <td className="border-r px-4 py-3 align-top">
+                          <div className="font-semibold text-slate-900">
+                            {row.label}
+                          </div>
+
+                          {row.reference && (
+                            <div className="mt-1 text-xs text-slate-500">
+                              Reference amount: ${Number(
+                                row.reference
+                              ).toFixed(2)}
+                            </div>
+                          )}
+
+                          {row.receipt_name && (
+                            <div className="mt-1 text-xs text-slate-500">
+                              Receipt: {row.receipt_name}
+                            </div>
+                          )}
+
+                          {row.note && (
+                            <div className="mt-1 text-xs text-slate-500">
+                              {row.note}
+                            </div>
+                          )}
+                        </td>
+
+                        <td className="border-r px-4 py-3 text-right align-top">
+                          {row.side === "credit" ? (
+                            row.reviewed ? (
+                              <div>
+                                <div className="font-semibold text-emerald-700">
+                                  ${Number(
+                                    row.amount || 0
+                                  ).toFixed(2)}
+                                </div>
+                                <div className="mt-1 text-xs text-slate-500">
+                                  Credit for {row.label}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-slate-400">
+                                Pending review
+                              </span>
+                            )
+                          ) : (
+                            <span className="text-slate-300">—</span>
+                          )}
+                        </td>
+
+                        <td className="px-4 py-3 text-right align-top">
+                          {row.side === "deduction" ? (
+                            row.reviewed ? (
+                              <div>
+                                <div className="font-semibold text-amber-700">
+                                  ${Number(
+                                    row.amount || 0
+                                  ).toFixed(2)}
+                                </div>
+                                <div className="mt-1 text-xs text-slate-500">
+                                  Deduction for {row.label}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-slate-400">
+                                Pending review
+                              </span>
+                            )
+                          ) : (
+                            <span className="text-slate-300">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  )}
+                </tbody>
+
+                <tfoot>
+                  <tr className="border-t-2 bg-emerald-50 font-semibold">
+                    <td className="border-r px-4 py-3 text-slate-900">
+                      Total Credits
+                    </td>
+                    <td className="border-r px-4 py-3 text-right text-emerald-700">
+                      ${Number(
+                        expenseReport.totals?.credits || 0
+                      ).toFixed(2)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-slate-300">
+                      —
+                    </td>
+                  </tr>
+
+                  <tr className="border-t bg-amber-50 font-semibold">
+                    <td className="border-r px-4 py-3 text-slate-900">
+                      Total Deductions
+                    </td>
+                    <td className="border-r px-4 py-3 text-right text-slate-300">
+                      —
+                    </td>
+                    <td className="px-4 py-3 text-right text-amber-700">
+                      ${Number(
+                        expenseReport.totals?.deductions || 0
+                      ).toFixed(2)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg border bg-emerald-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                  Credits
+                </p>
+                <p className="mt-1 text-lg font-bold text-emerald-800">
+                  ${Number(
+                    expenseReport.totals?.credits || 0
+                  ).toFixed(2)}
+                </p>
+              </div>
+
+              <div className="rounded-lg border bg-amber-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                  Deductions
+                </p>
+                <p className="mt-1 text-lg font-bold text-amber-800">
+                  ${Number(
+                    expenseReport.totals?.deductions || 0
+                  ).toFixed(2)}
+                </p>
+              </div>
+
+              <div className="rounded-lg border bg-purple-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-purple-700">
+                  Reimbursement Due to {expenseReport.totals?.due_to || "Neither"}
+                </p>
+                <p className="mt-1 text-lg font-bold text-purple-800">
+                  ${Number(
+                    expenseReport.totals?.amount_due || 0
+                  ).toFixed(2)}
+                </p>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="py-6 text-center text-sm text-muted-foreground">
+            Upload receipts below. The report will populate after admin review.
+          </div>
+        )}
+      </div>
+
       <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 sticky top-0 z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -9784,7 +10473,7 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
           {uploading ? (
             <><Loader2 className="h-4 w-4 animate-spin" /> {isSubmitting ? 'Submitting...' : 'Uploading...'}</>
           ) : (
-            <><FileCheck className="h-4 w-4" /> Submit All Receipts</>
+            <><FileCheck className="h-4 w-4" /> Submit Expense Report Receipts</>
           )}
         </Button>
       </div>
@@ -14316,10 +15005,10 @@ export default function Pipeline() {
           openModal("Submit R&L Checklist", <RLChecklistView onClose={closeModal} user={user} setStages={setStages} />);
           break;
         case "reimbursement":
-          openModal("Reimbursement/Advance Payment Report", <ReimbursementUpload onClose={closeModal} user={user} setStages={setStages} />);
+          openModal("Expense Report", <ReimbursementUpload onClose={closeModal} user={user} setStages={setStages} />);
           break;
         case "reimbursementExpenses":
-          openModal("Reimbursement/Expenses", <ReimbursementExpensesView onClose={closeModal} user={user} setStages={setStages} />);
+          openModal("Expense Report", <ReimbursementExpensesView onClose={closeModal} user={user} setStages={setStages} />);
           break;
         case "supportGroup":
           openModal("ICP Pre-Arrival Support Group", <SupportGroupView onClose={closeModal} />);
@@ -16368,7 +17057,7 @@ export default function Pipeline() {
                         isGate && "text-blue-700"
                       )}>
                         {isGate && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded mr-1">GATE</span>}
-                        {stage.stage_name}
+                        {stage.display_name || stage.stage_name}
                         {PIPELINE_STAGE_COMMENTS[stage.stage_name] && (
                           <span
                             className="ml-2 inline-flex cursor-help items-center text-xs text-muted-foreground no-underline"
