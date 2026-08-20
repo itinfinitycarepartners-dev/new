@@ -1,4 +1,3 @@
-
 // @ts-nocheck
 import { useAuth } from "@/lib/AuthContext";
 import { User, Phone, Mail, MapPin, Briefcase, Plane, Building2, UserCheck, Calendar, Award, FileText, FileCheck, Clock, Shield, CheckCircle, AlertCircle, Building, Loader2, Users, CalendarDays } from "lucide-react";
@@ -6,7 +5,7 @@ import { useState, useEffect } from "react";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://fictional-carnival-3inv.onrender.com';
 
-// ─── Helper: Format date to "May 15 • 2026" ────────────────────────────────
+
 const formatDate = (dateStr) => {
   if (!dateStr || dateStr === "—" || dateStr === "" || dateStr === null || dateStr === undefined) return null;
   
@@ -114,6 +113,25 @@ export default function Profile() {
     travelSummary: {}
   });
   const [embassyEligibilityStatus, setEmbassyEligibilityStatus] = useState("");
+
+  const [travelPlanning, setTravelPlanning] = useState({
+    departureCity: "",
+    wheelchair: "No",
+    checkedBags: "0",
+    carryOn: "0",
+    boxes: "0",
+    pets: "No",
+    travelCash: "",
+    carSeats: "No",
+    phoneModelCarrier: "",
+    simUnlocked: "",
+    drivingPlan: "",
+    carPurchasePlan: "",
+    foundationsCompleted: "",
+    spouseEmployment: ""
+  });
+  const [savingTravelPlanning, setSavingTravelPlanning] = useState(false);
+  const [travelPlanningMessage, setTravelPlanningMessage] = useState("");
 
   // Fetch profile data from Zoho API
   useEffect(() => {
@@ -253,12 +271,17 @@ export default function Profile() {
         const data = await response.json().catch(() => ({}));
 
         if (response.ok && data.success === true) {
-          setExtendedProfile(
+          const nextProfile =
             data.profile || {
               dependants: [],
               travelSummary: {}
-            }
-          );
+            };
+
+          setExtendedProfile(nextProfile);
+          setTravelPlanning(previous => ({
+            ...previous,
+            ...(nextProfile.travelSummary || {})
+          }));
         }
       } catch (error) {
         console.warn(
@@ -380,6 +403,90 @@ export default function Profile() {
 
     loadEligibility();
   }, [user?.email]);
+
+  const saveTravelPlanning = async () => {
+    setSavingTravelPlanning(true);
+    setTravelPlanningMessage("");
+
+    try {
+      const token =
+        localStorage.getItem(
+          "icp_auth_token"
+        );
+
+      if (!token) {
+        throw new Error(
+          "Your session has expired. Please sign in again."
+        );
+      }
+
+      const response =
+        await fetch(
+          `${API_BASE}/api/profile/extended`,
+          {
+            method: "PUT",
+            headers: {
+              Authorization:
+                `Bearer ${token}`,
+              "Content-Type":
+                "application/json"
+            },
+            body:
+              JSON.stringify({
+                travelSummary:
+                  travelPlanning
+              })
+          }
+        );
+
+      const data =
+        await response
+          .json()
+          .catch(() => ({}));
+
+      if (
+        !response.ok ||
+        data.success !== true
+      ) {
+        throw new Error(
+          data.error ||
+          "Unable to save travel and arrival planning."
+        );
+      }
+
+      setExtendedProfile(
+        previous => ({
+          ...previous,
+          ...(data.profile || {}),
+          travelSummary:
+            data.profile?.travelSummary ||
+            travelPlanning
+        })
+      );
+
+      setTravelPlanningMessage(
+        "Travel and arrival planning saved."
+      );
+
+      window.dispatchEvent(
+        new CustomEvent(
+          "candidate-data-updated"
+        )
+      );
+    } catch (error) {
+      console.error(
+        "[Profile] Travel planning save failed:",
+        error
+      );
+
+      setTravelPlanningMessage(
+        error?.message ||
+        "Unable to save travel and arrival planning."
+      );
+    } finally {
+      setSavingTravelPlanning(false);
+    }
+  };
 
   // Show loading state
   if (loading || recruitLoading) {
@@ -595,10 +702,7 @@ export default function Profile() {
         </Section>
 
         {/* Immigration Petition Record — retained from the existing profile */}
-        <Section
-          title="Immigration"
-          className="lg:col-span-2"
-        >
+        <Section title="Immigration">
           <div className="mb-4">
             <h3 className="text-base font-semibold text-foreground">
               Immigration Petition Record
@@ -727,6 +831,87 @@ export default function Profile() {
           </div>
         </Section>
 
+        <Section title="Travel and arrival planning">
+          <div className="grid gap-4 md:grid-cols-2">
+            {[
+              ["Departure city and country / closest international airport", "departureCity", "text"],
+              ["Will anyone travel in a wheelchair?", "wheelchair", "text"],
+              ["Checked Bags", "checkedBags", "number"],
+              ["Personal Carry On", "carryOn", "number"],
+              ["Boxes", "boxes", "number"],
+              ["Traveling with pets?", "pets", "text"],
+              ["Travel Cash ($), excluding reimbursement", "travelCash", "number"],
+              ["Car seats or boosters needed?", "carSeats", "text"],
+              ["Cell Phone Model + Carrier", "phoneModelCarrier", "text"],
+              ["Is the SIM card unlocked?", "simUnlocked", "text"],
+              ["Car Purchasing Plan Post Arrival", "carPurchasePlan", "text"],
+              ["Foundation Relias classes completed?", "foundationsCompleted", "text"]
+            ].map(([label, field, type]) => (
+              <label key={field} className="block">
+                <span className="text-xs font-medium text-muted-foreground">{label}</span>
+                <input
+                  type={type}
+                  value={travelPlanning[field] ?? ""}
+                  onChange={event =>
+                    setTravelPlanning(previous => ({
+                      ...previous,
+                      [field]: event.target.value
+                    }))
+                  }
+                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-100"
+                />
+              </label>
+            ))}
+          </div>
+
+          <label className="mt-4 block">
+            <span className="text-xs font-medium text-muted-foreground">Immediate driving plan after arrival</span>
+            <textarea
+              value={travelPlanning.drivingPlan || ""}
+              onChange={event =>
+                setTravelPlanning(previous => ({
+                  ...previous,
+                  drivingPlan: event.target.value
+                }))
+              }
+              rows={3}
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-100"
+            />
+          </label>
+
+          <label className="mt-4 block">
+            <span className="text-xs font-medium text-muted-foreground">Employment plans for spouse or adult children</span>
+            <textarea
+              value={travelPlanning.spouseEmployment || ""}
+              onChange={event =>
+                setTravelPlanning(previous => ({
+                  ...previous,
+                  spouseEmployment: event.target.value
+                }))
+              }
+              rows={3}
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-100"
+            />
+          </label>
+
+          <div className="mt-4 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={saveTravelPlanning}
+              disabled={savingTravelPlanning}
+              className="rounded-lg bg-purple-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {savingTravelPlanning ? "Saving..." : "Save travel planning"}
+            </button>
+            {travelPlanningMessage && (
+              <span className="text-sm text-muted-foreground">
+                {travelPlanningMessage}
+              </span>
+            )}
+          </div>
+        </Section>
+
+
       
         {Array.isArray(extendedProfile?.dependants) &&
           extendedProfile.dependants.length > 0 && (
@@ -753,26 +938,6 @@ export default function Profile() {
             </Section>
           )}
 
-        {extendedProfile?.travelSummary &&
-          Object.values(extendedProfile.travelSummary).some(
-            value =>
-              value !== null &&
-              value !== undefined &&
-              String(value).trim() !== ""
-          ) && (
-            <Section title="Travel Summary">
-              <InfoRow label="Departure City / Airport" value={extendedProfile.travelSummary.departureCity} icon={Plane} />
-              <InfoRow label="Checked Bags" value={extendedProfile.travelSummary.checkedBags} icon={Briefcase} />
-              <InfoRow label="Carry On" value={extendedProfile.travelSummary.carryOn} icon={Briefcase} />
-              <InfoRow label="Boxes" value={extendedProfile.travelSummary.boxes} icon={Briefcase} />
-              <InfoRow label="Pets" value={extendedProfile.travelSummary.pets} icon={Users} />
-              <InfoRow label="Travel Cash" value={extendedProfile.travelSummary.travelCash} icon={Briefcase} />
-              <InfoRow label="Car Seats" value={extendedProfile.travelSummary.carSeats} icon={Users} />
-              <InfoRow label="Wheelchair" value={extendedProfile.travelSummary.wheelchair} icon={UserCheck} />
-              <InfoRow label="Phone + Carrier" value={extendedProfile.travelSummary.phoneModelCarrier} icon={Phone} />
-              <InfoRow label="SIM Unlocked" value={extendedProfile.travelSummary.simUnlocked} icon={CheckCircle} />
-            </Section>
-          )}
       </div>
     </div>
   );

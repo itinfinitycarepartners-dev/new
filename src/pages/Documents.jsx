@@ -1,6 +1,9 @@
 
 
 
+
+
+
 // @ts-nocheck
 import {
   useQuery,
@@ -81,6 +84,7 @@ const REQUIRED_PROFILE_DOCUMENT_TYPES = [
 const normalizeDocument = (document, index) => {
   const attachmentId =
     document.attachment_id ||
+    document.pending_upload_id ||
     document.id ||
     document.attachment_Id ||
     document.document_id ||
@@ -283,15 +287,87 @@ function DocumentViewerModal({
           );
         }
 
-        const query = new URLSearchParams();
+        const documentId =
+          doc.attachment_id ||
+          doc.crm_attachment_id ||
+          doc.recruit_attachment_id ||
+          doc.pending_upload_id ||
+          doc.document_id ||
+          doc.id;
+
+        if (!documentId) {
+          throw new Error(
+            "This document does not have a downloadable attachment ID."
+          );
+        }
+
+        const query =
+          new URLSearchParams();
+
         query.set(
-          "key",
-          getDocumentKey(doc)
+          "source",
+          doc.source ||
+          ""
         );
-        query.set("_", String(Date.now()));
+
+        query.set(
+          "name",
+          doc.document_name ||
+          ""
+        );
+
+        if (
+          doc.candidate_id ||
+          doc.recruit_record_id
+        ) {
+          query.set(
+            "candidateId",
+            doc.candidate_id ||
+            doc.recruit_record_id
+          );
+        }
+
+        if (
+          doc.deal_id ||
+          doc.crm_record_id ||
+          doc.crm_deal_id
+        ) {
+          query.set(
+            "dealId",
+            doc.deal_id ||
+            doc.crm_record_id ||
+            doc.crm_deal_id
+          );
+        }
+
+        if (
+          doc.crm_field_api_name
+        ) {
+          query.set(
+            "field",
+            doc.crm_field_api_name
+          );
+        }
+
+        if (
+          doc.crm_file_upload_field ===
+          true
+        ) {
+          query.set(
+            "fieldUpload",
+            "true"
+          );
+        }
+
+        query.set(
+          "_",
+          String(Date.now())
+        );
 
         const response = await fetch(
-          `${API_BASE}/api/documents/preview?${query.toString()}`,
+          `${API_BASE}/api/documents/view/${encodeURIComponent(
+            documentId
+          )}?${query.toString()}`,
           {
             method: "GET",
             cache: "no-store",
@@ -517,7 +593,7 @@ function DocumentViewerModal({
             category === "pdf" &&
             objectUrl && (
               <iframe
-                src={`${objectUrl}#toolbar=${canDownload ? 1 : 0}&navpanes=0`}
+                src={`${objectUrl}#toolbar=1&navpanes=0`}
                 title={doc.document_name}
                 className="min-h-[70vh] w-full rounded-lg border-0 bg-white"
               />
@@ -551,7 +627,7 @@ function DocumentViewerModal({
               <div className="flex min-h-[520px] flex-col items-center justify-center rounded-lg bg-white px-6 text-center">
                 <DocumentIcon className="h-14 w-14 text-gray-400" />
                 <p className="mt-4 font-semibold text-gray-800">
-                  Preview is not available for this file type.
+                  This file loaded successfully.
                 </p>
                 <p className="mt-2 max-w-lg text-sm text-gray-500">
                   The document was loaded successfully, but this browser cannot display {contentType || "this format"} inside the portal.
@@ -656,10 +732,12 @@ export default function Documents() {
         user?.email
       ),
     staleTime:
-      5 * 60 * 1000,
+      0,
     retry: 1,
+    refetchOnMount:
+      "always",
     refetchOnWindowFocus:
-      false,
+      true,
     queryFn:
       async () => {
         const token =
@@ -714,6 +792,45 @@ export default function Documents() {
         };
       }
   });
+
+  useEffect(() => {
+    const handleDocumentsUpdated =
+      () => {
+        refetch();
+      };
+
+    const handleVisibilityChange =
+      () => {
+        if (
+          document.visibilityState ===
+          "visible"
+        ) {
+          refetch();
+        }
+      };
+
+    window.addEventListener(
+      "documents-updated",
+      handleDocumentsUpdated
+    );
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange
+    );
+
+    return () => {
+      window.removeEventListener(
+        "documents-updated",
+        handleDocumentsUpdated
+      );
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange
+      );
+    };
+  }, [refetch]);
 
   const allDocs =
     documentData?.documents ||
@@ -1154,7 +1271,9 @@ export default function Documents() {
         }
 
         toast.success(
-          `${category?.label || "Document"} uploaded successfully.`
+          payload.pending_approval === true
+            ? `${category?.label || "Document"} submitted for approval. It will be attached to Zoho Recruit once approved.`
+            : `${category?.label || "Document"} uploaded successfully.`
         );
 
         resetUpload();
@@ -1248,6 +1367,12 @@ export default function Documents() {
                     ).toLocaleDateString()}
                   </span>
                 )}
+                {document.approval_status === "pending" && (
+                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-medium text-amber-700">
+                    Awaiting Approval
+                  </span>
+                )}
+
                 {document.approval_status === "rejected" && (
                   <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 font-medium text-red-700">
                     Rejected
@@ -1315,9 +1440,7 @@ export default function Documents() {
             Document Library
           </h1>
 
-          <p className="text-sm text-muted-foreground">
-            All recruiting, immigration, deployment and aftercare documents are kept here in pipeline order. {allDocs.length} approved document{allDocs.length === 1 ? "" : "s"} currently available.
-          </p>
+
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -1411,10 +1534,7 @@ export default function Documents() {
 
               {selectedDepartment && (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {selectedDepartment ===
-                  "Recruiting"
-                    ? "Recruiting documents are submitted to Recruit."
-                    : "This department submits documents to CRM."}
+                  null
                 </p>
               )}
             </div>
@@ -1694,7 +1814,7 @@ export default function Documents() {
                     <h2 className="text-lg font-bold">{group.section}</h2>
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {group.completedSlotCount} of {group.slots.length} document types currently on file • {group.documentCount} approved file{group.documentCount === 1 ? "" : "s"}
+                    {group.completedSlotCount} of {group.slots.length} document types currently on file • {group.documentCount} file{group.documentCount === 1 ? "" : "s"}
                   </p>
                 </div>
                 <span className="rounded-full border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">Pipeline order</span>
@@ -1724,7 +1844,7 @@ export default function Documents() {
                       {hasDocuments ? (
                         <div className="space-y-3 pl-10">{slot.documents.map(renderDocumentItem)}</div>
                       ) : (
-                        <div className="ml-10 rounded-lg border border-dashed bg-muted/20 px-4 py-3 text-sm text-muted-foreground">No approved document is currently available for this item.</div>
+                        <div className="ml-10 rounded-lg border border-dashed bg-muted/20 px-4 py-3 text-sm text-muted-foreground">No document is currently available for this item.</div>
                       )}
                     </div>
                   );

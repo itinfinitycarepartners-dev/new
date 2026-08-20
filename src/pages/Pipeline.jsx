@@ -69,7 +69,7 @@ import {
 import { ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { format, differenceInDays, differenceInHours, addDays } from "date-fns";
+import { format, differenceInDays, differenceInHours, addDays, addMonths } from "date-fns";
 import { toast } from "sonner";
 import {
   useNavigate,
@@ -410,16 +410,16 @@ const STAGES_CONFIG = [
   { id: 19, stage_name: "Documents Received", stage_category: "Hiring", stage_order: 19, days_from_start: 15 },
   { id: 20, stage_name: "Hired", stage_category: "Hiring", stage_order: 20, days_from_start: 15 },
 
-  // Stage 2 — Immigration: EXACTLY 9 candidate-visible stages.
-  { id: 21, stage_name: "Immigration forms submitted", stage_category: "Immigration", stage_order: 21, days_from_start: 30 },
-  { id: 22, stage_name: "Foundations: Pillars", stage_category: "Immigration", stage_order: 22, days_from_start: 120 },
-  { id: 23, stage_name: "Foundations: Endorsement Discovery", stage_category: "Immigration", stage_order: 23, days_from_start: 150 },
-  { id: 24, stage_name: "Immigration approved", stage_category: "Immigration", stage_order: 24, days_from_start: 180 },
-  { id: 25, stage_name: "Visa bill issued", stage_category: "Immigration", stage_order: 25, days_from_start: 360 },
-  { id: 26, stage_name: "Visa bill paid", stage_category: "Immigration", stage_order: 26, days_from_start: 390 },
-  { id: 27, stage_name: "DS-260 / Civil Document Submission", stage_category: "Immigration", stage_order: 27, days_from_start: 480 },
-  { id: 28, stage_name: "Foundations: Cultural Readiness", stage_category: "Immigration", stage_order: 28, days_from_start: 600 },
-  { id: 29, stage_name: "Documentarily Qualified", stage_category: "Immigration", stage_order: 29, days_from_start: 840 },
+  // Stage 2 — Immigration. Timing is calculated from the actual CRM milestone dates below.
+  { id: 21, stage_name: "Immigration forms submitted", stage_category: "Immigration", stage_order: 21 },
+  { id: 22, stage_name: "Foundations: Pillars", stage_category: "Immigration", stage_order: 22 },
+  { id: 23, stage_name: "Foundations: Endorsement Discovery", stage_category: "Immigration", stage_order: 23 },
+  { id: 24, stage_name: "Immigration approved", stage_category: "Immigration", stage_order: 24 },
+  { id: 25, stage_name: "Visa bill issued", stage_category: "Immigration", stage_order: 25 },
+  { id: 26, stage_name: "Visa bill paid", stage_category: "Immigration", stage_order: 26 },
+  { id: 27, stage_name: "DS-260 / Civil Document Submission", stage_category: "Immigration", stage_order: 27 },
+  { id: 28, stage_name: "Foundations: Cultural Readiness", stage_category: "Immigration", stage_order: 28 },
+  { id: 29, stage_name: "Documentarily Qualified", stage_category: "Immigration", stage_order: 29 },
 
   // Stage 3 — Deployment. Introduction to Deployment Call is the first step.
   { id: 29.5, stage_name: "Introduction to Deployment Call", stage_category: "Deployment", stage_order: 29.5, days_from_start: 890 },
@@ -4028,13 +4028,32 @@ const SurveyView = ({ title, description, surveyUrl, onClose, user, setStages, s
       }
 
       window.dispatchEvent(
-        new CustomEvent("pipeline-updated", {
-          detail: {
-            stageName,
-            source: "survey-submit",
-            completed: data.completed === true
+        new CustomEvent(
+          "pipeline-updated",
+          {
+            detail: {
+              stageName,
+              source:
+                "survey-submit",
+              completed:
+                data.completed === true
+            }
           }
-        })
+        )
+      );
+
+      window.dispatchEvent(
+        new CustomEvent(
+          "documents-updated",
+          {
+            detail: {
+              stageName,
+              document:
+                data.document ||
+                null
+            }
+          }
+        )
       );
     } catch (error) {
       console.error(`[Aftercare Survey] Could not persist ${stageName}:`, error);
@@ -4078,7 +4097,7 @@ const SurveyView = ({ title, description, surveyUrl, onClose, user, setStages, s
               : "border-amber-200 bg-amber-50 text-amber-700"
           )}>
             {isSavingSubmission ? <Loader2 className="h-3 w-3 animate-spin" /> : submitted ? <CheckCircle2 className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
-            {isSavingSubmission ? "Saving submission" : submitted ? "Submitted" : "Submit the survey to complete"}
+            {isSavingSubmission ? "Saving submission" : submitted ? "Submission Saved" : "Submit survey"}
           </span>
           <Button variant="ghost" size="sm" onClick={onClose} className="text-gray-500 hover:text-gray-700">
             <X className="h-5 w-5" />
@@ -4105,11 +4124,39 @@ const SurveyView = ({ title, description, surveyUrl, onClose, user, setStages, s
         />
       </div>
 
-      <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 bg-white flex-shrink-0">
+      <div className="flex items-center justify-between gap-4 px-6 py-3 border-t border-gray-200 bg-white flex-shrink-0">
         <p className="text-xs text-muted-foreground">
-          Complete the survey and press its Submit button. The pipeline checks off only after a real survey submission event.
+          After submitting the Zoho survey, you can confirm submission here. The actual survey response in Documents comes from the Zoho Survey webhook. Pipeline completion still follows the CRM trigger only.
         </p>
-        <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
+
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={
+              submitted ||
+              isSavingSubmission
+            }
+            onClick={
+              persistSurveySubmission
+            }
+          >
+            {isSavingSubmission
+              ? "Saving..."
+              : submitted
+                ? "Submission Saved"
+                : "Confirm Survey Submitted"}
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onClose}
+          >
+            Close
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -6691,9 +6738,10 @@ export const DeploymentDetails = ({ onClose, user, setStages, behavioralOnly = f
   };
 
   const updateBehavioralField = (field, value) => {
-    preserveBehavioralScroll(() => {
-      setBehavioralAssessment(prev => ({ ...prev, [field]: value }));
-    });
+    setBehavioralAssessment(previous => ({
+      ...previous,
+      [field]: value
+    }));
   };
 
   const toggleBehavioralArrayValue = (field, value, maxSelections = null) => {
@@ -7002,7 +7050,11 @@ export const DeploymentDetails = ({ onClose, user, setStages, behavioralOnly = f
     }
   };
 
-  const RequirementCheckbox = ({ label, requirementKey, description }) => {
+  const renderRequirementCheckbox = ({
+    label,
+    requirementKey,
+    description
+  }) => {
     const req = requirements[requirementKey] || { confirmed: false, file: null, fileName: "" };
     const isUploading = uploading[requirementKey] || false;
     const isChecked = req.confirmed || false;
@@ -7203,25 +7255,25 @@ export const DeploymentDetails = ({ onClose, user, setStages, behavioralOnly = f
       <div className="space-y-2">
         {!behavioralOnly && (
           <>
-        <RequirementCheckbox requirementKey="nclexPassReport" label="1. NCLEX Pass Report" description="Official NCLEX passing report" />
-        <RequirementCheckbox requirementKey="passportBiometric" label="2. Passport Biometric Page" description="Clear biometric page" />
-        <RequirementCheckbox requirementKey="birthCertificate" label="3. Birth Certificate" description="Official civil document" />
-        <RequirementCheckbox requirementKey="certificateOfEmployment" label="4. Certificate of Employment (COE)" description="Include employer name and address, dates, title, duties, and supervisor contact" />
-        <RequirementCheckbox requirementKey="nursingDiplomaTranscript" label="5. College Nursing Diploma and Transcript of Records" description="Diploma and TOR" />
-        <RequirementCheckbox requirementKey="cesReport" label="6. CES Report" description="Credential evaluation report" />
-        <RequirementCheckbox requirementKey="homeCountryLicense" label="7. Home Country RN License Card and Certificate" description="Current card and certificate" />
-        <RequirementCheckbox requirementKey="usStateLicense" label="8. US State RN License Certificate" description="Upload when applicable" />
-        <RequirementCheckbox requirementKey="priorApprovalNotices" label="9. USCIS Prior Approval Notices (I-797)" description="Upload when applicable" />
-        <RequirementCheckbox requirementKey="idPictures" label="10. Recent 2x2 ID Pictures" description="Candidate, spouse, and children" />
+        {renderRequirementCheckbox({ requirementKey: "nclexPassReport", label: "1. NCLEX Pass Report", description: "Official NCLEX passing report" })}
+        {renderRequirementCheckbox({ requirementKey: "passportBiometric", label: "2. Passport Biometric Page", description: "Clear biometric page" })}
+        {renderRequirementCheckbox({ requirementKey: "birthCertificate", label: "3. Birth Certificate", description: "Official civil document" })}
+        {renderRequirementCheckbox({ requirementKey: "certificateOfEmployment", label: "4. Certificate of Employment (COE)", description: "Include employer name and address, dates, title, duties, and supervisor contact" })}
+        {renderRequirementCheckbox({ requirementKey: "nursingDiplomaTranscript", label: "5. College Nursing Diploma and Transcript of Records", description: "Diploma and TOR" })}
+        {renderRequirementCheckbox({ requirementKey: "cesReport", label: "6. CES Report", description: "Credential evaluation report" })}
+        {renderRequirementCheckbox({ requirementKey: "homeCountryLicense", label: "7. Home Country RN License Card and Certificate", description: "Current card and certificate" })}
+        {renderRequirementCheckbox({ requirementKey: "usStateLicense", label: "8. US State RN License Certificate", description: "Upload when applicable" })}
+        {renderRequirementCheckbox({ requirementKey: "priorApprovalNotices", label: "9. USCIS Prior Approval Notices (I-797)", description: "Upload when applicable" })}
+        {renderRequirementCheckbox({ requirementKey: "idPictures", label: "10. Recent 2x2 ID Pictures", description: "Candidate, spouse, and children" })}
           </>
         )}
 
         <div className="mt-4">
-          <RequirementCheckbox
-            requirementKey="behaviorAssessment"
-            label="Behavioral Assessment"
-            description="Complete all questions and submit the assessment"
-          />
+          {renderRequirementCheckbox({
+            requirementKey: "behaviorAssessment",
+            label: "Behavioral Assessment",
+            description: "Complete all questions and submit the assessment"
+          })}
         </div>
       </div>
 
@@ -8405,20 +8457,6 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
     "aboutYou",
     "resignationPeriod",
     "anticipatedLastDay",
-    "departureCity",
-    "wheelchair",
-    "checkedBags",
-    "carryOn",
-    "boxes",
-    "pets",
-    "travelCash",
-    "carSeats",
-    "phoneModelCarrier",
-    "simUnlocked",
-    "drivingPlan",
-    "carPurchasePlan",
-    "foundationsCompleted",
-    "spouseEmployment",
     "photoReleaseSignature"
   ];
 
@@ -8594,63 +8632,6 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
       setUploadResults(nextUploadResults);
       setSubmissionResult(data);
 
-      try {
-        const travelSummaryResponse =
-          await fetch(
-            `${API_BASE}/api/profile/extended`,
-            {
-              method:"PUT",
-              headers:{
-                Authorization:`Bearer ${token}`,
-                "Content-Type":"application/json"
-              },
-              body:JSON.stringify({
-                travelSummary:{
-                  departureCity:form.departureCity,
-                  checkedBags:form.checkedBags,
-                  carryOn:form.carryOn,
-                  boxes:form.boxes,
-                  pets:form.pets,
-                  travelCash:form.travelCash,
-                  carSeats:form.carSeats,
-                  wheelchair:form.wheelchair,
-                  phoneModelCarrier:form.phoneModelCarrier,
-                  simUnlocked:form.simUnlocked,
-                  drivingPlan:form.drivingPlan,
-                  carPurchasePlan:form.carPurchasePlan
-                }
-              })
-            }
-          );
-
-        const travelSummaryData =
-          await travelSummaryResponse
-            .json()
-            .catch(() => ({}));
-
-        if (
-          travelSummaryResponse.ok &&
-          travelSummaryData.success === true
-        ) {
-          window.dispatchEvent(
-            new CustomEvent(
-              "candidate-data-updated"
-            )
-          );
-        } else {
-          console.warn(
-            "[R&L] Travel Summary was not copied to Profile:",
-            travelSummaryData.error ||
-            "Unknown error"
-          );
-        }
-      } catch (travelSummaryError) {
-        console.warn(
-          "[R&L] Travel Summary Profile sync failed:",
-          travelSummaryError.message
-        );
-      }
-
       // The backend completes the stage and starts the next timer atomically.
       // Refresh the complete pipeline from MongoDB instead of manually checking it.
       window.dispatchEvent(new CustomEvent("pipeline-updated", {
@@ -8736,21 +8717,6 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
           ["Phone (required if 18+)","phone","tel"]
         ].map(([label,key,type])=><label key={key}><span className="text-xs font-medium">{label}</span><input name={`dependent-${i}-${key}`} type={type} value={d[key] ?? ""} onChange={e=>updateDependent(i,key,e.target.value)} disabled={submitting} autoComplete="off" className="mt-1 w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-100 disabled:bg-gray-100"/></label>)}
       </div>)}
-    </section>
-
-    <section className="rounded-xl border bg-white p-5 space-y-4">
-      <h4 className="font-bold">Travel and arrival planning</h4>
-      <div className="grid md:grid-cols-2 gap-4">
-        <RLFormInput label="Departure city and country / closest international airport" field="departureCity" required value={form.departureCity} onChange={setField} />
-        <RLFormInput label="Will anyone travel in a wheelchair?" field="wheelchair" value={form.wheelchair} onChange={setField} />
-        <RLFormInput label="Checked Bags" field="checkedBags" type="number" value={form.checkedBags} onChange={setField} /><RLFormInput label="Personal Carry On" field="carryOn" type="number" value={form.carryOn} onChange={setField} />
-        <RLFormInput label="Boxes" field="boxes" type="number" value={form.boxes} onChange={setField} /><RLFormInput label="Traveling with pets?" field="pets" value={form.pets} onChange={setField} />
-        <RLFormInput label="Travel Cash ($), excluding reimbursement" field="travelCash" type="number" value={form.travelCash} onChange={setField} /><RLFormInput label="Car seats or boosters needed?" field="carSeats" value={form.carSeats} onChange={setField} />
-        <RLFormInput label="Cell Phone Model + Carrier" field="phoneModelCarrier" value={form.phoneModelCarrier} onChange={setField} /><RLFormInput label="Is the SIM card unlocked?" field="simUnlocked" value={form.simUnlocked} onChange={setField} />
-        <RLFormInput label="Car Purchasing Plan Post Arrival" field="carPurchasePlan" value={form.carPurchasePlan} onChange={setField} /><RLFormInput label="Foundation Relias classes completed?" field="foundationsCompleted" value={form.foundationsCompleted} onChange={setField} />
-      </div>
-      <label className="block"><span className="text-sm font-medium">Immediate driving plan after arrival <span className="text-red-500">*</span></span><textarea name="drivingPlan" value={form.drivingPlan} onChange={e=>setField('drivingPlan',e.target.value)} rows={3} disabled={submitting} className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-100 disabled:bg-gray-100"/></label>
-      <label className="block"><span className="text-sm font-medium">Employment plans for spouse or adult children</span><textarea name="spouseEmployment" value={form.spouseEmployment} onChange={e=>setField('spouseEmployment',e.target.value)} rows={3} disabled={submitting} className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-100 disabled:bg-gray-100"/></label>
     </section>
 
     <section className="space-y-3">
@@ -10898,6 +10864,7 @@ export default function Pipeline() {
       };
       let recruitSnapshotLoaded = false;
       let submittedToImmigrationDate = null;
+      let immigrationFiledDate = null;
       let allClearDocumentaryComplete = false;
       let recruitApplicationStatus = "";
       let canonicalHiringCompletedStages =
@@ -11040,7 +11007,19 @@ export default function Pipeline() {
             }
 
             submittedToImmigrationDate =
-              ga(userData, "submittedToImmigration", "Added_to_Weekly_I140_Candidates") || null;
+              ga(
+                userData,
+                "submittedToImmigration",
+                "Added_to_Weekly_I140_Candidates"
+              ) || null;
+
+            immigrationFiledDate =
+              ga(
+                userData,
+                "Filed_Date",
+                "i140FiledDate",
+                "immigrationFiledDate"
+              ) || null;
 
             allClearDocumentaryComplete = hasAllClearSelection(
               ga(
@@ -11086,6 +11065,10 @@ export default function Pipeline() {
 
             directComputedStageStatus =
               fieldPayload.stageStatus || {};
+
+            immigrationFiledDate =
+              directFieldStatus.Filed_Date ||
+              immigrationFiledDate;
 
             setDeploymentFieldStatus({
               ...directFieldStatus,
@@ -11877,6 +11860,195 @@ export default function Pipeline() {
         return baseStage;
       });
       
+      // Immigration timing is anchored to the real CRM milestone dates,
+      // not Date_Received or arbitrary whole-pipeline offsets.
+      const parsePipelineDate =
+        value => {
+          if (!value) return null;
+
+          const raw =
+            unwrapPipelineFieldValue(
+              value
+            );
+
+          if (!raw) return null;
+
+          const parsed =
+            new Date(raw);
+
+          return Number.isNaN(
+            parsed.getTime()
+          )
+            ? null
+            : parsed;
+        };
+
+      const submittedImmigrationAnchor =
+        parsePipelineDate(
+          submittedToImmigrationDate
+        );
+
+      const filedAnchor =
+        parsePipelineDate(
+          immigrationFiledDate ||
+          directFieldStatus.Filed_Date
+        );
+
+      const visaPaidStage =
+        savedByName.get(
+          "Visa bill paid"
+        );
+
+      const visaFeePaidAnchor =
+        parsePipelineDate(
+          directFieldStatus
+            .Visa_Fee_Bill_Paid_Date ||
+          directFieldStatus
+            .Visa_Fee_Paid_Date ||
+          visaPaidStage
+            ?.completed_date ||
+          visaPaidStage
+            ?.completed_at
+        );
+
+      const ds260SubmittedAnchor =
+        parsePipelineDate(
+          directFieldStatus
+            .DS260_Submission_Projected_Date
+        );
+
+      allStages =
+        allStages.map(stage => {
+          if (
+            stage.stage_category !==
+            "Immigration"
+          ) {
+            return stage;
+          }
+
+          if (
+            stage.stage_name ===
+              "Foundations: Pillars" &&
+            submittedImmigrationAnchor
+          ) {
+            return {
+              ...stage,
+              target_date:
+                addDays(
+                  submittedImmigrationAnchor,
+                  7
+                ).toISOString(),
+              timing_rule:
+                "Within 7 days of submitted for immigration date",
+              timing_anchor:
+                submittedImmigrationAnchor
+                  .toISOString()
+            };
+          }
+
+          if (
+            stage.stage_name ===
+              "Foundations: Cultural Readiness" &&
+            filedAnchor
+          ) {
+            return {
+              ...stage,
+              target_date:
+                addMonths(
+                  filedAnchor,
+                  3
+                ).toISOString(),
+              timing_window_start:
+                addMonths(
+                  filedAnchor,
+                  3
+                ).toISOString(),
+              timing_window_end:
+                addMonths(
+                  filedAnchor,
+                  18
+                ).toISOString(),
+              timing_rule:
+                "Begins 90 days after filed date and continues through month 18",
+              timing_anchor:
+                filedAnchor
+                  .toISOString()
+            };
+          }
+
+          if (
+            stage.stage_name ===
+              "Foundations: Endorsement Discovery" &&
+            filedAnchor
+          ) {
+            return {
+              ...stage,
+              target_date:
+                addMonths(
+                  filedAnchor,
+                  20
+                ).toISOString(),
+              timing_window_start:
+                addMonths(
+                  filedAnchor,
+                  20
+                ).toISOString(),
+              timing_window_end:
+                addMonths(
+                  filedAnchor,
+                  24
+                ).toISOString(),
+              timing_rule:
+                "Endorsement discovery months 20 through 24 after filed date",
+              timing_anchor:
+                filedAnchor
+                  .toISOString()
+            };
+          }
+
+          if (
+            stage.stage_name ===
+              "DS-260 / Civil Document Submission" &&
+            visaFeePaidAnchor
+          ) {
+            return {
+              ...stage,
+              target_date:
+                addDays(
+                  visaFeePaidAnchor,
+                  28
+                ).toISOString(),
+              timing_rule:
+                "Within 4 weeks of fee bill paid date",
+              timing_anchor:
+                visaFeePaidAnchor
+                  .toISOString()
+            };
+          }
+
+          if (
+            stage.stage_name ===
+              "Documentarily Qualified" &&
+            ds260SubmittedAnchor
+          ) {
+            return {
+              ...stage,
+              target_date:
+                addDays(
+                  ds260SubmittedAnchor,
+                  30
+                ).toISOString(),
+              timing_rule:
+                "30 days after DS-260 / civil documents submitted date",
+              timing_anchor:
+                ds260SubmittedAnchor
+                  .toISOString()
+            };
+          }
+
+          return stage;
+        });
+
       if (
         canonicalHiringCompletedStages
           .size > 0 ||
@@ -12314,18 +12486,11 @@ export default function Pipeline() {
         // Recruit records on the backend. Prefer its boolean result when it has
         // evaluated this exact visible stage; otherwise evaluate the raw field
         // locally. This keeps Dashboard and My Pipeline crossed-off state equal.
-        const surveyRequiresSubmission =
-          AFTERCARE_SURVEY_STAGE_NAMES.has(
-            stage.stage_name
-          );
-
         const completed =
           backendEvaluated &&
           typeof backendStageStatus?.completed === "boolean"
             ? backendStageStatus.completed
-            : surveyRequiresSubmission
-              ? false
-              : rule.complete?.(value) === true;
+            : rule.complete?.(value) === true;
 
         const sourceInProgress =
           !completed &&
@@ -16066,7 +16231,23 @@ export default function Pipeline() {
                   stage.stage_category === "NCLEX Roadmap";
                 const isImmigrationStage = stage.stage_category === "Immigration";
                 const isGate = stage.is_gate === true;
-                const riskStatus = (isHiring || stage.days_from_start || stage.stage_name === "Immigration Call") && stage.status !== "Completed" ? getRiskStatus(stage) : null;
+                const riskStatus =
+                  (
+                    isHiring ||
+                    stage.days_from_start ||
+                    (
+                      isImmigrationStage &&
+                      Boolean(
+                        stage.target_date ||
+                        stage.targetDate
+                      )
+                    ) ||
+                    stage.stage_name ===
+                      "Immigration Call"
+                  ) &&
+                  stage.status !== "Completed"
+                    ? getRiskStatus(stage)
+                    : null;
                 const riskCfg = riskStatus ? riskConfig[riskStatus] : null;
                 const showRisk =
                   riskStatus &&
@@ -16232,6 +16413,16 @@ export default function Pipeline() {
                           {hiringCountdown}
                         </span>
                       )}
+
+                      {isImmigrationStage &&
+                        stage.timing_rule && (
+                          <span
+                            className="max-w-[260px] rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-xs font-medium text-purple-700"
+                            title={stage.timing_rule}
+                          >
+                            {stage.timing_rule}
+                          </span>
+                        )}
 
                       {showRisk &&
                         riskCfg && (
