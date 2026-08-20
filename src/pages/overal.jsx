@@ -1366,10 +1366,19 @@ const UsersTable = ({ users, onSelectUser, onMessageUser, onBroadcast }) => {
 const MessagingPanel = ({ users, initialTarget }) => { 
   const [messages, setMessages] = useState({});
   const [selected, setSelected] = useState(initialTarget?.email || null);
+  const [department, setDepartment] = useState('admin');
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [messageError, setMessageError] = useState('');
+  const [departmentConversations, setDepartmentConversations] = useState([]);
+  const [expandedDepartments, setExpandedDepartments] = useState({
+    admin: true,
+    deployment: true,
+    recruitment: true,
+    immigration: true,
+    aftercare: true
+  });
   const chatEndRef = useRef(null);
 
   useEffect(() => { if (initialTarget?.email) setSelected(initialTarget.email); }, [initialTarget]);
@@ -1395,8 +1404,6 @@ const MessagingPanel = ({ users, initialTarget }) => {
   };
 
   useEffect(() => {
-    if (!selected) return;
-
     let cancelled = false;
     const loadHistory = async () => {
       setLoadingHistory(true);
@@ -1407,8 +1414,13 @@ const MessagingPanel = ({ users, initialTarget }) => {
           headers: getAdminHeaders()
         });
         const conversationsData = await readResponse(conversationsResponse);
+        if (!cancelled) {
+          setDepartmentConversations(conversationsData.conversations || []);
+        }
+        if (!selected) return;
         const conversation = (conversationsData.conversations || []).find(item =>
-          (item.participants || []).some(email => String(email).toLowerCase() === String(selected).toLowerCase())
+          (item.participants || []).some(email => String(email).toLowerCase() === String(selected).toLowerCase()) &&
+          (item.department || 'admin') === department
         );
 
         if (!conversation) {
@@ -1433,7 +1445,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
 
     loadHistory();
     return () => { cancelled = true; };
-  }, [selected]);
+  }, [selected, department]);
 
   const sendMessage = async () => {
     if (!input.trim() || !selected || loading) return;
@@ -1447,7 +1459,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
         method: 'POST',
         credentials: 'include',
         headers: getAdminHeaders(),
-        body: JSON.stringify({ recipientEmail: selected, content }),
+        body: JSON.stringify({ recipientEmail: selected, content, department }),
       });
       const data = await readResponse(response);
       const newMessage = data.message || {
@@ -1463,20 +1475,81 @@ const MessagingPanel = ({ users, initialTarget }) => {
   };
 
   const threads = users.map(u => ({ email: u.email, name: u.name, isActive: u.isActive }));
+  const departments = ['admin', 'deployment', 'recruitment', 'immigration', 'aftercare'];
+  const departmentLabel = value => `${value[0].toUpperCase()}${value.slice(1)}`;
+  const getConversationEmail = conversation =>
+    (conversation.participants || []).find(email => {
+      const normalized = String(email || '').trim().toLowerCase();
+      return normalized !== 'admin' && !normalized.startsWith('admin@');
+    });
+  const getConversationName = conversation => {
+    const email = getConversationEmail(conversation);
+    const thread = threads.find(item => String(item.email).toLowerCase() === String(email).toLowerCase());
+    return thread?.name || email?.split('@')[0] || 'Unknown user';
+  };
+  const conversationsByDepartment = department => {
+    const uniqueConversations = new Map();
+    departmentConversations
+      .filter(conversation =>
+        String(conversation.department || 'admin').trim().toLowerCase() === department &&
+        getConversationEmail(conversation)
+      )
+      .forEach(conversation => {
+        const email = getConversationEmail(conversation).trim().toLowerCase();
+        const existing = uniqueConversations.get(email);
+        if (!existing || new Date(conversation.lastMessageAt || 0) > new Date(existing.lastMessageAt || 0)) {
+          uniqueConversations.set(email, conversation);
+        }
+      });
+    return Array.from(uniqueConversations.values());
+  };
   const chat = selected ? messages[selected] || [] : [];
 
   return (
     <div className="bg-white rounded-xl border overflow-hidden h-[600px] flex shadow-sm">
       <div className="w-1/3 border-r overflow-y-auto bg-gray-50/30">
-        {threads.map((t) => (
-          <div key={t.email} onClick={() => setSelected(t.email)} className={`px-5 py-4 cursor-pointer border-b transition flex justify-between items-center ${selected === t.email ? 'bg-purple-50 border-purple-100' : 'hover:bg-gray-50'}`}>
-            <div>
-              <div className="text-sm font-bold text-gray-900">{t.name || t.email.split('@')[0]}</div>
-              <div className="text-xs text-gray-500 truncate mt-0.5">{t.email}</div>
+        {departments.map(item => {
+          const departmentThreads = conversationsByDepartment(item);
+          const isExpanded = expandedDepartments[item];
+          return (
+            <div key={item} className="border-b border-gray-200">
+              <button
+                type="button"
+                onClick={() => {
+                  setExpandedDepartments(previous => ({ ...previous, [item]: !previous[item] }));
+                  setDepartment(item);
+                }}
+                className={`w-full px-4 py-3 flex items-center justify-between text-left font-bold text-sm ${department === item ? 'bg-purple-50 text-purple-800' : 'bg-white text-gray-800 hover:bg-gray-50'}`}
+              >
+                <span>{departmentLabel(item)}</span>
+                <span className="text-xs font-semibold text-gray-400">{departmentThreads.length}</span>
+              </button>
+              {isExpanded && departmentThreads.length === 0 && (
+                <div className="px-7 py-2 text-xs italic text-gray-400 bg-gray-50">No messages</div>
+              )}
+              {isExpanded && departmentThreads.map(conversation => {
+                const email = getConversationEmail(conversation);
+                const thread = threads.find(user => String(user.email).toLowerCase() === String(email).toLowerCase());
+                return (
+                  <button
+                    type="button"
+                    key={conversation._id}
+                    onClick={() => { setDepartment(item); setSelected(email); }}
+                    className={`w-full px-7 py-3 text-left border-t border-gray-100 transition ${selected === email && department === item ? 'bg-purple-100' : 'bg-gray-50 hover:bg-purple-50'}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-gray-900 truncate">{getConversationName(conversation)}</div>
+                        <div className="text-xs text-gray-500 truncate">{email}</div>
+                      </div>
+                      {thread?.isActive && <div className="w-2 h-2 shrink-0 rounded-full bg-green-500" />}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
-            {t.isActive && <div className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-sm border border-white"></div>}
-          </div>
-        ))}
+          );
+        })}
       </div>
       <div className="w-2/3 flex flex-col bg-white">
         {!selected ? (
@@ -1593,14 +1666,6 @@ const AdminRequestsPanel = ({ onOpenUser }) => {
         throw new Error(data.error || "Unable to update request.");
       }
       await load();
-
-      if (
-        selectedCandidate
-      ) {
-        await loadExpenseReport(
-          selectedCandidate
-        );
-      }
     } catch (error) {
       alert(error.message);
     } finally {
@@ -1748,12 +1813,7 @@ const AdminReceiptsPanel = () => {
   const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [drafts, setDrafts] = useState({});
-  const [sideDrafts, setSideDrafts] = useState({});
   const [busyId, setBusyId] = useState("");
-  const [saveMessage, setSaveMessage] = useState("");
-  const [selectedCandidate, setSelectedCandidate] = useState("");
-  const [receiptPreview, setReceiptPreview] = useState(null);
-  const [reportPreview, setReportPreview] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -1845,32 +1905,17 @@ const AdminReceiptsPanel = () => {
         await response.blob();
 
       const url =
-        URL.createObjectURL(
-          blob
-        );
+        URL.createObjectURL(blob);
 
-      setReceiptPreview(
-        previous => {
-          if (
-            previous?.url
-          ) {
-            URL.revokeObjectURL(
-              previous.url
-            );
-          }
+      window.open(
+        url,
+        "_blank",
+        "noopener,noreferrer"
+      );
 
-          return {
-            url,
-            type:
-              blob.type ||
-              receipt.file_type ||
-              "",
-            name:
-              receipt.original_name ||
-              receipt.document_name ||
-              "Receipt"
-          };
-        }
+      window.setTimeout(
+        () => URL.revokeObjectURL(url),
+        60000
       );
     } catch (error) {
       alert(
@@ -1880,188 +1925,46 @@ const AdminReceiptsPanel = () => {
     }
   };
 
-  const loadExpenseReport = async email => {
-    try {
-      const { adminToken } =
-        getTokens();
-
-      const response =
-        await fetch(
-          `${API_BASE}/api/admin/reimbursement/expense-report?email=${encodeURIComponent(
-            email
-          )}&_=${Date.now()}`,
-          {
-            cache:
-              "no-store",
-            credentials:
-              "include",
-            headers: {
-              Authorization:
-                `AdminBearer ${adminToken}`,
-              "x-admin-token":
-                adminToken
-            }
-          }
-        );
-
-      const data =
-        await response
-          .json()
-          .catch(
-            () => ({})
-          );
-
-      if (
-        !response.ok ||
-        data.success !== true
-      ) {
-        throw new Error(
-          data.error ||
-          "Unable to load expense report."
-        );
-      }
-
-      setReportPreview(
-        data.report ||
-        null
-      );
-    } catch (
-      error
-    ) {
-      alert(
-        error.message ||
-        "Unable to load expense report."
-      );
-    }
-  };
-
   const save = async receipt => {
-    const id =
-      String(
-        receipt.id ||
-        receipt._id ||
-        ""
-      );
-
-    const rawAmount =
+    const id = String(receipt.id || receipt._id);
+    const amount =
       drafts[id] ??
       receipt.admin_correct_amount ??
+      receipt.converted_usd ??
+      receipt.amount ??
       "";
 
-    const amount =
-      Number(rawAmount);
-
-    const amountType =
-      String(
-        sideDrafts[id] ??
-        receipt.admin_amount_type ??
-        ""
-      )
-        .trim()
-        .toLowerCase();
-
-    if (
-      !Number.isFinite(amount) ||
-      amount < 0
-    ) {
-      setSaveMessage(
-        "Enter a valid amount before submitting."
-      );
-      return;
-    }
-
-    if (
-      amountType !== "credit" &&
-      amountType !== "deduction"
-    ) {
-      setSaveMessage(
-        "Select Credit or Deduction before submitting the amount."
-      );
-      return;
-    }
-
     setBusyId(id);
-    setSaveMessage("");
-
     try {
-      const { adminToken } =
-        getTokens();
-
-      if (!adminToken) {
-        throw new Error(
-          "Admin session is unavailable. Please sign in again."
-        );
-      }
-
-      const response =
-        await fetch(
-          `${API_BASE}/api/admin/receipts/${encodeURIComponent(id)}`,
-          {
-            method: "PATCH",
-            credentials: "include",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization:
-                `AdminBearer ${adminToken}`,
-              "x-admin-token":
-                adminToken
-            },
-            body:
-              JSON.stringify({
-                correctAmount:
-                  amount,
-                correctAmountUsd:
-                  amount,
-                amountType:
-                  amountType
-              })
-          }
-        );
-
-      const data =
-        await response
-          .json()
-          .catch(() => ({}));
-
-      if (
-        !response.ok ||
-        data.success !== true
-      ) {
-        throw new Error(
-          data.error ||
-          "Unable to submit amount."
-        );
-      }
-
-      setSaveMessage(
-        `${amountType === "credit" ? "Credit" : "Deduction"} of $${amount.toFixed(2)} saved successfully.`
+      const { adminToken, userToken } = getTokens();
+      const response = await fetch(
+        `${API_BASE}/api/admin/receipts/${id}`,
+        {
+          method:"PATCH",
+          credentials:"include",
+          headers:{
+            "Content-Type":"application/json",
+            ...(adminToken ? {
+              Authorization:`AdminBearer ${adminToken}`,
+              "x-admin-token":adminToken
+            } : {}),
+            ...(!adminToken && userToken ? {
+              Authorization:`Bearer ${userToken}`
+            } : {})
+          },
+          body:JSON.stringify({
+            correctAmount:Number(amount),
+            correctAmountUsd:Number(amount)
+          })
+        }
       );
-
-      if (data.report) {
-        setReportPreview(
-          data.report
-        );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || "Unable to save corrected amount.");
       }
-
       await load();
-
-      if (
-        selectedCandidate &&
-        !data.report
-      ) {
-        await loadExpenseReport(
-          selectedCandidate
-        );
-      }
     } catch (error) {
-      console.error(
-        "[Admin Receipts] Submit amount failed:",
-        error
-      );
-      setSaveMessage(
-        error.message ||
-        "Unable to submit amount."
-      );
+      alert(error.message);
     } finally {
       setBusyId("");
     }
@@ -2076,21 +1979,9 @@ const AdminReceiptsPanel = () => {
       <div>
         <h2 className="text-xl font-bold">Receipts</h2>
         <p className="text-sm text-gray-500">
-          Review each receipt, enter the verified amount, then classify it as a Credit or Deduction for the Expense Report.
+          Deployment receipts are listed by candidate and reimbursement category. Enter the verified amount and save it.
         </p>
       </div>
-      {saveMessage && (
-        <div
-          className={`rounded-lg border px-4 py-3 text-sm ${
-            /successfully/i.test(saveMessage)
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-amber-200 bg-amber-50 text-amber-800"
-          }`}
-        >
-          {saveMessage}
-        </div>
-      )}
-
       {receipts.length === 0 ? (
         <div className="rounded-xl border bg-white p-8 text-center text-gray-500">
           No receipts uploaded from the Documents section yet.
@@ -2114,14 +2005,9 @@ const AdminReceiptsPanel = () => {
             <button
               key={email}
               type="button"
-              onClick={() => {
-                setSelectedCandidate(
-                  email
-                );
-                loadExpenseReport(
-                  email
-                );
-              }}
+              onClick={() =>
+                setSelectedCandidate(email)
+              }
               className="rounded-xl border bg-white p-4 text-left hover:border-purple-300 hover:bg-purple-50/40"
             >
               <p className="font-semibold text-purple-800">
@@ -2157,49 +2043,6 @@ const AdminReceiptsPanel = () => {
             </p>
           </div>
 
-          {reportPreview && (
-            <div className="rounded-xl border bg-white p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-purple-500">
-                    Expense Report
-                  </p>
-                  <p className="font-semibold">
-                    {reportPreview.candidate_name || selectedCandidate}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {reportPreview.arrival_date
-                      ? `Arrival: ${reportPreview.arrival_date}`
-                      : ""}
-                    {reportPreview.facility
-                      ? ` • ${reportPreview.facility}`
-                      : ""}
-                  </p>
-                </div>
-
-                <div className="text-right text-sm">
-                  <p>
-                    Credits: ${Number(
-                      reportPreview.totals?.credits || 0
-                    ).toFixed(2)}
-                  </p>
-                  <p>
-                    Deductions: ${Number(
-                      reportPreview.totals?.deductions || 0
-                    ).toFixed(2)}
-                  </p>
-                  <p className="font-bold text-purple-800">
-                    Due to {reportPreview.totals?.due_to || "Neither"}:
-                    {" "}
-                    ${Number(
-                      reportPreview.totals?.amount_due || 0
-                    ).toFixed(2)}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
           {receipts
             .filter(receipt =>
               receipt.candidate_email ===
@@ -2214,7 +2057,7 @@ const AdminReceiptsPanel = () => {
 
               return (
                 <div key={id} className="rounded-xl border bg-white p-4">
-                  <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr_0.8fr_auto] md:items-end">
+                  <div className="grid gap-4 md:grid-cols-[1.2fr_1fr_auto] md:items-end">
                     <div>
                       <p className="font-semibold">
                         {receipt.category_label ||
@@ -2225,32 +2068,16 @@ const AdminReceiptsPanel = () => {
                         {receipt.original_name ||
                           receipt.document_name}
                       </p>
-
-                      {receipt.admin_reviewed === true && (
-                        <p className="mt-1 text-xs font-semibold text-emerald-600">
-                          Saved as{" "}
-                          {receipt.admin_amount_type === "deduction"
-                            ? "Deduction"
-                            : "Credit"}
-                          {" • "}
-                          ${Number(
-                            receipt.admin_correct_amount_usd ??
-                            receipt.admin_correct_amount ??
-                            0
-                          ).toFixed(2)}
-                        </p>
-                      )}
                     </div>
 
                     <div>
                       <label className="text-xs font-semibold text-gray-600">
-                        Verified Amount
+                        Verified amount for expense report
                       </label>
                       <input
                         type="number"
                         min="0"
                         step="0.01"
-                        inputMode="decimal"
                         value={
                           drafts[id] ??
                           receipt.admin_correct_amount ??
@@ -2264,39 +2091,7 @@ const AdminReceiptsPanel = () => {
                           }))
                         }
                         className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
-                        placeholder="0.00"
                       />
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-semibold text-gray-600">
-                        Report Type
-                      </label>
-                      <select
-                        value={
-                          sideDrafts[id] ??
-                          receipt.admin_amount_type ??
-                          ""
-                        }
-                        onChange={event =>
-                          setSideDrafts(previous => ({
-                            ...previous,
-                            [id]:
-                              event.target.value
-                          }))
-                        }
-                        className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm"
-                      >
-                        <option value="">
-                          Select type
-                        </option>
-                        <option value="credit">
-                          Credit
-                        </option>
-                        <option value="deduction">
-                          Deduction
-                        </option>
-                      </select>
                     </div>
 
                     <div className="flex gap-2">
@@ -2309,95 +2104,22 @@ const AdminReceiptsPanel = () => {
                       >
                         View
                       </button>
-
                       <button
-                        type="button"
                         onClick={() =>
                           save(receipt)
                         }
                         disabled={
                           busyId === id
                         }
-                        className="rounded-lg bg-purple-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                        className="rounded-lg bg-purple-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                       >
-                        {busyId === id
-                          ? "Submitting..."
-                          : "Submit Amount"}
+                        Save Amount
                       </button>
                     </div>
                   </div>
                 </div>
               );
             })}
-        </div>
-      )}
-
-      {receiptPreview && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4">
-          <div className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b px-5 py-3">
-              <div>
-                <p className="font-semibold">
-                  {receiptPreview.name}
-                </p>
-                <p className="text-xs text-gray-500">
-                  Receipt preview
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  if (
-                    receiptPreview?.url
-                  ) {
-                    URL.revokeObjectURL(
-                      receiptPreview.url
-                    );
-                  }
-                  setReceiptPreview(
-                    null
-                  );
-                }}
-                className="rounded-lg border px-3 py-2 text-sm"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="min-h-[65vh] flex-1 overflow-auto bg-gray-100 p-3">
-              {String(
-                receiptPreview.type || ""
-              ).startsWith("image/") ? (
-                <img
-                  src={receiptPreview.url}
-                  alt={receiptPreview.name}
-                  className="mx-auto max-h-[78vh] max-w-full object-contain"
-                />
-              ) : String(
-                  receiptPreview.type || ""
-                ).includes("pdf") ? (
-                <iframe
-                  src={`${receiptPreview.url}#toolbar=1&navpanes=0`}
-                  title={receiptPreview.name}
-                  className="min-h-[75vh] w-full rounded-lg border-0 bg-white"
-                />
-              ) : (
-                <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 text-center">
-                  <FileText className="h-12 w-12 text-gray-400" />
-                  <p className="font-semibold">
-                    This file loaded successfully.
-                  </p>
-                  <a
-                    href={receiptPreview.url}
-                    download={receiptPreview.name}
-                    className="rounded-lg bg-purple-700 px-4 py-2 text-sm font-semibold text-white"
-                  >
-                    Download Receipt
-                  </a>
-                </div>
-              )}
-            </div>
-          </div>
         </div>
       )}
     </div>
