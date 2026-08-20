@@ -582,6 +582,12 @@ const applyVisibleFlowAliases = stagesToSync => {
   });
 };
 
+// Zoho Recruit Applications.Application_Status is the ONLY authoritative
+// Lead Management Status driving the Hiring pipeline. Candidates supplies
+// candidate/profile fields; CustomModule1 supplies NCLEX only.
+// Zoho Recruit Lead Management Status (API: Application_Status) -> portal stage.
+// The normalized map accepts spacing/hyphen variations from Recruit while keeping
+// the portal stage names aligned with the existing hiring pipeline.
 const normalizeApplicationStatus = (value) => String(value || "")
   .trim()
   .toLowerCase()
@@ -4411,7 +4417,6 @@ const getLivePipelineFieldValue = (source, fieldNames) => {
 const AFTERCARE_SURVEY_STAGE_NAMES = new Set([
   "Relocation Survey",
   "U.S. Integration Call (30 Day Call / Survey)",
-  "Placement Stability Check-in (90 Day Call)",
   "1 Year Survey"
 ]);
 
@@ -4601,6 +4606,13 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
     label: "Date Relocation Survey Submitted",
     field: "Date_Relocation_Submitted",
     complete: value => hasFlowValue(value)
+  },
+  "Concierge Debrief": {
+    label: "Concierge Debrief",
+    field: "Concierge_Debrief",
+    complete: value =>
+      isCurrentOrPastDate(value) ||
+      hasFlowValue(value)
   },
   "U.S. Integration Call (30 Day Call / Survey)": {
     label: "New 30 Day Completed Date",
@@ -11147,6 +11159,8 @@ export default function Pipeline() {
               ...directFieldStatus
             };
 
+            // The NCLEX mini-cards read icpUSRNCRMData. Keep that state tied
+            // directly to CustomModule1 instead of the broader mixed user object.
             setICPUSRNCRMData(previous => ({
               ...previous,
               ...(fieldPayload.nclex || {})
@@ -15746,7 +15760,9 @@ export default function Pipeline() {
       !(stage?.stage_name === "Transfer to ICP USRN School" && !nclexBranchVisible)
     );
 
-  
+  // NCLEX miniboxes are part of the same continuous Hiring progress whenever
+  // Transfer to ICP USRN School is active. Their crossed-off state is calculated
+  // directly from current Recruit CustomModule1 values so it is reversible.
   if (nclexBranchVisible) {
     const seenProgressNames = new Set(progressStages.map(stage => stage.stage_name));
     ICP_USRN_SUBPROCESS_CONFIG.forEach((item, index) => {
@@ -16266,7 +16282,9 @@ export default function Pipeline() {
                                 <h2 className="font-semibold text-amber-900">
                                   NCLEX Program
                                 </h2>
-                               
+                                <p className="text-xs text-amber-700">
+                                  Your NCLEX milestones. Every stage is live-gated from Recruit CustomModule1 and re-locks if a threshold is no longer met.
+                                </p>
                               </div>
                               <span className="rounded-full border border-amber-200 bg-white px-3 py-1 text-xs font-medium text-amber-800">
                                 {ICP_USRN_SUBPROCESS_CONFIG.filter(item => {

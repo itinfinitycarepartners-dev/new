@@ -1,9 +1,4 @@
 
-
-
-
-
-
 // @ts-nocheck
 import { useAuth } from "@/lib/AuthContext";
 import { User, Phone, Mail, MapPin, Briefcase, Plane, Building2, UserCheck, Calendar, Award, FileText, FileCheck, Clock, Shield, CheckCircle, AlertCircle, Building, Loader2, Users, CalendarDays } from "lucide-react";
@@ -286,7 +281,7 @@ export default function Profile() {
     const interval =
       window.setInterval(
         loadExtendedProfile,
-        10000
+        5000
       );
 
     return () => {
@@ -712,6 +707,20 @@ export default function Profile() {
                   )
                 }
                 icon={UserCheck}
+                alwaysVisible
+              />
+
+              <InfoRow
+                label="Approved Embassy Transfer"
+                value={
+                  extendedProfile?.embassyTransfer?.location ||
+                  extendedProfile?.embassyLocation ||
+                  getFirstValue(
+                    "Embassy_Location",
+                    "embassyLocation"
+                  )
+                }
+                icon={MapPin}
                 alwaysVisible
               />
             </div>
