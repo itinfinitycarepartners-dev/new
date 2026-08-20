@@ -1,6 +1,3 @@
-
-
-
 // @ts-nocheck
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
@@ -664,7 +661,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
               {userPendingRequests.length} request{userPendingRequests.length === 1 ? "" : "s"} awaiting approval
             </p>
             <p className="text-xs text-amber-800">
-              This candidate has a pending request. Open the Requests panel before approving profile changes.
+              This candidate has a pending request awaiting admin approval. Open the Requests panel to review it before approving profile changes.
             </p>
           </div>
         )}
@@ -741,6 +738,15 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                     <InfoRow label="Education" value={profile.Education} icon={Award} />
                     <InfoRow label="Current Employer" value={profile.current_employer || profile.hospitalName} icon={Building2} />
                     <InfoRow label="Application Status" value={profile.applicationStatus || profile.Application_Status || profile.Lead_Management_Status} icon={Briefcase} />
+                    <InfoRow
+                      label="Embassy Eligibility Status"
+                      value={
+                        profile.State_Licensure_Requirements ||
+                        profile.embassyEligibilityStatus ||
+                        profile.embassy_eligibility_status
+                      }
+                      icon={Shield}
+                    />
                     <InfoRow label="Proof of NCLEX" value={profile.Proof_of_NCLEX || profile.proofOfNCLEX} icon={FileCheck} />
                     <InfoRow label="Birth Certificate" value={profile.Birth_Certificate || profile.birthCertificate} icon={FileText} />
                   </Section>
@@ -1374,9 +1380,10 @@ const MessagingPanel = ({ users, initialTarget }) => {
   const [departmentConversations, setDepartmentConversations] = useState([]);
   const [expandedDepartments, setExpandedDepartments] = useState({
     admin: true,
-    deployment: true,
-    recruitment: true,
+    public: true,
     immigration: true,
+    recruitment: true,
+    deployment: true,
     aftercare: true
   });
   const chatEndRef = useRef(null);
@@ -1448,35 +1455,129 @@ const MessagingPanel = ({ users, initialTarget }) => {
   }, [selected, department]);
 
   const sendMessage = async () => {
-    if (!input.trim() || !selected || loading) return;
-    setLoading(true);
-    setMessageError('');
-    try {
-      const content = input.trim();
-      // This route accepts an authenticated admin request and creates the same
-      // direct conversation without using email addresses as MongoDB Map keys.
-      const response = await fetch(`${API_BASE}/api/messaging/send`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: getAdminHeaders(),
-        body: JSON.stringify({ recipientEmail: selected, content, department }),
-      });
-      const data = await readResponse(response);
-      const newMessage = data.message || {
-        _id: Date.now().toString(), senderEmail: 'admin', content, createdAt: new Date().toISOString()
-      };
-      setMessages(prev => ({ ...prev, [selected]: [...(prev[selected] || []), newMessage] }));
-      setInput('');
-    } catch (err) { 
-      console.error('Failed to send message:', err); 
-      setMessageError(err.message || 'Could not send the message.');
+    if (
+      !input.trim() ||
+      loading ||
+      (
+        department !== "public" &&
+        !selected
+      )
+    ) {
+      return;
     }
-    finally { setLoading(false); }
+
+    setLoading(true);
+    setMessageError("");
+
+    try {
+      const content =
+        input.trim();
+
+      if (
+        department ===
+        "public"
+      ) {
+        const response =
+          await fetch(
+            `${API_BASE}/api/admin/messaging/broadcast`,
+            {
+              method:
+                "POST",
+              credentials:
+                "include",
+              headers:
+                getAdminHeaders(),
+              body:
+                JSON.stringify({
+                  content
+                })
+            }
+          );
+
+        await readResponse(
+          response
+        );
+
+        setInput("");
+        return;
+      }
+
+      const response =
+        await fetch(
+          `${API_BASE}/api/admin/messaging/send`,
+          {
+            method:
+              "POST",
+            credentials:
+              "include",
+            headers:
+              getAdminHeaders(),
+            body:
+              JSON.stringify({
+                recipientEmail:
+                  selected,
+                content,
+                department
+              })
+          }
+        );
+
+      const data =
+        await readResponse(
+          response
+        );
+
+      const newMessage =
+        data.message || {
+          _id:
+            Date.now()
+              .toString(),
+          senderEmail:
+            "admin",
+          content,
+          department,
+          createdAt:
+            new Date()
+              .toISOString()
+        };
+
+      setMessages(
+        previous => ({
+          ...previous,
+          [selected]: [
+            ...(previous[selected] || []),
+            newMessage
+          ]
+        })
+      );
+
+      setInput("");
+    } catch (
+      error
+    ) {
+      console.error(
+        "Failed to send message:",
+        error
+      );
+
+      setMessageError(
+        error.message ||
+        "Could not send the message."
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const threads = users.map(u => ({ email: u.email, name: u.name, isActive: u.isActive }));
-  const departments = ['admin', 'deployment', 'recruitment', 'immigration', 'aftercare'];
-  const departmentLabel = value => `${value[0].toUpperCase()}${value.slice(1)}`;
+  const departments = [
+    { id: "admin", label: "Admin Messages" },
+    { id: "public", label: "Public Messages" },
+    { id: "immigration", label: "Immigration" },
+    { id: "recruitment", label: "Recruitment" },
+    { id: "deployment", label: "Deployment" },
+    { id: "aftercare", label: "Aftercare" }
+  ];
   const getConversationEmail = conversation =>
     (conversation.participants || []).find(email => {
       const normalized = String(email || '').trim().toLowerCase();
@@ -1488,6 +1589,10 @@ const MessagingPanel = ({ users, initialTarget }) => {
     return thread?.name || email?.split('@')[0] || 'Unknown user';
   };
   const conversationsByDepartment = department => {
+    if (department === "public") {
+      return [];
+    }
+
     const uniqueConversations = new Map();
     departmentConversations
       .filter(conversation =>
@@ -1509,33 +1614,111 @@ const MessagingPanel = ({ users, initialTarget }) => {
     <div className="bg-white rounded-xl border overflow-hidden h-[600px] flex shadow-sm">
       <div className="w-1/3 border-r overflow-y-auto bg-gray-50/30">
         {departments.map(item => {
-          const departmentThreads = conversationsByDepartment(item);
-          const isExpanded = expandedDepartments[item];
+          const departmentThreads =
+            conversationsByDepartment(
+              item.id
+            );
+          const isExpanded =
+            expandedDepartments[
+              item.id
+            ];
+
           return (
-            <div key={item} className="border-b border-gray-200">
+            <div key={item.id} className="border-b border-gray-200">
               <button
                 type="button"
                 onClick={() => {
-                  setExpandedDepartments(previous => ({ ...previous, [item]: !previous[item] }));
-                  setDepartment(item);
+                  setExpandedDepartments(
+                    previous => ({
+                      ...previous,
+                      [item.id]:
+                        !previous[
+                          item.id
+                        ]
+                    })
+                  );
+                  setDepartment(
+                    item.id
+                  );
+
+                  if (
+                    item.id ===
+                    "public"
+                  ) {
+                    setSelected(
+                      null
+                    );
+                  }
                 }}
-                className={`w-full px-4 py-3 flex items-center justify-between text-left font-bold text-sm ${department === item ? 'bg-purple-50 text-purple-800' : 'bg-white text-gray-800 hover:bg-gray-50'}`}
+                className={`w-full px-4 py-3 flex items-center justify-between text-left font-bold text-sm ${
+                  department === item.id
+                    ? "bg-purple-50 text-purple-800"
+                    : "bg-white text-gray-800 hover:bg-gray-50"
+                }`}
               >
-                <span>{departmentLabel(item)}</span>
-                <span className="text-xs font-semibold text-gray-400">{departmentThreads.length}</span>
+                <span>{item.label}</span>
+                <span className="text-xs font-semibold text-gray-400">
+                  {item.id === "public"
+                    ? "Group"
+                    : departmentThreads.length}
+                </span>
               </button>
-              {isExpanded && departmentThreads.length === 0 && (
-                <div className="px-7 py-2 text-xs italic text-gray-400 bg-gray-50">No messages</div>
-              )}
-              {isExpanded && departmentThreads.map(conversation => {
+              {isExpanded &&
+                item.id !== "public" &&
+                departmentThreads.length === 0 && (
+                  <div className="px-7 py-2 text-xs italic text-gray-400 bg-gray-50">
+                    No messages
+                  </div>
+                )}
+
+              {isExpanded &&
+                item.id === "public" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDepartment(
+                        "public"
+                      );
+                      setSelected(
+                        null
+                      );
+                    }}
+                    className={`w-full px-7 py-3 text-left border-t border-gray-100 transition ${
+                      department === "public"
+                        ? "bg-purple-100"
+                        : "bg-gray-50 hover:bg-purple-50"
+                    }`}
+                  >
+                    <div className="text-sm font-semibold text-gray-900">
+                      Community / Public
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      Post a message visible to all candidates
+                    </div>
+                  </button>
+                )}
+
+              {isExpanded && item.id !== "public" && departmentThreads.map(conversation => {
                 const email = getConversationEmail(conversation);
                 const thread = threads.find(user => String(user.email).toLowerCase() === String(email).toLowerCase());
                 return (
                   <button
                     type="button"
                     key={conversation._id}
-                    onClick={() => { setDepartment(item); setSelected(email); }}
-                    className={`w-full px-7 py-3 text-left border-t border-gray-100 transition ${selected === email && department === item ? 'bg-purple-100' : 'bg-gray-50 hover:bg-purple-50'}`}
+                    onClick={() => {
+                      setDepartment(
+                        item.id
+                      );
+                      setSelected(
+                        email
+                      );
+                    }}
+                    className={`w-full px-7 py-3 text-left border-t border-gray-100 transition ${
+                      selected === email &&
+                      department === item.id
+                        ? "bg-purple-100"
+                        : "bg-gray-50 hover:bg-purple-50"
+                    }`}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
@@ -1552,7 +1735,70 @@ const MessagingPanel = ({ users, initialTarget }) => {
         })}
       </div>
       <div className="w-2/3 flex flex-col bg-white">
-        {!selected ? (
+        {department === "public" ? (
+          <>
+            <div className="border-b px-5 py-4 bg-white shadow-sm">
+              <h3 className="font-bold text-gray-900">
+                Public Messages
+              </h3>
+              <p className="text-xs text-gray-500">
+                Messages posted here are visible to the candidate community.
+              </p>
+            </div>
+
+            <div className="flex-1 flex flex-col items-center justify-center bg-gray-50/50 px-8 text-center">
+              <MessageSquare className="mb-3 h-12 w-12 text-purple-200" />
+              <p className="font-semibold text-gray-700">
+                Community message
+              </p>
+              <p className="mt-1 max-w-md text-sm text-gray-500">
+                Use the composer below to post a public message to all candidates. Individual replies should be handled in the appropriate Admin, Immigration, Recruitment, Deployment, or Aftercare section.
+              </p>
+
+              {messageError && (
+                <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  {messageError}
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t bg-white flex gap-3">
+              <input
+                value={input}
+                onChange={event =>
+                  setInput(
+                    event.target.value
+                  )
+                }
+                onKeyDown={event =>
+                  event.key === "Enter" &&
+                  sendMessage()
+                }
+                placeholder="Post a public message..."
+                className="flex-1 px-4 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-purple-500 bg-gray-50"
+              />
+
+              <button
+                type="button"
+                onClick={sendMessage}
+                disabled={
+                  loading ||
+                  !input.trim()
+                }
+                className="px-6 py-2.5 rounded-xl text-white font-bold transition hover:opacity-90 disabled:opacity-50 shadow-sm flex items-center gap-2"
+                style={{
+                  background:
+                    THEME.brand
+                }}
+              >
+                {loading
+                  ? "Posting"
+                  : "Post"}{" "}
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
+          </>
+        ) : !selected ? (
           <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
             <MessageSquare className="w-12 h-12 mb-3 text-gray-200" />
             <p>Select a user to start messaging</p>
@@ -1561,8 +1807,17 @@ const MessagingPanel = ({ users, initialTarget }) => {
           <>
             <div className="border-b px-5 py-4 bg-white flex items-center justify-between shadow-sm z-10">
               <div>
-                <h3 className="font-bold text-gray-900">{threads.find(t => t.email === selected)?.name || selected}</h3>
-                <p className="text-xs text-gray-500">{selected}</p>
+                <h3 className="font-bold text-gray-900">
+                  {threads.find(t => t.email === selected)?.name || selected}
+                </h3>
+                <p className="text-xs text-gray-500">
+                  {selected}
+                  {" • "}
+                  {departments.find(
+                    item =>
+                      item.id === department
+                  )?.label || department}
+                </p>
               </div>
             </div>
             <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-gray-50/50">
@@ -1813,7 +2068,12 @@ const AdminReceiptsPanel = () => {
   const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [drafts, setDrafts] = useState({});
+  const [sideDrafts, setSideDrafts] = useState({});
   const [busyId, setBusyId] = useState("");
+  const [saveMessage, setSaveMessage] = useState("");
+  const [selectedCandidate, setSelectedCandidate] = useState("");
+  const [receiptPreview, setReceiptPreview] = useState(null);
+  const [reportPreview, setReportPreview] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -1905,17 +2165,32 @@ const AdminReceiptsPanel = () => {
         await response.blob();
 
       const url =
-        URL.createObjectURL(blob);
+        URL.createObjectURL(
+          blob
+        );
 
-      window.open(
-        url,
-        "_blank",
-        "noopener,noreferrer"
-      );
+      setReceiptPreview(
+        previous => {
+          if (
+            previous?.url
+          ) {
+            URL.revokeObjectURL(
+              previous.url
+            );
+          }
 
-      window.setTimeout(
-        () => URL.revokeObjectURL(url),
-        60000
+          return {
+            url,
+            type:
+              blob.type ||
+              receipt.file_type ||
+              "",
+            name:
+              receipt.original_name ||
+              receipt.document_name ||
+              "Receipt"
+          };
+        }
       );
     } catch (error) {
       alert(
@@ -1925,46 +2200,188 @@ const AdminReceiptsPanel = () => {
     }
   };
 
+  const loadExpenseReport = async email => {
+    try {
+      const { adminToken } =
+        getTokens();
+
+      const response =
+        await fetch(
+          `${API_BASE}/api/admin/reimbursement/expense-report?email=${encodeURIComponent(
+            email
+          )}&_=${Date.now()}`,
+          {
+            cache:
+              "no-store",
+            credentials:
+              "include",
+            headers: {
+              Authorization:
+                `AdminBearer ${adminToken}`,
+              "x-admin-token":
+                adminToken
+            }
+          }
+        );
+
+      const data =
+        await response
+          .json()
+          .catch(
+            () => ({})
+          );
+
+      if (
+        !response.ok ||
+        data.success !== true
+      ) {
+        throw new Error(
+          data.error ||
+          "Unable to load expense report."
+        );
+      }
+
+      setReportPreview(
+        data.report ||
+        null
+      );
+    } catch (
+      error
+    ) {
+      alert(
+        error.message ||
+        "Unable to load expense report."
+      );
+    }
+  };
+
   const save = async receipt => {
-    const id = String(receipt.id || receipt._id);
-    const amount =
+    const id =
+      String(
+        receipt.id ||
+        receipt._id ||
+        ""
+      );
+
+    const rawAmount =
       drafts[id] ??
       receipt.admin_correct_amount ??
-      receipt.converted_usd ??
-      receipt.amount ??
       "";
 
-    setBusyId(id);
-    try {
-      const { adminToken, userToken } = getTokens();
-      const response = await fetch(
-        `${API_BASE}/api/admin/receipts/${id}`,
-        {
-          method:"PATCH",
-          credentials:"include",
-          headers:{
-            "Content-Type":"application/json",
-            ...(adminToken ? {
-              Authorization:`AdminBearer ${adminToken}`,
-              "x-admin-token":adminToken
-            } : {}),
-            ...(!adminToken && userToken ? {
-              Authorization:`Bearer ${userToken}`
-            } : {})
-          },
-          body:JSON.stringify({
-            correctAmount:Number(amount),
-            correctAmountUsd:Number(amount)
-          })
-        }
+    const amount =
+      Number(rawAmount);
+
+    const amountType =
+      String(
+        sideDrafts[id] ??
+        receipt.admin_amount_type ??
+        ""
+      )
+        .trim()
+        .toLowerCase();
+
+    if (
+      !Number.isFinite(amount) ||
+      amount < 0
+    ) {
+      setSaveMessage(
+        "Enter a valid amount before submitting."
       );
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.success !== true) {
-        throw new Error(data.error || "Unable to save corrected amount.");
+      return;
+    }
+
+    if (
+      amountType !== "credit" &&
+      amountType !== "deduction"
+    ) {
+      setSaveMessage(
+        "Select Credit or Deduction before submitting the amount."
+      );
+      return;
+    }
+
+    setBusyId(id);
+    setSaveMessage("");
+
+    try {
+      const { adminToken } =
+        getTokens();
+
+      if (!adminToken) {
+        throw new Error(
+          "Admin session is unavailable. Please sign in again."
+        );
       }
+
+      const response =
+        await fetch(
+          `${API_BASE}/api/admin/receipts/${encodeURIComponent(id)}`,
+          {
+            method: "PATCH",
+            credentials: "include",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization:
+                `AdminBearer ${adminToken}`,
+              "x-admin-token":
+                adminToken
+            },
+            body:
+              JSON.stringify({
+                correctAmount:
+                  amount,
+                correctAmountUsd:
+                  amount,
+                amountType:
+                  amountType
+              })
+          }
+        );
+
+      const data =
+        await response
+          .json()
+          .catch(() => ({}));
+
+      if (
+        !response.ok ||
+        data.success !== true
+      ) {
+        throw new Error(
+          data.error ||
+          "Unable to submit amount."
+        );
+      }
+
+      setSaveMessage(
+        `${amountType === "credit" ? "Credit" : "Deduction"} of $${amount.toFixed(2)} saved successfully.`
+      );
+
+      if (data.report) {
+        setReportPreview(
+          data.report
+        );
+      }
+
       await load();
+
+      if (
+        selectedCandidate &&
+        !data.report
+      ) {
+        await loadExpenseReport(
+          selectedCandidate
+        );
+      }
     } catch (error) {
-      alert(error.message);
+      console.error(
+        "[Admin Receipts] Submit amount failed:",
+        error
+      );
+      setSaveMessage(
+        error.message ||
+        "Unable to submit amount."
+      );
     } finally {
       setBusyId("");
     }
@@ -1979,9 +2396,21 @@ const AdminReceiptsPanel = () => {
       <div>
         <h2 className="text-xl font-bold">Receipts</h2>
         <p className="text-sm text-gray-500">
-          Deployment receipts are listed by candidate and reimbursement category. Enter the verified amount and save it.
+          Review each receipt, enter the verified amount, then classify it as a Credit or Deduction for the Expense Report.
         </p>
       </div>
+      {saveMessage && (
+        <div
+          className={`rounded-lg border px-4 py-3 text-sm ${
+            /successfully/i.test(saveMessage)
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border-amber-200 bg-amber-50 text-amber-800"
+          }`}
+        >
+          {saveMessage}
+        </div>
+      )}
+
       {receipts.length === 0 ? (
         <div className="rounded-xl border bg-white p-8 text-center text-gray-500">
           No receipts uploaded from the Documents section yet.
@@ -2005,9 +2434,14 @@ const AdminReceiptsPanel = () => {
             <button
               key={email}
               type="button"
-              onClick={() =>
-                setSelectedCandidate(email)
-              }
+              onClick={() => {
+                setSelectedCandidate(
+                  email
+                );
+                loadExpenseReport(
+                  email
+                );
+              }}
               className="rounded-xl border bg-white p-4 text-left hover:border-purple-300 hover:bg-purple-50/40"
             >
               <p className="font-semibold text-purple-800">
@@ -2043,6 +2477,49 @@ const AdminReceiptsPanel = () => {
             </p>
           </div>
 
+          {reportPreview && (
+            <div className="rounded-xl border bg-white p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-purple-500">
+                    Expense Report
+                  </p>
+                  <p className="font-semibold">
+                    {reportPreview.candidate_name || selectedCandidate}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {reportPreview.arrival_date
+                      ? `Arrival: ${reportPreview.arrival_date}`
+                      : ""}
+                    {reportPreview.facility
+                      ? ` • ${reportPreview.facility}`
+                      : ""}
+                  </p>
+                </div>
+
+                <div className="text-right text-sm">
+                  <p>
+                    Credits: ${Number(
+                      reportPreview.totals?.credits || 0
+                    ).toFixed(2)}
+                  </p>
+                  <p>
+                    Deductions: ${Number(
+                      reportPreview.totals?.deductions || 0
+                    ).toFixed(2)}
+                  </p>
+                  <p className="font-bold text-purple-800">
+                    Due to {reportPreview.totals?.due_to || "Neither"}:
+                    {" "}
+                    ${Number(
+                      reportPreview.totals?.amount_due || 0
+                    ).toFixed(2)}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {receipts
             .filter(receipt =>
               receipt.candidate_email ===
@@ -2057,7 +2534,7 @@ const AdminReceiptsPanel = () => {
 
               return (
                 <div key={id} className="rounded-xl border bg-white p-4">
-                  <div className="grid gap-4 md:grid-cols-[1.2fr_1fr_auto] md:items-end">
+                  <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr_0.8fr_auto] md:items-end">
                     <div>
                       <p className="font-semibold">
                         {receipt.category_label ||
@@ -2068,16 +2545,32 @@ const AdminReceiptsPanel = () => {
                         {receipt.original_name ||
                           receipt.document_name}
                       </p>
+
+                      {receipt.admin_reviewed === true && (
+                        <p className="mt-1 text-xs font-semibold text-emerald-600">
+                          Saved as{" "}
+                          {receipt.admin_amount_type === "deduction"
+                            ? "Deduction"
+                            : "Credit"}
+                          {" • "}
+                          ${Number(
+                            receipt.admin_correct_amount_usd ??
+                            receipt.admin_correct_amount ??
+                            0
+                          ).toFixed(2)}
+                        </p>
+                      )}
                     </div>
 
                     <div>
                       <label className="text-xs font-semibold text-gray-600">
-                        Verified amount for expense report
+                        Verified Amount
                       </label>
                       <input
                         type="number"
                         min="0"
                         step="0.01"
+                        inputMode="decimal"
                         value={
                           drafts[id] ??
                           receipt.admin_correct_amount ??
@@ -2091,7 +2584,39 @@ const AdminReceiptsPanel = () => {
                           }))
                         }
                         className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                        placeholder="0.00"
                       />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold text-gray-600">
+                        Report Type
+                      </label>
+                      <select
+                        value={
+                          sideDrafts[id] ??
+                          receipt.admin_amount_type ??
+                          ""
+                        }
+                        onChange={event =>
+                          setSideDrafts(previous => ({
+                            ...previous,
+                            [id]:
+                              event.target.value
+                          }))
+                        }
+                        className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="">
+                          Select type
+                        </option>
+                        <option value="credit">
+                          Credit
+                        </option>
+                        <option value="deduction">
+                          Deduction
+                        </option>
+                      </select>
                     </div>
 
                     <div className="flex gap-2">
@@ -2104,22 +2629,95 @@ const AdminReceiptsPanel = () => {
                       >
                         View
                       </button>
+
                       <button
+                        type="button"
                         onClick={() =>
                           save(receipt)
                         }
                         disabled={
                           busyId === id
                         }
-                        className="rounded-lg bg-purple-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                        className="rounded-lg bg-purple-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        Save Amount
+                        {busyId === id
+                          ? "Submitting..."
+                          : "Submit Amount"}
                       </button>
                     </div>
                   </div>
                 </div>
               );
             })}
+        </div>
+      )}
+
+      {receiptPreview && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4">
+          <div className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b px-5 py-3">
+              <div>
+                <p className="font-semibold">
+                  {receiptPreview.name}
+                </p>
+                <p className="text-xs text-gray-500">
+                  Receipt preview
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    receiptPreview?.url
+                  ) {
+                    URL.revokeObjectURL(
+                      receiptPreview.url
+                    );
+                  }
+                  setReceiptPreview(
+                    null
+                  );
+                }}
+                className="rounded-lg border px-3 py-2 text-sm"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="min-h-[65vh] flex-1 overflow-auto bg-gray-100 p-3">
+              {String(
+                receiptPreview.type || ""
+              ).startsWith("image/") ? (
+                <img
+                  src={receiptPreview.url}
+                  alt={receiptPreview.name}
+                  className="mx-auto max-h-[78vh] max-w-full object-contain"
+                />
+              ) : String(
+                  receiptPreview.type || ""
+                ).includes("pdf") ? (
+                <iframe
+                  src={`${receiptPreview.url}#toolbar=1&navpanes=0`}
+                  title={receiptPreview.name}
+                  className="min-h-[75vh] w-full rounded-lg border-0 bg-white"
+                />
+              ) : (
+                <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 text-center">
+                  <FileText className="h-12 w-12 text-gray-400" />
+                  <p className="font-semibold">
+                    This file loaded successfully.
+                  </p>
+                  <a
+                    href={receiptPreview.url}
+                    download={receiptPreview.name}
+                    className="rounded-lg bg-purple-700 px-4 py-2 text-sm font-semibold text-white"
+                  >
+                    Download Receipt
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -1,3 +1,4 @@
+
 // @ts-nocheck
 import React, { useState, useEffect } from "react";
 import { useAuth } from "@/lib/AuthContext";
@@ -822,26 +823,23 @@ const HIRING_STATUS_PROGRESS = {
   "qualified-candidate pool": {
     completed: [
       "Applied",
-      "Associated with Job",
-      "Qualified Candidate Pool"
+      "Associated with Job"
     ],
-    current: null
+    current: "Qualified Candidate Pool"
   },
   "qualified- candidate pool": {
     completed: [
       "Applied",
-      "Associated with Job",
-      "Qualified Candidate Pool"
+      "Associated with Job"
     ],
-    current: null
+    current: "Qualified Candidate Pool"
   },
   "qualified candidate pool": {
     completed: [
       "Applied",
-      "Associated with Job",
-      "Qualified Candidate Pool"
+      "Associated with Job"
     ],
-    current: null
+    current: "Qualified Candidate Pool"
   },
   "not qualified-to close": {
     completed: [
@@ -10593,6 +10591,7 @@ export default function Pipeline() {
   const [icpUSRNCRMData, setICPUSRNCRMData] = useState({});
   const [portalAccessBlocked, setPortalAccessBlocked] = useState(false);
   const [finalArrivalDate, setFinalArrivalDate] = useState(null);
+  const [candidatePoolPolicy, setCandidatePoolPolicy] = useState(null);
 
   const pipelineCacheKey = user?.email
     ? `icp_pipeline_cache_v2:${String(user.email).trim().toLowerCase()}`
@@ -15802,6 +15801,192 @@ export default function Pipeline() {
 
 
   useEffect(() => {
+    if (!user?.email) {
+      return;
+    }
+
+    let cancelled =
+      false;
+
+    const refreshLeadManagementStatus =
+      async () => {
+        try {
+          const token =
+            localStorage.getItem(
+              "icp_auth_token"
+            );
+
+          if (!token) {
+            return;
+          }
+
+          const response =
+            await fetch(
+              `${API_BASE}/api/pipeline/application-status-live?_=${Date.now()}`,
+              {
+                cache:
+                  "no-store",
+                headers: {
+                  Authorization:
+                    `Bearer ${token}`,
+                  "Cache-Control":
+                    "no-cache",
+                  Pragma:
+                    "no-cache"
+                }
+              }
+            );
+
+          const data =
+            await response
+              .json()
+              .catch(
+                () => ({})
+              );
+
+          if (
+            !response.ok ||
+            cancelled ||
+            data.success !== true
+          ) {
+            return;
+          }
+
+          const nextStatus =
+            data.applicationStatus ||
+            "";
+
+          setApplicationStatus(
+            nextStatus
+          );
+
+          setCandidatePoolPolicy(
+            data.accessPolicy ||
+            null
+          );
+
+          const policy =
+            data.accessPolicy ||
+            {
+              mode:
+                "normal",
+              restricted:
+                false,
+              locked:
+                false
+            };
+
+          setDeploymentFieldStatus(
+            previous => ({
+              ...previous,
+              Application_Status:
+                nextStatus,
+              __accessPolicy:
+                policy
+            })
+          );
+
+          setStages(
+            previous =>
+              previous.map(
+                stage => {
+                  const qPoolOrder =
+                    getCanonicalStageOrder({
+                      stage_name:
+                        "Qualified Candidate Pool"
+                    });
+
+                  const notQualifiedOrder =
+                    getCanonicalStageOrder({
+                      stage_name:
+                        "Not Qualified - to close"
+                    });
+
+                  const boundary =
+                    policy.mode ===
+                      "qualified-pool"
+                      ? qPoolOrder
+                      : notQualifiedOrder;
+
+                  const shouldLock =
+                    policy.restricted ===
+                      true &&
+                    policy.locked ===
+                      true &&
+                    getCanonicalStageOrder(
+                      stage
+                    ) >
+                      boundary;
+
+                  return {
+                    ...stage,
+                    access_locked:
+                      shouldLock
+                  };
+                }
+              )
+          );
+
+          if (
+            policy.message &&
+            policy.restricted ===
+              true
+          ) {
+            toast.info(
+              policy.message,
+              {
+                id:
+                  `pipeline-access-${policy.mode}`,
+                duration:
+                  10000
+              }
+            );
+          }
+        } catch (
+          error
+        ) {
+          console.warn(
+            "[Pipeline] Lead Management Status refresh failed:",
+            error?.message ||
+            error
+          );
+        }
+      };
+
+    refreshLeadManagementStatus();
+
+    const interval =
+      window.setInterval(
+        refreshLeadManagementStatus,
+        15000
+      );
+
+    const handleFocus =
+      () =>
+        refreshLeadManagementStatus();
+
+    window.addEventListener(
+      "focus",
+      handleFocus
+    );
+
+    return () => {
+      cancelled =
+        true;
+
+      window.clearInterval(
+        interval
+      );
+
+      window.removeEventListener(
+        "focus",
+        handleFocus
+      );
+    };
+  }, [user?.email]);
+
+
+  useEffect(() => {
     if (!user?.email) return;
 
     let cancelled = false;
@@ -15868,9 +16053,16 @@ export default function Pipeline() {
     };
   }, [user?.email]);
 
+  const effectiveApplicationStatus =
+    unwrapPipelineFieldValue(
+      deploymentFieldStatus
+        ?.Application_Status
+    ) ||
+    applicationStatus;
+
   const normalizedCurrentApplicationStatus =
     normalizeApplicationStatus(
-      applicationStatus
+      effectiveApplicationStatus
     );
 
   const qualificationOutcomeNames = [
@@ -15881,7 +16073,7 @@ export default function Pipeline() {
 
   const mappedQualificationOutcome =
     getEffectiveQualificationOutcome(
-      applicationStatus
+      effectiveApplicationStatus
     );
 
   const savedQualificationOutcome =
@@ -15916,12 +16108,36 @@ export default function Pipeline() {
       (isPipelineStageComplete(stage) || ["in progress", "in-progress", "active"].includes(String(stage?.status || "").trim().toLowerCase()))
     );
 
+  const explicitQualificationHold =
+    [
+      "qualified-candidate pool",
+      "qualified candidate pool"
+    ].includes(
+      normalizedCurrentApplicationStatus
+    )
+      ? "Qualified Candidate Pool"
+      : [
+          "not qualified-to close",
+          "not qualified - to close",
+          "not qualified to close",
+          "unqualified"
+        ].includes(
+          normalizedCurrentApplicationStatus
+        )
+        ? "Not Qualified - to close"
+        : null;
+
   const selectedQualificationOutcome =
-    progressedPastQualification
-      ? "Qualified - Match"
-      : qualificationOutcomeNames.includes(mappedQualificationOutcome)
-        ? mappedQualificationOutcome
-        : savedQualificationOutcome;
+    explicitQualificationHold ||
+    (
+      progressedPastQualification
+        ? "Qualified - Match"
+        : qualificationOutcomeNames.includes(
+            mappedQualificationOutcome
+          )
+          ? mappedQualificationOutcome
+          : savedQualificationOutcome
+    );
 
   const transferStage =
     stages.find(stage =>
@@ -16007,11 +16223,16 @@ export default function Pipeline() {
     );
 
   const nclexBranchVisible =
-    transferStatusSelected ||
-    savedTransferEligibility ||
-    savedNCLEXHistoryExists ||
-    showNCLEX ||
-    Object.values(
+    explicitQualificationHold !==
+      "Qualified Candidate Pool" &&
+    explicitQualificationHold !==
+      "Not Qualified - to close" &&
+    (
+      transferStatusSelected ||
+      savedTransferEligibility ||
+      savedNCLEXHistoryExists ||
+      showNCLEX ||
+      Object.values(
       deploymentFieldStatus?.__stageStatus || {}
     ).some(
       state =>
@@ -16020,6 +16241,7 @@ export default function Pipeline() {
           state?.completed === true ||
           state?.unlocked === true
         )
+    )
     );
 
   const nclexProgress =
@@ -16066,6 +16288,34 @@ export default function Pipeline() {
           selectedQualificationOutcome ===
           stage.stage_name
         );
+      }
+
+      if (
+        explicitQualificationHold ===
+          "Qualified Candidate Pool" &&
+        getCanonicalStageOrder(
+          stage
+        ) >
+          getCanonicalStageOrder({
+            stage_name:
+              "Qualified Candidate Pool"
+          })
+      ) {
+        return false;
+      }
+
+      if (
+        explicitQualificationHold ===
+          "Not Qualified - to close" &&
+        getCanonicalStageOrder(
+          stage
+        ) >
+          getCanonicalStageOrder({
+            stage_name:
+              "Not Qualified - to close"
+          })
+      ) {
+        return false;
       }
 
       const acceptedSelected =
@@ -16791,6 +17041,26 @@ export default function Pipeline() {
 
         </div>
       </div>
+
+      {explicitQualificationHold ===
+        "Qualified Candidate Pool" && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+            <div>
+              <p className="font-semibold text-amber-900">
+                Qualified Candidate Pool
+              </p>
+              <p className="mt-1 text-sm text-amber-800">
+                There are currently no openings matching your profile. We will notify you when a suitable opening becomes available.
+              </p>
+              <p className="mt-1 text-xs text-amber-700">
+                Your pipeline will continue automatically when there is another openning that fits your qualifications .
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {(currentCandidateStage ||
         pendingNextStage) && (
