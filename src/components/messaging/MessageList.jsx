@@ -633,6 +633,7 @@ export default function MessageList() {
       ["admin", "admin@", "admin@infinitycarepartners.com"].includes(
         String(message.senderEmail || "").toLowerCase()
       );
+    const isSender = isAdminDirect;
     const isSystem = message.messageType === 'system';
     const replies = getMessageReplies(message._id);
     const isReplying = replyingTo?._id === message._id;
@@ -682,6 +683,20 @@ export default function MessageList() {
                 ) : (
                   <p className="text-slate-800 mt-1 whitespace-pre-wrap break-words">{message.content}</p>
                 )}
+                <button
+                  type="button"
+                  aria-label="Reply to this message"
+                  title="Reply to this message"
+                  onClick={() => {
+                    setReplyingTo(message);
+                    setTimeout(() => scrollToBottom(true), 50);
+                  }}
+                  className="ml-2 inline-flex align-middle text-slate-400 transition-colors hover:text-emerald-700"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                  </svg>
+                </button>
               </div>
             </div>
           </div>
@@ -691,7 +706,7 @@ export default function MessageList() {
 
     return (
       <div key={message._id} className="my-3">
-        <div className={`flex items-start gap-3 ${isOwn ? '' : 'flex-row-reverse'}`}>
+        <div className={`flex items-start gap-3 ${isSender ? '' : 'flex-row-reverse'}`}>
           <div className="flex-shrink-0">
             <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold ${
               isOwn ? 'bg-purple-600' : 'bg-slate-400'
@@ -700,20 +715,22 @@ export default function MessageList() {
             </div>
           </div>
 
-          <div className={`flex-1 min-w-0 ${isOwn ? 'items-start' : 'items-end'}`}>
+          <div className={`flex-1 min-w-0 ${isSender ? 'items-start' : 'items-end'}`}>
             <div className="flex items-center gap-2 flex-wrap">
-              <span className={`font-semibold text-sm ${isOwn ? 'text-purple-700' : 'text-slate-800'}`}>
-                {displayName}
-              </span>
-              <span className="text-xs text-slate-400">·</span>
+              {isSender && (
+                <>
+                  <span className="font-semibold text-sm text-slate-800">{displayName}</span>
+                  <span className="text-xs text-slate-400">·</span>
+                </>
+              )}
               <span className="text-xs text-slate-400">{formatMessageTime(message.createdAt)}</span>
             </div>
             
-            <div className={`mt-1 ${isOwn ? 'text-left' : 'text-right'}`}>
+            <div className={`mt-1 ${isSender ? 'text-left' : 'text-right'}`}>
               <div className={`inline-block rounded-lg ${
                 message.messageType === 'image'
                   ? 'bg-transparent p-0'
-                  : (isOwn ? 'rounded-bl-none bg-[#d9fdd3] text-slate-800 px-3 py-2 shadow-sm' : 'rounded-br-none bg-white text-slate-800 px-3 py-2 shadow-sm')
+                  : (isSender ? 'rounded-bl-none bg-white text-slate-800 px-3 py-2 shadow-sm' : 'rounded-br-none bg-[#d9fdd3] text-slate-800 px-3 py-2 shadow-sm')
               }`}>
                 {message.messageType === 'image' ? (
                   <img 
@@ -731,22 +748,21 @@ export default function MessageList() {
                     </p>
                   </>
                 )}
+                <button
+                  type="button"
+                  aria-label="Reply to this message"
+                  title="Reply to this message"
+                  onClick={() => {
+                    setReplyingTo(message);
+                    setTimeout(() => scrollToBottom(true), 50);
+                  }}
+                  className="ml-2 inline-flex align-middle text-slate-400 transition-colors hover:text-emerald-700"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                  </svg>
+                </button>
               </div>
-            </div>
-
-            <div className={`flex items-center gap-4 mt-1 text-xs text-slate-400 ${isOwn ? 'justify-end' : ''}`}>
-              <button 
-                onClick={() => {
-                  setReplyingTo(message);
-                  setTimeout(() => scrollToBottom(true), 50);
-                }}
-                className="hover:text-purple-600 transition-colors flex items-center gap-1"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-                </svg>
-                Reply {replies.length > 0 && `(${replies.length})`}
-              </button>
             </div>
           </div>
         </div>
@@ -863,17 +879,21 @@ export default function MessageList() {
                       ) : (
                         <p className="text-sm whitespace-pre-wrap break-words">{reply.content}</p>
                       )}
+                      <button
+                        type="button"
+                        aria-label="Reply to this message"
+                        title="Reply to this message"
+                        onClick={() => {
+                          setReplyingTo(reply);
+                          setTimeout(() => scrollToBottom(true), 50);
+                        }}
+                        className="ml-2 inline-flex align-middle text-slate-400 transition-colors hover:text-emerald-700"
+                      >
+                        <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                        </svg>
+                      </button>
                     </div>
-                    
-                    <button 
-                      onClick={() => {
-                        setReplyingTo(reply);
-                        setTimeout(() => scrollToBottom(true), 50);
-                      }}
-                      className="block text-xs text-slate-400 hover:text-purple-600 mt-0.5 transition-colors"
-                    >
-                      Reply
-                    </button>
                   </div>
                 </div>
               );

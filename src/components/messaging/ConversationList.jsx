@@ -520,6 +520,9 @@ const sendMessage = useCallback(async () => {
   const renderMessageWithReplies = (message, isReply = false, depth = 0) => {
     const currentUserEmail = getCurrentUserEmail();
     const isOwn = message.senderEmail === currentUserEmail;
+    const isSender = ['admin', 'admin@', 'admin@infinitycarepartners.com'].includes(
+      String(message.senderEmail || '').toLowerCase()
+    );
     const hasReplies = message.replies && message.replies.length > 0;
     const isExpanded = expandedThreads.has(message._id);
     const isReplying = replyTo === message._id;
@@ -589,6 +592,17 @@ const sendMessage = useCallback(async () => {
               <p className="mt-1 whitespace-pre-wrap break-words text-[15px] leading-6 text-slate-800">
                 {message.content}
               </p>
+              <button
+                type="button"
+                aria-label="Reply to this message"
+                title="Reply to this message"
+                onClick={() => handleReplyClick(message._id)}
+                className="mt-1 text-slate-400 transition-colors hover:text-emerald-700"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                </svg>
+              </button>
             </div>
           </div>
         </article>
@@ -598,7 +612,7 @@ const sendMessage = useCallback(async () => {
     return (
       <div key={message._id} className="space-y-1">
         <div 
-          className={`flex items-start gap-3 p-3 rounded-lg transition-colors ${isOwn ? 'bg-[#d9fdd3] text-slate-800' : 'flex-row-reverse bg-white text-slate-800 shadow-sm'} ${isReply ? 'border-l-2 border-emerald-400' : ''}`}
+          className={`flex items-start gap-3 p-3 rounded-lg transition-colors ${isSender ? 'bg-white text-slate-800 shadow-sm' : 'flex-row-reverse bg-[#d9fdd3] text-slate-800'} ${isReply ? 'border-l-2 border-emerald-400' : ''}`}
           style={{ marginLeft: isReply ? `${Math.min(depth * 20, 60)}px` : '0', marginRight: '0' }}
         >
           <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-sm ${isOwn ? 'bg-purple-700' : 'bg-slate-400'}`}>
@@ -608,19 +622,25 @@ const sendMessage = useCallback(async () => {
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between flex-wrap gap-1">
               <div className="flex items-center gap-2">
-                <span className="font-medium text-sm text-slate-700">{displayName}</span>
-                {isOwn && <span className="text-xs text-emerald-700">You</span>}
+                {isSender && <span className="font-medium text-sm text-slate-700">{displayName}</span>}
                 <span className="text-xs text-slate-400">{getTimeAgo(message.createdAt)}</span>
               </div>
-              {!isReply && (
-                <button
-                  onClick={() => handleReplyClick(message._id)}
-                  className={`text-xs transition-colors ${isOwn ? 'text-purple-300 hover:text-white' : 'text-slate-400 hover:text-purple-600'}`}
-                >Reply</button>
-              )}
             </div>
             
-            <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-700">{message.content}</p>
+            <div className="mt-1 flex items-end gap-2">
+              <p className="whitespace-pre-wrap break-words text-sm text-slate-700">{message.content}</p>
+              <button
+                type="button"
+                aria-label="Reply to this message"
+                title="Reply to this message"
+                onClick={() => handleReplyClick(message._id)}
+                className="shrink-0 text-slate-400 transition-colors hover:text-emerald-700"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                </svg>
+              </button>
+            </div>
             
             {hasReplies && (
               <button
