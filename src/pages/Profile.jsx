@@ -694,12 +694,6 @@ export default function Profile() {
             icon={FileText} 
           />
         </Section>
-{/* Relias Section */}
-        <Section title="Relias">
-          <InfoRow label="Relias Enrolled Date" value={getFormattedDate('reliasEnrolledDate')} icon={Calendar} />
-          <InfoRow label="Relias Extension" value={getFormattedDate('reliasExtension')} icon={Calendar} />
-          <InfoRow label="Initial ICP Assessment" value={getValue('initialICPAssessment')} icon={CheckCircle} />
-        </Section>
 
         {/* Immigration Petition Record — retained from the existing profile */}
         <Section title="Immigration">
@@ -844,8 +838,7 @@ export default function Profile() {
               ["Car seats or boosters needed?", "carSeats", "text"],
               ["Cell Phone Model + Carrier", "phoneModelCarrier", "text"],
               ["Is the SIM card unlocked?", "simUnlocked", "text"],
-              ["Car Purchasing Plan Post Arrival", "carPurchasePlan", "text"],
-              ["Foundation Relias classes completed?", "foundationsCompleted", "text"]
+              ["Car Purchasing Plan Post Arrival", "carPurchasePlan", "text"]
             ].map(([label, field, type]) => (
               <label key={field} className="block">
                 <span className="text-xs font-medium text-muted-foreground">{label}</span>
