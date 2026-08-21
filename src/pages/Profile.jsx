@@ -620,6 +620,15 @@ export default function Profile() {
     return raw;
   };
 
+  const visibleDependants = (Array.isArray(extendedProfile?.dependants)
+    ? extendedProfile.dependants
+    : []
+  ).filter(dependant =>
+    dependant && Object.values(dependant).some(value =>
+      value !== null && value !== undefined && String(value).trim() !== ""
+    )
+  );
+
   // Log available fields for debugging
   console.log("[Profile] Available fields:", Object.keys(profileData || {}));
   console.log("[Profile] Recruit data:", recruitData);
@@ -906,10 +915,9 @@ export default function Profile() {
 
 
       
-        {Array.isArray(extendedProfile?.dependants) &&
-          extendedProfile.dependants.length > 0 && (
+        {visibleDependants.length > 0 && (
             <Section title="Dependants">
-              {extendedProfile.dependants.map((dependant, index) => (
+              {visibleDependants.map((dependant, index) => (
                 <div
                   key={`${dependant.name || "dependant"}-${index}`}
                   className="border-b border-border py-3 last:border-0"
