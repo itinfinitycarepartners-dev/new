@@ -598,7 +598,7 @@ const sendMessage = useCallback(async () => {
     return (
       <div key={message._id} className="space-y-1">
         <div 
-          className={`flex items-start gap-3 p-3 rounded-lg transition-colors ${isOwn ? 'bg-purple-600 text-white hover:bg-purple-700' : 'bg-white hover:bg-slate-50'} ${isReply ? 'border-l-2 border-purple-300' : ''}`}
+          className={`flex items-start gap-3 p-3 rounded-lg transition-colors ${isOwn ? 'bg-[#d9fdd3] text-slate-800' : 'flex-row-reverse bg-white text-slate-800 shadow-sm'} ${isReply ? 'border-l-2 border-emerald-400' : ''}`}
           style={{ marginLeft: isReply ? `${Math.min(depth * 20, 60)}px` : '0', marginRight: '0' }}
         >
           <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-sm ${isOwn ? 'bg-purple-700' : 'bg-slate-400'}`}>
@@ -608,9 +608,9 @@ const sendMessage = useCallback(async () => {
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between flex-wrap gap-1">
               <div className="flex items-center gap-2">
-                <span className={`font-medium text-sm ${isOwn ? 'text-white' : 'text-slate-700'}`}>{displayName}</span>
-                {isOwn && <span className="text-xs text-purple-200">You</span>}
-                <span className={`text-xs ${isOwn ? 'text-purple-300' : 'text-slate-400'}`}>{getTimeAgo(message.createdAt)}</span>
+                <span className="font-medium text-sm text-slate-700">{displayName}</span>
+                {isOwn && <span className="text-xs text-emerald-700">You</span>}
+                <span className="text-xs text-slate-400">{getTimeAgo(message.createdAt)}</span>
               </div>
               {!isReply && (
                 <button
@@ -620,7 +620,7 @@ const sendMessage = useCallback(async () => {
               )}
             </div>
             
-            <p className={`text-sm mt-1 whitespace-pre-wrap break-words ${isOwn ? 'text-white' : 'text-slate-700'}`}>{message.content}</p>
+            <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-700">{message.content}</p>
             
             {hasReplies && (
               <button
@@ -734,7 +734,7 @@ const sendMessage = useCallback(async () => {
           )}
         </div>
 
-        <div className="w-2/3 flex flex-col bg-slate-50 flex-1 min-w-0 h-full">
+        <div className="w-2/3 flex flex-col bg-[#efeae2] flex-1 min-w-0 h-full">
           {selectedId ? (
             <>
               <div className="p-4 border-b border-slate-200 bg-white flex-shrink-0">

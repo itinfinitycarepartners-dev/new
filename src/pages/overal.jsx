@@ -1723,7 +1723,9 @@ const MessagingPanel = ({ users, initialTarget }) => {
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
                         <div className="text-sm font-semibold text-gray-900 truncate">{getConversationName(conversation)}</div>
-                        <div className="text-xs text-gray-500 truncate">{email}</div>
+                        <div className="pl-2 text-xs text-gray-500 truncate">
+                          {conversation.lastMessage?.content || "No messages yet"}
+                        </div>
                       </div>
                       {thread?.isActive && <div className="w-2 h-2 shrink-0 rounded-full bg-green-500" />}
                     </div>
@@ -1808,11 +1810,9 @@ const MessagingPanel = ({ users, initialTarget }) => {
             <div className="border-b px-5 py-4 bg-white flex items-center justify-between shadow-sm z-10">
               <div>
                 <h3 className="font-bold text-gray-900">
-                  {threads.find(t => t.email === selected)?.name || selected}
+                  {threads.find(t => String(t.email).toLowerCase() === String(selected).toLowerCase())?.name || selected.split('@')[0]}
                 </h3>
                 <p className="text-xs text-gray-500">
-                  {selected}
-                  {" • "}
                   {departments.find(
                     item =>
                       item.id === department
@@ -1820,7 +1820,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
                 </p>
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-gray-50/50">
+            <div className="flex-1 overflow-y-auto p-5 space-y-3 bg-[#efeae2]">
               {messageError && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{messageError}</div>}
               {loadingHistory ? (
                 <div className="text-center text-xs text-gray-400 mt-4">Loading conversation...</div>
@@ -1828,9 +1828,19 @@ const MessagingPanel = ({ users, initialTarget }) => {
                 <div className="text-center text-xs text-gray-400 mt-4">This is the start of your conversation.</div>
               ) : (
                 chat.map((msg) => (
-                  <div key={msg._id || msg.id} className={`flex ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-sm shadow-sm ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'text-white rounded-br-sm' : 'border bg-white text-gray-800 rounded-bl-sm'}`} style={{ background: msg.senderEmail === 'admin' || msg.from === 'admin' ? THEME.brand : '' }}>
-                      {msg.content || msg.text}
+                  <div key={msg._id || msg.id} className={`flex ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'justify-start' : 'justify-end'}`}>
+                    <div className="max-w-[75%]">
+                      <div className={`mb-1 px-2 text-xs font-semibold ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'text-left text-emerald-700' : 'text-right text-gray-700'}`}>
+                        {msg.senderEmail === 'admin' || msg.from === 'admin'
+                          ? 'Admin'
+                          : threads.find(thread => String(thread.email).toLowerCase() === String(msg.senderEmail || '').toLowerCase())?.name || getConversationName({ participants: [msg.senderEmail] })}
+                      </div>
+                      <div className={`ml-2 rounded-lg px-3 py-2 text-sm shadow-sm ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'rounded-bl-none bg-[#d9fdd3] text-gray-800' : 'rounded-br-none bg-white text-gray-800'}`}>
+                        <div className="whitespace-pre-wrap break-words">{msg.content || msg.text}</div>
+                        <div className="mt-1 text-right text-[10px] text-gray-500">
+                          {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 ))
