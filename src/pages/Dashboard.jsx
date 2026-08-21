@@ -173,7 +173,7 @@ const REQUIRED_STAGE_ACTIONS = {
   "Mandatory Petitioner / Employer Call": { message: "Attend the mandatory petitioner/employer call.", cta: "View Deployment", icon: Phone, urgency: "high" },
   "deployMate Ready": { message: "Complete your deployMate readiness requirements.", cta: "View Deployment", icon: CheckCircle2, urgency: "high" },
   "Arrival Itinerary": { message: "Review and acknowledge your welcome packet.", cta: "View Packet", icon: FileText, urgency: "high" },
-  "Receipt Submission": { message: "Complete and submit your expense report.", cta: "Submit Report", icon: Receipt, urgency: "high" },
+  "Receipt Submission": { message: "Review your expense report and press Acknowledge Expense Report to complete this stage.", cta: "Review Report", icon: Receipt, urgency: "high" },
   "Arrived": { message: "Your arrival is confirmed. Your Aftercare journey is next.", cta: "View Pipeline", icon: Plane, urgency: "medium" },
   "Concierge Debrief": { message: "This step is completed by an ICP administrator. No candidate action is required.", cta: "View Status", icon: Clock, urgency: "low" },
   "Request for further evidence": { message: "If an RFE is active, follow the immigration team's evidence instructions. This step closes when the immigration stage becomes Approved.", cta: "View Immigration", icon: FileText, urgency: "high" },
@@ -961,6 +961,69 @@ export default function Dashboard() {
       }
   });
 
+  const {
+    data:
+      dashboardUpdatesPayload,
+    refetch:
+      refetchDashboardUpdates
+  } = useQuery({
+    queryKey: [
+      "dashboard-updates",
+      user?.email
+    ],
+    enabled:
+      Boolean(
+        user?.email
+      ),
+    staleTime:
+      0,
+    refetchInterval:
+      10 * 1000,
+    refetchOnWindowFocus:
+      true,
+    queryFn:
+      async () => {
+        const token =
+          tokenStorage.get();
+
+        if (!token) {
+          return {
+            updates:
+              []
+          };
+        }
+
+        const response =
+          await fetch(
+            `${API_BASE}/api/updates?limit=20&_=${Date.now()}`,
+            {
+              cache:
+                "no-store",
+              headers: {
+                Authorization:
+                  `Bearer ${token}`
+              }
+            }
+          );
+
+        const payload =
+          await response
+            .json()
+            .catch(
+              () => ({})
+            );
+
+        if (!response.ok) {
+          throw new Error(
+            payload.error ||
+            "Unable to load updates."
+          );
+        }
+
+        return payload;
+      }
+  });
+
   const profile =
     summary?.candidate ||
     {};
@@ -983,30 +1046,79 @@ export default function Dashboard() {
   const dashboardApplicationStatus=String(
     pipeline.applicationStatus||
     pipeline.application_status||
-    pipeline.hiringState?.applicationStatus||
     profile.applicationStatus||
     profile.Application_Status||
     ""
   ).trim().toLowerCase().replace(/[–—]/g,"-").replace(/\s*-\s*/g,"-").replace(/\s+/g," ");
-  const isQualifiedCandidatePool=["qualified-candidate pool","qualified candidate pool"].includes(dashboardApplicationStatus);
-  const isNotQualifiedToClose=[
-    "not qualified-to close",
-    "not qualified - to close",
-    "not qualified to close",
-    "unqualified"
-  ].includes(dashboardApplicationStatus);
-  const dashboardAccessPolicy=
-    pipeline.accessPolicy||
-    {mode:"normal",restricted:false,locked:false,message:""};
-  const rawActiveStage=isQualifiedCandidatePool
-    ? visiblePipelineStages.find(stage=>stage?.stage_name==="Qualified Candidate Pool")||{stage_name:"Qualified Candidate Pool",stage_category:"Hiring",stage_order:5,status:"In Progress"}
-    : isNotQualifiedToClose
-      ? visiblePipelineStages.find(stage=>stage?.stage_name==="Not Qualified - to close")||{stage_name:"Not Qualified - to close",stage_category:"Hiring",stage_order:3,status:"In Progress"}
-      : pipeline.currentStage||null;
-  const rawPendingNextStage=
-    (isQualifiedCandidatePool||isNotQualifiedToClose)
+  const isQualifiedCandidatePool =
+    [
+      "qualified-candidate pool",
+      "qualified candidate pool"
+    ].includes(
+      dashboardApplicationStatus
+    );
+
+  const isUnqualifiedCandidate =
+    [
+      "unqualified",
+      "not qualified-to close",
+      "not qualified - to close",
+      "not qualified to close",
+      "not qualified-to-close"
+    ].includes(
+      dashboardApplicationStatus
+    );
+
+  const rawActiveStage =
+    isQualifiedCandidatePool
+      ? (
+          visiblePipelineStages.find(
+            stage =>
+              stage?.stage_name ===
+              "Qualified Candidate Pool"
+          ) || {
+            stage_name:
+              "Qualified Candidate Pool",
+            stage_category:
+              "Hiring",
+            stage_order:
+              5,
+            status:
+              "In Progress"
+          }
+        )
+      : isUnqualifiedCandidate
+        ? (
+            visiblePipelineStages.find(
+              stage =>
+                stage?.stage_name ===
+                "Not Qualified - to close"
+            ) || {
+              stage_name:
+                "Not Qualified - to close",
+              stage_category:
+                "Hiring",
+              stage_order:
+                3,
+              status:
+                "In Progress"
+            }
+          )
+        : (
+            pipeline.authoritativeCurrentStage ||
+            pipeline.currentStage ||
+            null
+          );
+
+  const rawPendingNextStage =
+    isQualifiedCandidatePool ||
+    isUnqualifiedCandidate
       ? null
-      : (pipeline.nextStage||null);
+      : (
+          pipeline.authoritativeNextStage ??
+          pipeline.nextStage ??
+          null
+        );
 
   const progressedPastQualification = (() => {
     const stages = visiblePipelineStages;
@@ -1079,28 +1191,25 @@ export default function Dashboard() {
     );
 
   const activeStage =
-    furthestReachedStage &&
-    !isPipelineStageComplete(furthestReachedStage)
-      ? furthestReachedStage
-      : orderedVisibleStages.find(stage =>
-          Number(stage?.stage_order || 0) >
-            Number(furthestReachedStage?.stage_order ?? -Infinity) &&
-          !isPipelineStageComplete(stage)
-        ) ||
-        fallbackActiveStage ||
-        orderedVisibleStages.find(stage =>
-          !isPipelineStageComplete(stage)
-        ) ||
-        null;
+    rawActiveStage ||
+    fallbackActiveStage ||
+    orderedVisibleStages.find(stage =>
+      !isPipelineStageComplete(stage)
+    ) ||
+    null;
 
   const pendingNextStage =
-    activeStage
-      ? orderedVisibleStages.find(stage =>
-          Number(stage?.stage_order || 0) >
-            Number(activeStage?.stage_order || 0) &&
-          !isPipelineStageComplete(stage)
-        ) || null
-      : null;
+    rawActiveStage
+      ? rawPendingNextStage
+      : (
+          activeStage
+            ? orderedVisibleStages.find(stage =>
+                Number(stage?.stage_order || 0) >
+                  Number(activeStage?.stage_order || 0) &&
+                !isPipelineStageComplete(stage)
+              ) || null
+            : null
+        );
 
   const serverTimerMatchesActive =
     pipeline.timer?.stageName &&
@@ -1158,28 +1267,20 @@ export default function Dashboard() {
       "access"
     ]);
 
-  const updates =
+  const allDashboardUpdates =
     Array.isArray(
-      summary?.updates
+      dashboardUpdatesPayload
+        ?.updates
     )
-      ? summary.updates.filter(
-          update =>
-            DASHBOARD_UPDATE_TYPES.has(
-              String(
-                update?.update_type ||
-                ""
-              )
-                .trim()
-                .toLowerCase()
-            ) ||
-            /^pipeline:/i.test(
-              String(
-                update?.source ||
-                ""
-              )
-            )
-        )
+      ? dashboardUpdatesPayload
+          .updates
       : [];
+
+  const updates =
+    allDashboardUpdates.slice(
+      0,
+      5
+    );
 
   const documentCount =
     Number(
@@ -1384,6 +1485,7 @@ export default function Dashboard() {
     const refresh =
       () => {
         refetch();
+        refetchDashboardUpdates();
       };
 
     websocket.on("pipeline-updated", refresh);
@@ -1435,7 +1537,10 @@ export default function Dashboard() {
         refresh
       );
     };
-  }, [refetch]);
+  }, [
+    refetch,
+    refetchDashboardUpdates
+  ]);
 
   const greeting =
     () => {
@@ -1489,45 +1594,142 @@ export default function Dashboard() {
     ].filter(Boolean);
 
   useEffect(() => {
-    const popupItems = [
-      ...(Array.isArray(updates) ? updates : []),
-      ...notifications
-    ];
-    if (popupItems.length === 0) return;
+    const popupItems =
+      Array.isArray(
+        allDashboardUpdates
+      )
+        ? allDashboardUpdates
+        : [];
 
-    const userEmailKey = String(user?.email || "").trim().toLowerCase();
+    if (
+      popupItems.length ===
+      0
+    ) {
+      return;
+    }
+
+    const userEmailKey =
+      String(
+        user?.email ||
+        ""
+      )
+        .trim()
+        .toLowerCase();
 
     popupItems
-      .filter(item => item && item.is_read !== true)
-      .slice(0, 8)
-      .forEach(item => {
-        const notificationKey =
-          `dashboard_notification_seen:${userEmailKey}:${item.id || item._id || item.title || item.message}`;
-        if (sessionStorage.getItem(notificationKey)) return;
+      .filter(
+        item =>
+          item &&
+          item.is_read !==
+            true
+      )
+      .slice(
+        0,
+        12
+      )
+      .forEach(
+        item => {
+          const notificationKey =
+            `dashboard_notification_seen:${userEmailKey}:${item.id || item._id || item.notification_key || item.title || item.message}`;
 
-        const text = String(item.message || item.text || item.title || "").trim();
-        const title = String(item.title || "Pipeline update").trim();
-        const combined = `${title} ${text}`.toLowerCase();
-        const isRFE =
-          combined.includes("request for evidence") ||
-          combined.includes("request for further evidence") ||
-          combined.includes("rfe");
+          if (
+            sessionStorage.getItem(
+              notificationKey
+            )
+          ) {
+            return;
+          }
 
-        if (isRFE) {
-          toast.warning(title || "Request for Evidence", {
-            description: text || "Your immigration record has a Request for Evidence update.",
-            duration: 10000
-          });
-        } else if (item.update_type || item.type === "stage") {
-          toast.info(title, {
-            description: text || "Your candidate record has changed.",
-            duration: 7000
-          });
+          const text =
+            String(
+              item.message ||
+              item.text ||
+              item.title ||
+              ""
+            ).trim();
+
+          const title =
+            String(
+              item.title ||
+              "Pipeline update"
+            ).trim();
+
+          const combined =
+            `${title} ${text}`
+              .toLowerCase();
+
+          const updateType =
+            String(
+              item.update_type ||
+              item.type ||
+              ""
+            )
+              .trim()
+              .toLowerCase();
+
+          const isRFE =
+            combined.includes(
+              "request for evidence"
+            ) ||
+            combined.includes(
+              "request for further evidence"
+            ) ||
+            combined.includes(
+              "rfe"
+            );
+
+          const isUrgent =
+            isRFE ||
+            [
+              "urgent",
+              "rfe",
+              "expiry",
+              "expired",
+              "document-required",
+              "access"
+            ].includes(
+              updateType
+            );
+
+          if (isUrgent) {
+            toast.warning(
+              title ||
+                "Important update",
+              {
+                description:
+                  text ||
+                  "Your candidate record has an important update.",
+                duration:
+                  10000
+              }
+            );
+          } else {
+            // Every unread server notification is surfaced as a Dashboard popup.
+            toast.info(
+              title ||
+                "Pipeline update",
+              {
+                description:
+                  text ||
+                  "Your candidate record has changed.",
+                duration:
+                  7000
+              }
+            );
+          }
+
+          // Prevent the same notification from repeating on every 10-second refresh
+          // while preserving its unread/read state in the backend.
+          sessionStorage.setItem(
+            notificationKey,
+            "1"
+          );
         }
-
-        sessionStorage.setItem(notificationKey, "1");
-      });
-  }, [updates, notifications, user?.email]);
+      );
+  }, [
+    allDashboardUpdates,
+    user?.email
+  ]);
 
 
   const quickLinks = [
@@ -1906,7 +2108,7 @@ export default function Dashboard() {
 
           {updates.length === 0 ? (
             <p className="mt-4 text-sm text-muted-foreground">
-              No CRM or Recruit updates yet.
+              No important updates right now.
             </p>
           ) : (
             <div className="mt-4 space-y-3">

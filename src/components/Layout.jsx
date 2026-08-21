@@ -22,6 +22,7 @@ import {
   Send
 } from "lucide-react";
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 import { messaging, websocket, tokenStorage } from "@/api/icpClient";
 // Import the image
 import logoImage from "./logo.jpg";
@@ -218,6 +219,128 @@ export default function Layout() {
       websocket.off('new_message', handleNewMessage);
     };
   }, []);
+
+  // ─── Candidate notification popups on every portal/dashboard page ──────────
+  useEffect(() => {
+    if (!user?.email) {
+      return;
+    }
+
+    let cancelled = false;
+    let timer = null;
+
+    const showUnreadNotificationPopups = async () => {
+      try {
+        const authToken = tokenStorage.get();
+        if (!authToken || cancelled) {
+          return;
+        }
+
+        const response = await fetch(
+          `${API_BASE}/api/updates?limit=20&_=${Date.now()}`,
+          {
+            cache: "no-store",
+            headers: {
+              Authorization: `Bearer ${authToken}`,
+              "Cache-Control": "no-cache",
+              Pragma: "no-cache"
+            }
+          }
+        );
+
+        const data = await response.json().catch(() => ({}));
+        if (cancelled || !response.ok || data.success !== true) {
+          return;
+        }
+
+        const userEmailKey = String(user.email).trim().toLowerCase();
+        const updates = Array.isArray(data.updates) ? data.updates : [];
+
+        updates
+          .filter(item => item && item.is_read !== true)
+          .slice(0, 12)
+          .forEach(item => {
+            const notificationKey =
+              `dashboard_notification_seen:${userEmailKey}:${item.id || item._id || item.notification_key || item.title || item.message}`;
+
+            if (sessionStorage.getItem(notificationKey)) {
+              return;
+            }
+
+            const title = String(item.title || "Pipeline update").trim();
+            const text = String(item.message || item.text || item.title || "").trim();
+            const combined = `${title} ${text}`.toLowerCase();
+            const updateType = String(item.update_type || item.type || "")
+              .trim()
+              .toLowerCase();
+
+            const urgent =
+              combined.includes("request for evidence") ||
+              combined.includes("request for further evidence") ||
+              combined.includes("rfe") ||
+              [
+                "urgent",
+                "rfe",
+                "expiry",
+                "expired",
+                "document-required",
+                "access"
+              ].includes(updateType);
+
+            if (urgent) {
+              toast.warning(title || "Important update", {
+                description: text || "Your candidate record has an important update.",
+                duration: 10000
+              });
+            } else {
+              toast.info(title || "Pipeline update", {
+                description: text || "Your candidate record has changed.",
+                duration: 7000
+              });
+            }
+
+            // Do not mark the backend notification read just because a popup was
+            // displayed. This only prevents duplicate popups during this session.
+            sessionStorage.setItem(notificationKey, "1");
+          });
+      } catch (error) {
+        console.warn(
+          "[Layout] Notification popup refresh failed:",
+          error?.message || error
+        );
+      }
+    };
+
+    const refreshNotificationPopups = () => {
+      showUnreadNotificationPopups();
+    };
+
+    showUnreadNotificationPopups();
+    timer = window.setInterval(showUnreadNotificationPopups, 10000);
+
+    websocket.on("pipeline-updated", refreshNotificationPopups);
+    websocket.on("candidate-data-updated", refreshNotificationPopups);
+    websocket.on("crm-recruit-updated", refreshNotificationPopups);
+
+    window.addEventListener("pipeline-updated", refreshNotificationPopups);
+    window.addEventListener("candidate-data-updated", refreshNotificationPopups);
+    window.addEventListener("documents-updated", refreshNotificationPopups);
+
+    return () => {
+      cancelled = true;
+      if (timer) {
+        window.clearInterval(timer);
+      }
+
+      websocket.off("pipeline-updated", refreshNotificationPopups);
+      websocket.off("candidate-data-updated", refreshNotificationPopups);
+      websocket.off("crm-recruit-updated", refreshNotificationPopups);
+
+      window.removeEventListener("pipeline-updated", refreshNotificationPopups);
+      window.removeEventListener("candidate-data-updated", refreshNotificationPopups);
+      window.removeEventListener("documents-updated", refreshNotificationPopups);
+    };
+  }, [user?.email]);
 
   // Check if we're on the home/dashboard page
   const isHomePage = location.pathname === "/";

@@ -385,6 +385,17 @@ const getArrivalDate = async () => {
 };
 
 // Hiring pipeline configuration.
+const AFTERCARE_DAY_OFFSETS = Object.freeze({
+  "Welcome Call/24 Hour Call": 1,
+  "Relocation Survey": 2,
+  "Concierge Debrief": 3,
+  "7 Day Call": 7,
+  "2 Week Call": 14,
+  "U.S. Integration Call (30 Day Call / Survey)": 30,
+  "Placement Stability Check-in (90 Day Call)": 90,
+  "1 Year Survey": 365
+});
+
 const STAGES_CONFIG = [
   // Hiring — existing visible hiring flow. Transfer is conditional and only
   // appears while Lead Management Status is exactly "Transfer to ICP USRN School".
@@ -436,14 +447,14 @@ const STAGES_CONFIG = [
   { id: 40, stage_name: "Arrived", stage_category: "Deployment", stage_order: 40, days_from_start: 1000 },
 
   // Stage 4 — Aftercare: EXACTLY 8 stages.
-  { id: 41, stage_name: "Welcome Call/24 Hour Call", stage_category: "Aftercare", stage_order: 41, days_from_arrival: 1 },
-  { id: 42, stage_name: "Relocation Survey", stage_category: "Aftercare", stage_order: 42, days_from_arrival: 2 },
-  { id: 43, stage_name: "Concierge Debrief", stage_category: "Aftercare", stage_order: 43, days_from_arrival: 3, internal_only: true, hidden_from_candidate: true, candidate_read_only: true },
-  { id: 44, stage_name: "7 Day Call", stage_category: "Aftercare", stage_order: 44, days_from_arrival: 7 },
-  { id: 45, stage_name: "2 Week Call", stage_category: "Aftercare", stage_order: 45, days_from_arrival: 14 },
-  { id: 46, stage_name: "U.S. Integration Call (30 Day Call / Survey)", stage_category: "Aftercare", stage_order: 46, days_from_arrival: 30 },
-  { id: 47, stage_name: "Placement Stability Check-in (90 Day Call)", stage_category: "Aftercare", stage_order: 47, days_from_arrival: 90 },
-  { id: 48, stage_name: "1 Year Survey", stage_category: "Aftercare", stage_order: 48, days_from_arrival: 365 }
+  { id: 41, stage_name: "Welcome Call/24 Hour Call", stage_category: "Aftercare", stage_order: 41, days_from_arrival: AFTERCARE_DAY_OFFSETS["Welcome Call/24 Hour Call"] },
+  { id: 42, stage_name: "Relocation Survey", stage_category: "Aftercare", stage_order: 42, days_from_arrival: AFTERCARE_DAY_OFFSETS["Relocation Survey"] },
+  { id: 43, stage_name: "Concierge Debrief", stage_category: "Aftercare", stage_order: 43, days_from_arrival: AFTERCARE_DAY_OFFSETS["Concierge Debrief"], internal_only: true, hidden_from_candidate: true, candidate_read_only: true },
+  { id: 44, stage_name: "7 Day Call", stage_category: "Aftercare", stage_order: 44, days_from_arrival: AFTERCARE_DAY_OFFSETS["7 Day Call"] },
+  { id: 45, stage_name: "2 Week Call", stage_category: "Aftercare", stage_order: 45, days_from_arrival: AFTERCARE_DAY_OFFSETS["2 Week Call"] },
+  { id: 46, stage_name: "U.S. Integration Call (30 Day Call / Survey)", stage_category: "Aftercare", stage_order: 46, days_from_arrival: AFTERCARE_DAY_OFFSETS["U.S. Integration Call (30 Day Call / Survey)"] },
+  { id: 47, stage_name: "Placement Stability Check-in (90 Day Call)", stage_category: "Aftercare", stage_order: 47, days_from_arrival: AFTERCARE_DAY_OFFSETS["Placement Stability Check-in (90 Day Call)"] },
+  { id: 48, stage_name: "1 Year Survey", stage_category: "Aftercare", stage_order: 48, days_from_arrival: AFTERCARE_DAY_OFFSETS["1 Year Survey"] }
 ];
 
 const REQUIRED_STAGE_NOTICES = {
@@ -456,7 +467,7 @@ const REQUIRED_STAGE_NOTICES = {
   "Pre-Arrival Banking Call": "Attend the pre-arrival banking call.",
   "deployMate Ready": "Complete the deployMate readiness requirements.",
   "Arrival Itinerary": "Review your arrival itinerary and relocation information.",
-  "Receipt Submission": "Upload reimbursement receipts and review your Expense Report.",
+  "Receipt Submission": "Upload reimbursement receipts, review the Expense Report, and acknowledge it to complete this stage.",
   "Arrived": "Arrival confirmed. Continue to Aftercare.",
 };
 
@@ -823,23 +834,26 @@ const HIRING_STATUS_PROGRESS = {
   "qualified-candidate pool": {
     completed: [
       "Applied",
-      "Associated with Job"
+      "Associated with Job",
+      "Qualified Candidate Pool"
     ],
-    current: "Qualified Candidate Pool"
+    current: null
   },
   "qualified- candidate pool": {
     completed: [
       "Applied",
-      "Associated with Job"
+      "Associated with Job",
+      "Qualified Candidate Pool"
     ],
-    current: "Qualified Candidate Pool"
+    current: null
   },
   "qualified candidate pool": {
     completed: [
       "Applied",
-      "Associated with Job"
+      "Associated with Job",
+      "Qualified Candidate Pool"
     ],
-    current: "Qualified Candidate Pool"
+    current: null
   },
   "not qualified-to close": {
     completed: [
@@ -1894,7 +1908,7 @@ const CLICKABLE_STAGES = {
   "Housing / Transportation Call": { clickable: false, type: "field" },
   "Pre-Arrival Banking Call": { clickable: false, type: "field" },
   "Mandatory Petitioner / Employer Call": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
-  "deployMate Ready": { clickable: true, type: "view", viewType: "downloadApp" },
+  "deployMate Ready": { clickable: false, type: "field" },
   "Arrival Itinerary": { clickable: true, type: "view", viewType: "welcomePacket" },
   "Receipt Submission": { clickable: true, type: "view", viewType: "reimbursementExpenses" },
   "Arrived": { clickable: false, type: "field" },
@@ -2154,17 +2168,6 @@ const setDeployMateStickyCompletion = email => {
 
 const isPipelineStageComplete = (candidate) => {
   if (!candidate) return false;
-
-  if (
-    candidate.stage_name === "deployMate Ready" &&
-    hasDeployMateStickyCompletion(
-      candidate.candidate_email ||
-      candidate.email ||
-      candidate.user_email
-    )
-  ) {
-    return true;
-  }
 
   const normalizedStatus = String(
     candidate.status ||
@@ -4521,9 +4524,21 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
       Object.values(value || {}).every(isCRMChecklistComplete)
   },
   "Immigration approved": {
-    label: "I-140 Approval Date",
-    field: "Approval_datetime",
-    complete: isCurrentOrPastDate
+    label: "Immigration Approved",
+    fields: [
+      "i140",
+      "Approval_Date"
+    ],
+    complete: value =>
+      String(
+        unwrapPipelineFieldValue(
+          value?.i140
+        ) || ""
+      ).trim().toLowerCase() ===
+        "approved" &&
+      hasFlowValue(
+        value?.Approval_Date
+      )
   },
   "Visa bill issued": {
     label: "Visa Fee Bill Stage",
@@ -4632,6 +4647,86 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
     label: "Client Arrival Call",
     field: "Client_Arrival_Call",
     complete: isCurrentOrPastDate
+  },
+  "deployMate Ready": {
+    label: "deployMate Ready",
+    fields: [
+      "initial_departure_time",
+      "final_destination_arrival",
+      "departcity",
+      "entryport",
+      "layover1location",
+      "layover2location",
+      "layover3location",
+      "fligtnumber1",
+      "fligtnumber2",
+      "fligtnumber3",
+      "fligtnumber4",
+      "primaryairlinetrack",
+      "flighttracker",
+      "finalflightnumber",
+      "finalflightairline",
+      "primaryairline",
+      "confirmationnumbers",
+      "flightConfirmation",
+      "welcomeAppointments",
+      "welcomeAppointmentsAttachmentId",
+      "conciergeBiographyAttachmentId"
+    ],
+    complete: value => {
+      const source =
+        value || {};
+
+      const requiredFields = [
+        "initial_departure_time",
+        "final_destination_arrival",
+        "departcity",
+        "entryport",
+        "welcomeAppointments",
+        "welcomeAppointmentsAttachmentId",
+        "conciergeBiographyAttachmentId"
+      ];
+
+      const layoverFields = [
+        "layover1location",
+        "layover2location",
+        "layover3location"
+      ];
+
+      const flightFields = [
+        "fligtnumber1",
+        "fligtnumber2",
+        "fligtnumber3",
+        "fligtnumber4",
+        "primaryairlinetrack",
+        "flighttracker",
+        "finalflightnumber",
+        "finalflightairline",
+        "primaryairline",
+        "confirmationnumbers",
+        "flightConfirmation"
+      ];
+
+      const hasValue =
+        field =>
+          hasFlowValue(
+            unwrapPipelineFieldValue(
+              source[field]
+            )
+          );
+
+      return (
+        requiredFields.every(
+          hasValue
+        ) &&
+        layoverFields.some(
+          hasValue
+        ) &&
+        flightFields.some(
+          hasValue
+        )
+      );
+    }
   },
   "Arrived": {
     label: "Final Destination Arrival",
@@ -8788,12 +8883,13 @@ export const RLChecklistView = ({ onClose, user, setStages }) => {
   </div>;
 };
 
-// ============= Expense Report / Reimbursement Component (Aftercare) =============
+// ============= Reimbursement/Expenses Component (Aftercare) =============
 // Loads the payment schedule and submission status securely.
 const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
   const [loading, setLoading] = useState(true);
   const [paymentData, setPaymentData] = useState({
     nursePaymentType: "",
+    initialPayment: { date: "", paid: false, total: 1000 },
     payment1: { date: "", paid: false, total: 0 },
     payment2: { date: "", paid: false, total: 0 },
     payment3: { date: "", paid: false, total: 0 },
@@ -8814,6 +8910,12 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
   const [submitError, setSubmitError] = useState(null);
   const [expenseReport, setExpenseReport] = useState(null);
   const [expenseReportLoading, setExpenseReportLoading] = useState(true);
+  const [advanceAgreementReviewed, setAdvanceAgreementReviewed] = useState(false);
+  const [advanceAgreementAcknowledged, setAdvanceAgreementAcknowledged] = useState(false);
+  const [advanceAgreementSaving, setAdvanceAgreementSaving] = useState(false);
+  const [advanceAgreementPersisted, setAdvanceAgreementPersisted] = useState(false);
+  const [expenseReportAcknowledged, setExpenseReportAcknowledged] = useState(false);
+  const [expenseReportAcknowledging, setExpenseReportAcknowledging] = useState(false);
 
   useEffect(() => {
     fetchPaymentData();
@@ -8854,6 +8956,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
 
       setPaymentData({
         nursePaymentType: reimbursementData.nursePaymentType || "",
+        initialPayment: reimbursementData.initialPayment || { date: "", paid: false, total: 1000 },
         payment1: reimbursementData.payment1 || { date: "", paid: false, total: 0 },
         payment2: reimbursementData.payment2 || { date: "", paid: false, total: 0 },
         payment3: reimbursementData.payment3 || { date: "", paid: false, total: 0 },
@@ -8862,6 +8965,18 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
       });
 
       setIsSubmitted(reimbursementData.submitted === true);
+      setAdvanceAgreementReviewed(
+        reimbursementData.advanceAgreementReviewed === true
+      );
+      setAdvanceAgreementAcknowledged(
+        reimbursementData.advanceAgreementAcknowledged === true
+      );
+      setAdvanceAgreementPersisted(
+        reimbursementData.advanceAgreementAcknowledged === true
+      );
+      setExpenseReportAcknowledged(
+        reimbursementData.expenseReportAcknowledged === true
+      );
 
     } catch (error) {
       console.error("Error fetching payment data:", error);
@@ -8940,12 +9055,278 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
     setBankDetails(prev => ({ ...prev, [name]: value }));
   };
 
+  const normalizedPaymentType =
+    String(
+      unwrapPipelineFieldValue(
+        paymentData.nursePaymentType
+      ) ||
+      paymentData.nursePaymentType ||
+      ""
+    )
+      .trim()
+      .toLowerCase();
+
+  const isAdvancePaymentAgreement =
+    normalizedPaymentType ===
+    "advanced payment agreement";
+
+  const handleAcknowledgeAdvanceAgreement =
+    async () => {
+      if (
+        !advanceAgreementReviewed ||
+        !advanceAgreementAcknowledged
+      ) {
+        toast.error(
+          "Please check both Advance Payment Agreement acknowledgements first."
+        );
+        return;
+      }
+
+      setAdvanceAgreementSaving(
+        true
+      );
+
+      try {
+        const token =
+          localStorage.getItem(
+            "icp_auth_token"
+          );
+
+        if (!token) {
+          throw new Error(
+            "Not authenticated"
+          );
+        }
+
+        const response =
+          await fetch(
+            `${API_BASE}/api/reimbursement/acknowledge-advance-agreement`,
+            {
+              method:
+                "POST",
+              cache:
+                "no-store",
+              headers: {
+                Authorization:
+                  `Bearer ${token}`,
+                "Content-Type":
+                  "application/json"
+              },
+              body:
+                JSON.stringify({
+                  acknowledged:
+                    true
+                })
+            }
+          );
+
+        const data =
+          await response
+            .json()
+            .catch(
+              () => ({})
+            );
+
+        if (
+          !response.ok ||
+          data.success !==
+            true
+        ) {
+          throw new Error(
+            data.error ||
+            "Unable to save the Advance Payment Agreement acknowledgement."
+          );
+        }
+
+        setAdvanceAgreementReviewed(
+          true
+        );
+        setAdvanceAgreementAcknowledged(
+          true
+        );
+        setAdvanceAgreementPersisted(
+          true
+        );
+
+        toast.success(
+          "Advance Payment Agreement acknowledged."
+        );
+
+        window.dispatchEvent(
+          new CustomEvent(
+            "candidate-data-updated",
+            {
+              detail: {
+                email:
+                  user?.email,
+                source:
+                  "advance-payment-agreement"
+              }
+            }
+          )
+        );
+      } catch (error) {
+        toast.error(
+          error?.message ||
+          "Unable to acknowledge the Advance Payment Agreement."
+        );
+      } finally {
+        setAdvanceAgreementSaving(
+          false
+        );
+      }
+    };
+
+  const handleAcknowledgeExpenseReport =
+    async () => {
+      if (
+        expenseReportAcknowledged ||
+        expenseReportAcknowledging
+      ) {
+        return;
+      }
+
+      setExpenseReportAcknowledging(
+        true
+      );
+
+      try {
+        const token =
+          localStorage.getItem(
+            "icp_auth_token"
+          );
+
+        if (!token) {
+          throw new Error(
+            "Not authenticated"
+          );
+        }
+
+        const response =
+          await fetch(
+            `${API_BASE}/api/reimbursement/acknowledge-expense-report`,
+            {
+              method:
+                "POST",
+              cache:
+                "no-store",
+              headers: {
+                Authorization:
+                  `Bearer ${token}`,
+                "Content-Type":
+                  "application/json"
+              },
+              body:
+                JSON.stringify({
+                  acknowledged:
+                    true
+                })
+            }
+          );
+
+        const data =
+          await response
+            .json()
+            .catch(
+              () => ({})
+            );
+
+        if (
+          !response.ok ||
+          data.success !==
+            true
+        ) {
+          throw new Error(
+            data.error ||
+            "Unable to acknowledge the Expense Report."
+          );
+        }
+
+        setExpenseReportAcknowledged(
+          true
+        );
+
+        setStages?.(
+          previous =>
+            applyOrderedLocksWithDeepEntry(
+              previous.map(
+                stage =>
+                  stage.stage_name ===
+                    "Receipt Submission"
+                    ? {
+                        ...stage,
+                        status:
+                          "Completed",
+                        completed:
+                          true,
+                        is_completed:
+                          true,
+                        completed_date:
+                          data.acknowledgedAt ||
+                          new Date()
+                            .toISOString(),
+                        source_trigger_unlocked:
+                          true,
+                        trigger_unlocked:
+                          true,
+                        completion_source:
+                          "candidate_expense_report_acknowledgement"
+                      }
+                    : stage
+              )
+            )
+        );
+
+        window.dispatchEvent(
+          new CustomEvent(
+            "pipeline-updated",
+            {
+              detail: {
+                email:
+                  user?.email,
+                stage_name:
+                  "Receipt Submission",
+                status:
+                  "Completed",
+                completed:
+                  true,
+                source:
+                  "candidate_expense_report_acknowledgement"
+              }
+            }
+          )
+        );
+
+        toast.success(
+          "Expense Report acknowledged. This stage is complete."
+        );
+      } catch (error) {
+        toast.error(
+          error?.message ||
+          "Unable to acknowledge the Expense Report."
+        );
+      } finally {
+        setExpenseReportAcknowledging(
+          false
+        );
+      }
+    };
+
   const handleSubmitBankDetails = async (e) => {
     e.preventDefault();
     setSubmitError(null);
     
     if (!bankDetails.accountNumber || !bankDetails.accountName || !bankDetails.routingNumber) {
       toast.error("Please fill in all required bank details");
+      return;
+    }
+
+    if (
+      isAdvancePaymentAgreement &&
+      !advanceAgreementPersisted &&
+      (!advanceAgreementReviewed || !advanceAgreementAcknowledged)
+    ) {
+      toast.error("Please review and acknowledge the Advance Payment Agreement before submitting.");
       return;
     }
 
@@ -8971,12 +9352,25 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
         },
         paymentDetails: {
           nursePaymentType: paymentData.nursePaymentType,
+          initialPayment: paymentData.initialPayment,
           payment1: paymentData.payment1,
           payment2: paymentData.payment2,
           payment3: paymentData.payment3,
           payment4: paymentData.payment4
         },
-        totalDueToICPRN: parseFloat(paymentData.totalReimbursement) || 0
+        totalDueToICPRN: parseFloat(paymentData.totalReimbursement) || 0,
+        advanceAgreement: isAdvancePaymentAgreement
+          ? {
+              reviewed:
+                advanceAgreementPersisted ||
+                advanceAgreementReviewed,
+              acknowledged:
+                advanceAgreementPersisted ||
+                advanceAgreementAcknowledged,
+              acknowledgedAt:
+                new Date().toISOString()
+            }
+          : null
       };
 
       let requestBody;
@@ -9073,7 +9467,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
         <div className="bg-rose-50 rounded-lg p-4 border border-rose-200">
           <div className="flex items-center gap-2 mb-3">
             <DollarSign className="h-5 w-5 text-rose-600" />
-            <h3 className="font-semibold text-rose-800">Expense Report</h3>
+            <h3 className="font-semibold text-rose-800">Reimbursement/Expenses</h3>
           </div>
           <div className="flex flex-col items-center justify-center py-8">
             <Loader2 className="h-8 w-8 animate-spin text-rose-600" />
@@ -9087,19 +9481,36 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
     );
   }
 
-  const totalPayments =
-    (parseFloat(paymentData.payment1.total) || 0) +
-    (parseFloat(paymentData.payment2.total) || 0) +
-    (parseFloat(paymentData.payment3.total) || 0) +
-    (parseFloat(paymentData.payment4.total) || 0);
+  const paymentRows = isAdvancePaymentAgreement
+    ? [
+        {
+          key: "initialPayment",
+          label: "Initial Payment",
+          payment: {
+            ...(paymentData.initialPayment || {}),
+            total: 1000
+          }
+        },
+        { key: "payment2", label: "Payment 2", payment: paymentData.payment2 },
+        { key: "payment3", label: "Payment 3", payment: paymentData.payment3 },
+        { key: "payment4", label: "Payment 4", payment: paymentData.payment4 }
+      ]
+    : [1, 2, 3, 4].map(number => ({
+        key: `payment${number}`,
+        label: `Payment ${number}`,
+        payment: paymentData[`payment${number}`]
+      }));
 
-  const amountAlreadyPaid = [1, 2, 3, 4].reduce(
-    (sum, number) => {
-      const payment = paymentData[`payment${number}`];
-      return payment?.paid
-        ? sum + (parseFloat(payment?.total) || 0)
-        : sum;
-    },
+  const totalPayments = paymentRows.reduce(
+    (sum, row) => sum + (parseFloat(row.payment?.total) || 0),
+    0
+  );
+
+  const amountAlreadyPaid = paymentRows.reduce(
+    (sum, row) =>
+      row.payment?.paid
+        ? sum + (parseFloat(row.payment?.total) || 0)
+        : sum,
     0
   );
 
@@ -9112,9 +9523,8 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
   );
 
   const allPaymentsPaid =
-    [1, 2, 3, 4].every(number =>
-      paymentData[`payment${number}`]?.paid === true
-    ) || balanceAmount === 0;
+    paymentRows.every(row => row.payment?.paid === true) ||
+    balanceAmount === 0;
 
   return (
     <div className="space-y-6 max-h-[calc(90vh-80px)] overflow-y-auto pr-2">
@@ -9202,11 +9612,6 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                             {row.label}
                           </div>
 
-                          {row.receipt_name && (
-                            <div className="mt-1 text-xs text-slate-500">
-                              Receipt: {row.receipt_name}
-                            </div>
-                          )}
 
                           {row.reference && (
                             <div className="mt-1 text-xs text-slate-500">
@@ -9345,13 +9750,156 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
             No reviewed receipt amounts are available yet.
           </div>
         )}
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">
+              Expense Report Acknowledgement
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Review the Expense Report above, then acknowledge it. This acknowledgement is the trigger that completes the Expense Report stage.
+            </p>
+          </div>
+
+          {expenseReportAcknowledged ? (
+            <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">
+              <CheckCircle2 className="h-4 w-4" />
+              Acknowledged
+            </div>
+          ) : (
+            <Button
+              type="button"
+              onClick={handleAcknowledgeExpenseReport}
+              disabled={
+                expenseReportAcknowledging ||
+                expenseReportLoading ||
+                !expenseReport
+              }
+              className="gap-2"
+            >
+              {expenseReportAcknowledging ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Acknowledging...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-4 w-4" />
+                  Acknowledge Expense Report
+                </>
+              )}
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <p className="text-xs text-blue-700">
-          <strong>Payment Type:</strong> {paymentData.nursePaymentType || "Not set"}
+          <strong>Payment Type:</strong> {String(unwrapPipelineFieldValue(paymentData.nursePaymentType) || paymentData.nursePaymentType || "")}
         </p>
       </div>
+
+      {isAdvancePaymentAgreement && (
+        <div className="space-y-3 rounded-lg border border-purple-200 bg-purple-50 p-4">
+          <div>
+            <h3 className="font-semibold text-purple-950">
+              Advanced Payment Agreement Acknowledgement
+            </h3>
+            <p className="mt-1 text-xs text-purple-800">
+              Both acknowledgements are required when the CRM Payment Type is Advanced Payment Agreement.
+            </p>
+          </div>
+
+          <div className="space-y-3 rounded-lg border border-purple-200 bg-white p-4 text-sm leading-6 text-purple-950">
+            <p>
+              This agreement is made between Infinity Care Partners, LLC—a direct consulting company—and the individual who has been offered a permanent nursing or healthcare worker position with a U.S. employer, in collaboration with Infinity Care Partners, LLC.
+            </p>
+            <p>
+              At the candidate’s request, we, Infinity Care Partners, LLC, agreed to pay on your behalf an amount not exceeding $_352.24, which covered the necessary expenses for obtaining your U.S. Registered Nurse (USRN) certification, required paperwork for your nursing license, housing and relocation costs.
+            </p>
+            <p>
+              Upon receipt and utilization of these funds by the aforementioned candidate, this guarantee will take effect as an advance payment agreement. The advanced sum mentioned will be deducted or repaid in full within 90 days following the start of employment in the United States.
+            </p>
+            <p>
+              If the candidate is unable to fulfill their employment contract within 90 days of arrival, the full amount of the advance payment will be due to Infinity Care Partners at that time. Additionally, any other fees owed to ICP related to the new contract placement, as defined by the new employment contracts and the ICP Service Agreement, will also be applicable.
+            </p>
+            <p>
+              The candidate is responsible for promptly notifying Infinity Care Partners of any reasons or changes that may prevent them from meeting the requirements outlined below for the advance payment.
+            </p>
+          </div>
+
+          <label className="flex items-start gap-3 text-sm text-purple-950">
+            <input
+              type="checkbox"
+              checked={advanceAgreementReviewed}
+              onChange={event =>
+                setAdvanceAgreementReviewed(
+                  event.target.checked
+                )
+              }
+              className="mt-1 h-4 w-4"
+              disabled={
+                advanceAgreementSaving ||
+                advanceAgreementPersisted
+              }
+            />
+            <span>
+              I confirm that I have reviewed the Advance Payment Agreement above.
+            </span>
+          </label>
+
+          <label className="flex items-start gap-3 text-sm text-purple-950">
+            <input
+              type="checkbox"
+              checked={advanceAgreementAcknowledged}
+              onChange={event =>
+                setAdvanceAgreementAcknowledged(
+                  event.target.checked
+                )
+              }
+              className="mt-1 h-4 w-4"
+              disabled={
+                advanceAgreementSaving ||
+                advanceAgreementPersisted
+              }
+            />
+            <span>
+              I acknowledge and agree to the Advance Payment Agreement above.
+            </span>
+          </label>
+
+          <div className="flex justify-end">
+            {advanceAgreementPersisted ? (
+              <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">
+                <CheckCircle2 className="h-4 w-4" />
+                Agreement Acknowledged
+              </div>
+            ) : (
+              <Button
+                type="button"
+                onClick={handleAcknowledgeAdvanceAgreement}
+                disabled={
+                  advanceAgreementSaving ||
+                  !advanceAgreementReviewed ||
+                  !advanceAgreementAcknowledged
+                }
+                className="gap-2"
+              >
+                {advanceAgreementSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-4 w-4" />
+                    Acknowledge Agreement
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="bg-green-50 border border-green-200 rounded-lg p-4">
         <div className="flex items-center justify-between mb-4">
@@ -9360,15 +9908,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
             Payment Details
           </h3>
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                fetchPaymentData();
-                fetchExpenseReport();
-              }}
-              className="h-8 px-2 text-xs text-green-700 hover:text-green-900"
-            >
+            <Button variant="ghost" size="sm" onClick={fetchPaymentData} className="h-8 px-2 text-xs text-green-700 hover:text-green-900">
               <RefreshCw className="h-3 w-3 mr-1" />
               Refresh
             </Button>
@@ -9386,23 +9926,22 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
         <div className="bg-white rounded-lg border border-green-100 overflow-hidden">
           <div className="grid grid-cols-4 gap-2 p-3 bg-green-50 border-b border-green-100 text-xs font-semibold text-green-700">
             <div>Payment</div>
-            <div>Date</div>
+            <div>Due Date</div>
             <div>Paid</div>
             <div className="text-right">Total</div>
           </div>
           
-          {[1, 2, 3, 4].map((num) => {
-            const payment = paymentData[`payment${num}`];
-            const parsedDate = payment.date ? new Date(payment.date) : null;
+          {paymentRows.map(({ key, label, payment }) => {
+            const parsedDate = payment?.date ? new Date(payment.date) : null;
             const validDate = parsedDate && !Number.isNaN(parsedDate.getTime());
             return (
-              <div key={num} className="grid grid-cols-4 gap-2 p-3 border-b border-green-100 last:border-0 hover:bg-green-50/50 transition-colors">
-                <div className="font-medium text-sm">Payment {num}</div>
+              <div key={key} className="grid grid-cols-4 gap-2 p-3 border-b border-green-100 last:border-0 hover:bg-green-50/50 transition-colors">
+                <div className="font-medium text-sm">{label}</div>
                 <div className="text-sm text-gray-600">
-                  {validDate ? format(parsedDate, "MMM d, yyyy h:mm a") : "—"}
+                  {validDate ? format(parsedDate, "MMM d, yyyy h:mm a") : ""}
                 </div>
                 <div>
-                  {payment.paid ? (
+                  {payment?.paid ? (
                     <span className="text-green-600 flex items-center gap-1">
                       <CheckCircle2 className="h-4 w-4" />
                       <span className="text-sm">Paid</span>
@@ -9415,7 +9954,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                   )}
                 </div>
                 <div className="text-right font-medium text-sm">
-                  ${(parseFloat(payment.total) || 0).toFixed(2)}
+                  ${(parseFloat(payment?.total) || 0).toFixed(2)}
                 </div>
               </div>
             );
@@ -9548,7 +10087,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                 Your payment information is encrypted during submission.
               </p>
             </div>
-            
+
             <div className="flex gap-3 justify-end pt-2">
               <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
               <Button type="submit" disabled={isSubmitting} className="min-w-[140px] gap-2 bg-blue-600 hover:bg-blue-700">
@@ -10030,8 +10569,8 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
         );
       }
 
-      // The backend document-library synchronizer completes the canonical
-      // Receipt Submission row. Mirror that immediately in the open UI.
+      // Receipt uploads populate the Expense Report, but the stage is
+      // completed only when the candidate presses Acknowledge Expense Report.
       setStages?.(
         previous =>
           applyOrderedLocksWithDeepEntry(
@@ -10042,21 +10581,19 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
                   ? {
                       ...stage,
                       status:
-                        "Completed",
+                        "In Progress",
                       completed:
-                        true,
+                        false,
                       is_completed:
-                        true,
+                        false,
                       completed_date:
-                        stage.completed_date ||
-                        new Date()
-                          .toISOString(),
+                        null,
                       source_trigger_unlocked:
                         true,
                       trigger_unlocked:
                         true,
                       completion_source:
-                        "expense-report"
+                        "expense-report-pending-acknowledgement"
                     }
                   : stage
             )
@@ -10073,18 +10610,18 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
               stage_name:
                 "Receipt Submission",
               status:
-                "Completed",
+                "In Progress",
               completed:
-                true,
+                false,
               source:
-                "expense-report"
+                "expense-report-pending-acknowledgement"
             }
           }
         )
       );
 
       toast.success(
-        `${uploaded.length} receipt(s) submitted successfully.`
+        `${uploaded.length} receipt(s) submitted successfully. Review and acknowledge the Expense Report to complete this stage.`
       );
 
       await loadExpenseReport();
@@ -10120,10 +10657,7 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
       <div className="rounded-xl border bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-purple-600">
-              Expense Report
-            </p>
-            <h3 className="mt-1 text-xl font-bold text-slate-900">
+            <h3 className="text-xl font-bold text-purple-900">
               Reimbursement Expense Report
             </h3>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -10153,199 +10687,103 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
           </div>
         ) : expenseReport ? (
           <>
-            <div className="grid gap-3 border-b py-4 text-sm md:grid-cols-3">
+            <div className="grid gap-2 py-4 text-sm md:grid-cols-3">
               <div>
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Candidate
-                </p>
-                <p className="font-semibold">
-                  {expenseReport.candidate_name || "—"}
-                </p>
+                <span className="font-semibold">
+                  Name:
+                </span>{" "}
+                {expenseReport.candidate_name || ""}
               </div>
-
               <div>
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Arrival Date
-                </p>
-                <p className="font-semibold">
-                  {expenseReport.arrival_date || "—"}
-                </p>
+                <span className="font-semibold">
+                  Arrival Date:
+                </span>{" "}
+                {expenseReport.arrival_date || ""}
               </div>
-
               <div>
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Facility
-                </p>
-                <p className="font-semibold">
-                  {expenseReport.facility || "—"}
-                </p>
+                <span className="font-semibold">
+                  Facility:
+                </span>{" "}
+                {expenseReport.facility || ""}
               </div>
             </div>
 
-            <div className="mt-4 overflow-x-auto rounded-xl border">
-              <table className="w-full min-w-[760px] border-collapse text-sm">
-                <thead>
-                  <tr className="bg-slate-100">
-                    <th className="border-r px-4 py-3 text-left font-semibold text-slate-700">
-                      Expense / What the Amount Is For
+            <div className="overflow-x-auto rounded-lg border">
+              <table className="w-full min-w-[620px] text-sm">
+                <thead className="bg-slate-100">
+                  <tr>
+                    <th className="px-3 py-2 text-left">
+                      Receipt Details
                     </th>
-                    <th className="border-r px-4 py-3 text-right font-semibold text-emerald-700">
-                      Credit
+                    <th className="px-3 py-2 text-right">
+                      Credits
                     </th>
-                    <th className="px-4 py-3 text-right font-semibold text-amber-700">
-                      Deduction
+                    <th className="px-3 py-2 text-right">
+                      Deductions
                     </th>
                   </tr>
                 </thead>
-
                 <tbody>
                   {(expenseReport.rows || []).map(
                     row => (
                       <tr
                         key={row.id}
-                        className="border-t bg-white"
+                        className="border-t"
                       >
-                        <td className="border-r px-4 py-3 align-top">
-                          <div className="font-semibold text-slate-900">
+                        <td className="px-3 py-2">
+                          <div className="font-medium">
                             {row.label}
                           </div>
-
-                          {row.reference && (
-                            <div className="mt-1 text-xs text-slate-500">
-                              Reference amount: ${Number(
-                                row.reference
-                              ).toFixed(2)}
-                            </div>
-                          )}
-
-                          {row.receipt_name && (
-                            <div className="mt-1 text-xs text-slate-500">
-                              Receipt: {row.receipt_name}
-                            </div>
-                          )}
-
                           {row.note && (
-                            <div className="mt-1 text-xs text-slate-500">
+                            <div className="text-xs text-muted-foreground">
                               {row.note}
                             </div>
                           )}
                         </td>
-
-                        <td className="border-r px-4 py-3 text-right align-top">
-                          {row.side === "credit" ? (
-                            row.reviewed ? (
-                              <div>
-                                <div className="font-semibold text-emerald-700">
-                                  ${Number(
-                                    row.amount || 0
-                                  ).toFixed(2)}
-                                </div>
-                                <div className="mt-1 text-xs text-slate-500">
-                                  Credit for {row.label}
-                                </div>
-                              </div>
-                            ) : (
-                              <span className="text-xs text-slate-400">
-                                Pending review
-                              </span>
-                            )
-                          ) : (
-                            <span className="text-slate-300">—</span>
-                          )}
+                        <td className="px-3 py-2 text-right">
+                          {row.side === "credit"
+                            ? row.reviewed
+                              ? `-$${Math.abs(Number(row.amount || 0)).toFixed(2)}`
+                              : "Pending review"
+                            : ""}
                         </td>
-
-                        <td className="px-4 py-3 text-right align-top">
-                          {row.side === "deduction" ? (
-                            row.reviewed ? (
-                              <div>
-                                <div className="font-semibold text-amber-700">
-                                  ${Number(
-                                    row.amount || 0
-                                  ).toFixed(2)}
-                                </div>
-                                <div className="mt-1 text-xs text-slate-500">
-                                  Deduction for {row.label}
-                                </div>
-                              </div>
-                            ) : (
-                              <span className="text-xs text-slate-400">
-                                Pending review
-                              </span>
-                            )
-                          ) : (
-                            <span className="text-slate-300">—</span>
-                          )}
+                        <td className="px-3 py-2 text-right">
+                          {row.side === "deduction"
+                            ? row.reviewed
+                              ? `+$${Math.abs(Number(row.amount || 0)).toFixed(2)}`
+                              : "Pending review"
+                            : ""}
                         </td>
                       </tr>
                     )
                   )}
                 </tbody>
-
-                <tfoot>
-                  <tr className="border-t-2 bg-emerald-50 font-semibold">
-                    <td className="border-r px-4 py-3 text-slate-900">
-                      Total Credits
+                <tfoot className="border-t bg-purple-50 font-semibold">
+                  <tr>
+                    <td className="px-3 py-2">
+                      Totals
                     </td>
-                    <td className="border-r px-4 py-3 text-right text-emerald-700">
-                      ${Number(
+                    <td className="px-3 py-2 text-right">
+                      -${Math.abs(Number(
                         expenseReport.totals?.credits || 0
-                      ).toFixed(2)}
+                      )).toFixed(2)}
                     </td>
-                    <td className="px-4 py-3 text-right text-slate-300">
-                      —
-                    </td>
-                  </tr>
-
-                  <tr className="border-t bg-amber-50 font-semibold">
-                    <td className="border-r px-4 py-3 text-slate-900">
-                      Total Deductions
-                    </td>
-                    <td className="border-r px-4 py-3 text-right text-slate-300">
-                      —
-                    </td>
-                    <td className="px-4 py-3 text-right text-amber-700">
-                      ${Number(
+                    <td className="px-3 py-2 text-right">
+                      +${Math.abs(Number(
                         expenseReport.totals?.deductions || 0
-                      ).toFixed(2)}
+                      )).toFixed(2)}
                     </td>
                   </tr>
                 </tfoot>
               </table>
             </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-3">
-              <div className="rounded-lg border bg-emerald-50 px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                  Credits
-                </p>
-                <p className="mt-1 text-lg font-bold text-emerald-800">
-                  ${Number(
-                    expenseReport.totals?.credits || 0
-                  ).toFixed(2)}
-                </p>
-              </div>
-
-              <div className="rounded-lg border bg-amber-50 px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
-                  Deductions
-                </p>
-                <p className="mt-1 text-lg font-bold text-amber-800">
-                  ${Number(
-                    expenseReport.totals?.deductions || 0
-                  ).toFixed(2)}
-                </p>
-              </div>
-
-              <div className="rounded-lg border bg-purple-50 px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-purple-700">
-                  Reimbursement Due to {expenseReport.totals?.due_to || "Neither"}
-                </p>
-                <p className="mt-1 text-lg font-bold text-purple-800">
-                  ${Number(
-                    expenseReport.totals?.amount_due || 0
-                  ).toFixed(2)}
-                </p>
-              </div>
+            <div className="mt-4 rounded-lg bg-purple-700 px-4 py-3 text-center font-bold text-white">
+              Reimbursement Due to {expenseReport.totals?.due_to || "Neither"}:
+              {" "}
+              ${Number(
+                expenseReport.totals?.amount_due || 0
+              ).toFixed(2)}
             </div>
           </>
         ) : (
@@ -10591,7 +11029,6 @@ export default function Pipeline() {
   const [icpUSRNCRMData, setICPUSRNCRMData] = useState({});
   const [portalAccessBlocked, setPortalAccessBlocked] = useState(false);
   const [finalArrivalDate, setFinalArrivalDate] = useState(null);
-  const [candidatePoolPolicy, setCandidatePoolPolicy] = useState(null);
 
   const pipelineCacheKey = user?.email
     ? `icp_pipeline_cache_v2:${String(user.email).trim().toLowerCase()}`
@@ -11797,9 +12234,22 @@ export default function Pipeline() {
                       : notQualifiedOrder;
 
                   const shouldLock =
-                    policy.restricted === true &&
-                    policy.locked === true &&
-                    getCanonicalStageOrder(stage) > boundary;
+                    policy.mode ===
+                      "not-qualified"
+                      ? (
+                          stage.stage_name !==
+                          "Not Qualified - to close"
+                        )
+                      : (
+                          policy.restricted ===
+                            true &&
+                          policy.locked ===
+                            true &&
+                          getCanonicalStageOrder(
+                            stage
+                          ) >
+                            boundary
+                        );
 
                   return {
                     ...stage,
@@ -14568,7 +15018,6 @@ export default function Pipeline() {
     }
 
     const candidateActionStages = new Set([
-      "deployMate Ready",
       "Arrival Itinerary",
       "Receipt Submission",
       "Relocation Survey",
@@ -15007,7 +15456,7 @@ export default function Pipeline() {
           openModal("Expense Report", <ReimbursementUpload onClose={closeModal} user={user} setStages={setStages} />);
           break;
         case "reimbursementExpenses":
-          openModal("Expense Report", <ReimbursementExpensesView onClose={closeModal} user={user} setStages={setStages} />);
+          openModal("Reimbursement/Expenses", <ReimbursementExpensesView onClose={closeModal} user={user} setStages={setStages} />);
           break;
         case "supportGroup":
           openModal("ICP Pre-Arrival Support Group", <SupportGroupView onClose={closeModal} />);
@@ -15325,6 +15774,215 @@ export default function Pipeline() {
     return () => {
       cancelled = true;
       window.removeEventListener("pipeline-updated", handleUpdate);
+    };
+  }, [user?.email]);
+
+
+  useEffect(() => {
+    if (!user?.email) {
+      return;
+    }
+
+    let cancelled =
+      false;
+
+    const refreshLeadManagementStatus =
+      async () => {
+        try {
+          const token =
+            localStorage.getItem(
+              "icp_auth_token"
+            );
+
+          if (!token) {
+            return;
+          }
+
+          const response =
+            await fetch(
+              `${API_BASE}/api/pipeline/application-status-live?_=${Date.now()}`,
+              {
+                cache:
+                  "no-store",
+                headers: {
+                  Authorization:
+                    `Bearer ${token}`,
+                  "Cache-Control":
+                    "no-cache",
+                  Pragma:
+                    "no-cache"
+                }
+              }
+            );
+
+          const data =
+            await response
+              .json()
+              .catch(
+                () => ({})
+              );
+
+          if (
+            response.status ===
+              403 &&
+            data
+              ?.portalAccessBlocked ===
+              true
+          ) {
+            localStorage.removeItem(
+              "icp_auth_token"
+            );
+
+            toast.error(
+              data.message ||
+              "Your portal access has ended."
+            );
+
+            navigate(
+              "/login",
+              {
+                replace:
+                  true
+              }
+            );
+
+            return;
+          }
+
+          if (
+            cancelled ||
+            !response.ok ||
+            data.success !== true
+          ) {
+            return;
+          }
+
+          const nextStatus =
+            data.applicationStatus ||
+            "";
+
+          setApplicationStatus(
+            nextStatus
+          );
+
+          const policy =
+            data.accessPolicy || {
+              mode:
+                "normal",
+              restricted:
+                false,
+              locked:
+                false,
+              portal_locked:
+                false
+            };
+
+          setDeploymentFieldStatus(
+            previous => ({
+              ...previous,
+              Application_Status:
+                nextStatus,
+              __accessPolicy:
+                policy
+            })
+          );
+
+          setStages(
+            previous =>
+              previous.map(
+                stage => {
+                  const qPoolOrder =
+                    getCanonicalStageOrder({
+                      stage_name:
+                        "Qualified Candidate Pool"
+                    });
+
+                  const shouldLock =
+                    policy.mode ===
+                      "not-qualified"
+                      ? (
+                          stage.stage_name !==
+                          "Not Qualified - to close"
+                        )
+                      : (
+                          policy.mode ===
+                            "qualified-pool" &&
+                          getCanonicalStageOrder(
+                            stage
+                          ) >
+                            qPoolOrder
+                        );
+
+                  return {
+                    ...stage,
+                    access_locked:
+                      shouldLock
+                  };
+                }
+              )
+          );
+
+          if (
+            policy.message &&
+            policy.restricted ===
+              true
+          ) {
+            toast.info(
+              policy.message,
+              {
+                id:
+                  `pipeline-access-${policy.mode}`,
+                duration:
+                  12000
+              }
+            );
+          }
+
+          window.dispatchEvent(
+            new CustomEvent(
+              "candidate-data-updated"
+            )
+          );
+        } catch (
+          error
+        ) {
+          console.warn(
+            "[Pipeline] Lead Management Status refresh failed:",
+            error?.message ||
+            error
+          );
+        }
+      };
+
+    refreshLeadManagementStatus();
+
+    const interval =
+      window.setInterval(
+        refreshLeadManagementStatus,
+        15000
+      );
+
+    const onFocus =
+      () =>
+        refreshLeadManagementStatus();
+
+    window.addEventListener(
+      "focus",
+      onFocus
+    );
+
+    return () => {
+      cancelled =
+        true;
+
+      window.clearInterval(
+        interval
+      );
+
+      window.removeEventListener(
+        "focus",
+        onFocus
+      );
     };
   }, [user?.email]);
 
@@ -15801,192 +16459,6 @@ export default function Pipeline() {
 
 
   useEffect(() => {
-    if (!user?.email) {
-      return;
-    }
-
-    let cancelled =
-      false;
-
-    const refreshLeadManagementStatus =
-      async () => {
-        try {
-          const token =
-            localStorage.getItem(
-              "icp_auth_token"
-            );
-
-          if (!token) {
-            return;
-          }
-
-          const response =
-            await fetch(
-              `${API_BASE}/api/pipeline/application-status-live?_=${Date.now()}`,
-              {
-                cache:
-                  "no-store",
-                headers: {
-                  Authorization:
-                    `Bearer ${token}`,
-                  "Cache-Control":
-                    "no-cache",
-                  Pragma:
-                    "no-cache"
-                }
-              }
-            );
-
-          const data =
-            await response
-              .json()
-              .catch(
-                () => ({})
-              );
-
-          if (
-            !response.ok ||
-            cancelled ||
-            data.success !== true
-          ) {
-            return;
-          }
-
-          const nextStatus =
-            data.applicationStatus ||
-            "";
-
-          setApplicationStatus(
-            nextStatus
-          );
-
-          setCandidatePoolPolicy(
-            data.accessPolicy ||
-            null
-          );
-
-          const policy =
-            data.accessPolicy ||
-            {
-              mode:
-                "normal",
-              restricted:
-                false,
-              locked:
-                false
-            };
-
-          setDeploymentFieldStatus(
-            previous => ({
-              ...previous,
-              Application_Status:
-                nextStatus,
-              __accessPolicy:
-                policy
-            })
-          );
-
-          setStages(
-            previous =>
-              previous.map(
-                stage => {
-                  const qPoolOrder =
-                    getCanonicalStageOrder({
-                      stage_name:
-                        "Qualified Candidate Pool"
-                    });
-
-                  const notQualifiedOrder =
-                    getCanonicalStageOrder({
-                      stage_name:
-                        "Not Qualified - to close"
-                    });
-
-                  const boundary =
-                    policy.mode ===
-                      "qualified-pool"
-                      ? qPoolOrder
-                      : notQualifiedOrder;
-
-                  const shouldLock =
-                    policy.restricted ===
-                      true &&
-                    policy.locked ===
-                      true &&
-                    getCanonicalStageOrder(
-                      stage
-                    ) >
-                      boundary;
-
-                  return {
-                    ...stage,
-                    access_locked:
-                      shouldLock
-                  };
-                }
-              )
-          );
-
-          if (
-            policy.message &&
-            policy.restricted ===
-              true
-          ) {
-            toast.info(
-              policy.message,
-              {
-                id:
-                  `pipeline-access-${policy.mode}`,
-                duration:
-                  10000
-              }
-            );
-          }
-        } catch (
-          error
-        ) {
-          console.warn(
-            "[Pipeline] Lead Management Status refresh failed:",
-            error?.message ||
-            error
-          );
-        }
-      };
-
-    refreshLeadManagementStatus();
-
-    const interval =
-      window.setInterval(
-        refreshLeadManagementStatus,
-        15000
-      );
-
-    const handleFocus =
-      () =>
-        refreshLeadManagementStatus();
-
-    window.addEventListener(
-      "focus",
-      handleFocus
-    );
-
-    return () => {
-      cancelled =
-        true;
-
-      window.clearInterval(
-        interval
-      );
-
-      window.removeEventListener(
-        "focus",
-        handleFocus
-      );
-    };
-  }, [user?.email]);
-
-
-  useEffect(() => {
     if (!user?.email) return;
 
     let cancelled = false;
@@ -16117,10 +16589,11 @@ export default function Pipeline() {
     )
       ? "Qualified Candidate Pool"
       : [
+          "unqualified",
           "not qualified-to close",
           "not qualified - to close",
           "not qualified to close",
-          "unqualified"
+          "not qualified-to-close"
         ].includes(
           normalizedCurrentApplicationStatus
         )
@@ -16233,15 +16706,15 @@ export default function Pipeline() {
       savedNCLEXHistoryExists ||
       showNCLEX ||
       Object.values(
-      deploymentFieldStatus?.__stageStatus || {}
-    ).some(
-      state =>
-        state?.nclex_stage === true &&
-        (
-          state?.completed === true ||
-          state?.unlocked === true
-        )
-    )
+        deploymentFieldStatus?.__stageStatus || {}
+      ).some(
+        state =>
+          state?.nclex_stage === true &&
+          (
+            state?.completed === true ||
+            state?.unlocked === true
+          )
+      )
     );
 
   const nclexProgress =
@@ -16307,13 +16780,8 @@ export default function Pipeline() {
       if (
         explicitQualificationHold ===
           "Not Qualified - to close" &&
-        getCanonicalStageOrder(
-          stage
-        ) >
-          getCanonicalStageOrder({
-            stage_name:
-              "Not Qualified - to close"
-          })
+        stage.stage_name !==
+          "Not Qualified - to close"
       ) {
         return false;
       }
@@ -17054,8 +17522,25 @@ export default function Pipeline() {
               <p className="mt-1 text-sm text-amber-800">
                 There are currently no openings matching your profile. We will notify you when a suitable opening becomes available.
               </p>
-              <p className="mt-1 text-xs text-amber-700">
-                Your pipeline will continue automatically when there is another openning that fits your qualifications .
+            </div>
+          </div>
+        </div>
+      )}
+
+      {explicitQualificationHold ===
+        "Not Qualified - to close" && (
+        <div className="rounded-xl border border-red-300 bg-red-50 p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+            <div>
+              <p className="font-semibold text-red-900">
+                Qualification Criteria Not Met
+              </p>
+              <p className="mt-1 text-sm text-red-800">
+                You do not currently meet the qualification criteria. All other pipeline sections are locked.
+              </p>
+              <p className="mt-1 text-xs text-red-700">
+                Your portal access will remain available for 5 days from this status change and will then be disabled.
               </p>
             </div>
           </div>
