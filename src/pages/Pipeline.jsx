@@ -11029,6 +11029,16 @@ export default function Pipeline() {
   const [icpUSRNCRMData, setICPUSRNCRMData] = useState({});
   const [portalAccessBlocked, setPortalAccessBlocked] = useState(false);
   const [finalArrivalDate, setFinalArrivalDate] = useState(null);
+  const [countdownNow, setCountdownNow] = useState(() => Date.now());
+
+  // Keep every visible stage countdown current, regardless of pipeline category.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setCountdownNow(Date.now());
+    }, 30000);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   const pipelineCacheKey = user?.email
     ? `icp_pipeline_cache_v2:${String(user.email).trim().toLowerCase()}`
@@ -14780,6 +14790,41 @@ export default function Pipeline() {
     if (saved) toast.success(`${stage.stage_name} marked as ${nextStatus}`);
   };
 
+  const getStageCountdownText = (stage) => {
+    if (!stage || isPipelineStageComplete(stage)) {
+      return null;
+    }
+
+    const storedTarget =
+      stage.target_date ||
+      stage.targetDate ||
+      stage.due_date ||
+      stage.dueDate ||
+      null;
+
+    if (!storedTarget) {
+      return null;
+    }
+
+    const target = new Date(storedTarget);
+    if (Number.isNaN(target.getTime())) {
+      return null;
+    }
+
+    const remainingMs =
+      target.getTime() -
+      countdownNow;
+    const overdue = remainingMs < 0;
+    const absoluteMs = Math.abs(remainingMs);
+    const days = Math.floor(absoluteMs / 86400000);
+    const hours = Math.floor((absoluteMs % 86400000) / 3600000);
+    const minutes = Math.floor((absoluteMs % 3600000) / 60000);
+
+    return overdue
+      ? `${days}d ${hours}h ${minutes}m overdue`
+      : `${days}d ${hours}h ${minutes}m remaining`;
+  };
+
   const getRiskStatus = (stage) => {
     if (!stage) {
       return null;
@@ -15073,6 +15118,118 @@ export default function Pipeline() {
             new Date()
               .toISOString();
 
+          // The click itself is the completion trigger. Update the NCLEX box
+          // immediately, then persist the completion to the backend.
+          setStages(previous => {
+            const exists =
+              previous.some(
+                item =>
+                  item.stage_name ===
+                  "Select Meeting Time"
+              );
+
+            if (exists) {
+              return previous.map(item =>
+                item.stage_name ===
+                  "Select Meeting Time"
+                  ? {
+                      ...item,
+                      status:
+                        "Completed",
+                      completed:
+                        true,
+                      is_completed:
+                        true,
+                      completed_date:
+                        completedAt,
+                      unlocked:
+                        true,
+                      is_unlocked:
+                        true,
+                      is_locked:
+                        false,
+                      access_locked:
+                        false,
+                      source_trigger_unlocked:
+                        true,
+                      trigger_unlocked:
+                        true
+                    }
+                  : item
+              );
+            }
+
+            return [
+              ...previous,
+              {
+                stage_name:
+                  "Select Meeting Time",
+                stage_category:
+                  "NCLEX Program",
+                stage_order:
+                  6.105,
+                status:
+                  "Completed",
+                completed:
+                  true,
+                is_completed:
+                  true,
+                completed_date:
+                  completedAt,
+                unlocked:
+                  true,
+                is_unlocked:
+                  true,
+                is_locked:
+                  false,
+                access_locked:
+                  false,
+                source_trigger_unlocked:
+                  true,
+                trigger_unlocked:
+                  true,
+                nclex_stage:
+                  true,
+                non_counted_section:
+                  true
+              }
+            ];
+          });
+
+          setDeploymentFieldStatus(previous => ({
+            ...previous,
+            __stageStatus: {
+              ...(previous?.__stageStatus || {}),
+              "Select Meeting Time": {
+                ...(previous?.__stageStatus?.["Select Meeting Time"] || {}),
+                evaluated:
+                  true,
+                completed:
+                  true,
+                unlocked:
+                  true,
+                status:
+                  "Completed",
+                completed_date:
+                  completedAt
+              }
+            }
+          }));
+
+          window.dispatchEvent(
+            new CustomEvent(
+              "pipeline-updated",
+              {
+                detail: {
+                  stageName:
+                    "Select Meeting Time",
+                  source:
+                    "nclex-meeting-click"
+                }
+              }
+            )
+          );
+
           try {
             const token =
               localStorage.getItem(
@@ -15118,102 +15275,6 @@ export default function Pipeline() {
                 );
               }
             }
-
-            setStages(previous => {
-              const exists =
-                previous.some(
-                  item =>
-                    item.stage_name ===
-                    "Select Meeting Time"
-                );
-
-              if (exists) {
-                return previous.map(item =>
-                  item.stage_name ===
-                    "Select Meeting Time"
-                    ? {
-                        ...item,
-                        status:
-                          "Completed",
-                        completed:
-                          true,
-                        is_completed:
-                          true,
-                        completed_date:
-                          completedAt,
-                        unlocked:
-                          true,
-                        is_unlocked:
-                          true,
-                        is_locked:
-                          false,
-                        access_locked:
-                          false,
-                        source_trigger_unlocked:
-                          true,
-                        trigger_unlocked:
-                          true
-                      }
-                    : item
-                );
-              }
-
-              return [
-                ...previous,
-                {
-                  stage_name:
-                    "Select Meeting Time",
-                  stage_category:
-                    "NCLEX Program",
-                  stage_order:
-                    6.105,
-                  status:
-                    "Completed",
-                  completed:
-                    true,
-                  is_completed:
-                    true,
-                  completed_date:
-                    completedAt,
-                  unlocked:
-                    true,
-                  is_unlocked:
-                    true,
-                  is_locked:
-                    false,
-                  access_locked:
-                    false,
-                  source_trigger_unlocked:
-                    true,
-                  trigger_unlocked:
-                    true,
-                  nclex_stage:
-                    true,
-                  non_counted_section:
-                    true
-                }
-              ];
-            });
-
-            setDeploymentFieldStatus(previous => ({
-              ...previous,
-              __stageStatus: {
-                ...(previous?.__stageStatus || {}),
-                "Select Meeting Time": {
-                  ...(previous?.__stageStatus?.["Select Meeting Time"] || {}),
-                  evaluated:
-                    true,
-                  completed:
-                    true,
-                  unlocked:
-                    true,
-                  status:
-                    "Completed",
-                  completed_date:
-                    completedAt
-                }
-              }
-            }));
           } catch (error) {
             console.warn(
               "[NCLEX] Meeting selection could not be persisted:",
@@ -17704,51 +17765,8 @@ export default function Pipeline() {
                     stage.stage_name ===
                       "Immigration Call"
                   );
-                const hiringCountdown =
-                  isHiring &&
-                  !isPipelineStageComplete(stage) &&
-                  (stage.target_date || stage.targetDate)
-                    ? (() => {
-                        const target =
-                          new Date(
-                            stage.target_date ||
-                            stage.targetDate
-                          );
-
-                        if (Number.isNaN(target.getTime())) {
-                          return null;
-                        }
-
-                        const ms =
-                          target.getTime() -
-                          Date.now();
-
-                        const overdue =
-                          ms < 0;
-
-                        const abs =
-                          Math.abs(ms);
-
-                        const days =
-                          Math.floor(
-                            abs /
-                            86400000
-                          );
-
-                        const hours =
-                          Math.floor(
-                            (
-                              abs %
-                              86400000
-                            ) /
-                            3600000
-                          );
-
-                        return overdue
-                          ? `${days}d ${hours}h overdue`
-                          : `${days}d ${hours}h remaining`;
-                      })()
-                    : null;
+                const stageCountdown =
+                  getStageCountdownText(stage);
                 const unlocked = stage.non_counted_section === true
                   ? true
                   : isStageUnlocked(stage, displayStages);
@@ -17852,9 +17870,12 @@ export default function Pipeline() {
                     </div>
 
                     <div className="ml-auto flex shrink-0 items-center gap-2 self-center">
-                      {hiringCountdown && (
-                        <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                          {hiringCountdown}
+                      {stageCountdown && (
+                        <span
+                          className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700"
+                          title={`Target: ${stage.target_date || stage.targetDate || stage.due_date || stage.dueDate}`}
+                        >
+                          {stageCountdown}
                         </span>
                       )}
 
@@ -18014,6 +18035,10 @@ export default function Pipeline() {
 
                                 const gate = item.performanceGate;
                                 const performance = getNCLEXPerformanceSnapshot(icpUSRNCRMData);
+                                const nclexCountdown =
+                                  complete
+                                    ? null
+                                    : getStageCountdownText(persistedStage);
 
                                 const miniStage = {
                                   id: `nclex-mini-${index + 1}`,
@@ -18059,6 +18084,15 @@ export default function Pipeline() {
                                         <Lock className="h-5 w-5 shrink-0 text-gray-400" />
                                       )}
                                     </div>
+
+                                    {nclexCountdown && (
+                                      <span
+                                        className="mt-2 inline-flex rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700"
+                                        title={`Target: ${persistedStage?.target_date || persistedStage?.targetDate || persistedStage?.due_date || persistedStage?.dueDate}`}
+                                      >
+                                        {nclexCountdown}
+                                      </span>
+                                    )}
 
                                     {gate && (
                                       <div className="mt-2 rounded-lg border border-purple-100 bg-purple-50/60 p-2 text-[11px] text-purple-800">
