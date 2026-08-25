@@ -11579,17 +11579,13 @@ const formatLivePipelineCountdown = (
       60
     );
 
-  const seconds =
-    absoluteSeconds %
-    60;
-
   return {
     target,
     overdue,
     text:
       overdue
-        ? `${totalHours}h ${minutes}m ${seconds}s overdue`
-        : `${days}d ${hours}h ${minutes}m ${seconds}s remaining`
+        ? `${days}d ${hours}h ${minutes}m overdue`
+        : `${days}d ${hours}h ${minutes}m remaining`
   };
 };
 

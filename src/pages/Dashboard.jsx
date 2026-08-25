@@ -220,18 +220,14 @@ const formatCountdown = (deadline, now = new Date()) => {
       60
     );
 
-  const seconds =
-    totalSeconds %
-    60;
-
   let durationText;
 
   if (overdue) {
     durationText =
-      `${totalHours}h ${minutes}m ${seconds}s`;
+      `${days}d ${hours}h ${minutes}m`;
   } else {
     durationText =
-      `${days}d ${hours}h ${minutes}m ${seconds}s`;
+      `${days}d ${hours}h ${minutes}m`;
   }
 
   return {
