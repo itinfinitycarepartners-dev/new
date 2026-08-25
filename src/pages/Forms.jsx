@@ -4,7 +4,6 @@ import React, {
   useState
 } from "react";
 import {
-  ClipboardList,
   Home,
   FileCheck,
   ArrowLeft
@@ -14,8 +13,7 @@ import {
 } from "@/lib/AuthContext";
 import {
   DeploymentDetails,
-  HousingDetailsForm,
-  RLChecklistView
+  HousingDetailsForm
 } from "./Pipeline";
 
 const FORMS = [
@@ -35,15 +33,6 @@ const FORMS = [
       "Complete your housing and transportation information.",
     icon:
       Home
-  },
-  {
-    key: "randl",
-    title:
-      "Relocation & Logistics Form",
-    description:
-      "Complete the R&L checklist, policies and required attachments.",
-    icon:
-      ClipboardList
   }
 ];
 
@@ -100,21 +89,6 @@ export default function Forms() {
           {activeForm ===
             "housing" && (
             <HousingDetailsForm
-              user={user}
-              setStages={
-                setLocalStages
-              }
-              onClose={() =>
-                setActiveForm(
-                  null
-                )
-              }
-            />
-          )}
-
-          {activeForm ===
-            "randl" && (
-            <RLChecklistView
               user={user}
               setStages={
                 setLocalStages

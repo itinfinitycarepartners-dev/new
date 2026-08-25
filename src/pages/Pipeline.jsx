@@ -4427,123 +4427,615 @@ const EducationUpload = ({ onClose, user }) => {
 };
 
 // Survey Views
-const SurveyView = ({ title, description, surveyUrl, onClose, user, setStages, stageName }) => {
-  const [isLoading, setIsLoading] = useState(true);
-  const [submitted, setSubmitted] = useState(false);
-  const [isSavingSubmission, setIsSavingSubmission] = useState(false);
-  const [iframeKey, setIframeKey] = useState(0);
+const SurveyView = ({
+  title,
+  description,
+  surveyUrl,
+  onClose,
+  user,
+  setStages,
+  stageName
+}) => {
+  const [
+    isLoading,
+    setIsLoading
+  ] = useState(true);
+
+  const [
+    submitted,
+    setSubmitted
+  ] = useState(false);
+
+  const [
+    isSavingSubmission,
+    setIsSavingSubmission
+  ] = useState(false);
+
+  const [
+    crmSurveyVisible,
+    setCrmSurveyVisible
+  ] = useState(false);
+
+  const [
+    crmSurveyCount,
+    setCrmSurveyCount
+  ] = useState(0);
+
+  const [
+    surveyContext,
+    setSurveyContext
+  ] = useState({
+    crmDealId:
+      "",
+    dealName:
+      ""
+  });
+
+  const [
+    iframeKey,
+    setIframeKey
+  ] = useState(0);
 
   const refreshIframe = () => {
     setIsLoading(true);
-    setIframeKey(prev => prev + 1);
+    setIframeKey(
+      previous =>
+        previous + 1
+    );
   };
 
   const handleIframeLoad = () => {
     setIsLoading(false);
   };
 
-  const persistSurveySubmission = async () => {
-    if (submitted || isSavingSubmission || !stageName || !user?.email) return;
+  const fetchWithTimeout =
+    async (
+      url,
+      options = {},
+      timeoutMs = 12000
+    ) => {
+      const controller =
+        new AbortController();
 
-    const token = localStorage.getItem("icp_auth_token");
-    if (!token) {
-      toast.error("Your session has expired. Please sign in again.");
-      return;
-    }
-
-    setIsSavingSubmission(true);
-
-    try {
-      const response = await fetch(
-        `${API_BASE}/api/pipeline/aftercare-survey-submitted`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ stage_name: stageName })
-        }
-      );
-
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok || data.success !== true) {
-        throw new Error(data.error || "Unable to save the survey submission.");
-      }
-
-      setSubmitted(true);
-
-      if (data.completed === true) {
-        setStages?.(previous =>
-          previous.map(stage =>
-            stage.stage_name === stageName
-              ? {
-                  ...stage,
-                  completed: true,
-                  is_completed: true,
-                  status: "Completed",
-                  completed_date:
-                    data.completed_date || new Date().toISOString()
-                }
-              : stage
-          )
+      const timeout =
+        window.setTimeout(
+          () =>
+            controller.abort(),
+          timeoutMs
         );
-        toast.success(`${title} submitted and completed.`);
-      } else {
-        toast.success(
-          `${title} submitted. This stage will cross off when the matching CRM completion field is also populated.`
+
+      try {
+        return await fetch(
+          url,
+          {
+            ...options,
+            signal:
+              controller.signal
+          }
         );
-      }
-
-      window.dispatchEvent(
-        new CustomEvent(
-          "pipeline-updated",
-          {
-            detail: {
-              stageName,
-              source:
-                "survey-submit",
-              completed:
-                data.completed === true
-            }
-          }
-        )
-      );
-
-      window.dispatchEvent(
-        new CustomEvent(
-          "documents-updated",
-          {
-            detail: {
-              stageName,
-              document:
-                data.document ||
-                null
-            }
-          }
-        )
-      );
-    } catch (error) {
-      console.error(`[Aftercare Survey] Could not persist ${stageName}:`, error);
-      toast.error(error.message || "The survey submission could not be saved.");
-    } finally {
-      setIsSavingSubmission(false);
-    }
-  };
-
-  useEffect(() => {
-    const handleMessage = (event) => {
-      if (!String(event.origin || "").includes("zohopublic.com")) return;
-      const messageType = event.data?.type || event.data?.event || event.data;
-      if (["formSubmit", "formComplete", "submitted", "submit", "success"].includes(messageType)) {
-        persistSurveySubmission();
+      } finally {
+        window.clearTimeout(
+          timeout
+        );
       }
     };
 
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, [submitted, isSavingSubmission, stageName, user?.email]);
+  const loadSurveyContext =
+    async () => {
+      if (
+        !stageName ||
+        !user?.email
+      ) {
+        return;
+      }
+
+      const token =
+        localStorage.getItem(
+          "icp_auth_token"
+        );
+
+      if (!token) {
+        return;
+      }
+
+      try {
+        const response =
+          await fetchWithTimeout(
+            `${API_BASE}/api/pipeline/aftercare-survey-context?stage_name=${encodeURIComponent(stageName)}&_=${Date.now()}`,
+            {
+              method:
+                "GET",
+              cache:
+                "no-store",
+              headers: {
+                Authorization:
+                  `Bearer ${token}`,
+                "Cache-Control":
+                  "no-cache",
+                Pragma:
+                  "no-cache"
+              }
+            },
+            8000
+          );
+
+        const data =
+          await response
+            .json()
+            .catch(
+              () => ({})
+            );
+
+        if (
+          response.ok &&
+          data.success ===
+            true
+        ) {
+          setSurveyContext({
+            crmDealId:
+              data.crm_deal_id ||
+              "",
+            dealName:
+              data.deal_name ||
+              ""
+          });
+
+          setCrmSurveyCount(
+            Number(
+              data.crm_survey_count ||
+              0
+            )
+          );
+
+          if (
+            Number(
+              data.crm_survey_count ||
+              0
+            ) >
+            0
+          ) {
+            setCrmSurveyVisible(
+              true
+            );
+          }
+        }
+      } catch (error) {
+        if (
+          error?.name !==
+          "AbortError"
+        ) {
+          console.warn(
+            "[Aftercare Survey] CRM context unavailable:",
+            error
+          );
+        }
+      }
+    };
+
+  // The portal passes CRM context into Zoho Survey as URL/custom variables.
+  // Each Zoho Survey must be configured with the Zoho CRM integration against
+  // Deals (Add/Update) so the submitted response appears in the native
+  // "Zoho Survey" related list instead of CRM Attachments.
+  const resolvedSurveyUrl = (() => {
+    try {
+      const url =
+        new URL(
+          surveyUrl
+        );
+
+      if (user?.email) {
+        url.searchParams.set(
+          "candidate_email",
+          user.email
+        );
+
+        url.searchParams.set(
+          "email",
+          user.email
+        );
+      }
+
+      if (
+        surveyContext.crmDealId
+      ) {
+        url.searchParams.set(
+          "crm_deal_id",
+          surveyContext.crmDealId
+        );
+      }
+
+      if (
+        surveyContext.dealName
+      ) {
+        url.searchParams.set(
+          "deal_name",
+          surveyContext.dealName
+        );
+      }
+
+      return url.toString();
+    } catch {
+      return surveyUrl;
+    }
+  })();
+
+  const checkCrmSurveyStatus =
+    async ({
+      silent = true
+    } = {}) => {
+      if (
+        !stageName ||
+        !user?.email
+      ) {
+        return false;
+      }
+
+      const token =
+        localStorage.getItem(
+          "icp_auth_token"
+        );
+
+      if (!token) {
+        return false;
+      }
+
+      try {
+        const response =
+          await fetchWithTimeout(
+            `${API_BASE}/api/pipeline/aftercare-survey-status?stage_name=${encodeURIComponent(stageName)}&_=${Date.now()}`,
+            {
+              method:
+                "GET",
+              cache:
+                "no-store",
+              headers: {
+                Authorization:
+                  `Bearer ${token}`,
+                "Cache-Control":
+                  "no-cache",
+                Pragma:
+                  "no-cache"
+              }
+            },
+            10000
+          );
+
+        const data =
+          await response
+            .json()
+            .catch(
+              () => ({})
+            );
+
+        if (
+          !response.ok ||
+          data.success !==
+            true
+        ) {
+          if (!silent) {
+            throw new Error(
+              data.error ||
+              "Unable to check the CRM Zoho Survey section."
+            );
+          }
+
+          return false;
+        }
+
+        if (
+          data.submitted ===
+          true
+        ) {
+          setSubmitted(
+            true
+          );
+        }
+
+        const visible =
+          data.crm_survey_visible ===
+          true;
+
+        setCrmSurveyVisible(
+          visible
+        );
+
+        setCrmSurveyCount(
+          Number(
+            data.crm_survey_count ||
+            0
+          )
+        );
+
+        if (
+          data.crm_deal_id ||
+          data.deal_name
+        ) {
+          setSurveyContext(
+            previous => ({
+              crmDealId:
+                data.crm_deal_id ||
+                previous.crmDealId,
+              dealName:
+                data.deal_name ||
+                previous.dealName
+            })
+          );
+        }
+
+        return visible;
+      } catch (error) {
+        if (
+          error?.name !==
+            "AbortError" &&
+          !silent
+        ) {
+          toast.error(
+            error.message ||
+            "Unable to check the CRM Zoho Survey section."
+          );
+        }
+
+        return false;
+      }
+    };
+
+  const persistSurveySubmission =
+    async () => {
+      if (
+        submitted ||
+        isSavingSubmission ||
+        !stageName ||
+        !user?.email
+      ) {
+        return;
+      }
+
+      const token =
+        localStorage.getItem(
+          "icp_auth_token"
+        );
+
+      if (!token) {
+        toast.error(
+          "Your session has expired. Please sign in again."
+        );
+        return;
+      }
+
+      // Optimistic submission: the candidate sees "Submitted" immediately.
+      // If the save fails, we roll this back and show the error.
+      setSubmitted(
+        true
+      );
+
+      setIsSavingSubmission(
+        true
+      );
+
+      try {
+        const response =
+          await fetchWithTimeout(
+            `${API_BASE}/api/pipeline/aftercare-survey-submitted`,
+            {
+              method:
+                "POST",
+              cache:
+                "no-store",
+              headers: {
+                Authorization:
+                  `Bearer ${token}`,
+                "Content-Type":
+                  "application/json",
+                "Cache-Control":
+                  "no-cache",
+                Pragma:
+                  "no-cache"
+              },
+              body:
+                JSON.stringify({
+                  stage_name:
+                    stageName
+                })
+            },
+            12000
+          );
+
+        const data =
+          await response
+            .json()
+            .catch(
+              () => ({})
+            );
+
+        if (
+          !response.ok ||
+          data.success !==
+            true
+        ) {
+          throw new Error(
+            data.error ||
+            "Unable to save the survey submission."
+          );
+        }
+
+        setSubmitted(
+          true
+        );
+
+        // CRM Survey sync continues independently in the background.
+        // Confirmation success must never wait for or depend on CRM visibility.
+
+
+        if (
+          data.completed ===
+          true
+        ) {
+          setStages?.(
+            previous =>
+              previous.map(
+                stage =>
+                  stage.stage_name ===
+                    stageName
+                    ? {
+                        ...stage,
+                        completed:
+                          true,
+                        is_completed:
+                          true,
+                        status:
+                          "Completed",
+                        completed_date:
+                          data.completed_date ||
+                          new Date()
+                            .toISOString()
+                      }
+                    : stage
+              )
+          );
+        }
+
+        toast.success(
+          data.message ||
+          `${title} submitted successfully.`
+        );
+
+        window.dispatchEvent(
+          new CustomEvent(
+            "pipeline-updated",
+            {
+              detail: {
+                stageName,
+                source:
+                  "survey-submit",
+                completed:
+                  data.completed ===
+                  true
+              }
+            }
+          )
+        );
+
+        window.dispatchEvent(
+          new CustomEvent(
+            "survey-updated",
+            {
+              detail: {
+                stageName,
+                crmRelatedList:
+                  "Zoho_Survey",
+                submitted:
+                  true
+              }
+            }
+          )
+        );
+      } catch (error) {
+        setSubmitted(
+          false
+        );
+
+        if (
+          error?.name ===
+          "AbortError"
+        ) {
+          toast.error(
+            "Survey confirmation timed out. The page is still usable; please try again."
+          );
+        } else {
+          console.error(
+            `[Aftercare Survey] Could not persist ${stageName}:`,
+            error
+          );
+
+          toast.error(
+            error.message ||
+            "The survey submission could not be saved."
+          );
+        }
+      } finally {
+        setIsSavingSubmission(
+          false
+        );
+      }
+    };
+
+  useEffect(() => {
+    loadSurveyContext();
+  }, [
+    stageName,
+    user?.email
+  ]);
+
+  useEffect(() => {
+    checkCrmSurveyStatus();
+
+    const timer =
+      window.setInterval(
+        () => {
+          checkCrmSurveyStatus();
+        },
+        10000
+      );
+
+    return () =>
+      window.clearInterval(
+        timer
+      );
+  }, [
+    stageName,
+    user?.email
+  ]);
+
+  useEffect(() => {
+    const handleMessage =
+      event => {
+        if (
+          !String(
+            event.origin ||
+            ""
+          ).includes(
+            "zohopublic.com"
+          )
+        ) {
+          return;
+        }
+
+        const messageType =
+          event.data?.type ||
+          event.data?.event ||
+          event.data;
+
+        if (
+          [
+            "formSubmit",
+            "formComplete",
+            "submitted",
+            "submit",
+            "success"
+          ].includes(
+            messageType
+          )
+        ) {
+          persistSurveySubmission();
+        }
+      };
+
+    window.addEventListener(
+      "message",
+      handleMessage
+    );
+
+    return () =>
+      window.removeEventListener(
+        "message",
+        handleMessage
+      );
+  }, [
+    submitted,
+    isSavingSubmission,
+    stageName,
+    user?.email
+  ]);
 
   return (
     <div className="fixed inset-0 z-50 bg-white flex flex-col">
@@ -4551,24 +5043,66 @@ const SurveyView = ({ title, description, surveyUrl, onClose, user, setStages, s
         <div className="flex items-center gap-3">
           <Clipboard className="h-5 w-5 text-rose-500" />
           <div>
-            <h3 className="font-semibold text-gray-800">{title}</h3>
-            <p className="text-xs text-muted-foreground">{description}</p>
+            <h3 className="font-semibold text-gray-800">
+              {title}
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              {description}
+            </p>
           </div>
         </div>
+
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={refreshIframe} className="text-gray-500 hover:text-gray-700">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={
+              refreshIframe
+            }
+            className="text-gray-500 hover:text-gray-700"
+          >
             <RefreshCw className="h-4 w-4" />
           </Button>
-          <span className={cn(
-            "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium",
-            submitted
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-amber-200 bg-amber-50 text-amber-700"
-          )}>
-            {isSavingSubmission ? <Loader2 className="h-3 w-3 animate-spin" /> : submitted ? <CheckCircle2 className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
-            {isSavingSubmission ? "Saving submission" : submitted ? "Submission Saved" : "Submit survey"}
+
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium",
+              submitted
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-amber-200 bg-amber-50 text-amber-700"
+            )}
+          >
+            {submitted
+              ? (
+                  <CheckCircle2 className="h-3 w-3" />
+                )
+              : isSavingSubmission
+                ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  )
+                : (
+                    <Clock className="h-3 w-3" />
+                  )}
+
+            {submitted
+              ? (
+                  crmSurveyVisible
+                    ? "Submitted • In CRM"
+                    : "Submitted"
+                )
+              : isSavingSubmission
+                ? "Submitting..."
+                : "Submit survey"}
           </span>
-          <Button variant="ghost" size="sm" onClick={onClose} className="text-gray-500 hover:text-gray-700">
+
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={
+              onClose
+            }
+            className="text-gray-500 hover:text-gray-700"
+          >
             <X className="h-5 w-5" />
           </Button>
         </div>
@@ -4578,15 +5112,26 @@ const SurveyView = ({ title, description, surveyUrl, onClose, user, setStages, s
         {isLoading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50">
             <Loader2 className="h-10 w-10 animate-spin text-rose-500" />
-            <span className="mt-3 text-sm text-muted-foreground">Loading survey...</span>
+            <span className="mt-3 text-sm text-muted-foreground">
+              Loading survey...
+            </span>
           </div>
         )}
+
         <iframe
-          key={iframeKey}
-          src={surveyUrl}
+          key={
+            iframeKey
+          }
+          src={
+            resolvedSurveyUrl
+          }
           className="w-full h-full border-0"
-          onLoad={handleIframeLoad}
-          title={title}
+          onLoad={
+            handleIframeLoad
+          }
+          title={
+            title
+          }
           allow="fullscreen; geolocation; microphone; camera"
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-top-navigation"
           loading="lazy"
@@ -4594,34 +5139,40 @@ const SurveyView = ({ title, description, surveyUrl, onClose, user, setStages, s
       </div>
 
       <div className="flex items-center justify-between gap-4 px-6 py-3 border-t border-gray-200 bg-white flex-shrink-0">
-        <p className="text-xs text-muted-foreground">
-          After submitting the Zoho survey, you can confirm submission here. The actual survey response in Documents comes from the Zoho Survey webhook. Pipeline completion still follows the CRM trigger only.
-        </p>
+        <div>
+          <p className="text-xs text-muted-foreground">
+            Survey responses are not saved to CRM Attachments. They are linked through the native Zoho Survey integration and should appear under the CRM record&apos;s Zoho Survey section.
+          </p>
 
-        <div className="flex items-center gap-2">
+          {crmSurveyVisible && (
+            <p className="mt-1 text-xs font-medium text-emerald-700">
+              Zoho Survey is visible in CRM
+              {crmSurveyCount > 0
+                ? ` (${crmSurveyCount} related survey record${crmSurveyCount === 1 ? "" : "s"}).`
+                : "."}
+            </p>
+          )}
+
+          {submitted &&
+            !crmSurveyVisible && (
+              <p className="mt-1 text-xs font-medium text-emerald-700">
+                Survey submitted successfully. CRM synchronization continues automatically in the background.
+              </p>
+            )}
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          
+        
+
+          
+
           <Button
-            type="button"
             variant="outline"
             size="sm"
-            disabled={
-              submitted ||
-              isSavingSubmission
-            }
             onClick={
-              persistSurveySubmission
+              onClose
             }
-          >
-            {isSavingSubmission
-              ? "Saving..."
-              : submitted
-                ? "Submission Saved"
-                : "Confirm Survey Submitted"}
-          </Button>
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onClose}
           >
             Close
           </Button>
@@ -4635,6 +5186,8 @@ const RelocationSurvey = ({ onClose, user, setStages }) => (
   <SurveyView
     title="Relocation Survey"
     description="Please share your feedback about your relocation experience."
+    // Configure this survey's Zoho CRM integration to Deals (Add/Update).
+    // Map the deal_name URL/prepopulated value to CRM Deal Name.
     surveyUrl="https://survey.zohopublic.com/zs/k4DH3c"
     onClose={onClose}
     user={user}
@@ -4647,6 +5200,8 @@ const ThirtyDaySurvey = ({ onClose, user, setStages }) => (
   <SurveyView
     title="U.S. Integration Call (30 Day Call / Survey)"
     description="Please share your first 30-day integration update."
+    // Configure this survey's Zoho CRM integration to Deals (Add/Update).
+    // Map the deal_name URL/prepopulated value to CRM Deal Name.
     surveyUrl="https://survey.zohopublic.com/zs/yEB6y4"
     onClose={onClose}
     user={user}
@@ -4659,6 +5214,8 @@ const NinetyDaySurvey = ({ onClose, user, setStages }) => (
   <SurveyView
     title="90 Day Survey"
     description="Please share your feedback after your first 90 days."
+    // Configure this survey's Zoho CRM integration to Deals (Add/Update).
+    // Map the deal_name URL/prepopulated value to CRM Deal Name.
     surveyUrl="https://survey.zohopublic.com/zs/2GB3N0"
     onClose={onClose}
     user={user}
@@ -4672,6 +5229,8 @@ const OneYearSurvey = ({ onClose, user, setStages }) => (
   <SurveyView
     title="1 Year Survey"
     description="Please share your one-year integration feedback."
+    // Configure this survey's Zoho CRM integration to Deals (Add/Update).
+    // Map the deal_name URL/prepopulated value to CRM Deal Name.
     surveyUrl="https://survey.zohopublic.com/zs/kJCsR0"
     onClose={onClose}
     user={user}

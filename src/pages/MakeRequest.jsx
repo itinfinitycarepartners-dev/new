@@ -1,6 +1,3 @@
-
-
-
 // @ts-nocheck
 // src/pages/MakeRequest.jsx
 import React, {
@@ -16,12 +13,14 @@ import {
   CheckCircle2,
   ExternalLink,
   BadgeHelp,
-  Calendar
+  Calendar,
+  Upload,
+  Image as ImageIcon
 } from "lucide-react";
 import {
-  tokenStorage
+  tokenStorage,
+  documentLibrary
 } from "@/api/icpClient";
-import { toast } from "sonner";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
@@ -45,7 +44,9 @@ export default function MakeRequest() {
     useState("");
   const [licenseUrl, setLicenseUrl] =
     useState("");
-  const [embassyLocation, setEmbassyLocation] =
+  const [currentEmbassyLocation, setCurrentEmbassyLocation] =
+    useState("");
+  const [requestedEmbassyLocation, setRequestedEmbassyLocation] =
     useState("");
   const [embassyReason, setEmbassyReason] =
     useState("");
@@ -75,8 +76,12 @@ export default function MakeRequest() {
     };
   };
 
-  const load = async () => {
-    setLoading(true);
+  const load = async ({
+    background = false
+  } = {}) => {
+    if (!background) {
+      setLoading(true);
+    }
 
     try {
       const response =
@@ -111,7 +116,7 @@ export default function MakeRequest() {
           ""
         ).trim()
       );
-      setEmbassyLocation(
+      setCurrentEmbassyLocation(
         data.embassyLocation ||
         ""
       );
@@ -134,7 +139,9 @@ export default function MakeRequest() {
         error.message
       );
     } finally {
-      setLoading(false);
+      if (!background) {
+        setLoading(false);
+      }
     }
   };
 
@@ -142,10 +149,290 @@ export default function MakeRequest() {
     load();
   }, []);
 
+  const fetchWithTimeout = async (
+    url,
+    options = {},
+    timeoutMs = 15000
+  ) => {
+    const controller =
+      new AbortController();
+
+    const timeout =
+      window.setTimeout(
+        () => controller.abort(),
+        timeoutMs
+      );
+
+    try {
+      return await fetch(
+        url,
+        {
+          ...options,
+          signal:
+            controller.signal
+        }
+      );
+    } finally {
+      window.clearTimeout(
+        timeout
+      );
+    }
+  };
+
+  const submitEmbassyChange =
+    async () => {
+      if (
+        submitting ===
+        "embassy_change"
+      ) {
+        return;
+      }
+
+      const nextLocation =
+        requestedEmbassyLocation
+          .trim();
+
+      const reason =
+        embassyReason
+          .trim();
+
+      if (
+        !nextLocation ||
+        !reason
+      ) {
+        setNotice(
+          "New embassy location and reason are required."
+        );
+        return;
+      }
+
+      setSubmitting(
+        "embassy_change"
+      );
+
+      setNotice("");
+
+      try {
+        const body = {
+          embassyLocation:
+            nextLocation,
+          newEmbassyLocation:
+            nextLocation,
+          reason,
+          requestedDate:
+            new Date()
+              .toISOString()
+        };
+
+        let response =
+          await fetchWithTimeout(
+            `${API_BASE}/api/requests/embassy-change`,
+            {
+              method:
+                "POST",
+              cache:
+                "no-store",
+              credentials:
+                "include",
+              headers: {
+                ...getHeaders(),
+                "Content-Type":
+                  "application/json",
+                Accept:
+                  "application/json",
+                "Cache-Control":
+                  "no-cache",
+                Pragma:
+                  "no-cache"
+              },
+              body:
+                JSON.stringify(
+                  body
+                )
+            },
+            15000
+          );
+
+        // Compatibility fallback during deployment if an older backend instance
+        // is still serving traffic.
+        if (
+          response.status ===
+            404 ||
+          response.status ===
+            405
+        ) {
+          response =
+            await fetchWithTimeout(
+              `${API_BASE}/api/requests`,
+              {
+                method:
+                  "POST",
+                cache:
+                  "no-store",
+                credentials:
+                  "include",
+                headers: {
+                  ...getHeaders(),
+                  "Content-Type":
+                    "application/json",
+                  Accept:
+                    "application/json",
+                  "Cache-Control":
+                    "no-cache",
+                  Pragma:
+                    "no-cache"
+                },
+                body:
+                  JSON.stringify({
+                    requestType:
+                      "embassy_change",
+                    request_type:
+                      "embassy_change",
+                    details:
+                      body
+                  })
+              },
+              15000
+            );
+        }
+
+        const data =
+          await response
+            .json()
+            .catch(
+              () => ({})
+            );
+
+        if (
+          !response.ok ||
+          data.success !==
+            true ||
+          data.submittedToAdmin !==
+            true
+        ) {
+          throw new Error(
+            data.error ||
+            data.message ||
+            "The embassy change request could not be submitted for approval."
+          );
+        }
+
+        const savedRequest =
+          data.request ||
+          {
+            _id:
+              data.requestId,
+            candidate_email:
+              "",
+            request_type:
+              "embassy_change",
+            status:
+              "Pending Approval",
+            details: {
+              embassyLocation:
+                nextLocation,
+              newEmbassyLocation:
+                nextLocation,
+              reason
+            },
+            requested_at:
+              new Date()
+                .toISOString()
+          };
+
+        setRequests(
+          previous => {
+            const requestId =
+              String(
+                savedRequest?._id ||
+                data.requestId ||
+                ""
+              );
+
+            const remaining =
+              previous.filter(
+                item =>
+                  !(
+                    item
+                      ?.request_type ===
+                      "embassy_change" &&
+                    (
+                      item.status ===
+                        "Pending Approval" ||
+                      String(
+                        item?._id ||
+                        ""
+                      ) ===
+                        requestId
+                    )
+                  )
+              );
+
+            return [
+              savedRequest,
+              ...remaining
+            ];
+          }
+        );
+
+        setRequestedEmbassyLocation(
+          ""
+        );
+
+        setEmbassyReason(
+          ""
+        );
+
+        setNotice(
+          data.message ||
+          "Embassy change request submitted successfully and is awaiting admin approval."
+        );
+
+        window.dispatchEvent(
+          new CustomEvent(
+            "candidate-data-updated",
+            {
+              detail: {
+                event:
+                  "embassy-change-request-submitted",
+                requestId:
+                  data.requestId,
+                embassyLocation:
+                  nextLocation,
+                status:
+                  "Pending Approval"
+              }
+            }
+          )
+        );
+      } catch (error) {
+        console.error(
+          "[MakeRequest] Embassy change submission failed:",
+          error
+        );
+
+        setNotice(
+          error?.name ===
+            "AbortError"
+            ? "The embassy request timed out before the server confirmed it. Please try again."
+            : (
+                error.message ||
+                "The embassy change request could not be submitted for approval."
+              )
+        );
+      } finally {
+        setSubmitting(
+          ""
+        );
+      }
+    };
+
   const submit = async (
     requestType,
     details
   ) => {
+    if (submitting) return;
+
     setSubmitting(
       requestType
     );
@@ -153,21 +440,29 @@ export default function MakeRequest() {
 
     try {
       const response =
-        await fetch(
+        await fetchWithTimeout(
           `${API_BASE}/api/requests`,
           {
             method: "POST",
+            cache: "no-store",
             headers: {
               ...getHeaders(),
               "Content-Type":
-                "application/json"
+                "application/json",
+              "Cache-Control":
+                "no-cache",
+              Pragma:
+                "no-cache"
             },
             body:
               JSON.stringify({
                 requestType,
+                request_type:
+                  requestType,
                 details
               })
-          }
+          },
+          15000
         );
 
       const data =
@@ -185,11 +480,6 @@ export default function MakeRequest() {
         );
       }
 
-      toast.success(
-        data.message ||
-        "Request submitted successfully."
-      );
-
       if (
         requestType ===
         "embassy_change"
@@ -198,7 +488,40 @@ export default function MakeRequest() {
           data.message ||
           "Embassy change request submitted for admin approval. CRM will update only after approval."
         );
-        setEmbassyReason("");
+
+        setRequestedEmbassyLocation(
+          ""
+        );
+
+        setEmbassyReason(
+          ""
+        );
+
+        if (data.request) {
+          setRequests(previous => {
+            const requestId =
+              String(
+                data.request?._id ||
+                data.requestId ||
+                ""
+              );
+
+            const withoutSame =
+              previous.filter(
+                item =>
+                  String(
+                    item?._id ||
+                    ""
+                  ) !==
+                  requestId
+              );
+
+            return [
+              data.request,
+              ...withoutSame
+            ];
+          });
+        }
       } else {
         setNotice(
           data.message ||
@@ -209,7 +532,11 @@ export default function MakeRequest() {
         );
       }
 
-      await load();
+      // Refresh quietly. A slow Zoho read must never hold the submit button in
+      // the loading state after MongoDB has already accepted the request.
+      load({
+        background: true
+      }).catch(() => null);
 
       window.dispatchEvent(
         new CustomEvent(
@@ -218,22 +545,41 @@ export default function MakeRequest() {
       );
     } catch (error) {
       setNotice(
-        error.message
+        error?.name ===
+          "AbortError"
+          ? "The request took too long to respond. Please try once more; the page will not stay stuck loading."
+          : (
+              error.message ||
+              "The request could not be submitted."
+            )
       );
     } finally {
       setSubmitting("");
     }
   };
 
-  const submitDependantRequest = async () => {
+  const submitDependant = async () => {
+    if (submitting) return;
+
+    const name =
+      dependant.name.trim();
+    const age =
+      String(
+        dependant.age
+      ).trim();
+    const relationship =
+      dependant.relationship.trim();
+    const passportFile =
+      dependant.passportFile;
+
     if (
-      !dependant.name.trim() ||
-      !String(dependant.age).trim() ||
-      !dependant.relationship.trim() ||
-      !dependant.passportFile
+      !name ||
+      !age ||
+      !relationship ||
+      !passportFile
     ) {
       setNotice(
-        "Name, age, relationship and a passport image are required."
+        "Full name, age, relationship and a passport image are required."
       );
       return;
     }
@@ -244,61 +590,39 @@ export default function MakeRequest() {
     setNotice("");
 
     try {
-      const token =
-        tokenStorage.get();
-
-      if (!token) {
-        throw new Error(
-          "Your session has expired. Please sign in again."
-        );
-      }
-
-      const passportData =
-        new FormData();
-
-      passportData.append(
-        "passport",
-        dependant.passportFile
-      );
-
-      const passportResponse =
-        await fetch(
-          `${API_BASE}/api/requests/dependant-passport`,
-          {
-            method: "POST",
-            headers: {
-              Authorization:
-                `Bearer ${token}`
-            },
-            body:
-              passportData
-          }
-        );
-
-      const passportResult =
-        await passportResponse
-          .json()
-          .catch(() => ({}));
+      const uploadResult =
+        await documentLibrary.upload({
+          file:
+            passportFile,
+          category:
+            "dependant-passport",
+          destination:
+            "crm",
+          documentType:
+            `Dependant Passport - ${name}`,
+          pipelineSection:
+            "Dependants",
+          requirementKey:
+            "dependant-passport"
+        });
 
       if (
-        !passportResponse.ok ||
-        passportResult.success !== true
+        !uploadResult ||
+        uploadResult.success !== true
       ) {
         throw new Error(
-          passportResult.error ||
+          uploadResult?.error ||
+          uploadResult?.message ||
           "The passport image could not be uploaded."
         );
       }
-
-      const passport =
-        passportResult.passport ||
-        {};
 
       const response =
         await fetch(
           `${API_BASE}/api/requests`,
           {
-            method: "POST",
+            method:
+              "POST",
             headers: {
               ...getHeaders(),
               "Content-Type":
@@ -309,34 +633,15 @@ export default function MakeRequest() {
                 requestType:
                   "add_dependant",
                 details: {
-                  name:
-                    dependant.name.trim(),
-                  age:
-                    String(
-                      dependant.age
-                    ).trim(),
-                  relationship:
-                    dependant.relationship.trim(),
+                  name,
+                  age,
+                  relationship,
                   passport:
-                    passport.name ||
-                    dependant.passportFile.name,
+                    passportFile.name,
                   passportDocumentName:
-                    passport.name ||
-                    dependant.passportFile.name,
+                    passportFile.name,
                   passportUploaded:
-                    true,
-                  passportSource:
-                    passport.source ||
-                    "crm",
-                  passportAttachmentId:
-                    passport.attachmentId ||
-                    "",
-                  passportDealId:
-                    passport.dealId ||
-                    "",
-                  passportMimeType:
-                    passport.mimeType ||
-                    dependant.passportFile.type
+                    true
                 }
               })
           }
@@ -353,7 +658,8 @@ export default function MakeRequest() {
       ) {
         throw new Error(
           data.error ||
-          "The dependant request could not be submitted."
+          data.message ||
+          "The dependant approval request could not be submitted."
         );
       }
 
@@ -368,17 +674,8 @@ export default function MakeRequest() {
       setDependant(
         emptyDependant()
       );
-
-      const message =
-        data.message ||
-        "Your dependant request and passport image were submitted for admin approval.";
-
       setNotice(
-        message
-      );
-
-      toast.success(
-        "Request submitted successfully."
+        "Your dependant request and passport image were submitted successfully and are awaiting admin approval."
       );
 
       await load();
@@ -391,7 +688,7 @@ export default function MakeRequest() {
     } catch (error) {
       setNotice(
         error.message ||
-        "The dependant request could not be submitted."
+        "The dependant approval request could not be submitted."
       );
     } finally {
       setSubmitting("");
@@ -479,17 +776,29 @@ export default function MakeRequest() {
           Date of request: {requestDate}
         </div>
 
+        <div className="mt-4 rounded-lg border bg-slate-50 px-3 py-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Current Embassy Location
+          </p>
+          <p className="mt-1 text-sm font-semibold text-slate-800">
+            {currentEmbassyLocation ||
+              "Not currently available"}
+          </p>
+        </div>
+
         <label className="mt-4 block text-sm font-medium text-slate-700">
-          Requested Embassy Location
+          New Embassy Location
         </label>
         <input
           type="text"
-          value={embassyLocation}
+          value={requestedEmbassyLocation}
           onChange={event =>
-            setEmbassyLocation(
+            setRequestedEmbassyLocation(
               event.target.value
             )
           }
+          placeholder="Enter the embassy location you are requesting"
+          autoComplete="off"
           className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
         />
 
@@ -509,9 +818,21 @@ export default function MakeRequest() {
         />
 
         {pendingEmbassy && (
-          <p className="mt-3 text-sm font-medium text-amber-700">
-            A previous embassy change request is pending admin approval.
-          </p>
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            <p className="font-medium">
+              Embassy change pending admin approval.
+            </p>
+            {pendingEmbassy
+              ?.details
+              ?.embassyLocation && (
+              <p className="mt-1">
+                Requested location:{" "}
+                <strong>
+                  {pendingEmbassy.details.embassyLocation}
+                </strong>
+              </p>
+            )}
+          </div>
         )}
 
         <button
@@ -519,32 +840,26 @@ export default function MakeRequest() {
           disabled={
             submitting ===
               "embassy_change" ||
-            !embassyLocation.trim() ||
+            !requestedEmbassyLocation.trim() ||
             !embassyReason.trim()
           }
-          onClick={() =>
-            submit(
-              "embassy_change",
-              {
-                embassyLocation:
-                  embassyLocation.trim(),
-                reason:
-                  embassyReason.trim(),
-                requestedDate:
-                  new Date()
-                    .toISOString()
-              }
-            )
+          onClick={
+            submitEmbassyChange
           }
           className="mt-3 inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
           {submitting ===
           "embassy_change" ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Submitting for Approval...
+            </>
           ) : (
-            <Save className="h-4 w-4" />
+            <>
+              <Save className="h-4 w-4" />
+              Submit for Approval
+            </>
           )}
-          Submit for Approval
         </button>
       </section>
 
@@ -580,7 +895,7 @@ export default function MakeRequest() {
                       ? ` · Age ${item.age}`
                       : ""}
                     {item.passport
-                      ? ` · Passport ${item.passport}`
+                      ? " · Passport uploaded"
                       : ""}
                   </span>
                 </div>
@@ -632,18 +947,50 @@ export default function MakeRequest() {
             }
           />
 
-          <div className="rounded-lg border p-3">
-            <label className="block text-xs font-semibold text-slate-600">
-              Passport image
-            </label>
+          <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-dashed px-3 py-3 text-sm md:col-span-2">
+            <Upload className="h-4 w-4 text-purple-600" />
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-slate-700">
+                Passport image
+              </p>
+              <p className="truncate text-xs text-slate-500">
+                {dependant.passportFile?.name ||
+                  "Upload a clear JPG, PNG, WEBP, or HEIC image"}
+              </p>
+            </div>
             <input
               type="file"
-              accept="image/*"
-              className="mt-2 block w-full text-sm"
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+              className="hidden"
               onChange={event => {
                 const file =
                   event.target.files?.[0] ||
                   null;
+
+                if (!file) return;
+
+                if (
+                  !file.type.startsWith("image/")
+                ) {
+                  setNotice(
+                    "Passport must be uploaded as an image."
+                  );
+                  event.target.value = "";
+                  return;
+                }
+
+                if (
+                  file.size >
+                  15 * 1024 * 1024
+                ) {
+                  setNotice(
+                    "Passport image must be under 15MB."
+                  );
+                  event.target.value = "";
+                  return;
+                }
+
+                setNotice("");
 
                 setDependant(value => {
                   if (
@@ -656,30 +1003,33 @@ export default function MakeRequest() {
 
                   return {
                     ...value,
-                    passport:
-                      file?.name ||
-                      "",
                     passportFile:
                       file,
+                    passport:
+                      file.name,
                     passportPreview:
-                      file
-                        ? URL.createObjectURL(
-                            file
-                          )
-                        : ""
+                      URL.createObjectURL(
+                        file
+                      )
                   };
                 });
               }}
             />
+          </label>
 
-            {dependant.passportPreview && (
+          {dependant.passportPreview && (
+            <div className="md:col-span-2 rounded-lg border bg-slate-50 p-3">
+              <div className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-700">
+                <ImageIcon className="h-4 w-4 text-purple-600" />
+                Passport image selected
+              </div>
               <img
                 src={dependant.passportPreview}
                 alt="Dependant passport preview"
-                className="mt-3 max-h-44 rounded-lg border object-contain"
+                className="max-h-52 rounded-md border object-contain"
               />
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         <button
@@ -693,7 +1043,7 @@ export default function MakeRequest() {
             !dependant.passportFile
           }
           onClick={
-            submitDependantRequest
+            submitDependant
           }
           className="mt-4 inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >

@@ -1211,14 +1211,24 @@ export default function Profile() {
               />
 
               <InfoRow
-                label="Approved Embassy Transfer"
+                label="Embassy Location"
                 value={
-                  extendedProfile?.embassyTransfer?.location ||
-                  extendedProfile?.embassyLocation ||
+                  (
+                    extendedProfile
+                      ?.embassyTransfer
+                      ?.status ===
+                    "Approved"
+                      ? extendedProfile
+                          ?.embassyTransfer
+                          ?.location
+                      : null
+                  ) ||
                   getFirstValue(
                     "Embassy_Location",
                     "embassyLocation"
-                  )
+                  ) ||
+                  extendedProfile
+                    ?.embassyLocation
                 }
                 icon={MapPin}
                 alwaysVisible
