@@ -1,12 +1,3 @@
-
-
-
-
-
-
-
-
-
 // @ts-nocheck
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
@@ -142,13 +133,25 @@ const formatCountdown = (deadline, now = new Date()) => {
   const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
   const minutes = totalMinutes % 60;
 
+  const totalHours =
+    Math.floor(
+      totalMinutes /
+      60
+    );
+
   let durationText;
-  if (days > 0) {
-    durationText = `${days}d ${hours}h`;
+  if (overdue) {
+    durationText =
+      `${totalHours}h ${minutes}m`;
+  } else if (days > 0) {
+    durationText =
+      `${days}d ${hours}h`;
   } else if (hours > 0) {
-    durationText = `${hours}h ${minutes}m`;
+    durationText =
+      `${hours}h ${minutes}m`;
   } else {
-    durationText = `${minutes}m`;
+    durationText =
+      `${minutes}m`;
   }
 
   return {
@@ -160,6 +163,263 @@ const formatCountdown = (deadline, now = new Date()) => {
   };
 };
 
+
+const DASHBOARD_DEPLOYMENT_TIMING_REQUIREMENTS = Object.freeze({
+  "Introduction to Deployment Call": {
+    anchor: "all-clear",
+    offsetDays: 60,
+    timingRule: "Attend within 60 days of becoming All Clear."
+  },
+  "Speciality Classes": {
+    anchor: "arrival",
+    offsetDays: -90,
+    timingRule: "Complete no later than 90 days before the scheduled arrival date."
+  },
+  "Speciality with Trainer Skills Check": {
+    anchor: "arrival",
+    offsetDays: -75,
+    timingRule: "Complete 75–90 days before the scheduled arrival date; countdown target is 75 days before arrival."
+  },
+  "Final Self Assessment": {
+    anchor: "arrival",
+    offsetDays: -60,
+    timingRule: "Complete 60–90 days before the scheduled arrival date; countdown target is 60 days before arrival."
+  },
+  "Housing / Transportation Call": {
+    anchor: "arrival",
+    offsetDays: -60,
+    timingRule: "Attend no later than 60 days before the scheduled arrival date."
+  },
+  "Deployment Pre-Arrival Call": {
+    anchor: "arrival",
+    offsetDays: -45,
+    timingRule: "Attend 30–45 days before the scheduled arrival date; countdown target is 45 days before arrival."
+  },
+  "Pre-Arrival Banking Call": {
+    anchor: "arrival",
+    offsetDays: -60,
+    timingRule: "Attend 60 days before the scheduled arrival date."
+  },
+  "Employer Pre-Arrival Call": {
+    anchor: "arrival",
+    offsetDays: -30,
+    timingRule: "Attend 15–30 days before the scheduled arrival date; countdown target is 30 days before arrival."
+  },
+  "deployMate Ready": {
+    anchor: "arrival",
+    offsetDays: -30,
+    timingRule: "Complete deployMate readiness 30 days before the scheduled arrival date."
+  },
+  "Arrival Itinerary": {
+    anchor: "arrival",
+    offsetDays: -14,
+    timingRule: "Review the Arrival Itinerary 10–14 days before the scheduled arrival date; countdown target is 14 days before arrival."
+  },
+  "Receipt Submission": {
+    anchor: "arrival",
+    offsetDays: -7,
+    timingRule: "Complete the Expense Report 7 days before the scheduled arrival date."
+  },
+  "Arrived": {
+    anchor: "arrival",
+    offsetDays: 0,
+    timingRule: "Arrival is due on the scheduled arrival date."
+  }
+});
+
+const unwrapDashboardField = value => {
+  if (
+    value &&
+    typeof value === "object" &&
+    !(value instanceof Date)
+  ) {
+    return (
+      value.value ??
+      value.display_value ??
+      value.displayValue ??
+      value.name ??
+      value.label ??
+      value.date ??
+      value.datetime ??
+      null
+    );
+  }
+
+  return value;
+};
+
+const readDashboardField = (
+  source,
+  names = []
+) => {
+  for (const name of names) {
+    if (
+      source &&
+      Object.prototype.hasOwnProperty.call(
+        source,
+        name
+      )
+    ) {
+      const value =
+        unwrapDashboardField(
+          source[name]
+        );
+
+      if (
+        value !== null &&
+        value !== undefined &&
+        String(value).trim() !== "" &&
+        String(value).trim() !== "—"
+      ) {
+        return value;
+      }
+    }
+  }
+
+  return null;
+};
+
+const parseDashboardTimingDate = value => {
+  const raw =
+    unwrapDashboardField(
+      value
+    );
+
+  if (!raw) return null;
+
+  if (raw instanceof Date) {
+    return Number.isNaN(raw.getTime())
+      ? null
+      : new Date(raw.getTime());
+  }
+
+  const textValue =
+    String(raw).trim();
+
+  const dateOnly =
+    textValue.match(
+      /^(\d{4})-(\d{2})-(\d{2})$/
+    );
+
+  if (dateOnly) {
+    const parsed =
+      new Date(
+        Number(dateOnly[1]),
+        Number(dateOnly[2]) - 1,
+        Number(dateOnly[3]),
+        12,
+        0,
+        0,
+        0
+      );
+
+    return Number.isNaN(parsed.getTime())
+      ? null
+      : parsed;
+  }
+
+  const parsed =
+    new Date(textValue);
+
+  return Number.isNaN(parsed.getTime())
+    ? null
+    : parsed;
+};
+
+const hydrateDashboardDeploymentTiming = (
+  stage,
+  profile,
+  allStages
+) => {
+  const requirement =
+    DASHBOARD_DEPLOYMENT_TIMING_REQUIREMENTS[
+      stage?.stage_name
+    ];
+
+  if (!requirement) {
+    return stage;
+  }
+
+  const documentarilyQualifiedStage =
+    (allStages || []).find(
+      item =>
+        item?.stage_name ===
+        "Documentarily Qualified"
+    );
+
+  const allClear =
+    parseDashboardTimingDate(
+      readDashboardField(
+        profile,
+        [
+          "All_Clear_Date",
+          "All_Clear_Date_Time",
+          "allClearDate"
+        ]
+      ) ||
+      documentarilyQualifiedStage?.completed_date ||
+      documentarilyQualifiedStage?.completed_at
+    );
+
+  const arrival =
+    parseDashboardTimingDate(
+      readDashboardField(
+        profile,
+        [
+          "Flight_Arrival_Time",
+          "flightArrivalTime",
+          "Final_Destination_Arrival",
+          "Final_Arrival",
+          "final_destination_arrival",
+          "scheduledarrivaldate",
+          "ScheduledArrivalDate",
+          "ETA"
+        ]
+      )
+    );
+
+  const timingAnchor =
+    requirement.anchor === "all-clear"
+      ? allClear
+      : arrival;
+
+  if (!timingAnchor) {
+    return {
+      ...stage,
+      target_date: null,
+      timing_rule:
+        stage?.timing_rule ||
+        requirement.timingRule,
+      timing_waiting_for_anchor:
+        true
+    };
+  }
+
+  const targetDate =
+    new Date(
+      timingAnchor.getTime() +
+      Number(
+        requirement.offsetDays ||
+        0
+      ) *
+        DAY_MS
+    );
+
+  return {
+    ...stage,
+    target_date:
+      targetDate.toISOString(),
+    timing_rule:
+      requirement.timingRule,
+    timing_anchor:
+      timingAnchor.toISOString(),
+    timing_anchor_type:
+      requirement.anchor,
+    timing_waiting_for_anchor:
+      false
+  };
+};
+
 // ─── Stage → "what you need to do" guide ───────────────────────────────────
 const REQUIRED_STAGE_ACTIONS = {
   "Mandatory Pre-Interview Coaching Call": { message: "Complete the mandatory coaching call 24–36 hours before your interview.", cta: "View Pipeline", icon: Phone, urgency: "high" },
@@ -167,6 +427,7 @@ const REQUIRED_STAGE_ACTIONS = {
   "Speciality Classes": { message: "Complete your assigned speciality classes.", cta: "View Deployment", icon: Book, urgency: "high" },
   "Final Self Assessment": { message: "Complete your final self assessment.", cta: "View Deployment", icon: ClipboardList, urgency: "high" },
   "Speciality w/Trainer Skills Check": { message: "Complete your speciality skills check with your trainer.", cta: "View Deployment", icon: CheckCircle2, urgency: "high" },
+  "Speciality with Trainer Skills Check": { message: "Complete your speciality skills check with your trainer.", cta: "View Deployment", icon: CheckCircle2, urgency: "high" },
   "Deployment Eligible / Not Eligible": { message: "Your deployment eligibility is being confirmed.", cta: "View Status", icon: CheckCircle2, urgency: "medium" },
   "Deployment Pre-Arrival Call": { message: "Attend your deployment pre-arrival call.", cta: "View Deployment", icon: Phone, urgency: "high" },
   "Housing / Transportation Call": { message: "Confirm housing and transportation arrangements.", cta: "View Deployment", icon: Home, urgency: "high" },
@@ -191,7 +452,20 @@ const REQUIRED_STAGE_ACTIONS = {
 };
 
 const getDashboardVisibleStages = (stages = [], applicationStatus = "") => {
-  stages = getEnabledPipelineStages(stages);
+  stages = getEnabledPipelineStages(stages)
+    .filter(stage =>
+      stage?.is_gate !== true &&
+      stage?.hidden_from_main_flow !== true &&
+      stage?.non_counted_section !== true &&
+      stage?.nclex_subprocess !== true &&
+      ![
+        "NCLEX Roadmap",
+        "NCLEX Prescreen",
+        "NCLEX Program"
+      ].includes(
+        stage?.stage_category
+      )
+    );
   const normalized = String(applicationStatus || "")
     .trim()
     .toLowerCase()
@@ -963,6 +1237,34 @@ export default function Dashboard() {
       }
   });
 
+
+  useEffect(() => {
+    const refreshPipelineSummary =
+      () => {
+        refetch();
+      };
+
+    window.addEventListener(
+      "pipeline-updated",
+      refreshPipelineSummary
+    );
+    window.addEventListener(
+      "candidate-data-updated",
+      refreshPipelineSummary
+    );
+
+    return () => {
+      window.removeEventListener(
+        "pipeline-updated",
+        refreshPipelineSummary
+      );
+      window.removeEventListener(
+        "candidate-data-updated",
+        refreshPipelineSummary
+      );
+    };
+  }, [refetch]);
+
   const {
     data:
       dashboardUpdatesPayload,
@@ -1034,10 +1336,77 @@ export default function Dashboard() {
     summary?.pipeline ||
     {};
 
-  const visiblePipelineStages = getDashboardVisibleStages(
+  const baseVisiblePipelineStages = getDashboardVisibleStages(
     Array.isArray(pipeline.stages) ? pipeline.stages : [],
     pipeline.applicationStatus || pipeline.application_status || pipeline.hiringState?.applicationStatus || ""
   );
+
+  const dashboardNclexStatus =
+    String(
+      profile.NCLEX_Status ||
+      profile.nclexStatus ||
+      pipeline.nclexStatus ||
+      pipeline.hiringState?.nclexStatus ||
+      ""
+    )
+      .trim()
+      .toLowerCase();
+
+  const dashboardNclexEligible =
+    pipeline.hiringState?.nclexEligible === true ||
+    pipeline.hiringState?.transferStatusSelected === true ||
+    dashboardNclexStatus === "passed";
+
+  const dashboardNclexExamPassed =
+    dashboardNclexStatus ===
+    "passed";
+
+  const nclexPrerequisiteNames =
+    new Set([
+      "Applied",
+      "Associated with Job",
+      "Qualified - Match",
+      "Transfer to ICP USRN School"
+    ]);
+
+  const visiblePipelineStages =
+    baseVisiblePipelineStages
+      .filter(stage =>
+        stage?.stage_name !==
+          "Transfer to ICP USRN School" ||
+        dashboardNclexEligible
+      )
+      .map(stage => {
+      let next =
+        hydrateDashboardDeploymentTiming(
+          stage,
+          profile,
+          baseVisiblePipelineStages
+        );
+
+      if (
+        dashboardNclexEligible &&
+        nclexPrerequisiteNames.has(
+          next?.stage_name
+        )
+      ) {
+        next = {
+          ...next,
+          status:
+            "Completed",
+          completed:
+            true,
+          is_completed:
+            true,
+          completed_date:
+            next.completed_date ||
+            next.completed_at ||
+            new Date().toISOString()
+        };
+      }
+
+      return next;
+    });
 
   const hiddenStageNames = new Set(
     (Array.isArray(pipeline.stages) ? pipeline.stages : [])
@@ -1066,9 +1435,32 @@ export default function Dashboard() {
       "not qualified-to close",
       "not qualified - to close",
       "not qualified to close",
-      "not qualified-to-close"
+      "not qualified-to-close",
+      "to be closed",
+      "to-be-closed"
     ].includes(
       dashboardApplicationStatus
+    );
+
+  const serverCurrentStage =
+    pipeline.authoritativeCurrentStage ||
+    pipeline.currentStage ||
+    null;
+
+  const staleCompletedNclexCurrent =
+    Boolean(
+      serverCurrentStage &&
+      (
+        serverCurrentStage.nclex_stage === true ||
+        serverCurrentStage.stage_category ===
+          "NCLEX Program"
+      ) &&
+      (
+        dashboardNclexExamPassed ||
+        isPipelineStageComplete(
+          serverCurrentStage
+        )
+      )
     );
 
   const rawActiveStage =
@@ -1106,15 +1498,14 @@ export default function Dashboard() {
                 "In Progress"
             }
           )
-        : (
-            pipeline.authoritativeCurrentStage ||
-            pipeline.currentStage ||
-            null
-          );
+        : staleCompletedNclexCurrent
+          ? null
+          : serverCurrentStage;
 
   const rawPendingNextStage =
     isQualifiedCandidatePool ||
-    isUnqualifiedCandidate
+    isUnqualifiedCandidate ||
+    staleCompletedNclexCurrent
       ? null
       : (
           pipeline.authoritativeNextStage ??
@@ -1887,6 +2278,12 @@ export default function Dashboard() {
                     {activeDeadline.toLocaleString()}
                   </p>
                 </div>
+              )}
+
+              {activeStage.timing_rule && (
+                <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
+                  {activeStage.timing_rule}
+                </p>
               )}
 
               {pendingNextStage && (

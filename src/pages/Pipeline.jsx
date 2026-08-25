@@ -433,19 +433,19 @@ const STAGES_CONFIG = [
   { id: 28, stage_name: "Foundations: Cultural Readiness", stage_category: "Immigration", stage_order: 28 },
   { id: 29, stage_name: "Documentarily Qualified", stage_category: "Immigration", stage_order: 29 },
 
-  // Stage 3 — Deployment. Introduction to Deployment Call is the first step.
-  { id: 29.5, stage_name: "Introduction to Deployment Call", stage_category: "Deployment", stage_order: 29.5, days_from_start: 890 },
-  { id: 30, stage_name: "Speciality Classes", stage_category: "Deployment", stage_order: 30, days_from_start: 900 },
-  { id: 31, stage_name: "Final Self Assessment", stage_category: "Deployment", stage_order: 31, days_from_start: 910 },
-  { id: 32, stage_name: "Speciality with Trainer Skills Check", stage_category: "Deployment", stage_order: 32, days_from_start: 920 },
-  { id: 33, stage_name: "Housing / Transportation Call", stage_category: "Deployment", stage_order: 33, days_from_start: 930 },
-  { id: 34, stage_name: "Deployment Pre-Arrival Call", stage_category: "Deployment", stage_order: 34, days_from_start: 940 },
-  { id: 35, stage_name: "Pre-Arrival Banking Call", stage_category: "Deployment", stage_order: 35, days_from_start: 950 },
-  { id: 36, stage_name: "Employer Pre-Arrival Call", stage_category: "Deployment", stage_order: 36, days_from_start: 960 },
-  { id: 37, stage_name: "deployMate Ready", stage_category: "Deployment", stage_order: 37, days_from_start: 970 },
-  { id: 38, stage_name: "Arrival Itinerary", stage_category: "Deployment", stage_order: 38, days_from_start: 980 },
-  { id: 39, stage_name: "Receipt Submission", display_name: "Expense Report", stage_category: "Deployment", stage_order: 39, days_from_start: 990 },
-  { id: 40, stage_name: "Arrived", stage_category: "Deployment", stage_order: 40, days_from_start: 1000 },
+  // Stage 3 — Deployment. Deadlines are calculated from All Clear / scheduled arrival.
+  { id: 29.5, stage_name: "Introduction to Deployment Call", stage_category: "Deployment", stage_order: 29.5 },
+  { id: 30, stage_name: "Speciality Classes", stage_category: "Deployment", stage_order: 30 },
+  { id: 31, stage_name: "Final Self Assessment", stage_category: "Deployment", stage_order: 31 },
+  { id: 32, stage_name: "Speciality with Trainer Skills Check", stage_category: "Deployment", stage_order: 32 },
+  { id: 33, stage_name: "Housing / Transportation Call", stage_category: "Deployment", stage_order: 33 },
+  { id: 34, stage_name: "Deployment Pre-Arrival Call", stage_category: "Deployment", stage_order: 34 },
+  { id: 35, stage_name: "Pre-Arrival Banking Call", stage_category: "Deployment", stage_order: 35 },
+  { id: 36, stage_name: "Employer Pre-Arrival Call", stage_category: "Deployment", stage_order: 36 },
+  { id: 37, stage_name: "deployMate Ready", stage_category: "Deployment", stage_order: 37 },
+  { id: 38, stage_name: "Arrival Itinerary", stage_category: "Deployment", stage_order: 38 },
+  { id: 39, stage_name: "Receipt Submission", display_name: "Expense Report", stage_category: "Deployment", stage_order: 39 },
+  { id: 40, stage_name: "Arrived", stage_category: "Deployment", stage_order: 40 },
 
   // Stage 4 — Aftercare: EXACTLY 8 stages.
   { id: 41, stage_name: "Welcome Call/24 Hour Call", stage_category: "Aftercare", stage_order: 41, days_from_arrival: AFTERCARE_DAY_OFFSETS["Welcome Call/24 Hour Call"] },
@@ -457,6 +457,239 @@ const STAGES_CONFIG = [
   { id: 47, stage_name: "Placement Stability Check-in (90 Day Call)", stage_category: "Aftercare", stage_order: 47, days_from_arrival: AFTERCARE_DAY_OFFSETS["Placement Stability Check-in (90 Day Call)"] },
   { id: 48, stage_name: "1 Year Survey", stage_category: "Aftercare", stage_order: 48, days_from_arrival: AFTERCARE_DAY_OFFSETS["1 Year Survey"] }
 ];
+
+const DEPLOYMENT_TIMING_REQUIREMENTS = Object.freeze({
+  "Introduction to Deployment Call": {
+    anchor: "all-clear",
+    offsetDays: 60,
+    timingRule: "Attend within 60 days of becoming All Clear."
+  },
+  "Speciality Classes": {
+    anchor: "arrival",
+    offsetDays: -90,
+    timingRule: "Complete no later than 90 days before the scheduled arrival date."
+  },
+  "Speciality with Trainer Skills Check": {
+    anchor: "arrival",
+    offsetDays: -75,
+    timingRule: "Complete 75–90 days before the scheduled arrival date; countdown target is 75 days before arrival."
+  },
+  "Final Self Assessment": {
+    anchor: "arrival",
+    offsetDays: -60,
+    timingRule: "Complete 60–90 days before the scheduled arrival date; countdown target is 60 days before arrival."
+  },
+  "Housing / Transportation Call": {
+    anchor: "arrival",
+    offsetDays: -60,
+    timingRule: "Attend no later than 60 days before the scheduled arrival date."
+  },
+  "Deployment Pre-Arrival Call": {
+    anchor: "arrival",
+    offsetDays: -45,
+    timingRule: "Attend 30–45 days before the scheduled arrival date; countdown target is 45 days before arrival."
+  },
+  "Pre-Arrival Banking Call": {
+    anchor: "arrival",
+    offsetDays: -60,
+    timingRule: "Attend 60 days before the scheduled arrival date."
+  },
+  "Employer Pre-Arrival Call": {
+    anchor: "arrival",
+    offsetDays: -30,
+    timingRule: "Attend 15–30 days before the scheduled arrival date; countdown target is 30 days before arrival."
+  },
+  "deployMate Ready": {
+    anchor: "arrival",
+    offsetDays: -30,
+    timingRule: "Complete deployMate readiness 30 days before the scheduled arrival date."
+  },
+  "Arrival Itinerary": {
+    anchor: "arrival",
+    offsetDays: -14,
+    timingRule: "Review the Arrival Itinerary 10–14 days before the scheduled arrival date; countdown target is 14 days before arrival."
+  },
+  "Receipt Submission": {
+    anchor: "arrival",
+    offsetDays: -7,
+    timingRule: "Complete the Expense Report 7–10 days before the scheduled arrival date; countdown target is 7 days before arrival."
+  },
+  "Arrived": {
+    anchor: "arrival",
+    offsetDays: 0,
+    timingRule: "Arrival is due on the scheduled arrival date."
+  }
+});
+
+const parsePipelineTimingDate = value => {
+  const raw =
+    unwrapPipelineFieldValue(
+      value
+    );
+
+  if (!raw) {
+    return null;
+  }
+
+  if (raw instanceof Date) {
+    return Number.isNaN(
+      raw.getTime()
+    )
+      ? null
+      : new Date(
+          raw.getTime()
+        );
+  }
+
+  const textValue =
+    String(
+      raw
+    ).trim();
+
+  const dateOnly =
+    textValue.match(
+      /^(\\d{4})-(\\d{2})-(\\d{2})$/
+    );
+
+  if (dateOnly) {
+    const parsed =
+      new Date(
+        Number(dateOnly[1]),
+        Number(dateOnly[2]) - 1,
+        Number(dateOnly[3]),
+        12,
+        0,
+        0,
+        0
+      );
+
+    return Number.isNaN(
+      parsed.getTime()
+    )
+      ? null
+      : parsed;
+  }
+
+  const parsed =
+    new Date(
+      textValue
+    );
+
+  return Number.isNaN(
+    parsed.getTime()
+  )
+    ? null
+    : parsed;
+};
+
+const getDeploymentStageTiming = ({
+  stageName,
+  liveFields = {},
+  sourceStages = [],
+  finalArrivalDate = null
+}) => {
+  const requirement =
+    DEPLOYMENT_TIMING_REQUIREMENTS[
+      stageName
+    ];
+
+  if (!requirement) {
+    return null;
+  }
+
+  const allClearStage =
+    (Array.isArray(sourceStages)
+      ? sourceStages
+      : []
+    ).find(
+      stage =>
+        stage?.stage_name ===
+        "Documentarily Qualified"
+    );
+
+  const allClearStageStatus =
+    liveFields
+      ?.__stageStatus
+      ?.[
+        "Documentarily Qualified"
+      ] ||
+    {};
+
+  const allClearAnchor =
+    parsePipelineTimingDate(
+      getLivePipelineFieldValue(
+        liveFields,
+        [
+          "All_Clear_Date",
+          "All_Clear_Date_Time",
+          "allClearDate",
+          "all_clear_date"
+        ]
+      ) ||
+      allClearStageStatus
+        ?.completed_date ||
+      allClearStageStatus
+        ?.completed_at ||
+      allClearStage
+        ?.completed_date ||
+      allClearStage
+        ?.completed_at
+    );
+
+  const arrivalAnchor =
+    parsePipelineTimingDate(
+      finalArrivalDate ||
+      getLivePipelineFieldValue(
+        liveFields,
+        [
+          "Flight_Arrival_Time",
+          "flightArrivalTime",
+          "Final_Destination_Arrival",
+          "Final_Arrival",
+          "final_destination_arrival",
+          "scheduledarrivaldate",
+          "ScheduledArrivalDate",
+          "arrival_date",
+          "ArrivalDate",
+          "ETA"
+        ]
+      )
+    );
+
+  const timingAnchor =
+    requirement.anchor ===
+      "all-clear"
+      ? allClearAnchor
+      : arrivalAnchor;
+
+  if (!timingAnchor) {
+    return {
+      targetDate:
+        null,
+      timingRule:
+        requirement.timingRule,
+      anchorType:
+        requirement.anchor
+    };
+  }
+
+  return {
+    targetDate:
+      addDays(
+        timingAnchor,
+        Number(
+          requirement.offsetDays ||
+          0
+        )
+      ),
+    timingRule:
+      requirement.timingRule,
+    anchorType:
+      requirement.anchor,
+    anchorDate:
+      timingAnchor
+  };
+};
 
 const REQUIRED_STAGE_NOTICES = {
   "Mandatory Pre-Interview Coaching Call": "Complete the mandatory coaching call 24–36 hours before your interview.",
@@ -11005,6 +11238,210 @@ const sanitizePipelineStages = (incomingStages, candidateEmail) => {
   return [...canonical, ...nclexHistory];
 };
 
+const formatLivePipelineCountdown = (
+  targetDate,
+  nowMs = Date.now()
+) => {
+  const target =
+    targetDate instanceof Date
+      ? targetDate
+      : new Date(
+          targetDate
+        );
+
+  if (
+    Number.isNaN(
+      target.getTime()
+    )
+  ) {
+    return null;
+  }
+
+  const differenceMs =
+    target.getTime() -
+    nowMs;
+
+  const overdue =
+    differenceMs <
+    0;
+
+  const absoluteSeconds =
+    Math.max(
+      0,
+      Math.floor(
+        Math.abs(
+          differenceMs
+        ) /
+        1000
+      )
+    );
+
+  const totalHours =
+    Math.floor(
+      absoluteSeconds /
+      3600
+    );
+
+  const days =
+    Math.floor(
+      totalHours /
+      24
+    );
+
+  const hours =
+    totalHours %
+    24;
+
+  const minutes =
+    Math.floor(
+      (
+        absoluteSeconds %
+        3600
+      ) /
+      60
+    );
+
+  const seconds =
+    absoluteSeconds %
+    60;
+
+  return {
+    target,
+    overdue,
+    text:
+      overdue
+        ? `${totalHours}h ${minutes}m ${seconds}s overdue`
+        : `${days}d ${hours}h ${minutes}m ${seconds}s remaining`
+  };
+};
+
+const LiveCurrentStageTimer = ({
+  stage
+}) => {
+  const [
+    now,
+    setNow
+  ] = useState(
+    () =>
+      Date.now()
+  );
+
+  useEffect(() => {
+    setNow(
+      Date.now()
+    );
+
+    const timer =
+      window.setInterval(
+        () => {
+          setNow(
+            Date.now()
+          );
+        },
+        1000
+      );
+
+    return () =>
+      window.clearInterval(
+        timer
+      );
+  }, [
+    stage?.stage_name,
+    stage?.target_date,
+    stage?.targetDate,
+    stage?.due_date,
+    stage?.dueDate
+  ]);
+
+  if (
+    !stage ||
+    isPipelineStageComplete(
+      stage
+    )
+  ) {
+    return null;
+  }
+
+  const target =
+    stage.target_date ||
+    stage.targetDate ||
+    stage.due_date ||
+    stage.dueDate ||
+    null;
+
+  if (!target) {
+    return null;
+  }
+
+  const countdown =
+    formatLivePipelineCountdown(
+      target,
+      now
+    );
+
+  if (!countdown) {
+    return null;
+  }
+
+  const timingStatus =
+    String(
+      stage.timing_status ||
+      stage.timingStatus ||
+      ""
+    )
+      .trim()
+      .toLowerCase();
+
+  const atRisk =
+    !countdown.overdue &&
+    timingStatus ===
+      "at risk";
+
+  return (
+    <div
+      className={cn(
+        "mt-3 rounded-lg border px-3 py-2",
+        countdown.overdue
+          ? "border-orange-200 bg-orange-50"
+          : atRisk
+            ? "border-amber-200 bg-amber-50"
+            : "border-emerald-200 bg-emerald-50"
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <Timer
+          className={cn(
+            "h-4 w-4",
+            countdown.overdue
+              ? "text-orange-600"
+              : atRisk
+                ? "text-amber-600"
+                : "text-emerald-600"
+          )}
+        />
+
+        <span
+          className={cn(
+            "text-xs font-semibold",
+            countdown.overdue
+              ? "text-orange-800"
+              : atRisk
+                ? "text-amber-800"
+                : "text-emerald-800"
+          )}
+        >
+          {countdown.text}
+        </span>
+      </div>
+
+      <p className="mt-1 text-[11px] text-muted-foreground">
+        Deadline:{" "}
+        {countdown.target.toLocaleString()}
+      </p>
+    </div>
+  );
+};
+
 export default function Pipeline() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -11030,16 +11467,6 @@ export default function Pipeline() {
   const [icpUSRNCRMData, setICPUSRNCRMData] = useState({});
   const [portalAccessBlocked, setPortalAccessBlocked] = useState(false);
   const [finalArrivalDate, setFinalArrivalDate] = useState(null);
-  const [countdownNow, setCountdownNow] = useState(() => Date.now());
-
-  // Keep every visible stage countdown current, regardless of pipeline category.
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setCountdownNow(Date.now());
-    }, 30000);
-
-    return () => window.clearInterval(timer);
-  }, []);
 
   const pipelineCacheKey = user?.email
     ? `icp_pipeline_cache_v2:${String(user.email).trim().toLowerCase()}`
@@ -14791,41 +15218,6 @@ export default function Pipeline() {
     if (saved) toast.success(`${stage.stage_name} marked as ${nextStatus}`);
   };
 
-  const getStageCountdownText = (stage) => {
-    if (!stage || isPipelineStageComplete(stage)) {
-      return null;
-    }
-
-    const storedTarget =
-      stage.target_date ||
-      stage.targetDate ||
-      stage.due_date ||
-      stage.dueDate ||
-      null;
-
-    if (!storedTarget) {
-      return null;
-    }
-
-    const target = new Date(storedTarget);
-    if (Number.isNaN(target.getTime())) {
-      return null;
-    }
-
-    const remainingMs =
-      target.getTime() -
-      countdownNow;
-    const overdue = remainingMs < 0;
-    const absoluteMs = Math.abs(remainingMs);
-    const days = Math.floor(absoluteMs / 86400000);
-    const hours = Math.floor((absoluteMs % 86400000) / 3600000);
-    const minutes = Math.floor((absoluteMs % 3600000) / 60000);
-
-    return overdue
-      ? `${days}d ${hours}h ${minutes}m overdue`
-      : `${days}d ${hours}h ${minutes}m remaining`;
-  };
-
   const getRiskStatus = (stage) => {
     if (!stage) {
       return null;
@@ -17241,6 +17633,51 @@ export default function Pipeline() {
       };
     }
 
+    if (
+      next.stage_category ===
+      "Deployment"
+    ) {
+      const deploymentTiming =
+        getDeploymentStageTiming({
+          stageName:
+            next.stage_name,
+          liveFields:
+            deploymentFieldStatus ||
+            {},
+          sourceStages:
+            stages,
+          finalArrivalDate
+        });
+
+      if (deploymentTiming) {
+        next = {
+          ...next,
+          target_date:
+            deploymentTiming
+              .targetDate
+              ? deploymentTiming
+                  .targetDate
+                  .toISOString()
+              : null,
+          timing_rule:
+            deploymentTiming
+              .timingRule,
+          timing_anchor_type:
+            deploymentTiming
+              .anchorType,
+          timing_anchor:
+            deploymentTiming
+              .anchorDate
+              ? deploymentTiming
+                  .anchorDate
+                  .toISOString()
+              : null,
+          deployment_timing:
+            true
+        };
+      }
+    }
+
     // Aftercare opening is derived DIRECTLY from live Flight_Arrival_Time.
     // It does not depend on saved pipeline state.
     if (
@@ -17613,10 +18050,25 @@ export default function Pipeline() {
         pendingNextStage) && (
         <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
           {currentCandidateStage && (
-            <p className="text-sm font-semibold text-blue-900">
-              Current stage:{" "}
-              {currentCandidateStage.stage_name}
-            </p>
+            <>
+              <p className="text-sm font-semibold text-blue-900">
+                Current stage:{" "}
+                {currentCandidateStage.stage_name}
+              </p>
+
+              <LiveCurrentStageTimer
+                stage={
+                  currentCandidateStage
+                }
+              />
+
+              {currentCandidateStage
+                .timing_rule && (
+                <p className="mt-2 text-xs text-blue-700">
+                  {currentCandidateStage.timing_rule}
+                </p>
+              )}
+            </>
           )}
 
           {pendingNextStage && (
@@ -17766,8 +18218,6 @@ export default function Pipeline() {
                     stage.stage_name ===
                       "Immigration Call"
                   );
-                const stageCountdown =
-                  getStageCountdownText(stage);
                 const unlocked = stage.non_counted_section === true
                   ? true
                   : isStageUnlocked(stage, displayStages);
@@ -17871,15 +18321,6 @@ export default function Pipeline() {
                     </div>
 
                     <div className="ml-auto flex shrink-0 items-center gap-2 self-center">
-                      {stageCountdown && (
-                        <span
-                          className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700"
-                          title={`Target: ${stage.target_date || stage.targetDate || stage.due_date || stage.dueDate}`}
-                        >
-                          {stageCountdown}
-                        </span>
-                      )}
-
                       {isImmigrationStage &&
                         stage.timing_rule && (
                           <span
@@ -18036,10 +18477,6 @@ export default function Pipeline() {
 
                                 const gate = item.performanceGate;
                                 const performance = getNCLEXPerformanceSnapshot(icpUSRNCRMData);
-                                const nclexCountdown =
-                                  complete
-                                    ? null
-                                    : getStageCountdownText(persistedStage);
 
                                 const miniStage = {
                                   id: `nclex-mini-${index + 1}`,
@@ -18085,15 +18522,6 @@ export default function Pipeline() {
                                         <Lock className="h-5 w-5 shrink-0 text-gray-400" />
                                       )}
                                     </div>
-
-                                    {nclexCountdown && (
-                                      <span
-                                        className="mt-2 inline-flex rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700"
-                                        title={`Target: ${persistedStage?.target_date || persistedStage?.targetDate || persistedStage?.due_date || persistedStage?.dueDate}`}
-                                      >
-                                        {nclexCountdown}
-                                      </span>
-                                    )}
 
                                     {gate && (
                                       <div className="mt-2 rounded-lg border border-purple-100 bg-purple-50/60 p-2 text-[11px] text-purple-800">
