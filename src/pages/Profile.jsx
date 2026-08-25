@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { useAuth } from "@/lib/AuthContext";
-import { User, Phone, Mail, MapPin, Briefcase, Plane, Building2, UserCheck, Calendar, Award, FileText, FileCheck, Clock, Shield, CheckCircle, AlertCircle, Building, Loader2, Users, CalendarDays } from "lucide-react";
+import { User, Phone, Mail, MapPin, Briefcase, Plane, Building2, UserCheck, Calendar, Award, FileText, FileCheck, Clock, Shield, CheckCircle, AlertCircle, Building, Loader2, Users, CalendarDays, ExternalLink } from "lucide-react";
 import { useState, useEffect } from "react";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://fictional-carnival-3inv.onrender.com';
@@ -122,6 +122,7 @@ export default function Profile() {
     travelSummary: {}
   });
   const [embassyEligibilityStatus, setEmbassyEligibilityStatus] = useState("");
+  const [preferredLicensureAgentUrl, setPreferredLicensureAgentUrl] = useState("");
 
   const [travelPlanning, setTravelPlanning] = useState({
     departureCity: "",
@@ -397,6 +398,66 @@ export default function Profile() {
 
       window.clearInterval(
         refreshTimer
+      );
+    };
+  }, [user?.email]);
+
+
+  useEffect(() => {
+    const loadPreferredLicensureAgentUrl = async () => {
+      if (!user?.email) return;
+
+      const token = localStorage.getItem("icp_auth_token");
+      if (!token) return;
+
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/requests?_=${Date.now()}`,
+          {
+            cache: "no-store",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Cache-Control": "no-cache",
+              Pragma: "no-cache"
+            }
+          }
+        );
+
+        const data = await response.json().catch(() => ({}));
+
+        if (
+          response.ok &&
+          data.success === true
+        ) {
+          setPreferredLicensureAgentUrl(
+            String(
+              data.licenseEndorsementUrl ||
+              ""
+            ).trim()
+          );
+        }
+      } catch (error) {
+        console.warn(
+          "[Profile] Preferred licensure agent link unavailable:",
+          error?.message || error
+        );
+      }
+    };
+
+    loadPreferredLicensureAgentUrl();
+
+    const refresh = () =>
+      loadPreferredLicensureAgentUrl();
+
+    window.addEventListener(
+      "candidate-data-updated",
+      refresh
+    );
+
+    return () => {
+      window.removeEventListener(
+        "candidate-data-updated",
+        refresh
       );
     };
   }, [user?.email]);
@@ -1005,6 +1066,42 @@ export default function Profile() {
           )}
         </div>
       </div>
+
+      {preferredLicensureAgentUrl ? (
+        <a
+          href={preferredLicensureAgentUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="group flex items-center justify-between gap-4 rounded-xl border border-primary/30 bg-primary/5 p-4 transition hover:border-primary/60 hover:bg-primary/10 hover:shadow-sm"
+        >
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+              Click here
+            </p>
+            <p className="mt-1 font-semibold text-foreground">
+              Preferred 3rd Party licensure agent
+            </p>
+          </div>
+
+          <ExternalLink className="h-5 w-5 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" />
+        </a>
+      ) : (
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-muted/30 p-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Click here
+            </p>
+            <p className="mt-1 font-semibold text-foreground">
+              Preferred 3rd Party licensure agent
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Link is not currently available.
+            </p>
+          </div>
+
+          <ExternalLink className="h-5 w-5 shrink-0 text-muted-foreground" />
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-2 gap-4">
         {/* Personal Information */}

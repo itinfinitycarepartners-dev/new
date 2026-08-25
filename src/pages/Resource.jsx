@@ -14,7 +14,8 @@ import {
   MapPin,
   FileCheck2,
   Globe2,
-  Building2
+  Building2,
+  Gift
 } from "lucide-react";
 
 const ENGLISH_RESOURCES = [
@@ -39,6 +40,42 @@ const LICENSURE_RESOURCES = [
   {
     label: "NCSBN – Find a Board of Nursing",
     href: "https://www.ncsbn.org/contact-bon.htm"
+  }
+];
+
+const EXCLUSIVE_MEMBER_SERVICES = [
+  {
+    title: "Preferred 3rd Party Licensure Agent",
+    description:
+      "Access ICP's preferred third-party licensure support option.",
+    href:
+      import.meta.env.VITE_PREFERRED_LICENSURE_AGENT_URL ||
+      import.meta.env.VITE_LICENSE_ENDORSEMENT_ASSISTANCE_URL ||
+      ""
+  },
+  {
+    title: "Annual Participation Draw Offers",
+    description:
+      "View annual participation draw opportunities and member offers.",
+    href:
+      import.meta.env.VITE_ANNUAL_PARTICIPATION_DRAW_URL ||
+      ""
+  },
+  {
+    title: "My Rewards",
+    description:
+      "Access member rewards, vendor discounts, and other exclusive benefits.",
+    href:
+      import.meta.env.VITE_MY_REWARDS_URL ||
+      ""
+  },
+  {
+    title: "Preferred Vendors",
+    description:
+      "Preferred vendor resources including IAS, Advancial, and Regions Bank.",
+    href:
+      import.meta.env.VITE_PREFERRED_VENDORS_URL ||
+      ""
   }
 ];
 
@@ -196,6 +233,52 @@ function ResourceLink({ label, href }) {
   );
 }
 
+function MemberServiceCard({
+  title,
+  description,
+  href
+}) {
+  const content = (
+    <>
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+        <Gift className="h-5 w-5 text-primary" />
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <p className="font-semibold">
+          {title}
+        </p>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+          {description}
+        </p>
+      </div>
+
+      {href && (
+        <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground" />
+      )}
+    </>
+  );
+
+  if (href) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-start gap-4 rounded-xl border bg-white p-4 transition hover:border-primary/40 hover:bg-primary/5 hover:shadow-sm"
+      >
+        {content}
+      </a>
+    );
+  }
+
+  return (
+    <div className="flex items-start gap-4 rounded-xl border bg-white p-4">
+      {content}
+    </div>
+  );
+}
+
 export default function Resource() {
   const [tab, setTab] =
     useState("relocation");
@@ -233,6 +316,18 @@ export default function Resource() {
           }`}
         >
           Licensure
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setTab("member-services")}
+          className={`rounded-lg px-4 py-2 text-sm font-medium ${
+            tab === "member-services"
+              ? "bg-white shadow-sm"
+              : "text-muted-foreground"
+          }`}
+        >
+          Exclusive Member Services
         </button>
       </div>
 
@@ -292,7 +387,7 @@ export default function Resource() {
             </div>
           </section>
         </div>
-      ) : (
+      ) : tab === "licensure" ? (
         <div className="space-y-6">
           <section className="rounded-2xl border bg-card p-5">
             <h2 className="font-semibold">
@@ -383,6 +478,34 @@ export default function Resource() {
                 <ResourceLink
                   key={resource.label}
                   {...resource}
+                />
+              ))}
+            </div>
+          </section>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          <section className="rounded-2xl border bg-card p-5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                <Gift className="h-5 w-5 text-primary" />
+              </div>
+
+              <div>
+                <h2 className="font-semibold">
+                  Exclusive Member Services
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Member-only services, rewards, offers, and preferred vendor resources.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              {EXCLUSIVE_MEMBER_SERVICES.map(service => (
+                <MemberServiceCard
+                  key={service.title}
+                  {...service}
                 />
               ))}
             </div>
