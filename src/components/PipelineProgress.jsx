@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PIPELINE_STAGES } from "../pages/Pipeline";
+import { getEnabledPipelineStages } from "@/config/releaseConfig";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
@@ -153,7 +154,7 @@ export default function PipelineProgress() {
         return;
       }
 
-      let nextStages = readSavedStages(user.email);
+      let nextStages = getEnabledPipelineStages(readSavedStages(user.email));
 
       if (nextStages.length === 0) {
         nextStages = createDefaultStages(user.email);
@@ -235,7 +236,7 @@ export default function PipelineProgress() {
      * when the full Pipeline page updates the stages in the same tab.
      */
     const intervalId = window.setInterval(() => {
-      const saved = readSavedStages(user?.email);
+      const saved = getEnabledPipelineStages(readSavedStages(user?.email));
       if (saved.length > 0) {
         setStages((current) => {
           const currentJson = JSON.stringify(current);

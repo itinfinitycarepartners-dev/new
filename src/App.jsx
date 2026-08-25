@@ -28,6 +28,7 @@ import RAndL from "./pages/RAndL";
 import Admin from "./pages/overal";
 import Forms from "./pages/Forms";
 import MakeRequest from "./pages/MakeRequest";
+import { isPipelineCategoryEnabled } from "@/config/releaseConfig";
 
 // ─── Messaging imports ────────────────────────────────────────────────────────
 import Messages from "./pages/Messages";
@@ -72,6 +73,14 @@ const MessagingInitializer = ({ children }) => {
   ]);
 
   return children;
+};
+
+const ReleasedAftercareRoute = () => {
+  if (!isPipelineCategoryEnabled("Aftercare")) {
+    return <PageNotFound />;
+  }
+
+  return <Aftercare />;
 };
 
 const AuthenticatedApp = () => {
@@ -162,7 +171,7 @@ const AuthenticatedApp = () => {
           />
           <Route
             path="/aftercare"
-            element={<Aftercare />}
+            element={<ReleasedAftercareRoute />}
           />
           <Route
             path="/resource"

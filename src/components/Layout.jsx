@@ -1,6 +1,3 @@
-
-
-
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
 import { 
@@ -507,14 +504,18 @@ export default function Layout() {
         }
 
         const policy = data.accessPolicy || {};
+
+        // "locked" only controls which pipeline sections are available during
+        // a restricted/grace-period state. It must NOT terminate the login.
+        // The candidate should be signed out only after the backend confirms
+        // the actual portal-access deadline has been reached.
         if (
-          policy.mode === "not-qualified" &&
-          policy.locked === true
+          policy.portal_locked === true
         ) {
           sessionStorage.setItem(
             "candidate-access-message",
             policy.message ||
-            "You are currently not qualified to continue."
+            "Your candidate portal access period has ended."
           );
           await logout();
           navigate("/login");

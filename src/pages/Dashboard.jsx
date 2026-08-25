@@ -53,6 +53,7 @@ import { toast } from "sonner";
 
 // ─── IMPORT FROM src/api/icpClient.js ──────────────────────────────────────
 import { messaging, websocket, tokenStorage } from "@/api/icpClient";
+import { getEnabledPipelineStages } from "@/config/releaseConfig";
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://fictional-carnival-3inv.onrender.com';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -190,6 +191,7 @@ const REQUIRED_STAGE_ACTIONS = {
 };
 
 const getDashboardVisibleStages = (stages = [], applicationStatus = "") => {
+  stages = getEnabledPipelineStages(stages);
   const normalized = String(applicationStatus || "")
     .trim()
     .toLowerCase()
@@ -1310,23 +1312,11 @@ export default function Dashboard() {
       0
     );
 
-  const pipelineCompletedCount =
-    Number(
-      pipeline.completed ||
-      0
-    );
-
-  const pipelineTotalCount =
-    Number(
-      pipeline.total ||
-      0
-    );
-
-  const pipelineProgressPercent =
-    Number(
-      pipeline.progress ||
-      0
-    );
+  const pipelineCompletedCount = visiblePipelineStages.filter(isPipelineStageComplete).length;
+  const pipelineTotalCount = visiblePipelineStages.length;
+  const pipelineProgressPercent = pipelineTotalCount > 0
+    ? Math.round((pipelineCompletedCount / pipelineTotalCount) * 100)
+    : 0;
 
   useEffect(() => {
     if (!user?.email) {

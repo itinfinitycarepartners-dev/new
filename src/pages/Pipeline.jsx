@@ -76,6 +76,7 @@ import {
   useSearchParams
 } from "react-router-dom";
 import { candidate } from "@/api/icpClient";
+import { getEnabledPipelineStages } from "@/config/releaseConfig";
 
 const relocationTravelPolicyPdf =
   "/documents/2025_RL_Travel_and_Housing_Policies.pdf";
@@ -2047,7 +2048,7 @@ const riskConfig = {
   }
 };
 
-export const PIPELINE_STAGES = STAGES_CONFIG;
+export const PIPELINE_STAGES = getEnabledPipelineStages(STAGES_CONFIG);
 
 // Complete list of ALL global currencies with flags
 const CURRENCIES = [
@@ -10973,7 +10974,7 @@ const sanitizePipelineStages = (incomingStages, candidateEmail) => {
   }
 
   // The visible main pipeline ALWAYS comes from STAGES_CONFIG.
-  const canonical = STAGES_CONFIG.map(config => {
+  const canonical = getEnabledPipelineStages(STAGES_CONFIG).map(config => {
     const remote = byName.get(config.stage_name) || {};
     return {
       ...remote,
