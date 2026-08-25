@@ -105,9 +105,18 @@ export default function Profile() {
     hiredLocation: "",
     hiredDepartment: "",
     interviewLocation: "",
-    interviewDate: ""
+    interviewDate: "",
+    interviewNotes: "",
+    rate: "",
+    applicationStatus: "",
+    candidateStatus: ""
   });
   const [recruitLoading, setRecruitLoading] = useState(true);
+  const [interviewHiringSources, setInterviewHiringSources] = useState({
+    crm: {},
+    recruitCandidate: {},
+    recruitApplication: {}
+  });
   const [extendedProfile, setExtendedProfile] = useState({
     dependants: [],
     travelSummary: {}
@@ -185,7 +194,9 @@ export default function Profile() {
     fetchProfile();
   }, [user?.email]);
 
-  // Fetch Recruit data
+  // Fetch canonical Interview & Hiring data from the backend.
+  // /api/profile/source-data resolves the correct owner for each field:
+  // CRM Deals, Recruit Candidates, or Recruit Applications.
   useEffect(() => {
     const fetchRecruitData = async () => {
       if (!user?.email) {
@@ -194,59 +205,200 @@ export default function Profile() {
       }
 
       try {
-        const token = localStorage.getItem("icp_auth_token");
+        const token =
+          localStorage.getItem(
+            "icp_auth_token"
+          );
+
         if (!token) {
           setRecruitLoading(false);
           return;
         }
 
-        console.log("[Profile] Fetching Recruit data...");
-        const response = await fetch(`${API_BASE}/api/recruit/candidate`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
+        console.log(
+          "[Profile] Fetching canonical Interview & Hiring source data..."
+        );
+
+        const response =
+          await fetch(
+            `${API_BASE}/api/profile/source-data?refresh=true&_=${Date.now()}`,
+            {
+              cache: "no-store",
+              headers: {
+                Authorization:
+                  `Bearer ${token}`,
+                "Content-Type":
+                  "application/json",
+                "Cache-Control":
+                  "no-cache",
+                Pragma:
+                  "no-cache"
+              }
+            }
+          );
+
+        console.log(
+          "[Profile] Canonical source response status:",
+          response.status
+        );
+
+        const data =
+          await response
+            .json()
+            .catch(() => ({}));
+
+        if (
+          !response.ok ||
+          data.success !== true
+        ) {
+          throw new Error(
+            data.error ||
+            data.message ||
+            `HTTP ${response.status}`
+          );
+        }
+
+        const mapped =
+          data.mapped ||
+          {};
+
+        const sourcePayload =
+          data.interviewHiringSources ||
+          {
+            crm:
+              data.modules?.CRM_Deals ||
+              {},
+            recruitCandidate:
+              data.modules?.Recruit_Candidates ||
+              {},
+            recruitApplication:
+              data.modules?.Recruit_Applications ||
+              {}
+          };
+
+        setInterviewHiringSources({
+          crm:
+            sourcePayload.crm ||
+            {},
+          recruitCandidate:
+            sourcePayload.recruitCandidate ||
+            {},
+          recruitApplication:
+            sourcePayload.recruitApplication ||
+            {}
         });
 
-        console.log("[Profile] Recruit response status:", response.status);
+        setCurrentEmployer(
+          mapped.Current_Employer ||
+          ""
+        );
 
-        if (response.ok) {
-          const data = await response.json();
-          console.log("[Profile] Recruit data:", data);
-          
-          if (data.success && data.candidate) {
-            setCurrentEmployer(data.candidate.Current_Employer || "");
-            setScheduledForInterview(
-              data.candidate.Scheduled_for_Interview === true ||
-              data.candidate.Scheduled_for_Interview === "true"
-            );
-            
-            // Set the new recruit fields
-            setRecruitData({
-              hiredLocation: data.candidate.Hired_Location || "",
-              hiredDepartment: data.candidate.Hired_Department || "",
-              interviewLocation: data.candidate.Interview_Location || "",
-              interviewDate: data.candidate.Interview_Date || ""
-            });
-            
-            console.log("[Profile] Recruit data extracted:", {
-              hiredLocation: data.candidate.Hired_Location,
-              hiredDepartment: data.candidate.Hired_Department,
-              interviewLocation: data.candidate.Interview_Location,
-              interviewDate: data.candidate.Interview_Date
-            });
+        setScheduledForInterview(
+          mapped.Scheduled_for_Interview ===
+          true
+        );
+
+        setRecruitData({
+          hiredLocation:
+            mapped.Hired_Location ||
+            "",
+          hiredDepartment:
+            mapped.Hired_Department ||
+            "",
+          interviewLocation:
+            mapped.Interview_Location ||
+            "",
+          interviewDate:
+            mapped.Interview_Date ||
+            "",
+          interviewNotes:
+            mapped.Interview_Notes ||
+            mapped.Notes_Interview ||
+            "",
+          rate:
+            mapped.Rate ||
+            "",
+          applicationStatus:
+            mapped.Application_Status ||
+            mapped.Lead_Management_Status ||
+            "",
+          candidateStatus:
+            mapped.Candidate_Status ||
+            ""
+        });
+
+        console.log(
+          "[Profile] Canonical Interview & Hiring data:",
+          {
+            interviewDate:
+              mapped.Interview_Date,
+            interviewLocation:
+              mapped.Interview_Location,
+            hiredLocation:
+              mapped.Hired_Location,
+            hiredDepartment:
+              mapped.Hired_Department,
+            currentEmployer:
+              mapped.Current_Employer,
+            scheduledForInterview:
+              mapped.Scheduled_for_Interview,
+            applicationStatus:
+              mapped.Application_Status,
+            candidateStatus:
+              mapped.Candidate_Status
           }
-        } else {
-          console.error("[Profile] Recruit API error:", response.status);
-        }
+        );
       } catch (error) {
-        console.error("[Profile] Recruit error:", error);
+        console.error(
+          "[Profile] Canonical Interview & Hiring data error:",
+          error
+        );
       } finally {
         setRecruitLoading(false);
       }
     };
 
     fetchRecruitData();
+
+    const refresh =
+      () =>
+        fetchRecruitData();
+
+    const refreshOnFocus =
+      () =>
+        fetchRecruitData();
+
+    window.addEventListener(
+      "candidate-data-updated",
+      refresh
+    );
+
+    window.addEventListener(
+      "focus",
+      refreshOnFocus
+    );
+
+    const refreshTimer =
+      window.setInterval(
+        fetchRecruitData,
+        60 * 1000
+      );
+
+    return () => {
+      window.removeEventListener(
+        "candidate-data-updated",
+        refresh
+      );
+
+      window.removeEventListener(
+        "focus",
+        refreshOnFocus
+      );
+
+      window.clearInterval(
+        refreshTimer
+      );
+    };
   }, [user?.email]);
 
 
@@ -569,6 +721,207 @@ export default function Profile() {
     return value ? formatDate(value) : null;
   };
 
+
+  const getSourceValue = (
+    source,
+    ...fields
+  ) => {
+    const record =
+      interviewHiringSources?.[
+        source
+      ] ||
+      {};
+
+    for (const field of fields) {
+      const value =
+        record?.[field];
+
+      if (
+        value !== null &&
+        value !== undefined &&
+        value !== "" &&
+        value !== "—"
+      ) {
+        return value;
+      }
+    }
+
+    return null;
+  };
+
+  // CRM is kept as a live first-class source for Interview/Hiring.
+  // Recruit Candidate/Application fields remain available as source owners and
+  // fallbacks. Existing CRM profileData from /api/zoho/my-deals is also retained.
+  const resolvedInterviewHiring = {
+    interviewDate:
+      getSourceValue(
+        "crm",
+        "Interview_Date"
+      ) ||
+      getValue(
+        "interviewDate"
+      ) ||
+      recruitData.interviewDate ||
+      getSourceValue(
+        "recruitCandidate",
+        "Interview_Date"
+      ),
+
+    interviewLocation:
+      getSourceValue(
+        "crm",
+        "Interview_Location"
+      ) ||
+      getValue(
+        "interviewLocation"
+      ) ||
+      recruitData.interviewLocation ||
+      getSourceValue(
+        "recruitCandidate",
+        "Interview_Location"
+      ),
+
+    hiredLocation:
+      getSourceValue(
+        "crm",
+        "Hired_Location",
+        "Account_Name",
+        "Hospital_Name"
+      ) ||
+      getValue(
+        "Account_Name"
+      ) ||
+      getValue(
+        "hospitalName"
+      ) ||
+      recruitData.hiredLocation ||
+      getSourceValue(
+        "recruitCandidate",
+        "Hired_Location"
+      ) ||
+      getValue(
+        "hiredLocation"
+      ) ||
+      getValue(
+        "Hired_Location"
+      ),
+
+    hiredDepartment:
+      getSourceValue(
+        "crm",
+        "Hired_Department",
+        "Department",
+        "Department_Name"
+      ) ||
+      getValue(
+        "Hired_Department"
+      ) ||
+      getValue(
+        "Department"
+      ) ||
+      recruitData.hiredDepartment ||
+      getSourceValue(
+        "recruitCandidate",
+        "Hired_Department"
+      ) ||
+      getValue(
+        "hiredDepartment"
+      ) ||
+      getValue(
+        "hireddept"
+      ),
+
+    interviewNotes:
+      getSourceValue(
+        "crm",
+        "Interview_Notes",
+        "Notes_Interview"
+      ) ||
+      getValue(
+        "notesInterview"
+      ) ||
+      recruitData.interviewNotes ||
+      getSourceValue(
+        "recruitCandidate",
+        "Interview_Notes",
+        "Notes_Interview"
+      ),
+
+    rate:
+      getSourceValue(
+        "crm",
+        "CRM_Rate",
+        "Rate"
+      ) ||
+      getValue(
+        "CRM_Rate"
+      ) ||
+      getValue(
+        "Rate"
+      ) ||
+      getValue(
+        "rate"
+      ) ||
+      getValue(
+        "hiringRate"
+      ) ||
+      recruitData.rate ||
+      getSourceValue(
+        "crm",
+        "Offer_Rate"
+      ) ||
+      getSourceValue(
+        "recruitCandidate",
+        "Offer_Rate"
+      ),
+
+    currentEmployer:
+      getSourceValue(
+        "recruitCandidate",
+        "Current_Employer"
+      ) ||
+      currentEmployer ||
+      getSourceValue(
+        "crm",
+        "Current_Employer",
+        "Account_Name",
+        "Hospital_Name"
+      ) ||
+      getValue(
+        "current_employer"
+      ),
+
+    scheduledForInterview:
+      getSourceValue(
+        "recruitApplication",
+        "Scheduled_for_Interview"
+      ) ??
+      getSourceValue(
+        "recruitCandidate",
+        "Scheduled_for_Interview"
+      ) ??
+      getSourceValue(
+        "crm",
+        "Scheduled_for_Interview"
+      ) ??
+      scheduledForInterview,
+
+    applicationStatus:
+      getSourceValue(
+        "recruitApplication",
+        "Application_Status",
+        "Lead_Management_Status"
+      ) ||
+      recruitData.applicationStatus ||
+      getSourceValue(
+        "crm",
+        "Application_Status"
+      ) ||
+      getValue(
+        "applicationStatus"
+      )
+  };
+
   const getSubmittedForImmigrationValue = () => {
     const raw = getFirstValue(
       "Added_to_Weekly_I140_Candidates",
@@ -669,38 +1022,78 @@ export default function Profile() {
           <InfoRow label="Specialty" value={getValue('professionalSpecialty')} icon={Award} />
           <InfoRow label="Education" value={getValue('Education')} icon={Award} />
           <InfoRow label="Hospital Name" value={getValue('hospitalName')} icon={Building2} />
-          <InfoRow label="Application Status" value={getValue('applicationStatus')} icon={UserCheck} />
+          <InfoRow
+            label="Application Status"
+            value={
+              resolvedInterviewHiring.applicationStatus
+            }
+            icon={UserCheck}
+          />
           <InfoRow label="Order Number" value={getValue('orderNumber')} icon={FileText} />
-          <InfoRow label="Current Employer" value={currentEmployer || "Not specified"} icon={Building} />
-          <InfoRow label="Scheduled for Interview" value={scheduledForInterview ? "Yes" : "No"} icon={Calendar} />
+          <InfoRow
+            label="Current Employer"
+            value={
+              resolvedInterviewHiring.currentEmployer ||
+              "Not specified"
+            }
+            icon={Building}
+          />
+          <InfoRow
+            label="Scheduled for Interview"
+            value={
+              resolvedInterviewHiring.scheduledForInterview
+                ? "Yes"
+                : "No"
+            }
+            icon={Calendar}
+          />
         </Section>
 
         {/* Interview & Hiring Details */}
         <Section title="Interview & Hiring Details">
-          <InfoRow 
-            label="Interview Date" 
-            value={formatDate(recruitData.interviewDate || getValue('interviewDate'))} 
-            icon={CalendarDays} 
+          <InfoRow
+            label="Interview Date"
+            value={
+              formatDate(
+                resolvedInterviewHiring.interviewDate
+              )
+            }
+            icon={CalendarDays}
           />
-          <InfoRow 
-            label="Interview Location" 
-            value={recruitData.interviewLocation || getValue('interviewLocation')} 
-            icon={MapPin} 
+          <InfoRow
+            label="Interview Location"
+            value={
+              resolvedInterviewHiring.interviewLocation
+            }
+            icon={MapPin}
           />
-          <InfoRow 
-            label="Hired Location" 
-            value={recruitData.hiredLocation} 
-            icon={MapPin} 
+          <InfoRow
+            label="Hired Location"
+            value={
+              resolvedInterviewHiring.hiredLocation
+            }
+            icon={MapPin}
           />
-          <InfoRow 
-            label="Hired Department" 
-            value={recruitData.hiredDepartment} 
-            icon={Building} 
+          <InfoRow
+            label="Hired Department"
+            value={
+              resolvedInterviewHiring.hiredDepartment
+            }
+            icon={Building}
           />
-          <InfoRow 
-            label="Interview Notes" 
-            value={getValue('notesInterview')} 
-            icon={FileText} 
+          <InfoRow
+            label="Interview Notes"
+            value={
+              resolvedInterviewHiring.interviewNotes
+            }
+            icon={FileText}
+          />
+          <InfoRow
+            label="Rate"
+            value={
+              resolvedInterviewHiring.rate
+            }
+            icon={Award}
           />
         </Section>
 
