@@ -2392,12 +2392,7 @@ export default function Dashboard() {
               Your candidate portal is synchronized with your current pipeline.
             </p>
 
-            {deploymentDate && (
-              <p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
-                <Plane className="h-4 w-4" />
-                Deployment: {deploymentDate}
-              </p>
-            )}
+            
           </div>
 
           {activeStage && (
