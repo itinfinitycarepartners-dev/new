@@ -1,6 +1,6 @@
 
 // @ts-nocheck
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { 
   CheckCircle2, 
@@ -90,6 +90,130 @@ const API_BASE =
 
 const PRESCREEN_BOOKING_URL =
   "https://outlook.office.com/book/Prescreen@Infinitycarepartners.com/?ismsaljsauthenabled";
+
+
+const SELECT_PRESCREEN_STAGE =
+  "Select Prescreen Time";
+
+const getSelectPrescreenCompletionKey = email =>
+  `icp_select_prescreen_completed:${String(
+    email ||
+    ""
+  )
+    .trim()
+    .toLowerCase()}`;
+
+const hasPermanentSelectPrescreenCompletion = email => {
+  if (
+    typeof window ===
+      "undefined" ||
+    !email
+  ) {
+    return false;
+  }
+
+  try {
+    return (
+      window.localStorage.getItem(
+        getSelectPrescreenCompletionKey(
+          email
+        )
+      ) ===
+      "completed"
+    );
+  } catch {
+    return false;
+  }
+};
+
+const persistPermanentSelectPrescreenCompletion = email => {
+  if (
+    typeof window ===
+      "undefined" ||
+    !email
+  ) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      getSelectPrescreenCompletionKey(
+        email
+      ),
+      "completed"
+    );
+  } catch {
+    // Backend save remains authoritative.
+  }
+};
+
+const preservePermanentSelectPrescreenStage = (
+  stage,
+  email
+) => {
+  if (
+    !stage ||
+    stage.stage_name !==
+      SELECT_PRESCREEN_STAGE ||
+    !hasPermanentSelectPrescreenCompletion(
+      email ||
+      stage.candidate_email
+    )
+  ) {
+    return stage;
+  }
+
+  const completedAt =
+    stage.completed_date ||
+    stage.completed_at ||
+    new Date()
+      .toISOString();
+
+  return {
+    ...stage,
+    status:
+      "Completed",
+    completed:
+      true,
+    is_completed:
+      true,
+    completed_date:
+      completedAt,
+    completed_at:
+      stage.completed_at ||
+      completedAt,
+    candidate_click_completed:
+      true,
+    completion_source:
+      "candidate_click",
+    unlocked:
+      true,
+    is_unlocked:
+      true,
+    is_locked:
+      false,
+    access_locked:
+      false,
+    source_trigger_unlocked:
+      true,
+    trigger_unlocked:
+      true
+  };
+};
+
+const preservePermanentSelectPrescreenInStages = (
+  stages,
+  email
+) =>
+  (Array.isArray(stages)
+    ? stages
+    : []
+  ).map(stage =>
+    preservePermanentSelectPrescreenStage(
+      stage,
+      email
+    )
+  );
 
 // Bank details are protected twice in transit:
 // 1) HTTPS/TLS for the request itself.
@@ -457,6 +581,114 @@ const STAGES_CONFIG = [
   { id: 47, stage_name: "Placement Stability Check-in (90 Day Call)", stage_category: "Aftercare", stage_order: 47, days_from_arrival: AFTERCARE_DAY_OFFSETS["Placement Stability Check-in (90 Day Call)"] },
   { id: 48, stage_name: "1 Year Survey", stage_category: "Aftercare", stage_order: 48, days_from_arrival: AFTERCARE_DAY_OFFSETS["1 Year Survey"] }
 ];
+
+const getFixedDayOneStageTarget = (
+  stage,
+  pipelineStart
+) => {
+  if (
+    !stage ||
+    !pipelineStart
+  ) {
+    return null;
+  }
+
+  const start =
+    pipelineStart instanceof Date
+      ? pipelineStart
+      : new Date(
+          pipelineStart
+        );
+
+  if (
+    Number.isNaN(
+      start.getTime()
+    )
+  ) {
+    return null;
+  }
+
+  const stageName =
+    String(
+      stage.stage_name ||
+      ""
+    ).trim();
+
+  if (
+    stageName ===
+      "Select Prescreen Time" &&
+    stage.timing_source ===
+      "nclex_return_to_hiring"
+  ) {
+    return addDays(
+      start,
+      215
+    );
+  }
+
+  const config =
+    STAGES_CONFIG.find(
+      item =>
+        item.stage_name ===
+        stageName
+    );
+
+  if (
+    config?.hours_from_start !==
+      undefined &&
+    config?.hours_from_start !==
+      null
+  ) {
+    return new Date(
+      start.getTime() +
+      Number(
+        config.hours_from_start
+      ) *
+        60 *
+        60 *
+        1000
+    );
+  }
+
+  if (
+    config?.days_from_start !==
+      undefined &&
+    config?.days_from_start !==
+      null
+  ) {
+    return addDays(
+      start,
+      Number(
+        config.days_from_start
+      )
+    );
+  }
+
+  const nclexConfig =
+    ICP_USRN_SUBPROCESS_CONFIG.find(
+      item =>
+        item.name ===
+        stageName
+    );
+
+  if (
+    nclexConfig &&
+    Number.isFinite(
+      Number(
+        nclexConfig.days
+      )
+    )
+  ) {
+    return addDays(
+      start,
+      Number(
+        nclexConfig.days
+      )
+    );
+  }
+
+  return null;
+};
 
 const DEPLOYMENT_TIMING_REQUIREMENTS = Object.freeze({
   "Introduction to Deployment Call": {
@@ -1554,7 +1786,7 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
   },
   {
     name: "Performance Check 1",
-    days: 102,
+    days: 77,
     type: "performance",
     performanceGate: { assessmentsRequired: 2, assignmentsRequired: 6, ratingRequired: true }
   },
@@ -1574,7 +1806,7 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
   },
   {
     name: "Performance Check 2",
-    days: 120,
+    days: 102,
     type: "performance",
     performanceGate: { assessmentsRequired: 4, assignmentsRequired: 15, ratingRequired: true }
   },
@@ -1593,7 +1825,7 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
   },
   {
     name: "Performance Check 3",
-    days: 150,
+    days: 127,
     type: "performance",
     performanceGate: { assessmentsRequired: 5, assignmentsRequired: 0, ratingRequired: true }
   },
@@ -1767,6 +1999,9 @@ const NCLEX_STAGES = ICP_USRN_SUBPROCESS_CONFIG.map(
     stage_name: item.name,
     stage_category: "Hiring",
     stage_order: 6 + ((index + 1) / 100),
+    days_from_start: item.days,
+    timing_rule: `Due by day ${item.days} from Day 1.`,
+    timing_source: "nclex_day_1_fixed",
     nclex_stage: true,
     nclex_sequence_index: index
   })
@@ -9128,7 +9363,8 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
     payment2: { date: "", paid: false, total: 0 },
     payment3: { date: "", paid: false, total: 0 },
     payment4: { date: "", paid: false, total: 0 },
-    totalReimbursement: 0
+    totalReimbursement: 0,
+    advanceAgreementTotal: 0
   });
   
   const [bankDetails, setBankDetails] = useState({
@@ -9195,7 +9431,16 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
         payment2: reimbursementData.payment2 || { date: "", paid: false, total: 0 },
         payment3: reimbursementData.payment3 || { date: "", paid: false, total: 0 },
         payment4: reimbursementData.payment4 || { date: "", paid: false, total: 0 },
-        totalReimbursement: parseFloat(reimbursementData.totalReimbursement) || 0
+        totalReimbursement:
+          parseFloat(
+            reimbursementData.totalReimbursement
+          ) ||
+          0,
+        advanceAgreementTotal:
+          parseFloat(
+            reimbursementData.advanceAgreementTotal
+          ) ||
+          0
       });
 
       setIsSubmitted(reimbursementData.submitted === true);
@@ -9304,8 +9549,31 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
     normalizedPaymentType ===
     "advanced payment agreement";
 
+  const advancedPaymentAgreementTotal =
+    isAdvancePaymentAgreement
+      ? (
+          parseFloat(
+            paymentData.advanceAgreementTotal
+          ) ||
+          parseFloat(
+            paymentData.totalReimbursement
+          ) ||
+          0
+        )
+      : 0;
+
   const handleAcknowledgeAdvanceAgreement =
     async () => {
+      if (
+        advancedPaymentAgreementTotal <=
+        0
+      ) {
+        toast.error(
+          "Total Due to ICP/RN is not available in CRM yet."
+        );
+        return;
+      }
+
       if (
         !advanceAgreementReviewed ||
         !advanceAgreementAcknowledged
@@ -9504,7 +9772,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                         trigger_unlocked:
                           true,
                         completion_source:
-                          "candidate_expense_report_acknowledgement"
+                          "candidate_expense_report_total_click"
                       }
                     : stage
               )
@@ -9525,7 +9793,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                 completed:
                   true,
                 source:
-                  "candidate_expense_report_acknowledgement"
+                  "candidate_expense_report_total_click"
               }
             }
           )
@@ -9990,7 +10258,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
               Expense Report Acknowledgement
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Review the Expense Report above, then acknowledge it. This acknowledgement is the trigger that completes the Expense Report stage.
+              The Expense Report stage checks off when a total amount is available and you click the Expense Report section. You can also acknowledge it here.
             </p>
           </div>
 
@@ -10045,19 +10313,21 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
 
           <div className="space-y-3 rounded-lg border border-purple-200 bg-white p-4 text-sm leading-6 text-purple-950">
             <p>
-              This agreement is made between Infinity Care Partners, LLC—a direct consulting company—and the individual who has been offered a permanent nursing or healthcare worker position with a U.S. employer, in collaboration with Infinity Care Partners, LLC.
+              I acknowledge that I have reviewed the above expense/reimbursement report and understand that Infinity Care Partners has advanced a total of{" "}
+              <strong>
+                {advancedPaymentAgreementTotal > 0
+                  ? `$${advancedPaymentAgreementTotal.toFixed(2)}`
+                  : "$__________"}
+              </strong>{" "}
+              on my behalf, prior to my arrival in the United States, for deployment expenses including, but not limited to, License certification, dependent(s)’ visa fees, housing, and relocation costs and any other advanced expenses as noted.
             </p>
+
             <p>
-              At the candidate’s request, we, Infinity Care Partners, LLC, agreed to pay on your behalf an amount not exceeding $_352.24, which covered the necessary expenses for obtaining your U.S. Registered Nurse (USRN) certification, required paperwork for your nursing license, housing and relocation costs.
+              I agree to remit payment in full for the total amount advanced within <strong>120 days</strong> of my arrival in the United States.
             </p>
-            <p>
-              Upon receipt and utilization of these funds by the aforementioned candidate, this guarantee will take effect as an advance payment agreement. The advanced sum mentioned will be deducted or repaid in full within 90 days following the start of employment in the United States.
-            </p>
-            <p>
-              If the candidate is unable to fulfill their employment contract within 90 days of arrival, the full amount of the advance payment will be due to Infinity Care Partners at that time. Additionally, any other fees owed to ICP related to the new contract placement, as defined by the new employment contracts and the ICP Service Agreement, will also be applicable.
-            </p>
-            <p>
-              The candidate is responsible for promptly notifying Infinity Care Partners of any reasons or changes that may prevent them from meeting the requirements outlined below for the advance payment.
+
+            <p className="text-xs text-purple-700">
+              The amount above is read directly from CRM field <strong>Total Due to ICP/RN</strong> (API: <strong>Total_Due_to_ICP_RN</strong>).
             </p>
           </div>
 
@@ -10113,6 +10383,8 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                 onClick={handleAcknowledgeAdvanceAgreement}
                 disabled={
                   advanceAgreementSaving ||
+                  advancedPaymentAgreementTotal <=
+                    0 ||
                   !advanceAgreementReviewed ||
                   !advanceAgreementAcknowledged
                 }
@@ -11235,7 +11507,13 @@ const sanitizePipelineStages = (incomingStages, candidateEmail) => {
     nclex_subprocess: true
   }));
 
-  return [...canonical, ...nclexHistory];
+  return preservePermanentSelectPrescreenInStages(
+    [
+      ...canonical,
+      ...nclexHistory
+    ],
+    email
+  );
 };
 
 const formatLivePipelineCountdown = (
@@ -11467,6 +11745,7 @@ export default function Pipeline() {
   const [icpUSRNCRMData, setICPUSRNCRMData] = useState({});
   const [portalAccessBlocked, setPortalAccessBlocked] = useState(false);
   const [finalArrivalDate, setFinalArrivalDate] = useState(null);
+  const automaticSyncEmailRef = useRef("");
 
   const pipelineCacheKey = user?.email
     ? `icp_pipeline_cache_v2:${String(user.email).trim().toLowerCase()}`
@@ -11583,6 +11862,20 @@ export default function Pipeline() {
       ) {
         setStages(previous =>
           previous.map(stage => {
+            const preservedPrescreen =
+              preservePermanentSelectPrescreenStage(
+                stage,
+                normalizedUserEmail
+              );
+
+            if (
+              preservedPrescreen
+                ?.candidate_click_completed ===
+                true
+            ) {
+              return preservedPrescreen;
+            }
+
             const live =
               stageStatus[
                 stage.stage_name
@@ -12218,6 +12511,26 @@ export default function Pipeline() {
             const remoteStage = dashboardByName.get(localStage.stage_name);
             const isDashboardCurrent = currentName === localStage.stage_name;
 
+            const preservedPrescreen =
+              preservePermanentSelectPrescreenStage(
+                localStage,
+                normalizedEmail
+              );
+
+            if (
+              preservedPrescreen
+                ?.candidate_click_completed ===
+                true
+            ) {
+              return {
+                ...preservedPrescreen,
+                dashboard_current:
+                  false,
+                dashboard_synced:
+                  true
+              };
+            }
+
             if (!remoteStage && !isDashboardCurrent) return localStage;
 
             const remoteStatus = String(
@@ -12410,10 +12723,35 @@ export default function Pipeline() {
   }, [user?.email]);
 
   useEffect(() => {
-    if (user?.email) {
-      syncAutomaticPipeline();
+    if (
+      !user?.email ||
+      isCheckingNCLEX
+    ) {
+      return;
     }
-  }, [user?.email, showNCLEX]);
+
+    const normalizedEmail =
+      String(
+        user.email
+      )
+        .trim()
+        .toLowerCase();
+
+    if (
+      automaticSyncEmailRef.current ===
+      normalizedEmail
+    ) {
+      return;
+    }
+
+    automaticSyncEmailRef.current =
+      normalizedEmail;
+
+    syncAutomaticPipeline();
+  }, [
+    user?.email,
+    isCheckingNCLEX
+  ]);
 
   const syncAutomaticPipeline = async () => {
     if (!user?.email) return;
@@ -12892,9 +13230,42 @@ export default function Pipeline() {
         }
       }
 
-      const received = dateReceivedRaw || new Date().toISOString();
-      const start = new Date(received);
-      setPipelineStartDate(Number.isNaN(start.getTime()) ? new Date() : start);
+      const cachedPipelineStart =
+        pipelineStartDate ||
+        stages
+          .map(stage =>
+            stage?.pipeline_start_date ||
+            stage?.start_date ||
+            null
+          )
+          .find(Boolean) ||
+        null;
+
+      const received =
+        dateReceivedRaw ||
+        cachedPipelineStart ||
+        null;
+
+      const start =
+        received
+          ? new Date(
+              received
+            )
+          : null;
+
+      const validStart =
+        start &&
+        !Number.isNaN(
+          start.getTime()
+        )
+          ? start
+          : null;
+
+      if (validStart) {
+        setPipelineStartDate(
+          validStart
+        );
+      }
       let saved = [];
       let savedPipelineLoadedSuccessfully = false;
       try {
@@ -13367,6 +13738,14 @@ export default function Pipeline() {
 
         const isAutomaticallyCompleted = automaticStatus === "Completed";
 
+        const fixedDayOneTarget =
+          validStart
+            ? getFixedDayOneStageTarget(
+                stage,
+                validStart
+              )
+            : null;
+
         const baseStage = {
           ...stage,
           ...savedStage,
@@ -13379,7 +13758,38 @@ export default function Pipeline() {
             ),
 
           candidate_email: user.email,
-          start_date: Number.isNaN(start.getTime()) ? new Date().toISOString() : start.toISOString(),
+          start_date:
+            validStart
+              ? validStart.toISOString()
+              : (
+                  savedStage?.start_date ||
+                  savedStage?.pipeline_start_date ||
+                  null
+                ),
+          pipeline_start_date:
+            validStart
+              ? validStart.toISOString()
+              : (
+                  savedStage?.pipeline_start_date ||
+                  savedStage?.start_date ||
+                  null
+                ),
+          target_date:
+            fixedDayOneTarget
+              ? fixedDayOneTarget.toISOString()
+              : (
+                  savedStage?.target_date ||
+                  stage.target_date ||
+                  null
+                ),
+          timing_source:
+            fixedDayOneTarget
+              ? "hiring_day_1_fixed"
+              : (
+                  savedStage?.timing_source ||
+                  stage.timing_source ||
+                  null
+                ),
           crm_unlocked:
             (stage.stage_category === "Immigration" && !!submittedToImmigrationDate) ||
             (stage.stage_category === "Deployment" && allClearDocumentaryComplete),
@@ -14441,10 +14851,49 @@ export default function Pipeline() {
           const crmUnlocked = trigger
             ? isICPUSRNItemUnlocked(trigger, triggerIndex, icpUSRNData)
             : false;
+          const fixedNCLEXTarget =
+            validStart &&
+            trigger
+              ? addDays(
+                  validStart,
+                  Number(
+                    trigger.days ||
+                    0
+                  )
+                )
+              : null;
+
           return {
             ...stage,
             ...savedStage,
             candidate_email: user.email,
+            days_from_start:
+              trigger?.days ??
+              stage.days_from_start,
+            target_date:
+              fixedNCLEXTarget
+                ? fixedNCLEXTarget.toISOString()
+                : (
+                    savedStage?.target_date ||
+                    stage.target_date ||
+                    null
+                  ),
+            timing_rule:
+              trigger
+                ? `Due by day ${trigger.days} from Day 1.`
+                : (
+                    savedStage?.timing_rule ||
+                    stage.timing_rule ||
+                    null
+                  ),
+            timing_source:
+              fixedNCLEXTarget
+                ? "nclex_day_1_fixed"
+                : (
+                    savedStage?.timing_source ||
+                    stage.timing_source ||
+                    null
+                  ),
             status: crmCompleted
               ? "Completed"
               : crmUnlocked
@@ -14460,6 +14909,42 @@ export default function Pipeline() {
           };
         });
         allStages = [...allStages, ...nclexStages];
+
+        const nclexExamPassed =
+          normalizeCRMValue(
+            icpUSRNData?.NCLEX_Status
+          ) ===
+          "passed";
+
+        if (
+          nclexExamPassed &&
+          validStart
+        ) {
+          const returnTarget =
+            addDays(
+              validStart,
+              215
+            );
+
+          allStages =
+            allStages.map(stage =>
+              stage.stage_name ===
+                "Select Prescreen Time" &&
+              !isPipelineStageComplete(
+                stage
+              )
+                ? {
+                    ...stage,
+                    target_date:
+                      returnTarget.toISOString(),
+                    timing_rule:
+                      "Return to Select Prescreen Time by day 215 from Day 1 after completing NCLEX.",
+                    timing_source:
+                      "nclex_return_to_hiring"
+                  }
+                : stage
+            );
+        }
 
         // Persist CRM-driven NCLEX completions so progress survives refreshes/devices.
         if (token && saved.length > 0) {
@@ -14874,7 +15359,15 @@ export default function Pipeline() {
         return stage;
       });
 
-      setStages(sanitizePipelineStages(allStages, user.email));
+      setStages(
+        preservePermanentSelectPrescreenInStages(
+          sanitizePipelineStages(
+            allStages,
+            user.email
+          ),
+          user.email
+        )
+      );
       const hasRecruitCheckpoint =
         Boolean(
           recruitApplicationStatus &&
@@ -14974,16 +15467,56 @@ export default function Pipeline() {
           ...(Array.isArray(previous) ? previous : []),
           ...parsed
         ];
-        return sanitizePipelineStages(
-          combined,
-          user.email
-        );
+        const sanitized =
+          sanitizePipelineStages(
+            combined,
+            user.email
+          );
+
+        return sanitized.map(stage => {
+          const fixedTarget =
+            pipelineStartDate
+              ? getFixedDayOneStageTarget(
+                  stage,
+                  pipelineStartDate
+                )
+              : null;
+
+          return fixedTarget
+            ? {
+                ...stage,
+                target_date:
+                  fixedTarget.toISOString(),
+                timing_source:
+                  stage.timing_source ===
+                    "nclex_return_to_hiring"
+                    ? stage.timing_source
+                    : (
+                        stage.nclex_stage ===
+                          true
+                          ? "nclex_day_1_fixed"
+                          : "hiring_day_1_fixed"
+                      )
+              }
+            : stage;
+        });
       });
       setIsInitialized(parsed.length > 0);
     } catch (error) {
-      console.error("Error loading pipeline from database:", error);
-      setStages([]);
-      setIsInitialized(false);
+      console.error(
+        "Error loading pipeline from database:",
+        error
+      );
+
+      setStages(previous =>
+        preservePermanentSelectPrescreenInStages(
+          Array.isArray(previous)
+            ? previous
+            : [],
+          user?.email ||
+          ""
+        )
+      );
     }
   };
 
@@ -15372,6 +15905,23 @@ export default function Pipeline() {
   };
 
   const handleStageClick = async (stage) => {
+    if (
+      stage?.stage_name ===
+        SELECT_PRESCREEN_STAGE &&
+      (
+        hasPermanentSelectPrescreenCompletion(
+          user?.email ||
+          stage.candidate_email ||
+          ""
+        ) ||
+        isPipelineStageComplete(
+          stage
+        )
+      )
+    ) {
+      return;
+    }
+
     const stageUnlocked =
       isStageUnlocked(
         stage,
@@ -15744,6 +16294,56 @@ export default function Pipeline() {
           new Date()
             .toISOString();
 
+        persistPermanentSelectPrescreenCompletion(
+          user?.email ||
+          stage.candidate_email ||
+          ""
+        );
+
+        setStages(previous =>
+          preservePermanentSelectPrescreenInStages(
+            previous.map(item =>
+              item.stage_name ===
+                SELECT_PRESCREEN_STAGE
+                ? {
+                    ...item,
+                    status:
+                      "Completed",
+                    completed:
+                      true,
+                    is_completed:
+                      true,
+                    completed_date:
+                      item.completed_date ||
+                      completedAt,
+                    completed_at:
+                      item.completed_at ||
+                      completedAt,
+                    candidate_click_completed:
+                      true,
+                    completion_source:
+                      "candidate_click",
+                    unlocked:
+                      true,
+                    is_unlocked:
+                      true,
+                    is_locked:
+                      false,
+                    access_locked:
+                      false,
+                    source_trigger_unlocked:
+                      true,
+                    trigger_unlocked:
+                      true
+                  }
+                : item
+            ),
+            user?.email ||
+            stage.candidate_email ||
+            ""
+          )
+        );
+
         try {
           const token =
             localStorage.getItem(
@@ -15791,36 +16391,7 @@ export default function Pipeline() {
             }
           }
 
-          setStages(previous =>
-            previous.map(item =>
-              item.stage_name ===
-                "Select Prescreen Time"
-                ? {
-                    ...item,
-                    status:
-                      "Completed",
-                    completed:
-                      true,
-                    is_completed:
-                      true,
-                    completed_date:
-                      completedAt,
-                    unlocked:
-                      true,
-                    is_unlocked:
-                      true,
-                    is_locked:
-                      false,
-                    access_locked:
-                      false,
-                    source_trigger_unlocked:
-                      true,
-                    trigger_unlocked:
-                      true
-                  }
-                : item
-            )
-          );
+
         } catch (error) {
           console.warn(
             "[Hiring] Prescreen meeting selection could not be persisted:",
@@ -15909,9 +16480,139 @@ export default function Pipeline() {
         case "reimbursement":
           openModal("Expense Report", <ReimbursementUpload onClose={closeModal} user={user} setStages={setStages} />);
           break;
-        case "reimbursementExpenses":
-          openModal("Reimbursement/Expenses", <ReimbursementExpensesView onClose={closeModal} user={user} setStages={setStages} />);
+        case "reimbursementExpenses": {
+          if (
+            stage.stage_name ===
+              "Receipt Submission" &&
+            !isPipelineStageComplete(
+              stage
+            )
+          ) {
+            try {
+              const token =
+                localStorage.getItem(
+                  "icp_auth_token"
+                );
+
+              if (token) {
+                const response =
+                  await fetch(
+                    `${API_BASE}/api/reimbursement/acknowledge-expense-report`,
+                    {
+                      method:
+                        "POST",
+                      cache:
+                        "no-store",
+                      headers: {
+                        Authorization:
+                          `Bearer ${token}`,
+                        "Content-Type":
+                          "application/json"
+                      },
+                      body:
+                        JSON.stringify({
+                          acknowledged:
+                            true,
+                          trigger:
+                            "expense-report-section-click"
+                        })
+                    }
+                  );
+
+                const data =
+                  await response
+                    .json()
+                    .catch(
+                      () => ({})
+                    );
+
+                if (
+                  response.ok &&
+                  data.success ===
+                    true
+                ) {
+                  setStages(
+                    previous =>
+                      applyOrderedLocksWithDeepEntry(
+                        previous.map(
+                          item =>
+                            item.stage_name ===
+                              "Receipt Submission"
+                              ? {
+                                  ...item,
+                                  status:
+                                    "Completed",
+                                  completed:
+                                    true,
+                                  is_completed:
+                                    true,
+                                  completed_date:
+                                    data.acknowledgedAt ||
+                                    new Date()
+                                      .toISOString(),
+                                  completion_source:
+                                    "candidate_expense_report_total_click",
+                                  source_trigger_unlocked:
+                                    true,
+                                  trigger_unlocked:
+                                    true,
+                                  crm_unlocked:
+                                    true
+                                }
+                              : item
+                        )
+                      )
+                  );
+
+                  window.dispatchEvent(
+                    new CustomEvent(
+                      "pipeline-updated",
+                      {
+                        detail: {
+                          email:
+                            user?.email,
+                          stage_name:
+                            "Receipt Submission",
+                          status:
+                            "Completed",
+                          completed:
+                            true,
+                          source:
+                            "candidate_expense_report_total_click"
+                        }
+                      }
+                    )
+                  );
+                } else if (
+                  response.status !==
+                  400
+                ) {
+                  console.warn(
+                    "[Expense Report] Section-click completion failed:",
+                    data.error ||
+                    response.status
+                  );
+                }
+              }
+            } catch (error) {
+              console.warn(
+                "[Expense Report] Section-click completion failed:",
+                error?.message ||
+                error
+              );
+            }
+          }
+
+          openModal(
+            "Reimbursement/Expenses",
+            <ReimbursementExpensesView
+              onClose={closeModal}
+              user={user}
+              setStages={setStages}
+            />
+          );
           break;
+        }
         case "supportGroup":
           openModal("ICP Pre-Arrival Support Group", <SupportGroupView onClose={closeModal} />);
           break;
@@ -16627,6 +17328,20 @@ export default function Pipeline() {
           };
 
           setStages(previous => previous.map(stage => {
+            const preservedPrescreen =
+              preservePermanentSelectPrescreenStage(
+                stage,
+                user.email
+              );
+
+            if (
+              preservedPrescreen
+                ?.candidate_click_completed ===
+                true
+            ) {
+              return preservedPrescreen;
+            }
+
             const live = data.stageStatus?.[stage.stage_name];
             const rule = DEPLOYMENT_CRM_STAGE_RULES?.[stage.stage_name];
 
@@ -17858,12 +18573,37 @@ export default function Pipeline() {
           )
         );
 
+      const virtualNCLEXTarget =
+        pipelineStartDate &&
+        Number.isFinite(
+          Number(
+            item.days
+          )
+        )
+          ? addDays(
+              pipelineStartDate,
+              Number(
+                item.days
+              )
+            ).toISOString()
+          : null;
+
       progressStages.push({
         id: `nclex-progress-${index + 1}`,
         stage_name: item.name,
         stage_category: "Hiring",
         stage_order: 6 + ((index + 1) / 100),
         nclex_stage: true,
+        days_from_start:
+          item.days,
+        target_date:
+          virtualNCLEXTarget,
+        timing_rule:
+          `Due by day ${item.days} from Day 1.`,
+        timing_source:
+          virtualNCLEXTarget
+            ? "nclex_day_1_fixed"
+            : null,
         status: complete ? "Completed" : "Not Started",
         completed: complete,
         is_completed: complete
@@ -17915,6 +18655,114 @@ export default function Pipeline() {
             isStageUnlocked(stage, displayStages)
         ) || null
       : null;
+
+  // The current-stage countdown must always use an immutable deadline. If a
+  // transient live/dashboard payload omitted target_date, rebuild it from the
+  // same original Day-1 / Deployment / Arrival anchors instead of hiding the
+  // timer or starting a new clock from zero.
+  const currentStagePipelineStart =
+    pipelineStartDate ||
+    parsePipelineTimingDate(
+      currentCandidateStage
+        ?.pipeline_start_date ||
+      currentCandidateStage
+        ?.start_date ||
+      stages
+        .map(stage =>
+          stage?.pipeline_start_date ||
+          stage?.start_date ||
+          null
+        )
+        .find(Boolean) ||
+      null
+    );
+
+  let currentCandidateStageForTimer =
+    currentCandidateStage
+      ? {
+          ...currentCandidateStage
+        }
+      : null;
+
+  if (
+    currentCandidateStageForTimer &&
+    !(
+      currentCandidateStageForTimer.target_date ||
+      currentCandidateStageForTimer.targetDate ||
+      currentCandidateStageForTimer.due_date ||
+      currentCandidateStageForTimer.dueDate
+    )
+  ) {
+    const fixedDayOneTarget =
+      currentStagePipelineStart
+        ? getFixedDayOneStageTarget(
+            currentCandidateStageForTimer,
+            currentStagePipelineStart
+          )
+        : null;
+
+    if (fixedDayOneTarget) {
+      currentCandidateStageForTimer = {
+        ...currentCandidateStageForTimer,
+        target_date:
+          fixedDayOneTarget.toISOString(),
+        pipeline_start_date:
+          currentStagePipelineStart.toISOString(),
+        timing_source:
+          currentCandidateStageForTimer
+            .nclex_stage === true
+            ? "nclex_day_1_fixed"
+            : (
+                currentCandidateStageForTimer
+                  .timing_source ||
+                "hiring_day_1_fixed"
+              )
+      };
+    }
+  }
+
+  if (
+    currentCandidateStageForTimer
+      ?.stage_category ===
+      "Deployment"
+  ) {
+    const deploymentTiming =
+      getDeploymentStageTiming({
+        stageName:
+          currentCandidateStageForTimer
+            .stage_name,
+        liveFields:
+          deploymentFieldStatus ||
+          {},
+        sourceStages:
+          stages,
+        finalArrivalDate
+      });
+
+    if (
+      deploymentTiming
+        ?.targetDate
+    ) {
+      currentCandidateStageForTimer = {
+        ...currentCandidateStageForTimer,
+        target_date:
+          deploymentTiming
+            .targetDate
+            .toISOString(),
+        timing_rule:
+          deploymentTiming
+            .timingRule,
+        timing_anchor:
+          deploymentTiming
+            .anchorDate
+            ?.toISOString?.() ||
+          null,
+        timing_anchor_type:
+          deploymentTiming
+            .anchorType
+      };
+    }
+  }
 
   if (false && isCheckingNCLEX) {
     return (
@@ -18058,16 +18906,28 @@ export default function Pipeline() {
 
               <LiveCurrentStageTimer
                 stage={
-                  currentCandidateStage
+                  currentCandidateStageForTimer
                 }
               />
 
-              {currentCandidateStage
-                .timing_rule && (
+              {currentCandidateStageForTimer
+                ?.timing_rule && (
                 <p className="mt-2 text-xs text-blue-700">
-                  {currentCandidateStage.timing_rule}
+                  {currentCandidateStageForTimer.timing_rule}
                 </p>
               )}
+
+              {currentCandidateStageForTimer &&
+                !(
+                  currentCandidateStageForTimer.target_date ||
+                  currentCandidateStageForTimer.targetDate ||
+                  currentCandidateStageForTimer.due_date ||
+                  currentCandidateStageForTimer.dueDate
+                ) && (
+                  <p className="mt-2 text-xs font-medium text-amber-700">
+                    Countdown will appear as soon as the required timing anchor is available.
+                  </p>
+                )}
             </>
           )}
 

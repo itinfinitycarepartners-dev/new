@@ -99,6 +99,67 @@ const parseRecruitDateReceived = (value) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const DASHBOARD_HIRING_DAY_ONE_OFFSETS_HOURS = Object.freeze({
+  "Applied": 0,
+  "Associated with Job": 24,
+  "Not Qualified - to close": 48,
+  "Qualified - Match": 48,
+  "Qualified Candidate Pool": 48,
+  "Transfer to ICP USRN School": 48,
+  "Select Prescreen Time": 48,
+  "Prescreen Scheduled": 48,
+  "Prescreen Completed": 72,
+  "Client Documents & Video Provided": 72,
+  "Pending Interview Selection": 96,
+  "Mandatory Pre-Interview Coaching Call": 96,
+  "Interview Scheduled": 96,
+  "Interview Attended": 7 * 24,
+  "Offer Made": 8 * 24,
+  "Offer Accepted": 10 * 24,
+  "Offer Declined": 10 * 24,
+  "Employment Contract Sent": 10 * 24,
+  "Employment Contract Signed": 13 * 24,
+  "Documents Received": 15 * 24,
+  "Hired": 15 * 24
+});
+
+const getDashboardFixedHiringTarget = (
+  stage,
+  startDate
+) => {
+  if (
+    !stage ||
+    !startDate
+  ) {
+    return null;
+  }
+
+  const stageName =
+    String(
+      stage.stage_name ||
+      ""
+    ).trim();
+
+  if (
+    !Object.prototype.hasOwnProperty.call(
+      DASHBOARD_HIRING_DAY_ONE_OFFSETS_HOURS,
+      stageName
+    )
+  ) {
+    return null;
+  }
+
+  return new Date(
+    startDate.getTime() +
+    Number(
+      DASHBOARD_HIRING_DAY_ONE_OFFSETS_HOURS[
+        stageName
+      ]
+    ) *
+      HOUR_MS
+  );
+};
+
 const getStageTargetTime = (stage, startDate) => {
   if (!stage || !startDate) return null;
 
@@ -128,30 +189,49 @@ const formatCountdown = (deadline, now = new Date()) => {
   const overdue = diffMs < 0;
   const absoluteMs = Math.abs(diffMs);
 
-  const totalMinutes = Math.floor(absoluteMs / (60 * 1000));
-  const days = Math.floor(totalMinutes / (24 * 60));
-  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
-  const minutes = totalMinutes % 60;
+  const totalSeconds =
+    Math.floor(
+      absoluteMs /
+      1000
+    );
 
   const totalHours =
     Math.floor(
-      totalMinutes /
+      totalSeconds /
+      3600
+    );
+
+  const days =
+    Math.floor(
+      totalHours /
+      24
+    );
+
+  const hours =
+    totalHours %
+    24;
+
+  const minutes =
+    Math.floor(
+      (
+        totalSeconds %
+        3600
+      ) /
       60
     );
 
+  const seconds =
+    totalSeconds %
+    60;
+
   let durationText;
+
   if (overdue) {
     durationText =
-      `${totalHours}h ${minutes}m`;
-  } else if (days > 0) {
-    durationText =
-      `${days}d ${hours}h`;
-  } else if (hours > 0) {
-    durationText =
-      `${hours}h ${minutes}m`;
+      `${totalHours}h ${minutes}m ${seconds}s`;
   } else {
     durationText =
-      `${minutes}m`;
+      `${days}d ${hours}h ${minutes}m ${seconds}s`;
   }
 
   return {
@@ -163,6 +243,85 @@ const formatCountdown = (deadline, now = new Date()) => {
   };
 };
 
+
+const DashboardLiveCountdown = ({
+  deadline,
+  timingStatus = null
+}) => {
+  const [
+    now,
+    setNow
+  ] = useState(
+    () => Date.now()
+  );
+
+  useEffect(() => {
+    setNow(Date.now());
+
+    const timer =
+      window.setInterval(
+        () =>
+          setNow(
+            Date.now()
+          ),
+        1000
+      );
+
+    return () =>
+      window.clearInterval(
+        timer
+      );
+  }, [
+    deadline?.getTime?.()
+  ]);
+
+  if (
+    !deadline ||
+    Number.isNaN(
+      deadline.getTime()
+    )
+  ) {
+    return null;
+  }
+
+  const countdown =
+    formatCountdown(
+      deadline,
+      new Date(now)
+    );
+
+  return (
+    <div
+      className={`mt-3 rounded-lg border px-3 py-2 ${
+        countdown.overdue
+          ? "border-orange-200 bg-orange-50"
+          : timingStatus === "At Risk"
+            ? "border-amber-200 bg-amber-50"
+            : "border-emerald-200 bg-emerald-50"
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <Timer
+          className={`h-4 w-4 ${
+            countdown.overdue
+              ? "text-orange-600"
+              : timingStatus === "At Risk"
+                ? "text-amber-600"
+                : "text-emerald-600"
+          }`}
+        />
+        <span className="text-xs font-semibold">
+          {countdown.text}
+        </span>
+      </div>
+
+      <p className="mt-1 text-[11px] text-muted-foreground">
+        Same deadline as My Pipeline:{" "}
+        {deadline.toLocaleString()}
+      </p>
+    </div>
+  );
+};
 
 const DASHBOARD_DEPLOYMENT_TIMING_REQUIREMENTS = Object.freeze({
   "Introduction to Deployment Call": {
@@ -1146,32 +1305,6 @@ export default function Dashboard() {
     setRecentMessages
   ] = useState([]);
 
-  const [
-    timerNow,
-    setTimerNow
-  ] =
-    useState(
-      Date.now()
-    );
-
-  useEffect(() => {
-    const timer =
-      window.setInterval(
-        () => {
-          setTimerNow(
-            Date.now()
-          );
-        },
-        60 * 1000
-      );
-
-    return () => {
-      window.clearInterval(
-        timer
-      );
-    };
-  }, []);
-
   const {
     data: summary,
     isLoading,
@@ -1583,8 +1716,16 @@ export default function Dashboard() {
       null
     );
 
+  const usableRawActiveStage =
+    rawActiveStage &&
+    !isPipelineStageComplete(
+      rawActiveStage
+    )
+      ? rawActiveStage
+      : null;
+
   const activeStage =
-    rawActiveStage ||
+    usableRawActiveStage ||
     fallbackActiveStage ||
     orderedVisibleStages.find(stage =>
       !isPipelineStageComplete(stage)
@@ -1592,7 +1733,7 @@ export default function Dashboard() {
     null;
 
   const pendingNextStage =
-    rawActiveStage
+    usableRawActiveStage
       ? rawPendingNextStage
       : (
           activeStage
@@ -1610,36 +1751,63 @@ export default function Dashboard() {
     pipeline.timer.stageName === activeStage.stage_name;
 
   const activeTimer =
-    serverTimerMatchesActive
-      ? pipeline.timer
-      : activeStage?.target_date
-        ? {
-            stageName: activeStage.stage_name,
-            startedAt: activeStage.started_at || null,
-            targetDate: activeStage.target_date,
-            timingStatus: activeStage.timing_status || null
-          }
+    activeStage?.target_date
+      ? {
+          stageName:
+            activeStage.stage_name,
+          startedAt:
+            activeStage.started_at ||
+            null,
+          targetDate:
+            activeStage.target_date,
+          timingStatus:
+            activeStage.timing_status ||
+            null
+        }
+      : serverTimerMatchesActive
+        ? pipeline.timer
         : null;
 
-  const activeDeadline =
-    activeTimer?.targetDate
-      ? new Date(
-          activeTimer.targetDate
+  const dashboardPipelineStart =
+    parseRecruitDateReceived(
+      activeStage
+        ?.pipeline_start_date ||
+      activeStage
+        ?.start_date ||
+      visiblePipelineStages
+        .map(stage =>
+          stage?.pipeline_start_date ||
+          stage?.start_date ||
+          null
+        )
+        .find(Boolean) ||
+      profile.Date_Received ||
+      profile.dateReceived ||
+      profile.date_received ||
+      null
+    );
+
+  const fixedDashboardHiringTarget =
+    activeStage &&
+    dashboardPipelineStart
+      ? getDashboardFixedHiringTarget(
+          activeStage,
+          dashboardPipelineStart
         )
       : null;
 
-  const activeCountdown =
-    activeDeadline &&
-    !Number.isNaN(
-      activeDeadline.getTime()
-    )
-      ? formatCountdown(
-          activeDeadline,
-          new Date(
-            timerNow
-          )
+  const activeDeadline =
+    activeStage?.target_date
+      ? new Date(
+          activeStage.target_date
         )
-      : null;
+      : fixedDashboardHiringTarget
+        ? fixedDashboardHiringTarget
+        : activeTimer?.targetDate
+          ? new Date(
+              activeTimer.targetDate
+            )
+          : null;
 
   const docs =
     Array.isArray(
@@ -2246,39 +2414,13 @@ export default function Dashboard() {
                 {activeStage.stage_name}
               </p>
 
-              {activeCountdown && (
-                <div
-                  className={`mt-3 rounded-lg border px-3 py-2 ${
-                    activeCountdown.overdue
-                      ? "border-orange-200 bg-orange-50"
-                      : activeTimer?.timingStatus ===
-                          "At Risk"
-                        ? "border-amber-200 bg-amber-50"
-                        : "border-emerald-200 bg-emerald-50"
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <Timer
-                      className={`h-4 w-4 ${
-                        activeCountdown.overdue
-                          ? "text-orange-600"
-                          : activeTimer?.timingStatus ===
-                              "At Risk"
-                            ? "text-amber-600"
-                            : "text-emerald-600"
-                      }`}
-                    />
-                    <span className="text-xs font-semibold">
-                      {activeCountdown.text}
-                    </span>
-                  </div>
-
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    Same deadline as My Pipeline:{" "}
-                    {activeDeadline.toLocaleString()}
-                  </p>
-                </div>
-              )}
+              <DashboardLiveCountdown
+                deadline={activeDeadline}
+                timingStatus={
+                  activeTimer?.timingStatus ||
+                  null
+                }
+              />
 
               {activeStage.timing_rule && (
                 <p className="mt-2 text-[11px] leading-4 text-muted-foreground">

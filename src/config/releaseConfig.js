@@ -1,5 +1,5 @@
 
-export const ENABLED_PIPELINE_CATEGORIES = Object.freeze(["Hiring"]);
+export const ENABLED_PIPELINE_CATEGORIES = Object.freeze(["Hiring", "Deployment"]);
 
 /**
  * @param {string | null | undefined} category
