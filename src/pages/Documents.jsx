@@ -19,12 +19,19 @@ import {
   Eye,
   ArrowLeft,
   Calendar,
+  Clock,
   RefreshCw,
   FolderOpen,
+  Folder,
   Image as ImageIcon,
   FileArchive,
   FileSpreadsheet,
-  FileType2
+  FileType2,
+  ChevronDown,
+  ChevronUp,
+  ClipboardPenLine,
+  Plane,
+  Building2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -49,6 +56,13 @@ const API_BASE = (() => {
 
   return "https://fictional-carnival-3inv.onrender.com";
 })();
+
+const WORKFLOW_SECTION_ICONS = {
+  Recruiting: ClipboardPenLine,
+  Immigration: FileText,
+  Deployment: Plane,
+  Aftercare: Building2
+};
 
 const getAuthToken = () =>
   localStorage.getItem("icp_auth_token") || "";
@@ -696,6 +710,8 @@ export default function Documents() {
     setSelectedDepartment
   ] = useState("");
 
+  const [expandedSections, setExpandedSections] = useState({});
+
   const [
     selectedCategory,
     setSelectedCategory
@@ -1039,6 +1055,13 @@ export default function Documents() {
   );
 
   const totalDocumentTypes = workflowSections.reduce((total, group) => total + group.slots.length, 0);
+
+  const toggleSection = section => {
+    setExpandedSections(previous => ({
+      ...previous,
+      [section]: !previous[section]
+    }));
+  };
 
   const openViewer =
     document => {
@@ -1675,32 +1698,55 @@ export default function Documents() {
       )}
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-xl border bg-card p-4">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">
-            Documents
-          </p>
-          <p className="mt-1 text-2xl font-bold">
-            {allDocs.length}
-          </p>
+        <div className="flex min-h-[150px] items-center rounded-xl border bg-card p-5">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#F5F0FF]">
+            <FileText className="h-8 w-8 text-[#6D28D9]" />
+          </div>
+          <div className="ml-4">
+            <p className="text-base font-semibold uppercase tracking-wide text-muted-foreground">
+              Documents
+            </p>
+            <p className="mt-1 text-2xl font-bold">
+              {allDocs.length}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Total documents
+            </p>
+          </div>
         </div>
 
-        <div className="rounded-xl border bg-card p-4">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">
-            Awaiting Approval
-          </p>
-          <p className="mt-1 text-2xl font-bold">
-            {Number(documentData?.pending_count || 0)}
-          </p>
+        <div className="flex min-h-[150px] items-center rounded-xl border bg-card p-5">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#FEF3C7]">
+            <Clock className="h-8 w-8 text-yellow-500" />
+          </div>
+          <div className="ml-4">
+            <p className="text-base font-semibold uppercase tracking-wide text-muted-foreground">
+              Awaiting Approval
+            </p>
+            <p className="mt-1 text-2xl font-bold">
+              {Number(documentData?.pending_count || 0)}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Waiting for review
+            </p>
+          </div>
         </div>
 
-        <div className="rounded-xl border bg-card p-4">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">
-            Workflow Sections
-          </p>
-          <p className="mt-1 text-2xl font-bold">
-            {WORKFLOW_SECTION_ORDER.length}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">{totalDocumentTypes} document types</p>
+        <div className="flex min-h-[150px] items-center rounded-xl border bg-card p-5">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#DCFCE7]">
+            <Folder className="h-8 w-8 text-green-600" />
+          </div>
+          <div className="ml-4">
+            <p className="text-base font-semibold uppercase tracking-wide text-muted-foreground">
+              Workflow Sections
+            </p>
+            <p className="mt-1 text-2xl font-bold">
+              {WORKFLOW_SECTION_ORDER.length}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Active sections
+            </p>
+          </div>
         </div>
       </div>
 
@@ -1807,49 +1853,96 @@ export default function Documents() {
         <div className="space-y-8">
           {visibleWorkflowSections.map(group => (
             <section key={group.section} className="overflow-hidden rounded-2xl border border-border bg-card">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/30 px-5 py-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{group.sectionIndex + 1}</span>
-                    <h2 className="text-lg font-bold">{group.section}</h2>
-                  </div>
+              <div className="flex items-center gap-3 border-b bg-muted/30 px-5 py-4">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#3B0764] text-sm font-bold text-white">
+                  {group.sectionIndex + 1}
+                </span>
+
+                {(() => {
+                  const SectionIcon = WORKFLOW_SECTION_ICONS[group.section];
+                  return SectionIcon ? (
+                    <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-[#F5F0FF]">
+                      <SectionIcon className="h-11 w-11 text-[#3B0764]" />
+                    </div>
+                  ) : null;
+                })()}
+
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-lg font-bold text-[#111827]">{group.section}</h2>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {group.completedSlotCount} of {group.slots.length} document types currently on file • {group.documentCount} file{group.documentCount === 1 ? "" : "s"}
                   </p>
+                  <div className="mt-3 flex items-center gap-3">
+                    <div
+                      className="h-2 flex-1 overflow-hidden rounded-full bg-[#E8E1F2]"
+                      role="progressbar"
+                      aria-label={`${group.section} pipeline progress`}
+                      aria-valuemin={0}
+                      aria-valuemax={group.slots.length}
+                      aria-valuenow={group.completedSlotCount}
+                    >
+                      <div
+                        className="h-full rounded-full bg-[#8B5CF6] transition-all"
+                        style={{
+                          width: `${group.slots.length > 0 ? (group.completedSlotCount / group.slots.length) * 100 : 0}%`
+                        }}
+                      />
+                    </div>
+                    <span className="shrink-0 text-xs font-semibold text-[#3B0764]">
+                      {group.completedSlotCount}/{group.slots.length}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs font-semibold text-[#111827]">
+                    {group.slots.length > 0 ? Math.round((group.completedSlotCount / group.slots.length) * 100) : 0}% complete
+                  </p>
                 </div>
-                <span className="rounded-full border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">Pipeline order</span>
+                <button
+                  type="button"
+                  onClick={() => toggleSection(group.section)}
+                  aria-expanded={Boolean(expandedSections[group.section])}
+                  className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg bg-[#6D28D9] px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#3B0764]"
+                >
+                  {expandedSections[group.section] ? "Hide uploaded documents" : "View uploaded documents"}
+                  {expandedSections[group.section] ? (
+                    <ChevronUp className="h-4 w-4" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4" />
+                  )}
+                </button>
               </div>
 
-              <div className="divide-y">
-                {group.slots.map((slot, slotIndex) => {
-                  const hasDocuments = slot.documents.length > 0;
-                  return (
-                    <div key={slot.category.key} className="p-5">
-                      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                        <div className="flex min-w-0 items-start gap-3">
-                          <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${hasDocuments ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>{slotIndex + 1}</span>
-                          <div>
-                            <h3 className="font-semibold">{slot.category.label}</h3>
-                            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                              {slot.category.pipelineStage && <span>Pipeline: {slot.category.pipelineStage}</span>}
-                              {slot.category.crmFieldApiName && <span className="rounded-full border px-2 py-0.5">{slot.category.crmFieldApiName}</span>}
+              {expandedSections[group.section] && (
+                <div className="divide-y">
+                  {group.slots.map((slot, slotIndex) => {
+                    const hasDocuments = slot.documents.length > 0;
+                    return (
+                      <div key={slot.category.key} className="p-5">
+                        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                          <div className="flex min-w-0 items-start gap-3">
+                            <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${hasDocuments ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>{slotIndex + 1}</span>
+                            <div>
+                              <h3 className="font-semibold">{slot.category.label}</h3>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                {slot.category.pipelineStage && <span>Pipeline: {slot.category.pipelineStage}</span>}
+                                {slot.category.crmFieldApiName && <span className="rounded-full border px-2 py-0.5">{slot.category.crmFieldApiName}</span>}
+                              </div>
                             </div>
                           </div>
+                          <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${hasDocuments ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-gray-200 bg-gray-50 text-gray-500"}`}>
+                            {hasDocuments ? `${slot.documents.length} on file` : "Not submitted"}
+                          </span>
                         </div>
-                        <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${hasDocuments ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-gray-200 bg-gray-50 text-gray-500"}`}>
-                          {hasDocuments ? `${slot.documents.length} on file` : "Not submitted"}
-                        </span>
-                      </div>
 
-                      {hasDocuments ? (
-                        <div className="space-y-3 pl-10">{slot.documents.map(renderDocumentItem)}</div>
-                      ) : (
-                        <div className="ml-10 rounded-lg border border-dashed bg-muted/20 px-4 py-3 text-sm text-muted-foreground">No document is currently available for this item.</div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+                        {hasDocuments ? (
+                          <div className="space-y-3 pl-10">{slot.documents.map(renderDocumentItem)}</div>
+                        ) : (
+                          <div className="ml-10 rounded-lg border border-dashed bg-muted/20 px-4 py-3 text-sm text-muted-foreground">No document is currently available for this item.</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </section>
           ))}
         </div>
