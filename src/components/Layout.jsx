@@ -13,6 +13,7 @@ import {
   BookOpen,
   ClipboardList,
   MessageCircle,
+  Headphones,
   Megaphone,
   Home,
   ArrowLeft,
@@ -555,7 +556,27 @@ export default function Layout() {
           })}
         </nav>
 
-        <div className="p-4 border-t border-[#E8E1F2] flex-shrink-0">
+        <div className="border-t border-[#E8E1F2] p-4 flex-shrink-0">
+          <div className="mb-4 rounded-xl bg-[#F5F0FF] p-4">
+            <div className="flex items-start gap-3">
+              <Headphones className="mt-0.5 h-6 w-6 shrink-0 text-[#6D28D9]" />
+              <div className="min-w-0">
+                <p className="font-bold text-[#111827]">
+                  Need help?
+                </p>
+                <p className="mt-1 text-sm text-[#64748B]">
+                  Our team is here for you.
+                </p>
+                <Link
+                  to="/messages"
+                  className="mt-3 inline-flex text-sm font-semibold text-[#6D28D9] hover:text-[#3B0764]"
+                >
+                  Contact Support <span aria-hidden="true">→</span>
+                </Link>
+              </div>
+            </div>
+          </div>
+
           <div className="flex items-center gap-3 mb-3 px-3">
             <div className="h-8 w-8 rounded-full bg-[#F5F0FF] flex items-center justify-center">
               <span className="text-xs font-medium text-[#6D28D9]">{user?.full_name?.[0] || "?"}</span>
