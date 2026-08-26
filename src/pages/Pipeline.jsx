@@ -4554,39 +4554,16 @@ const SurveyView = ({
     crmDealId:
       "",
     dealName:
-      "",
-    crmAssociatedUrl:
-      "",
-    associationReady:
-      false,
-    crmRegistered:
-      false,
-    crmMessageId:
-      "",
-    reusedExistingInvite:
-      false
+      ""
   });
-
-  const [
-    surveyContextLoading,
-    setSurveyContextLoading
-  ] = useState(true);
-
-  const [
-    surveyContextError,
-    setSurveyContextError
-  ] = useState("");
 
   const [
     iframeKey,
     setIframeKey
   ] = useState(0);
 
-  const refreshIframe = async () => {
+  const refreshIframe = () => {
     setIsLoading(true);
-
-    await loadSurveyContext();
-
     setIframeKey(
       previous =>
         previous + 1
@@ -4635,9 +4612,6 @@ const SurveyView = ({
         !stageName ||
         !user?.email
       ) {
-        setSurveyContextLoading(
-          false
-        );
         return;
       }
 
@@ -4647,48 +4621,28 @@ const SurveyView = ({
         );
 
       if (!token) {
-        setSurveyContextLoading(
-          false
-        );
-        setSurveyContextError(
-          "Your session has expired. Please sign in again."
-        );
         return;
       }
-
-      setSurveyContextLoading(
-        true
-      );
-      setSurveyContextError(
-        ""
-      );
 
       try {
         const response =
           await fetchWithTimeout(
-            `${API_BASE}/api/pipeline/aftercare-survey/open-native`,
+            `${API_BASE}/api/pipeline/aftercare-survey-context?stage_name=${encodeURIComponent(stageName)}&_=${Date.now()}`,
             {
               method:
-                "POST",
+                "GET",
               cache:
                 "no-store",
               headers: {
                 Authorization:
                   `Bearer ${token}`,
-                "Content-Type":
-                  "application/json",
                 "Cache-Control":
                   "no-cache",
                 Pragma:
                   "no-cache"
-              },
-              body:
-                JSON.stringify({
-                  stage_name:
-                    stageName
-                })
+              }
             },
-            45000
+            8000
           );
 
         const data =
@@ -4699,164 +4653,97 @@ const SurveyView = ({
             );
 
         if (
-          !response.ok ||
-          data.success !==
-            true ||
-          data.crm_registered !==
-            true ||
-          !data.crm_deal_id ||
-          !data.crm_generated_survey_url
+          response.ok &&
+          data.success ===
+            true
         ) {
-          throw new Error(
-            data.error ||
-            "Zoho CRM did not confirm the native survey registration."
+          setSurveyContext({
+            crmDealId:
+              data.crm_deal_id ||
+              "",
+            dealName:
+              data.deal_name ||
+              ""
+          });
+
+          setCrmSurveyCount(
+            Number(
+              data.crm_survey_count ||
+              0
+            )
           );
-        }
-
-        let verifiedUrl =
-          "";
-
-        try {
-          const parsed =
-            new URL(
-              data.crm_generated_survey_url
-            );
-
-          const fromService =
-            String(
-              parsed.searchParams.get(
-                "fromservice"
-              ) ||
-              ""
-            ).toUpperCase();
-
-          const crmAssociation =
-            String(
-              parsed.searchParams.get(
-                "zs_potentials"
-              ) ||
-              ""
-            ).trim();
 
           if (
-            parsed.hostname ===
-              "survey.zohopublic.com" &&
-            fromService ===
-              "ZCRM" &&
-            crmAssociation &&
-            !crmAssociation.includes(
-              "${"
-            )
-          ) {
-            verifiedUrl =
-              parsed.toString();
-          }
-        } catch {
-          verifiedUrl =
-            "";
-        }
-
-        if (!verifiedUrl) {
-          throw new Error(
-            "Zoho CRM returned an invalid or unmerged survey link."
-          );
-        }
-
-        setSurveyContext({
-          crmDealId:
-            String(
-              data.crm_deal_id
-            ),
-          dealName:
-            data.deal_name ||
-            "",
-          crmAssociatedUrl:
-            verifiedUrl,
-          associationReady:
-            true,
-          crmRegistered:
-            true,
-          crmMessageId:
-            data.crm_message_id ||
-            "",
-          reusedExistingInvite:
-            data.reused_existing_invite ===
-            true
-        });
-
-        setCrmSurveyVisible(
-          true
-        );
-
-        setCrmSurveyCount(
-          Number(
-            data.crm_survey_count_after ||
+            Number(
+              data.crm_survey_count ||
+              0
+            ) >
             0
-          )
-        );
+          ) {
+            setCrmSurveyVisible(
+              true
+            );
+          }
+        }
       } catch (error) {
-        setSurveyContext({
-          crmDealId:
-            "",
-          dealName:
-            "",
-          crmAssociatedUrl:
-            "",
-          associationReady:
-            false,
-          crmRegistered:
-            false,
-          crmMessageId:
-            "",
-          reusedExistingInvite:
-            false
-        });
-
         if (
-          error?.name ===
+          error?.name !==
           "AbortError"
         ) {
-          setSurveyContextError(
-            "Zoho CRM registration timed out. Retry this screen; the backend will reuse any survey email it already created."
-          );
-        } else {
-          setSurveyContextError(
-            error.message ||
-            "Unable to register this survey with Zoho CRM."
-          );
-
           console.warn(
-            "[Aftercare Survey] Native CRM registration unavailable:",
+            "[Aftercare Survey] CRM context unavailable:",
             error
           );
         }
-      } finally {
-        setSurveyContextLoading(
-          false
-        );
       }
     };
 
-  // IMPORTANT: the portal no longer manufactures a public survey URL.
-  // It only opens the rendered link returned from a Zoho CRM email template
-  // after the backend has verified a new native Zoho Survey related-list row.
-  const resolvedSurveyUrl =
-    surveyContext.crmRegistered ===
-      true &&
-    surveyContext.associationReady ===
-      true
-      ? surveyContext.crmAssociatedUrl
-      : "";
+  // The portal passes CRM context into Zoho Survey as URL/custom variables.
+  // Each Zoho Survey must be configured with the Zoho CRM integration against
+  // Deals (Add/Update) so the submitted response appears in the native
+  // "Zoho Survey" related list instead of CRM Attachments.
+  const resolvedSurveyUrl = (() => {
+    try {
+      const url =
+        new URL(
+          surveyUrl
+        );
 
-  const surveyAssociationReady =
-    Boolean(
-      surveyContext.crmRegistered ===
-        true &&
-      surveyContext.associationReady ===
-        true &&
-      surveyContext.crmDealId &&
-      resolvedSurveyUrl
-    );
+      if (user?.email) {
+        url.searchParams.set(
+          "candidate_email",
+          user.email
+        );
+
+        url.searchParams.set(
+          "email",
+          user.email
+        );
+      }
+
+      if (
+        surveyContext.crmDealId
+      ) {
+        url.searchParams.set(
+          "crm_deal_id",
+          surveyContext.crmDealId
+        );
+      }
+
+      if (
+        surveyContext.dealName
+      ) {
+        url.searchParams.set(
+          "deal_name",
+          surveyContext.dealName
+        );
+      }
+
+      return url.toString();
+    } catch {
+      return surveyUrl;
+    }
+  })();
 
   const checkCrmSurveyStatus =
     async ({
@@ -4951,7 +4838,6 @@ const SurveyView = ({
         ) {
           setSurveyContext(
             previous => ({
-              ...previous,
               crmDealId:
                 data.crm_deal_id ||
                 previous.crmDealId,
@@ -4987,16 +4873,6 @@ const SurveyView = ({
         !stageName ||
         !user?.email
       ) {
-        return;
-      }
-
-      if (
-        !surveyAssociationReady
-      ) {
-        toast.error(
-          surveyContextError ||
-          "This survey is not yet linked to your CRM record. Retry the CRM link before submitting."
-        );
         return;
       }
 
@@ -5269,9 +5145,6 @@ const SurveyView = ({
             onClick={
               refreshIframe
             }
-            disabled={
-              surveyContextLoading
-            }
             className="text-gray-500 hover:text-gray-700"
           >
             <RefreshCw className="h-4 w-4" />
@@ -5322,89 +5195,40 @@ const SurveyView = ({
       </div>
 
       <div className="flex-1 relative bg-gray-50">
-        {surveyContextLoading ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 px-6 text-center">
+        {isLoading && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50">
             <Loader2 className="h-10 w-10 animate-spin text-rose-500" />
-            <span className="mt-3 text-sm font-medium text-gray-700">
-              Registering survey with Zoho CRM...
-            </span>
-            <span className="mt-1 max-w-md text-xs text-muted-foreground">
-              The portal is asking Zoho CRM to send the survey template, register it in the native Zoho Survey related list, and return the CRM-generated link.
+            <span className="mt-3 text-sm text-muted-foreground">
+              Loading survey...
             </span>
           </div>
-        ) : !surveyAssociationReady ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 px-6 text-center">
-            <AlertCircle className="h-10 w-10 text-red-500" />
-            <p className="mt-3 text-sm font-semibold text-red-700">
-              Survey was not registered in CRM
-            </p>
-            <p className="mt-2 max-w-lg text-xs leading-5 text-muted-foreground">
-              {surveyContextError ||
-                "Zoho CRM did not confirm a native Zoho Survey record. The survey was intentionally not opened."}
-            </p>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="mt-4"
-              onClick={
-                loadSurveyContext
-              }
-            >
-              Retry CRM Registration
-            </Button>
-          </div>
-        ) : (
-          <>
-            {isLoading && (
-              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-gray-50">
-                <Loader2 className="h-10 w-10 animate-spin text-rose-500" />
-                <span className="mt-3 text-sm text-muted-foreground">
-                  Loading CRM-registered survey...
-                </span>
-              </div>
-            )}
-
-            <iframe
-              key={
-                iframeKey
-              }
-              src={
-                resolvedSurveyUrl
-              }
-              className="w-full h-full border-0"
-              onLoad={
-                handleIframeLoad
-              }
-              title={
-                title
-              }
-              allow="fullscreen; geolocation; microphone; camera"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-top-navigation"
-              loading="lazy"
-            />
-          </>
         )}
+
+        <iframe
+          key={
+            iframeKey
+          }
+          src={
+            resolvedSurveyUrl
+          }
+          className="w-full h-full border-0"
+          onLoad={
+            handleIframeLoad
+          }
+          title={
+            title
+          }
+          allow="fullscreen; geolocation; microphone; camera"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-top-navigation"
+          loading="lazy"
+        />
       </div>
 
       <div className="flex items-center justify-between gap-4 px-6 py-3 border-t border-gray-200 bg-white flex-shrink-0">
         <div>
           <p className="text-xs text-muted-foreground">
-            Zoho CRM registers this survey first using the configured CRM email template with <span className="font-medium">Insert Survey Link</span>. The portal then opens the exact CRM-generated survey link here.
+            Survey responses are not saved to CRM Attachments. They are linked through the native Zoho Survey integration and should appear under the CRM record&apos;s Zoho Survey section.
           </p>
-
-          {surveyAssociationReady && (
-            <p className="mt-1 text-xs font-medium text-blue-700">
-              CRM survey registered and ready
-              {surveyContext.dealName
-                ? ` for ${surveyContext.dealName}`
-                : ""}
-              {surveyContext.reusedExistingInvite
-                ? " • existing CRM invite reused"
-                : ""}
-              .
-            </p>
-          )}
 
           {crmSurveyVisible && (
             <p className="mt-1 text-xs font-medium text-emerald-700">
@@ -5418,7 +5242,7 @@ const SurveyView = ({
           {submitted &&
             !crmSurveyVisible && (
               <p className="mt-1 text-xs font-medium text-emerald-700">
-                Survey submitted successfully. Zoho CRM will expose View Response when the native Survey integration finishes recording the response.
+                Survey submitted successfully. CRM synchronization continues automatically in the background.
               </p>
             )}
         </div>
@@ -5430,8 +5254,7 @@ const SurveyView = ({
             size="sm"
             disabled={
               submitted ||
-              isSavingSubmission ||
-              !surveyAssociationReady
+              isSavingSubmission
             }
             onClick={
               persistSurveySubmission
