@@ -40,6 +40,8 @@ import { Button } from "@/components/ui/button";
 import StatusBadge from "../components/StatusBadge";
 import StageContact from "../components/StageContact";
 import diagramImage from "../components/diagram.png";
+import attentionImage from "../components/attention.png";
+import pipeImage from "../components/pipe.png";
 import moment from "moment";
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
@@ -2479,7 +2481,12 @@ export default function Dashboard() {
       </div>
 
       {notifications.length > 0 && (
-        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+        <div className="relative overflow-hidden rounded-xl border border-blue-200 bg-blue-50 p-4">
+          <img
+            src={attentionImage}
+            alt="Support illustration"
+            className="pointer-events-none absolute inset-y-0 right-0 hidden h-full w-[40%] object-contain object-right md:block"
+          />
           <div className="flex items-center gap-2">
             <Bell className="h-5 w-5 text-[#3B0764]" fill="#3B0764" />
             <h2 className="text-lg font-bold text-[#3B0764]">
@@ -2487,7 +2494,7 @@ export default function Dashboard() {
             </h2>
           </div>
 
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <div className="relative z-10 mt-3 grid gap-3 md:max-w-[72%] md:grid-cols-2">
             {notifications.map(
               notification => (
                 <Link
@@ -2523,9 +2530,14 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="rounded-xl border border-border bg-card p-5">
+      <div className="relative overflow-hidden rounded-xl border border-border bg-card p-5">
+        <img
+          src={pipeImage}
+          alt="Pipeline progress illustration"
+          className="pointer-events-none absolute inset-y-0 right-0 hidden h-full w-[38%] object-contain object-right md:block"
+        />
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
+          <div className="relative z-10">
             <h2 className="flex items-center gap-3 text-lg font-bold text-[#3B0764]">
               <span
                 aria-hidden="true"
@@ -2554,7 +2566,7 @@ export default function Dashboard() {
           </span>
         </div>
 
-        <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-muted">
+        <div className="relative z-10 mt-4 h-2.5 max-w-[72%] overflow-hidden rounded-full bg-muted">
           <div
             className="h-full rounded-full bg-gradient-to-r from-blue-500 via-purple-500 to-emerald-500 transition-all"
             style={{
@@ -2564,7 +2576,7 @@ export default function Dashboard() {
           />
         </div>
 
-        <div className="mt-2 flex justify-between text-xs text-muted-foreground">
+        <div className="relative z-10 mt-2 flex max-w-[72%] justify-between text-xs text-muted-foreground">
           <span>
             {pipelineProgressPercent}% complete
           </span>
