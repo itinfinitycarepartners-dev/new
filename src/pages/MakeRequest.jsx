@@ -764,10 +764,7 @@ export default function MakeRequest() {
             <h2 className="font-semibold">
               Embassy Change
             </h2>
-            <p className="text-sm text-slate-500">
-              Requests require admin approval before CRM Deals →
-              Embassy_Location is updated.
-            </p>
+           
           </div>
         </div>
 

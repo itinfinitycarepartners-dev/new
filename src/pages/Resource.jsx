@@ -21,7 +21,8 @@ import {
   MessageSquareQuote,
   CircleHelp,
   Send,
-  BookOpen
+  BookOpen,
+  ChevronDown
 } from "lucide-react";
 
 const API_BASE =
@@ -51,8 +52,7 @@ const QUICK_ACCESS_LINKS = [
     label:
       "FAQs",
     href:
-      import.meta.env.VITE_CANDIDATE_FAQ_URL ||
-      ""
+      "#candidate-faqs"
   }
 ];
 
@@ -96,6 +96,331 @@ const ICP_DEPARTMENTS = [
       "info@infinitycarepartners.com",
     summary:
       "General job-opportunity, resume, partnership, and vendor inquiries."
+  }
+];
+
+
+const CANDIDATE_FAQ_DEPARTMENTS = [
+  {
+    key: "recruiting",
+    name: "Recruiting Department",
+    shortName: "Recruiting",
+    email: "recruiting@infinitycarepartners.com",
+    icon: Users,
+    questions: [
+      {
+        question: "What type of agency is Infinity Care Partners (ICP)?",
+        answer:
+          "ICP is a Direct Hire Agency. Healthcare professionals are hired directly by their U.S. employer, who also serves as their immigration petitioner. Candidates receive pay and benefits competitive with American healthcare workers of similar experience and location."
+      },
+      {
+        question: "Who is eligible to apply?",
+        answer: "ICP assists:",
+        bullets: [
+          "NCLEX-Passed RNs in all specialties (ICU, Med-Surg, Dialysis, Cath Lab, OR, etc.)",
+          "Medical Technologists",
+          "Sonographers",
+          "Nurse Aides (CNAs)",
+          "Non-NCLEX nurses through our in-house NCLEX program"
+        ]
+      },
+      {
+        question: "What are the minimum requirements for NCLEX RNs?",
+        bullets: [
+          "Must have passed the NCLEX-RN exam.",
+          "Must be currently working bedside in the department you are applying for.",
+          "Must have at least 2 years of recent bedside experience in that specialty (ICU, Dialysis, Med-Surg, OR, etc.)."
+        ]
+      },
+      {
+        question: "Why is active bedside experience required?",
+        answer:
+          "U.S. hospitals expect international nurses to be clinically current in the exact specialty where they are being placed. This ensures you are fully prepared for your role upon arrival."
+      },
+      {
+        question: "Can I apply if I am not currently working bedside?",
+        answer:
+          "If you are not working bedside, you will need to return to active clinical work in your specialty for at least 1–2 years before applying. This requirement is non-negotiable for U.S. employers."
+      },
+      {
+        question: "Can I choose my specialty?",
+        answer:
+          "Yes, but you will only be considered for the specialty where you have 2+ years of continuous, recent bedside experience. For example:",
+        bullets: [
+          "If you have ICU experience, you can apply for ICU roles.",
+          "If you are currently in Dialysis, you will be considered for Dialysis placements."
+        ]
+      },
+      {
+        question: "Do I need to pay ICP for recruitment services?",
+        answer:
+          "No. ICP is a direct-hire placement company. You do not pay us for placement. Your U.S. employer pays all associated fees."
+      },
+      {
+        question: "Can I choose my U.S. location?",
+        answer:
+          "You may share preferences for certain states or cities, but placement is based on employer demand and specialty openings. ICP staff across all 50 states."
+      },
+      {
+        question: "How long does the hiring process take before immigration begins?",
+        answer:
+          "Most nurses complete the recruiting and employer interview stage within 4–6 weeks, depending on employer availability and candidate readiness."
+      },
+      {
+        question: "How do I apply?",
+        answer:
+          "Apply online at jobs.infinitycarepartners.com. A recruiter will contact you within 24 hours after submission."
+      },
+      {
+        question: "What happens after I apply?",
+        answer:
+          "Your application will be reviewed by our recruiting team. If you meet requirements, we will contact you for a Video screening interview and begin matching you with possible employers."
+      }
+    ]
+  },
+  {
+    key: "immigration",
+    name: "Immigration Department",
+    shortName: "Immigration",
+    email: "immigration@infinitycarepartners.com",
+    icon: Globe2,
+    questions: [
+      {
+        question: "What English exam do I need to take?",
+        answer:
+          "We recommend IELTS, as it is widely accepted by U.S. Boards of Nursing and for VisaScreen certification."
+      },
+      {
+        question: "Does ICP cover my immigration costs?",
+        answer:
+          "Yes. Your employer (with ICP coordination) covers petition filing fees and most immigration costs. Certain reimbursable costs may be advanced by ICP."
+      },
+      {
+        question: "Will my dependents (spouse and children) be included?",
+        answer:
+          "Yes. ICP files cases for legally married spouses and unmarried children under 21."
+      },
+      {
+        question: "What is a Visa Screen Certificate?",
+        answer:
+          "It’s a U.S.-required certification confirming your education, license, and English proficiency. It must be completed before you can receive a visa."
+      },
+      {
+        question: "How long does the immigration process take?",
+        answer:
+          "On average, 18–24 months from job offer to arrival. Timelines vary depending on visa retrogression and government processing times."
+      },
+      {
+        question: "Can I work in another country while waiting for my U.S. visa?",
+        answer:
+          "Yes, but you must remain available to complete required steps (medical exams, embassy interviews, etc.)."
+      },
+      {
+        question: "What is the I-140 petition?",
+        answer:
+          "The I-140 is the immigrant petition filed by your employer (with ICP support) to U.S. Citizenship and Immigration Services (USCIS). It establishes that you are eligible for an immigrant visa as a healthcare worker and that your employer qualifies to sponsor you."
+      },
+      {
+        question: "How long does I-140 approval take?",
+        answer:
+          "Currently, around 12–15 months under regular processing. ICP does not file premium processing unless your priority date is current and all requirements (VisaScreen, English exam) are complete."
+      },
+      {
+        question: "What is a Priority Date and why is it important?",
+        answer:
+          "The Priority Date is the date USCIS receives your I-140. It determines your place in the visa line. Your case can only move forward when your priority date becomes “current” according to the U.S. Department of State Visa Bulletin."
+      },
+      {
+        question: "What is Visa Retrogression?",
+        answer:
+          "Visa retrogression happens when demand for visas is higher than supply. A priority date that is “current” one month may move backward the next, which can temporarily delay embassy scheduling."
+      },
+      {
+        question: "What happens after my I-140 is approved?",
+        answer:
+          "Your case moves to the National Visa Center (NVC). At this stage, you will submit fees and civil documents (passport, birth certificate, marriage certificate if applicable, etc.). ICP helps ensure your file is complete so the NVC can qualify your case."
+      },
+      {
+        question: "What is the DS-260?",
+        answer:
+          "The DS-260 is the online immigrant visa application form. It is completed for you and each dependent before your case is scheduled for an embassy interview. You must provide accurate biographical information, employment history, and travel history."
+      },
+      {
+        question: "When can I add dependents to my case?",
+        answer:
+          "Dependents can be added any time before DS-260 submission. After submission, only limited changes are possible, so it’s important to confirm dependents early."
+      },
+      {
+        question: "What happens at the embassy interview?",
+        answer:
+          "You will attend an interview at the U.S. Embassy or Consulate in your home country. An officer will review your documents, confirm your qualifications, and ask questions about your employment and family. If approved, your immigrant visa will be placed in your passport."
+      },
+      {
+        question: "How long after the embassy interview will I get my visa?",
+        answer:
+          "Most candidates receive their visa within 2–4 weeks of the interview, depending on embassy workload and any required additional processing."
+      },
+      {
+        question: "When should I schedule my medical exam?",
+        answer:
+          "After receiving your embassy interview date. The exam should be as close as possible to the interview (valid only 180 days)."
+      },
+      {
+        question: "Can I travel while my passport is with the embassy?",
+        answer:
+          "No. Once your passport is submitted to the embassy, you cannot use it until your visa is issued and returned."
+      },
+      {
+        question: "Does ICP cover my dependent’s fees?",
+        answer:
+          "No, ICP’s payment for candidate visa fee bills, which will be deducted from reimbursable costs."
+      },
+      {
+        question: "What happens if a dependent has a medical delay (e.g., sputum testing)?",
+        answer:
+          "Your arrival may be rescheduled. In some cases, you may travel ahead while your dependent follows after medical clearance."
+      },
+      {
+        question: "What documents do I need for the embassy interview?",
+        bullets: [
+          "Passport (and any renewed passports since DS-260 submission)",
+          "Visa appointment letter",
+          "Birth certificate",
+          "Marriage certificate (if applicable)",
+          "NCLEX and nursing license verification",
+          "VisaScreen certificate",
+          "Completed medical exam results"
+        ]
+      }
+    ]
+  },
+  {
+    key: "relocation-logistics",
+    name: "Relocation & Logistics Department",
+    shortName: "Relocation & Logistics",
+    email: "deployment@infinitycarepartners.com",
+    icon: Plane,
+    questions: [
+      {
+        question: "How many bags can I bring on my flight?",
+        answer:
+          "ICP provides 2 checked bags. If your ticket does not reflect this, you may pay for the second bag at check-in and submit the receipt for reimbursement."
+      },
+      {
+        question: "What happens if I experience a sputum delay after my medical exam?",
+        answer:
+          "You may need an additional 6–8 weeks for clearance. Arrival timelines will be adjusted based on medical clearance, resignation requirements, and visa validity."
+      },
+      {
+        question: "How long after the embassy interview will I receive my visa?",
+        answer:
+          "Typically 2–4 weeks."
+      },
+      {
+        question: "What if my dependent experiences a sputum delay?",
+        answer:
+          "Arrival timelines will be adjusted. In some cases, you may travel ahead and your dependent can follow once cleared."
+      },
+      {
+        question: "Can I use my international driver’s license in the U.S.?",
+        answer:
+          "Yes, up to one year. Requirements vary by state, so confirm with the Department of Motor Vehicles (DMV) where you are placed."
+      },
+      {
+        question: "How does ICP assist with housing?",
+        answer:
+          "ICP will help you complete a housing form and secure appropriate accommodations near your worksite. Housing options vary by location."
+      },
+      {
+        question: "When and how can I enroll my children in school?",
+        answer:
+          "Public schools allow enrollment throughout the year. Most schools run August–May with holiday breaks."
+      },
+      {
+        question: "Does ICP provide transportation assistance?",
+        answer:
+          "Yes, guidance will be provided on obtaining a vehicle or using public transport depending on your placement state. ICP also partners with vendors that can support transportation needs."
+      },
+      {
+        question: "What resources are provided before arrival?",
+        bullets: [
+          "Relias training modules (to be completed before arrival)",
+          "Skills assessment checklist",
+          "Pre-arrival orientation on housing, transportation, and community resources"
+        ]
+      },
+      {
+        question: "Who should I contact if I need help?",
+        answer:
+          "Each department (Recruiting, Immigration, Relocation & Logistics, Customer Service) has dedicated support. You will be given departmental contact details during your onboarding."
+      },
+      {
+        question: "What travel arrangements does ICP provide?",
+        answer:
+          "We coordinate your flight to the U.S. and provide 2 checked bags. You’ll receive your flight itinerary before departure."
+      },
+      {
+        question: "What happens when I arrive in the U.S.?",
+        answer:
+          "A member of the ICP team or a facility representative will meet you at the airport, assist with transportation, and guide you through your housing check-in."
+      },
+      {
+        question: "What should I pack?",
+        answer:
+          "We recommend essentials for the first month (clothing, documents, personal items). Larger purchases like furniture or appliances can be made in the U.S."
+      },
+      {
+        question: "Will I have health insurance when I arrive?",
+        answer:
+          "Yes, your employer provides health insurance benefits. Coverage start dates vary, so ICP will explain when your coverage begins."
+      },
+      {
+        question: "Can ICP help with opening a U.S. bank account?",
+        answer:
+          "Yes, we guide you through setting up a U.S. bank account and provide advice on managing your finances after arrival."
+      },
+      {
+        question: "Do I need to have an unlocked cell phone before traveling to the U.S.?",
+        answer:
+          "Yes. We strongly recommend that you bring an unlocked smartphone from your home country. An unlocked phone allows you to purchase and use a U.S. SIM card immediately upon arrival."
+      },
+      {
+        question: "Why does my phone need to be unlocked?",
+        answer:
+          "Phones locked to a carrier in your home country may not work with U.S. networks. If your phone is unlocked, you can quickly set up service with U.S. carriers like AT&T, T-Mobile, or Verizon."
+      },
+      {
+        question: "Can ICP help me set up a U.S. phone plan?",
+        answer:
+          "Yes. Our relocation team will guide you in choosing a carrier and plan that works best for your location and budget."
+      },
+      {
+        question: "What if my phone is locked?",
+        answer:
+          "You should contact your current provider before departure to request an unlock. If you arrive with a locked phone, you may need to purchase a new device in the U.S."
+      },
+      {
+        question: "How much money should I bring with me when I arrive in the U.S.?",
+        answer:
+          "We recommend bringing enough funds to cover your first 6–8 weeks of expenses. Even with housing and employer support, you’ll need to budget for groceries, utilities, deposits, transportation, and personal essentials before your first paycheck.",
+        bullets: [
+          "Single Nurse: Bring at least $3,000 – $4,500 USD. This allows for rent deposits, groceries, utilities, public transportation or initial car expenses, and setting up a household.",
+          "Nurse with Spouse/Family: Bring at least $6,000 – $8,000 USD, depending on family size. Families have higher upfront costs — including larger housing deposits, more groceries, school supplies, childcare needs, and transportation."
+        ]
+      },
+      {
+        question: "Should I bring cash or a card?",
+        bullets: [
+          "Carry $300–$500 in cash for immediate needs like taxis, meals, or baggage fees.",
+          "The remainder should be on a debit/credit card (Visa or Mastercard recommended) that works internationally."
+        ]
+      },
+      {
+        question: "What if I cannot bring this much money?",
+        answer:
+          "Bring as much as you can — but be prepared to budget very carefully. Keep in mind U.S. employers typically pay every 2–4 weeks, so you must cover all living costs until your first paycheck."
+      }
+    ]
   }
 ];
 
@@ -358,16 +683,153 @@ function ResourceLink({
     );
   }
 
+  const isInternalAnchor =
+    String(href).startsWith("#");
+
   return (
     <a
       href={href}
-      target="_blank"
-      rel="noopener noreferrer"
+      target={
+        isInternalAnchor
+          ? undefined
+          : "_blank"
+      }
+      rel={
+        isInternalAnchor
+          ? undefined
+          : "noopener noreferrer"
+      }
       className="flex items-center justify-between gap-3 rounded-lg border bg-white px-4 py-3 text-sm font-medium transition hover:border-primary/40 hover:bg-primary/5"
     >
       <span>{label}</span>
-      <ExternalLink className="h-4 w-4 text-muted-foreground" />
+      {isInternalAnchor ? (
+        <CircleHelp className="h-4 w-4 text-muted-foreground" />
+      ) : (
+        <ExternalLink className="h-4 w-4 text-muted-foreground" />
+      )}
     </a>
+  );
+}
+
+
+function DepartmentFaqSection({
+  department,
+  openFaqItem,
+  setOpenFaqItem
+}) {
+  const DepartmentIcon =
+    department.icon ||
+    CircleHelp;
+
+  return (
+    <div className="overflow-hidden rounded-2xl border bg-white">
+      <div className="flex flex-col gap-3 border-b bg-slate-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+            <DepartmentIcon className="h-5 w-5 text-primary" />
+          </div>
+
+          <div>
+            <h3 className="font-semibold">
+              {department.name}
+            </h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {department.questions.length} frequently asked questions
+            </p>
+          </div>
+        </div>
+
+        <a
+          href={`mailto:${department.email}`}
+          className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
+        >
+          <Send className="h-4 w-4" />
+          {department.email}
+        </a>
+      </div>
+
+      <div className="divide-y">
+        {department.questions.map(
+          (item, index) => {
+            const itemKey =
+              `${department.key}:${index}`;
+
+            const isOpen =
+              openFaqItem ===
+              itemKey;
+
+            return (
+              <div
+                key={itemKey}
+                className="bg-white"
+              >
+                <button
+                  type="button"
+                  onClick={() =>
+                    setOpenFaqItem(
+                      isOpen
+                        ? ""
+                        : itemKey
+                    )
+                  }
+                  aria-expanded={
+                    isOpen
+                  }
+                  className="flex w-full items-start justify-between gap-4 px-5 py-4 text-left transition hover:bg-primary/5"
+                >
+                  <div className="flex min-w-0 gap-3">
+                    <CircleHelp className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    <span className="text-sm font-semibold leading-6">
+                      {item.question}
+                    </span>
+                  </div>
+
+                  <ChevronDown
+                    className={`mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${
+                      isOpen
+                        ? "rotate-180"
+                        : ""
+                    }`}
+                  />
+                </button>
+
+                {isOpen && (
+                  <div className="px-5 pb-5 pl-12">
+                    {item.answer && (
+                      <p className="text-sm leading-7 text-muted-foreground">
+                        {item.answer}
+                      </p>
+                    )}
+
+                    {Array.isArray(
+                      item.bullets
+                    ) &&
+                      item.bullets.length >
+                        0 && (
+                        <ul className={`${item.answer ? "mt-3" : ""} space-y-2 pl-5 text-sm leading-7 text-muted-foreground`}>
+                          {item.bullets.map(
+                            (
+                              bullet,
+                              bulletIndex
+                            ) => (
+                              <li
+                                key={`${itemKey}:bullet:${bulletIndex}`}
+                                className="list-disc"
+                              >
+                                {bullet}
+                              </li>
+                            )
+                          )}
+                        </ul>
+                      )}
+                  </div>
+                )}
+              </div>
+            );
+          }
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -433,6 +895,12 @@ function MemberServiceCard({
 export default function Resource() {
   const [tab, setTab] =
     useState("relocation");
+
+  const [
+    openFaqItem,
+    setOpenFaqItem
+  ] =
+    useState("");
 
   const [
     preferredLicensureAgentUrl,
@@ -765,6 +1233,47 @@ export default function Resource() {
                 label="U.S. Customs and Border Protection"
                 href="https://www.cbp.gov/"
               />
+            </div>
+          </section>
+
+          <section
+            id="candidate-faqs"
+            className="scroll-mt-6 rounded-2xl border bg-card p-5"
+          >
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                <CircleHelp className="h-5 w-5 text-primary" />
+              </div>
+
+              <div>
+                <h2 className="font-semibold">
+                  Frequently Asked Questions
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                  Candidate FAQs organized by the ICP department responsible for each stage of your journey.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              {CANDIDATE_FAQ_DEPARTMENTS.map(
+                department => (
+                  <DepartmentFaqSection
+                    key={
+                      department.key
+                    }
+                    department={
+                      department
+                    }
+                    openFaqItem={
+                      openFaqItem
+                    }
+                    setOpenFaqItem={
+                      setOpenFaqItem
+                    }
+                  />
+                )
+              )}
             </div>
           </section>
 
