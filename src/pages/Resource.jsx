@@ -51,8 +51,8 @@ const QUICK_ACCESS_LINKS = [
   {
     label:
       "FAQs",
-    href:
-      "#candidate-faqs"
+    action:
+      "faqs"
   }
 ];
 
@@ -670,8 +670,22 @@ const endorsementSteps = [
 
 function ResourceLink({
   label,
-  href
+  href,
+  onClick
 }) {
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex w-full items-center justify-between gap-3 rounded-lg border bg-white px-4 py-3 text-left text-sm font-medium transition hover:border-primary/40 hover:bg-primary/5"
+      >
+        <span>{label}</span>
+        <CircleHelp className="h-4 w-4 text-muted-foreground" />
+      </button>
+    );
+  }
+
   if (!href) {
     return (
       <div className="flex items-center justify-between gap-3 rounded-lg border bg-slate-50 px-4 py-3 text-sm font-medium text-muted-foreground">
@@ -683,34 +697,18 @@ function ResourceLink({
     );
   }
 
-  const isInternalAnchor =
-    String(href).startsWith("#");
-
   return (
     <a
       href={href}
-      target={
-        isInternalAnchor
-          ? undefined
-          : "_blank"
-      }
-      rel={
-        isInternalAnchor
-          ? undefined
-          : "noopener noreferrer"
-      }
+      target="_blank"
+      rel="noopener noreferrer"
       className="flex items-center justify-between gap-3 rounded-lg border bg-white px-4 py-3 text-sm font-medium transition hover:border-primary/40 hover:bg-primary/5"
     >
       <span>{label}</span>
-      {isInternalAnchor ? (
-        <CircleHelp className="h-4 w-4 text-muted-foreground" />
-      ) : (
-        <ExternalLink className="h-4 w-4 text-muted-foreground" />
-      )}
+      <ExternalLink className="h-4 w-4 text-muted-foreground" />
     </a>
   );
 }
-
 
 function DepartmentFaqSection({
   department,
@@ -758,10 +756,17 @@ function DepartmentFaqSection({
               openFaqItem ===
               itemKey;
 
+            const isPurpleRow =
+              index % 2 === 0;
+
             return (
               <div
                 key={itemKey}
-                className="bg-white"
+                className={
+                  isPurpleRow
+                    ? "bg-[#f7f1ff]"
+                    : "bg-white"
+                }
               >
                 <button
                   type="button"
@@ -775,7 +780,11 @@ function DepartmentFaqSection({
                   aria-expanded={
                     isOpen
                   }
-                  className="flex w-full items-start justify-between gap-4 px-5 py-4 text-left transition hover:bg-primary/5"
+                  className={`flex w-full items-start justify-between gap-4 px-5 py-4 text-left transition ${
+                    isPurpleRow
+                      ? "hover:bg-[#efe4ff]"
+                      : "hover:bg-primary/5"
+                  }`}
                 >
                   <div className="flex min-w-0 gap-3">
                     <CircleHelp className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
@@ -794,7 +803,13 @@ function DepartmentFaqSection({
                 </button>
 
                 {isOpen && (
-                  <div className="px-5 pb-5 pl-12">
+                  <div
+                    className={`px-5 pb-5 pl-12 ${
+                      isPurpleRow
+                        ? "bg-[#f7f1ff]"
+                        : "bg-white"
+                    }`}
+                  >
                     {item.answer && (
                       <p className="text-sm leading-7 text-muted-foreground">
                         {item.answer}
@@ -1127,15 +1142,15 @@ export default function Resource() {
           My Resources
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Relocation, arrival, integration, and licensure guidance in chronological order.
+          Relocation, licensure, member services, and candidate FAQs in one place.
         </p>
       </div>
 
-      <div className="inline-flex rounded-xl border bg-muted/30 p-1">
+      <div className="flex w-full flex-wrap items-center gap-3 rounded-xl border bg-muted/30 p-2">
         <button
           type="button"
           onClick={() => setTab("relocation")}
-          className={`rounded-lg px-4 py-2 text-sm font-medium ${
+          className={`min-w-[150px] flex-1 rounded-lg px-5 py-2.5 text-center text-sm font-medium ${
             tab === "relocation"
               ? "bg-white shadow-sm"
               : "text-muted-foreground"
@@ -1146,7 +1161,7 @@ export default function Resource() {
         <button
           type="button"
           onClick={() => setTab("licensure")}
-          className={`rounded-lg px-4 py-2 text-sm font-medium ${
+          className={`min-w-[150px] flex-1 rounded-lg px-5 py-2.5 text-center text-sm font-medium ${
             tab === "licensure"
               ? "bg-white shadow-sm"
               : "text-muted-foreground"
@@ -1158,13 +1173,24 @@ export default function Resource() {
         <button
           type="button"
           onClick={() => setTab("member-services")}
-          className={`rounded-lg px-4 py-2 text-sm font-medium ${
+          className={`min-w-[150px] flex-1 rounded-lg px-5 py-2.5 text-center text-sm font-medium ${
             tab === "member-services"
               ? "bg-white shadow-sm"
               : "text-muted-foreground"
           }`}
         >
           Exclusive Member Services
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("faqs")}
+          className={`min-w-[150px] flex-1 rounded-lg px-5 py-2.5 text-center text-sm font-medium ${
+            tab === "faqs"
+              ? "bg-white shadow-sm"
+              : "text-muted-foreground"
+          }`}
+        >
+          FAQs
         </button>
       </div>
 
@@ -1221,6 +1247,11 @@ export default function Resource() {
                 <ResourceLink
                   key={resource.label}
                   {...resource}
+                  onClick={
+                    resource.action === "faqs"
+                      ? () => setTab("faqs")
+                      : undefined
+                  }
                 />
               ))}
 
@@ -1233,47 +1264,6 @@ export default function Resource() {
                 label="U.S. Customs and Border Protection"
                 href="https://www.cbp.gov/"
               />
-            </div>
-          </section>
-
-          <section
-            id="candidate-faqs"
-            className="scroll-mt-6 rounded-2xl border bg-card p-5"
-          >
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-                <CircleHelp className="h-5 w-5 text-primary" />
-              </div>
-
-              <div>
-                <h2 className="font-semibold">
-                  Frequently Asked Questions
-                </h2>
-                <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  Candidate FAQs organized by the ICP department responsible for each stage of your journey.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-5 space-y-4">
-              {CANDIDATE_FAQ_DEPARTMENTS.map(
-                department => (
-                  <DepartmentFaqSection
-                    key={
-                      department.key
-                    }
-                    department={
-                      department
-                    }
-                    openFaqItem={
-                      openFaqItem
-                    }
-                    setOpenFaqItem={
-                      setOpenFaqItem
-                    }
-                  />
-                )
-              )}
             </div>
           </section>
 
@@ -1418,6 +1408,70 @@ export default function Resource() {
               ))}
             </div>
           </section>
+        </div>
+      ) : tab === "faqs" ? (
+        <div className="space-y-6">
+          <section className="overflow-hidden rounded-2xl border bg-card">
+            <div className="border-b bg-gradient-to-r from-primary/10 via-primary/5 to-transparent px-5 py-5">
+              <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                  <CircleHelp className="h-6 w-6 text-primary" />
+                </div>
+
+                <div>
+                  <h2 className="text-lg font-semibold">
+                    Candidate Frequently Asked Questions
+                  </h2>
+                  <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
+                    All candidate FAQs are organized by the ICP department responsible for that part of your journey.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 p-5 sm:grid-cols-3">
+              {CANDIDATE_FAQ_DEPARTMENTS.map(
+                department => {
+                  const DepartmentIcon =
+                    department.icon ||
+                    CircleHelp;
+
+                  return (
+                    <div
+                      key={`faq-summary:${department.key}`}
+                      className="rounded-xl border bg-slate-50 p-4"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                          <DepartmentIcon className="h-4 w-4 text-primary" />
+                        </div>
+
+                        <div>
+                          <p className="text-sm font-semibold">
+                            {department.shortName}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {department.questions.length} FAQs
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+              )}
+            </div>
+          </section>
+
+          {CANDIDATE_FAQ_DEPARTMENTS.map(
+            department => (
+              <DepartmentFaqSection
+                key={department.key}
+                department={department}
+                openFaqItem={openFaqItem}
+                setOpenFaqItem={setOpenFaqItem}
+              />
+            )
+          )}
         </div>
       ) : (
         <div className="space-y-6">
