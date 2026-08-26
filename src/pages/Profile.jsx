@@ -123,6 +123,7 @@ export default function Profile() {
   });
   const [embassyEligibilityStatus, setEmbassyEligibilityStatus] = useState("");
   const [preferredLicensureAgentUrl, setPreferredLicensureAgentUrl] = useState("");
+  const [showPreferredLicensureAgentOffer, setShowPreferredLicensureAgentOffer] = useState(false);
 
   const [travelPlanning, setTravelPlanning] = useState({
     departureCity: "",
@@ -1067,39 +1068,84 @@ export default function Profile() {
         </div>
       </div>
 
-      {preferredLicensureAgentUrl ? (
-        <a
-          href={preferredLicensureAgentUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="group flex items-center justify-between gap-4 rounded-xl border border-primary/30 bg-primary/5 p-4 transition hover:border-primary/60 hover:bg-primary/10 hover:shadow-sm"
-        >
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-primary">
-              Click here
-            </p>
-            <p className="mt-1 font-semibold text-foreground">
-              Preferred 3rd Party licensure agent
-            </p>
-          </div>
-
-          <ExternalLink className="h-5 w-5 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" />
-        </a>
-      ) : (
-        <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-muted/30 p-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Click here
-            </p>
-            <p className="mt-1 font-semibold text-foreground">
-              Preferred 3rd Party licensure agent
-            </p>
+      <button
+        type="button"
+        onClick={() =>
+          setShowPreferredLicensureAgentOffer(
+            true
+          )
+        }
+        className="group flex w-full items-center justify-between gap-4 rounded-xl border border-primary/30 bg-primary/5 p-4 text-left transition hover:border-primary/60 hover:bg-primary/10 hover:shadow-sm"
+      >
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+            Click here
+          </p>
+          <p className="mt-1 font-semibold text-foreground">
+            Preferred 3rd Party licensure agent
+          </p>
+          {!preferredLicensureAgentUrl && (
             <p className="mt-1 text-xs text-muted-foreground">
-              Link is not currently available.
+              Service link is not currently available.
             </p>
-          </div>
+          )}
+        </div>
 
-          <ExternalLink className="h-5 w-5 shrink-0 text-muted-foreground" />
+        <ExternalLink className="h-5 w-5 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" />
+      </button>
+
+      {showPreferredLicensureAgentOffer && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-2xl border bg-background p-6 shadow-2xl">
+            <h2 className="text-xl font-bold">
+              Preferred 3rd Party Licensure Agent
+            </h2>
+
+            <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-4">
+              <p className="text-sm leading-6 text-foreground">
+                ICP candidates receive an exclusive member offering of 10% off processing fees for the selected service. If you elect to use this service, you will be re-directed to a 3rd party licensure HUB for processing. Please follow the instructions provided to begin this process. An agent will guide you through this journey.
+              </p>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() =>
+                  setShowPreferredLicensureAgentOffer(
+                    false
+                  )
+                }
+                className="rounded-lg border px-4 py-2 text-sm font-semibold"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                disabled={
+                  !preferredLicensureAgentUrl
+                }
+                onClick={() => {
+                  if (
+                    preferredLicensureAgentUrl
+                  ) {
+                    window.open(
+                      preferredLicensureAgentUrl,
+                      "_blank",
+                      "noopener,noreferrer"
+                    );
+                    setShowPreferredLicensureAgentOffer(
+                      false
+                    );
+                  }
+                }}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Continue to Licensure HUB
+                <ExternalLink className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -581,6 +581,7 @@ const hydrateDashboardDeploymentTiming = (
 // ─── Stage → "what you need to do" guide ───────────────────────────────────
 const REQUIRED_STAGE_ACTIONS = {
   "Mandatory Pre-Interview Coaching Call": { message: "Complete the mandatory coaching call 24–36 hours before your interview.", cta: "View Pipeline", icon: Phone, urgency: "high" },
+  "Immigration to Deployment Transition Call": { message: "Your Immigration to Deployment Transition Call is tracked by ICP and completes automatically when the CRM transition-call date/time is entered.", cta: "View Immigration", icon: Phone, urgency: "medium" },
   "Introduction to Deployment Call": { message: "Attend your introduction to deployment call.", cta: "View Deployment", icon: Phone, urgency: "high" },
   "Speciality Classes": { message: "Complete your assigned speciality classes.", cta: "View Deployment", icon: Book, urgency: "high" },
   "Final Self Assessment": { message: "Complete your final self assessment.", cta: "View Deployment", icon: ClipboardList, urgency: "high" },
@@ -595,7 +596,6 @@ const REQUIRED_STAGE_ACTIONS = {
   "Arrival Itinerary": { message: "Review and acknowledge your welcome packet.", cta: "View Packet", icon: FileText, urgency: "high" },
   "Receipt Submission": { message: "Review your expense report and press Acknowledge Expense Report to complete this stage.", cta: "Review Report", icon: Receipt, urgency: "high" },
   "Arrived": { message: "Your arrival is confirmed. Your Aftercare journey is next.", cta: "View Pipeline", icon: Plane, urgency: "medium" },
-  "Concierge Debrief": { message: "This step is completed by an ICP administrator. No candidate action is required.", cta: "View Status", icon: Clock, urgency: "low" },
   "Request for further evidence": { message: "If an RFE is active, follow the immigration team's evidence instructions. This step closes when the immigration stage becomes Approved.", cta: "View Immigration", icon: FileText, urgency: "high" },
   "Visa bill issued": { message: "Your visa fee bill is ready to be paid. Review the immigration instructions for the next step.", cta: "View Immigration", icon: Receipt, urgency: "high" },
   "Visa bill paid": { message: "The visa fee is paid. Prepare your DS-260 and civil documents for submission.", cta: "View Immigration", icon: FileText, urgency: "high" },
@@ -729,6 +729,13 @@ const STAGE_ACTION_GUIDE = {
   },
 
   // Immigration/Licensure Stages
+  "Immigration to Deployment Transition Call": {
+    message: "This transition call completes automatically once the CRM field Immigration_to_Deployment_Transition_call contains a date/time.",
+    cta: "View Immigration",
+    icon: Phone,
+    urgency: "medium"
+  },
+
   "Licensure": {
     message: "Please upload your nursing license.",
     cta: "Upload License",
@@ -1079,29 +1086,47 @@ const STAGE_ACTION_GUIDE = {
   },
 
   // Aftercare Stages
-  "Relocation Survey": {
-    message: "Please share your feedback in the Relocation Survey.",
-    cta: "Take Survey",
-    icon: FileText,
-    urgency: "medium"
-  },
-  "30 Day Survey": {
-    message: "Your 30 Day Survey is ready for your feedback.",
-    cta: "Take Survey",
-    icon: FileText,
-    urgency: "medium"
-  },
-  "90 Day Survey": {
-    message: "Your 90 Day Survey is ready for your feedback.",
-    cta: "Take Survey",
-    icon: FileText,
-    urgency: "medium"
-  },
-  "90 Day Exit Call": {
-    message: "Complete your 90 Day Exit Call.",
-    cta: "View Details",
+  "Welcome Call": {
+    message: "Your ICP Welcome Call is part of your Aftercare journey.",
+    cta: "View Aftercare",
     icon: Phone,
-    urgency: "high"
+    urgency: "medium"
+  },
+  "Relocation Follow up": {
+    message: "Please complete your Relocation Follow up survey.",
+    cta: "Take Survey",
+    icon: FileText,
+    urgency: "medium"
+  },
+  "First week in US Check-in": {
+    message: "Your first-week U.S. check-in is due.",
+    cta: "View Aftercare",
+    icon: Phone,
+    urgency: "medium"
+  },
+  "Second week in US Check-in": {
+    message: "Your second-week U.S. check-in is due.",
+    cta: "View Aftercare",
+    icon: Phone,
+    urgency: "medium"
+  },
+  "US Integration Check-in": {
+    message: "Your U.S. Integration Check-in survey is ready.",
+    cta: "Take Survey",
+    icon: FileText,
+    urgency: "medium"
+  },
+  "Placement Stability Check-in": {
+    message: "Your Placement Stability Check-in is tracked by ICP. No survey is required for this touchpoint.",
+    cta: "View Aftercare",
+    icon: Phone,
+    urgency: "medium"
+  },
+  "Year One Anniversary Check-in": {
+    message: "Your Year One Anniversary Check-in survey is ready.",
+    cta: "Take Survey",
+    icon: FileText,
+    urgency: "medium"
   },
   "Submit Active License": {
     message: "Submit your active nursing license.",
@@ -2406,7 +2431,7 @@ export default function Dashboard() {
 
           <Button asChild className="relative z-10 mt-8 w-fit gap-2">
             <Link to="/pipeline">
-              View My Profile
+              View My Pipeline
               <ArrowRight className="h-5 w-5" />
             </Link>
           </Button>
@@ -2419,7 +2444,7 @@ export default function Dashboard() {
             </p>
 
             <p className="mt-1 text-base font-semibold leading-6">
-              Mandatory Pre-Interview Coaching Call
+              {activeStage.stage_name}
             </p>
 
             <DashboardLiveCountdown
@@ -2438,7 +2463,7 @@ export default function Dashboard() {
 
             {pendingNextStage && (
               <p className="mt-2 text-xs text-muted-foreground">
-                Next:Documents Received
+                Next: {pendingNextStage.stage_name}
               </p>
             )}
 

@@ -1,4 +1,3 @@
-
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/lib/AuthContext";
@@ -322,6 +321,50 @@ const normalizePortalDateInput = value => {
   return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 6)}`;
 };
 
+const normalizePortalFullDateInput = value => {
+  const digits = String(value || "")
+    .replace(/\D/g, "")
+    .slice(0, 8);
+
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) {
+    return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  }
+
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
+};
+
+const parsePortalFullDate = value => {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+
+  if (!match) return null;
+
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  const year = Number(match[3]);
+
+  const parsed = new Date(
+    year,
+    month - 1,
+    day
+  );
+
+  if (
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return parsed;
+};
+
+const isValidPortalFullDate = value =>
+  parsePortalFullDate(value) instanceof Date;
+
+
 const parsePortalDate = value => {
   const raw = String(value || "").trim();
   const match = raw.match(/^(\d{2})\/(\d{2})\/(\d{2})$/);
@@ -511,14 +554,13 @@ const getArrivalDate = async () => {
 
 // Hiring pipeline configuration.
 const AFTERCARE_DAY_OFFSETS = Object.freeze({
-  "Welcome Call/24 Hour Call": 1,
-  "Relocation Survey": 2,
-  "Concierge Debrief": 3,
-  "7 Day Call": 7,
-  "2 Week Call": 14,
-  "U.S. Integration Call (30 Day Call / Survey)": 30,
-  "Placement Stability Check-in (90 Day Call)": 90,
-  "1 Year Survey": 365
+  "Welcome Call": 1,
+  "Relocation Follow up": 2,
+  "First week in US Check-in": 7,
+  "Second week in US Check-in": 14,
+  "US Integration Check-in": 30,
+  "Placement Stability Check-in": 90,
+  "Year One Anniversary Check-in": 365
 });
 
 const STAGES_CONFIG = [
@@ -555,6 +597,7 @@ const STAGES_CONFIG = [
   { id: 26, stage_name: "Visa bill paid", stage_category: "Immigration", stage_order: 26 },
   { id: 27, stage_name: "DS-260 / Civil Document Submission", stage_category: "Immigration", stage_order: 27 },
   { id: 28, stage_name: "Foundations: Cultural Readiness", stage_category: "Immigration", stage_order: 28 },
+  { id: 28.5, stage_name: "Immigration to Deployment Transition Call", stage_category: "Immigration", stage_order: 28.5 },
   { id: 29, stage_name: "Documentarily Qualified", stage_category: "Immigration", stage_order: 29 },
 
   // Stage 3 — Deployment. Deadlines are calculated from All Clear / scheduled arrival.
@@ -571,15 +614,14 @@ const STAGES_CONFIG = [
   { id: 39, stage_name: "Receipt Submission", display_name: "Expense Report", stage_category: "Deployment", stage_order: 39 },
   { id: 40, stage_name: "Arrived", stage_category: "Deployment", stage_order: 40 },
 
-  // Stage 4 — Aftercare: EXACTLY 8 stages.
-  { id: 41, stage_name: "Welcome Call/24 Hour Call", stage_category: "Aftercare", stage_order: 41, days_from_arrival: AFTERCARE_DAY_OFFSETS["Welcome Call/24 Hour Call"] },
-  { id: 42, stage_name: "Relocation Survey", stage_category: "Aftercare", stage_order: 42, days_from_arrival: AFTERCARE_DAY_OFFSETS["Relocation Survey"] },
-  { id: 43, stage_name: "Concierge Debrief", stage_category: "Aftercare", stage_order: 43, days_from_arrival: AFTERCARE_DAY_OFFSETS["Concierge Debrief"], internal_only: true, hidden_from_candidate: true, candidate_read_only: true },
-  { id: 44, stage_name: "7 Day Call", stage_category: "Aftercare", stage_order: 44, days_from_arrival: AFTERCARE_DAY_OFFSETS["7 Day Call"] },
-  { id: 45, stage_name: "2 Week Call", stage_category: "Aftercare", stage_order: 45, days_from_arrival: AFTERCARE_DAY_OFFSETS["2 Week Call"] },
-  { id: 46, stage_name: "U.S. Integration Call (30 Day Call / Survey)", stage_category: "Aftercare", stage_order: 46, days_from_arrival: AFTERCARE_DAY_OFFSETS["U.S. Integration Call (30 Day Call / Survey)"] },
-  { id: 47, stage_name: "Placement Stability Check-in (90 Day Call)", stage_category: "Aftercare", stage_order: 47, days_from_arrival: AFTERCARE_DAY_OFFSETS["Placement Stability Check-in (90 Day Call)"] },
-  { id: 48, stage_name: "1 Year Survey", stage_category: "Aftercare", stage_order: 48, days_from_arrival: AFTERCARE_DAY_OFFSETS["1 Year Survey"] }
+  // Stage 4 — Aftercare: EXACTLY 7 candidate-facing stages.
+  { id: 41, stage_name: "Welcome Call", stage_category: "Aftercare", stage_order: 41, days_from_arrival: AFTERCARE_DAY_OFFSETS["Welcome Call"] },
+  { id: 42, stage_name: "Relocation Follow up", stage_category: "Aftercare", stage_order: 42, days_from_arrival: AFTERCARE_DAY_OFFSETS["Relocation Follow up"] },
+  { id: 43, stage_name: "First week in US Check-in", stage_category: "Aftercare", stage_order: 43, days_from_arrival: AFTERCARE_DAY_OFFSETS["First week in US Check-in"] },
+  { id: 44, stage_name: "Second week in US Check-in", stage_category: "Aftercare", stage_order: 44, days_from_arrival: AFTERCARE_DAY_OFFSETS["Second week in US Check-in"] },
+  { id: 45, stage_name: "US Integration Check-in", stage_category: "Aftercare", stage_order: 45, days_from_arrival: AFTERCARE_DAY_OFFSETS["US Integration Check-in"] },
+  { id: 46, stage_name: "Placement Stability Check-in", stage_category: "Aftercare", stage_order: 46, days_from_arrival: AFTERCARE_DAY_OFFSETS["Placement Stability Check-in"] },
+  { id: 47, stage_name: "Year One Anniversary Check-in", stage_category: "Aftercare", stage_order: 47, days_from_arrival: AFTERCARE_DAY_OFFSETS["Year One Anniversary Check-in"] }
 ];
 
 const getFixedDayOneStageTarget = (
@@ -1013,7 +1055,56 @@ const sortStagesByConfiguredOrder =
     );
 
 
-const FLOW_STAGE_ALIASES = {};
+const FLOW_STAGE_ALIASES = {
+  "Immigration to Deployment Transition Call": {
+    sources: [
+      "Deployment Department Transition Call"
+    ],
+    mode: "last"
+  },
+  "Welcome Call": {
+    sources: [
+      "Welcome Call/24 Hour Call"
+    ],
+    mode: "last"
+  },
+  "Relocation Follow up": {
+    sources: [
+      "Relocation Survey"
+    ],
+    mode: "last"
+  },
+  "First week in US Check-in": {
+    sources: [
+      "7 Day Call"
+    ],
+    mode: "last"
+  },
+  "Second week in US Check-in": {
+    sources: [
+      "2 Week Call"
+    ],
+    mode: "last"
+  },
+  "US Integration Check-in": {
+    sources: [
+      "U.S. Integration Call (30 Day Call / Survey)"
+    ],
+    mode: "last"
+  },
+  "Placement Stability Check-in": {
+    sources: [
+      "Placement Stability Check-in (90 Day Call)"
+    ],
+    mode: "last"
+  },
+  "Year One Anniversary Check-in": {
+    sources: [
+      "1 Year Survey"
+    ],
+    mode: "last"
+  }
+};
 
 const getStrongestFlowSource = sources => {
   const rank = stage => {
@@ -2282,6 +2373,7 @@ const PIPELINE_STAGE_COMMENTS = {
   "Visa bill issued": "Infinity Care Partners will pay for your fee bill when your filing date is current and required preparation is complete.",
   "DS-260 / Civil Document Submission": "Complete your DS-260 and submit any remaining civil documents through the required process.",
   "Foundations: Cultural Readiness": "These foundations courses provide critical cultural insight that will prepare you in your transition to the United States.",
+  "Immigration to Deployment Transition Call": "A transition call between the Immigration and Deployment teams to prepare you for the next phase of your candidate journey.",
   "Documentarily Qualified": "The NVC has determined and marked your case complete and ready for embassy interview scheduling.",
   "Introduction to Deployment Call": "Your Stage 3 introduction call starts the Deployment phase.",
   "Final Self Assessment": "The final skills assessment is a personal assessment of your nursing skills.",
@@ -2293,11 +2385,10 @@ const PIPELINE_STAGE_COMMENTS = {
   "deployMate Ready": "Our all-in-one mobile platform is designed to support you throughout your journey to living and working in the United States. From travel coordination, flight details, housing information, personalized itineraries, and airport pickup services, DeployMate provides a seamless experience before, during, and after arrival.",
   "Arrival Itinerary": "A comprehensive relocation guide that provides nurses with the essential information needed for a smooth transition to the United States. It includes flight details, arrival and onboarding itineraries, housing information, banking resources and employer information.",
   "Arrived": "You have officially arrived in the United States!",
-  "Welcome Call/24 Hour Call": "The deployment team will connect with you via your new U.S. phone number within 24 hours of your U.S. arrival.",
-  "Relocation Survey": "This is your relocation experience tell all! Let us know how we did and what we can do to improve the experience of those arriving after you.",
-  "U.S. Integration Call (30 Day Call / Survey)": "Our aftercare department will contact you 30 days after your arrival. Be ready to share your orientation start date, end date and how and what you have been doing professionally and personally to integrate into your new communities. This is an open line of communication so feel free to discuss whatever you would like to discuss; we want to know how you are doing!",
-  "Concierge Debrief": "This is internal and applies not to the candidate pipeline.",
-  "Placement Stability Check-in (90 Day Call)": "This call serves as a 90-day placement milestone check-in to confirm that you have successfully transitioned into independent practice at your facility. As a staffing partner, not the employer, we use this conversation to verify completion of the initial integration period, ensure you feel stable and supported in your role, and document that contractual readiness requirements have been met ensuring long-term success."
+  "Welcome Call": "The deployment team will connect with you via your new U.S. phone number within 24 hours of your U.S. arrival.",
+  "Relocation Follow up": "This is your relocation experience tell all! Let us know how we did and what we can do to improve the experience of those arriving after you.",
+  "US Integration Check-in": "Our aftercare department will contact you 30 days after your arrival. Be ready to share your orientation start date, end date and how and what you have been doing professionally and personally to integrate into your new communities. This is an open line of communication so feel free to discuss whatever you would like to discuss; we want to know how you are doing!",
+  "Placement Stability Check-in": "This call serves as a 90-day placement milestone check-in to confirm that you have successfully transitioned into independent practice at your facility. As a staffing partner, not the employer, we use this conversation to verify completion of the initial integration period, ensure you feel stable and supported in your role, and document that contractual readiness requirements have been met ensuring long-term success."
 };
 
 // CLICKABLE_STAGES - Define which stages are clickable
@@ -2362,6 +2453,7 @@ const CLICKABLE_STAGES = {
   "Visa bill paid": { clickable: false, type: "field" },
   "DS-260 / Civil Document Submission": { clickable: false, type: "field" },
   "Foundations: Cultural Readiness": { clickable: true, type: "view", viewType: "culturalReadiness" },
+  "Immigration to Deployment Transition Call": { clickable: false, type: "field" },
   "Documentarily Qualified": { clickable: false, type: "field" },
   "Add/Remove Dependents": { clickable: true, type: "navigate", navigateTo: "/profile" },
   "Change Embassy Location": { clickable: true, type: "view", viewType: "immigrationFlowInfo" },
@@ -2383,7 +2475,7 @@ const CLICKABLE_STAGES = {
   "Arrived": { clickable: false, type: "field" },
 
   // Current Aftercare links
-  "1 Year Survey": { clickable: true, type: "view", viewType: "oneYearSurvey" },
+  "Year One Anniversary Check-in": { clickable: true, type: "view", viewType: "oneYearSurvey" },
 
   // Visible Immigration / Deployment flow
   "Immigration forms submitted": { clickable: false, type: "field" },
@@ -2459,23 +2551,17 @@ const CLICKABLE_STAGES = {
   "Submit Post-Arrival Documents": { clickable: true, type: "upload", uploadType: "postArrivalDocs" },
 
   // Aftercare stages
-  "Welcome Call/24 Hour Call": { clickable: false, type: "field" },
-  "Relocation Survey": { clickable: true, type: "view", viewType: "relocationSurvey" },
-  "Concierge Debrief": { clickable: false, type: "field", internal_only: true },
-  "U.S. Integration Call (30 Day Call / Survey)": { clickable: true, type: "view", viewType: "thirtyDaySurvey" },
-  "Placement Stability Check-in (90 Day Call)": { clickable: true, type: "view", viewType: "ninetyDaySurvey" },
-  // Legacy action aliases
+  "Welcome Call": { clickable: false, type: "field" },
+  "Relocation Follow up": { clickable: true, type: "view", viewType: "relocationSurvey" },
+  "First week in US Check-in": { clickable: false, type: "field" },
+  "Second week in US Check-in": { clickable: false, type: "field" },
+  "US Integration Check-in": { clickable: true, type: "view", viewType: "thirtyDaySurvey" },
+  // No survey/link for Placement Stability Check-in; CRM field controls completion.
+  "Placement Stability Check-in": { clickable: false, type: "field" },
+  "Year One Anniversary Check-in": { clickable: true, type: "view", viewType: "oneYearSurvey" },
+
+  // Legacy action alias retained only for old saved routes.
   "24 Hour Call": { clickable: true, type: "view", viewType: "aftercareCall" },
-  "Concierge Debrief": {
-    label: "Concierge Debrief",
-    field: "Concierge_Debrief",
-    complete: value => isCurrentOrPastDate(value)
-  },
-  "7 Day Call": { clickable: false, type: "field" },
-  "2 Week Call": { clickable: false, type: "field" },
-  "30 Day Survey": { clickable: true, type: "view", viewType: "thirtyDaySurvey" },
-  "90 Day Exit Call": { clickable: true, type: "view", viewType: "ninetyDaySurvey" },
-  "1 Year Survey": { clickable: true, type: "view", viewType: "oneYearSurvey" },
 
   // Reimbursement is merged into Deployment -> Receipt Submission.
   "Upload New Documents": { clickable: true, type: "view", viewType: "immigrationRenewal" },
@@ -5162,10 +5248,38 @@ const SurveyView = ({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          
-        
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={
+              submitted ||
+              isSavingSubmission
+            }
+            onClick={
+              persistSurveySubmission
+            }
+          >
+            {submitted
+              ? "Submitted"
+              : isSavingSubmission
+                ? "Submitting..."
+                : "Confirm Survey Submitted"}
+          </Button>
 
-          
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              checkCrmSurveyStatus({
+                silent:
+                  false
+              })
+            }
+          >
+            Verify CRM Survey
+          </Button>
 
           <Button
             variant="outline"
@@ -5184,58 +5298,38 @@ const SurveyView = ({
 
 const RelocationSurvey = ({ onClose, user, setStages }) => (
   <SurveyView
-    title="Relocation Survey"
+    title="Relocation Follow up"
     description="Please share your feedback about your relocation experience."
-    // Configure this survey's Zoho CRM integration to Deals (Add/Update).
-    // Map the deal_name URL/prepopulated value to CRM Deal Name.
     surveyUrl="https://survey.zohopublic.com/zs/k4DH3c"
     onClose={onClose}
     user={user}
     setStages={setStages}
-    stageName="Relocation Survey"
+    stageName="Relocation Follow up"
   />
 );
 
 const ThirtyDaySurvey = ({ onClose, user, setStages }) => (
   <SurveyView
-    title="U.S. Integration Call (30 Day Call / Survey)"
-    description="Please share your first 30-day integration update."
-    // Configure this survey's Zoho CRM integration to Deals (Add/Update).
-    // Map the deal_name URL/prepopulated value to CRM Deal Name.
+    title="US Integration Check-in"
+    description="Please share your U.S. integration update."
     surveyUrl="https://survey.zohopublic.com/zs/yEB6y4"
     onClose={onClose}
     user={user}
     setStages={setStages}
-    stageName="U.S. Integration Call (30 Day Call / Survey)"
-  />
-);
-
-const NinetyDaySurvey = ({ onClose, user, setStages }) => (
-  <SurveyView
-    title="90 Day Survey"
-    description="Please share your feedback after your first 90 days."
-    // Configure this survey's Zoho CRM integration to Deals (Add/Update).
-    // Map the deal_name URL/prepopulated value to CRM Deal Name.
-    surveyUrl="https://survey.zohopublic.com/zs/2GB3N0"
-    onClose={onClose}
-    user={user}
-    setStages={setStages}
-    stageName="Placement Stability Check-in (90 Day Call)"
+    stageName="US Integration Check-in"
   />
 );
 
 
 const OneYearSurvey = ({ onClose, user, setStages }) => (
   <SurveyView
-    title="1 Year Survey"
-    description="Please share your one-year integration feedback."
-    // Configure this survey's Zoho CRM integration to Deals (Add/Update).
-    // Map the deal_name URL/prepopulated value to CRM Deal Name.
+    title="Year One Anniversary Check-in"
+    description="Please share your year-one anniversary feedback."
     surveyUrl="https://survey.zohopublic.com/zs/kJCsR0"
     onClose={onClose}
     user={user}
     setStages={setStages}
-    stageName="1 Year Survey"
+    stageName="Year One Anniversary Check-in"
   />
 );
 
@@ -5490,9 +5584,9 @@ const getLivePipelineFieldValue = (source, fieldNames) => {
 };
 
 const AFTERCARE_SURVEY_STAGE_NAMES = new Set([
-  "Relocation Survey",
-  "U.S. Integration Call (30 Day Call / Survey)",
-  "1 Year Survey"
+  "Relocation Follow up",
+  "US Integration Check-in",
+  "Year One Anniversary Check-in"
 ]);
 
 const DEPLOYMENT_CRM_STAGE_RULES = {
@@ -5597,6 +5691,16 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
       String(
         unwrapPipelineFieldValue(value) || ""
       ).trim().toLowerCase() === "submitted to nvc"
+  },
+  "Immigration to Deployment Transition Call": {
+    label: "Immigration to Deployment Transition call",
+    field: "Immigration_to_Deployment_Transition_call",
+    complete: value =>
+      hasFlowValue(
+        unwrapPipelineFieldValue(
+          value
+        )
+      )
   },
   "Documentarily Qualified": {
     label: "All Clear",
@@ -5761,7 +5865,7 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
     field: "Flight_Arrival_Time",
     complete: isCurrentOrPastDate
   },
-  "Welcome Call/24 Hour Call": {
+  "Welcome Call": {
     label: "Candidate U.S. Welcome Text/Call",
     field: "Candidate_U_S_Welcome_Text_Call",
     complete: value =>
@@ -5769,39 +5873,32 @@ const DEPLOYMENT_CRM_STAGE_RULES = {
       isCRMChecklistComplete(value) ||
       hasFlowValue(value)
   },
-  "Relocation Survey": {
-    label: "Date Relocation Survey Submitted",
+  "Relocation Follow up": {
+    label: "Date Relocation Follow up Submitted",
     field: "Date_Relocation_Submitted",
     complete: value => hasFlowValue(value)
   },
-  "Concierge Debrief": {
-    label: "Concierge Debrief",
-    field: "Concierge_Debrief",
-    complete: value =>
-      isCurrentOrPastDate(value) ||
-      hasFlowValue(value)
-  },
-  "U.S. Integration Call (30 Day Call / Survey)": {
+  "US Integration Check-in": {
     label: "New 30 Day Completed Date",
     field: "FY25_30_Day_Survey",
     complete: value => hasFlowValue(value)
   },
-  "7 Day Call": {
-    label: "7 Day Call",
+  "First week in US Check-in": {
+    label: "First week in US Check-in",
     field: "Day_Call",
     complete: isCurrentOrPastDate
   },
-  "2 Week Call": {
+  "Second week in US Check-in": {
     label: "2 Week Survey",
     field: "Client_Post_Arrival_Survey_Due_90_Days",
     complete: isCurrentOrPastDate
   },
-  "Placement Stability Check-in (90 Day Call)": {
+  "Placement Stability Check-in": {
     label: "New 90 Day Exit Call",
     field: "FY25_90_Day_Exit_Call",
     complete: value => hasFlowValue(value)
   },
-  "1 Year Survey": {
+  "Year One Anniversary Check-in": {
     label: "1 yr Survey",
     field: "Employment_Status_Date",
     complete: value => hasFlowValue(value)
@@ -6126,7 +6223,6 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
     conciergeName: "",
     conciergePhone: "",
     conciergeEmail: "",
-    employerName: "",
     employerAddress: "",
     employerContact: "",
     employerPhone: "",
@@ -8454,7 +8550,6 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
     petColor: "",
     petBreed: "",
     petName: "",
-    petGender: "",
     petSpayedNeutered: "",
     smokes: "",
     hasDriversLicense: "",
@@ -8464,9 +8559,6 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
     usingIAS: "",
     vehiclePurchaseDate: "",
     employerName: "",
-    employerCity: "",
-    employerState: "",
-    annualSalary: "",
     emergencyName: "",
     emergencyRelationship: "",
     emergencyStreet: "",
@@ -8492,7 +8584,6 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
     waiverConcierge: "",
   });
 
-  const [dependents, setDependents] = useState([]);
   const housingDraftKey =
     user?.email
       ? `icp_housing_form_draft:${String(user.email).trim().toLowerCase()}`
@@ -8518,9 +8609,6 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
         }));
       }
 
-      if (Array.isArray(saved?.dependents)) {
-        setDependents(saved.dependents);
-      }
     } catch (error) {
       console.warn("[Housing] Could not restore form draft:", error?.message || error);
     }
@@ -8532,76 +8620,14 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
     sessionStorage.setItem(
       housingDraftKey,
       JSON.stringify({
-        formData,
-        dependents
+        formData
       })
     );
-  }, [housingDraftKey, formData, dependents]);
-  const [showDependentForm, setShowDependentForm] = useState(false);
-  const [newDependent, setNewDependent] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    relationship: "",
-    dateOfBirth: "",
-    phone: "",
-  });
+  }, [housingDraftKey, formData]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleAddDependent = () => {
-    const requiredDependentFields = [
-      "firstName", "lastName", "relationship", "dateOfBirth"
-    ];
-
-    if (
-      requiredDependentFields.every(
-        field => String(newDependent[field] || "").trim()
-      )
-    ) {
-      const dob = parsePortalDate(newDependent.dateOfBirth);
-      const today = new Date();
-      let age = today.getFullYear() - dob.getFullYear();
-      const monthDifference = today.getMonth() - dob.getMonth();
-
-      if (
-        monthDifference < 0 ||
-        (monthDifference === 0 && today.getDate() < dob.getDate())
-      ) {
-        age -= 1;
-      }
-
-      if (
-        age >= 18 &&
-        (
-          !newDependent.email.trim() ||
-          !newDependent.phone.trim()
-        )
-      ) {
-        toast.error("Dependants aged 18 or older require an email and phone number.");
-        return;
-      }
-
-      setDependents([...dependents, { ...newDependent }]);
-      setNewDependent({
-        firstName: "",
-        lastName: "",
-        email: "",
-        relationship: "",
-        dateOfBirth: "",
-        phone: "",
-      });
-      setShowDependentForm(false);
-    } else {
-      toast.error("Complete the dependant first name, last name, relationship, and date of birth.");
-    }
-  };
-
-  const handleRemoveDependent = (index) => {
-    setDependents(dependents.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async (e) => {
@@ -8614,7 +8640,6 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
       "petColor",
       "petBreed",
       "petName",
-      "petGender",
       "petSpayedNeutered"
     ]);
 
@@ -8644,44 +8669,16 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
       return;
     }
 
-    for (const dependent of dependents) {
-      const commonFields = [
-        "firstName", "lastName", "relationship", "dateOfBirth"
-      ];
-
-      if (
-        commonFields.some(
-          field => String(dependent[field] ?? "").trim() === ""
-        )
-      ) {
-        toast.error("Complete every required field for each dependant.");
-        return;
-      }
-
-      const dob = parsePortalDate(dependent.dateOfBirth);
-      if (dob && !Number.isNaN(dob.getTime())) {
-        const today = new Date();
-        let age = today.getFullYear() - dob.getFullYear();
-        const monthDifference = today.getMonth() - dob.getMonth();
-
-        if (
-          monthDifference < 0 ||
-          (monthDifference === 0 && today.getDate() < dob.getDate())
-        ) {
-          age -= 1;
-        }
-
-        if (
-          age >= 18 &&
-          (
-            !String(dependent.email || "").trim() ||
-            !String(dependent.phone || "").trim()
-          )
-        ) {
-          toast.error("Dependants aged 18 or older require an email and phone number.");
-          return;
-        }
-      }
+    if (
+      formData.lengthAtAddress &&
+      !isValidPortalFullDate(
+        formData.lengthAtAddress
+      )
+    ) {
+      toast.error(
+        "Please enter the current-address date as MM/DD/YYYY."
+      );
+      return;
     }
 
     setUploading(true);
@@ -8691,7 +8688,6 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
 
       const housingData = {
         ...formData,
-        dependents: dependents,
         submittedAt: new Date().toISOString(),
         candidateEmail: user?.email,
         formType: "housing"
@@ -8843,8 +8839,25 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
             <input type="number" name="monthlyMortgageRent" value={formData.monthlyMortgageRent} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
           </div>
           <div>
-            <label className="text-sm font-medium block mb-1">How long have you lived at your current address? (MM/YY)</label>
-            <input type="text" name="lengthAtAddress" value={formData.lengthAtAddress} onChange={handleChange} placeholder="MM/YY" className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+            <label className="text-sm font-medium block mb-1">How long have you lived at your current address? (MM/DD/YYYY)</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              name="lengthAtAddress"
+              value={formData.lengthAtAddress}
+              onChange={(e) =>
+                setFormData(prev => ({
+                  ...prev,
+                  lengthAtAddress:
+                    normalizePortalFullDateInput(
+                      e.target.value
+                    )
+                }))
+              }
+              placeholder="MM/DD/YYYY"
+              pattern="[0-9]{2}/[0-9]{2}/[0-9]{4}"
+              className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+            />
           </div>
         </div>
       </div>
@@ -8922,11 +8935,6 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
               <input type="text" name="petColor" placeholder="Color" value={formData.petColor} onChange={handleChange} className="w-full rounded-lg border border-border bg-background px-3 py-2" />
               <input type="text" name="petBreed" placeholder="Breed" value={formData.petBreed} onChange={handleChange} className="w-full rounded-lg border border-border bg-background px-3 py-2" />
               <input type="text" name="petName" placeholder="Name" value={formData.petName} onChange={handleChange} className="w-full rounded-lg border border-border bg-background px-3 py-2" />
-              <select name="petGender" value={formData.petGender} onChange={handleChange} className="w-full rounded-lg border border-border bg-background px-3 py-2">
-                <option value="">Gender</option>
-                <option value="Female">Female</option>
-                <option value="Male">Male</option>
-              </select>
               <select name="petSpayedNeutered" value={formData.petSpayedNeutered} onChange={handleChange} className="w-full rounded-lg border border-border bg-background px-3 py-2">
                 <option value="">Spayed or neutered?</option>
                 <option value="Yes">Yes</option>
@@ -8986,76 +8994,8 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
             </select>
           </div>
           <div>
-            <label className="text-sm font-medium block mb-1">If you are using IAS, when will you be purchasing your vehicle?</label>
+            <label className="text-sm font-medium block mb-1">If you are NOT using IAS, when will you be purchasing your vehicle?</label>
             <input type="text" name="vehiclePurchaseDate" value={formData.vehiclePurchaseDate} onChange={handleChange} placeholder="e.g., Within 30 days of arrival" className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-purple-50/50 rounded-lg p-4 border border-purple-200">
-        <h3 className="font-semibold text-purple-800 mb-3 flex items-center gap-2">
-          <User className="h-4 w-4" />
-          DEPENDENT INFORMATION
-        </h3>
-        <p className="text-sm text-muted-foreground mb-3">Please include an email address for all dependents over 18 yrs. of age</p>
-        
-        {dependents.map((dep, index) => (
-          <div key={index} className="flex items-center justify-between bg-white rounded-lg p-3 mb-2 border border-border">
-            <div>
-              <p className="font-medium">{dep.firstName} {dep.lastName}</p>
-              <p className="text-xs text-muted-foreground">{dep.relationship} • {dep.email}</p>
-            </div>
-            <button type="button" onClick={() => handleRemoveDependent(index)} className="text-red-500 hover:text-red-700">
-              <Trash2 className="h-4 w-4" />
-            </button>
-          </div>
-        ))}
-
-        {showDependentForm ? (
-          <div className="bg-white rounded-lg p-4 border border-border mt-2">
-            <p className="text-xs text-muted-foreground mb-2">Dependent Information</p>
-            <div className="grid grid-cols-2 gap-3">
-              <input type="text" placeholder="First Name *" value={newDependent.firstName} onChange={(e) => setNewDependent({ ...newDependent, firstName: e.target.value })} className="px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
-              <input type="text" placeholder="Last Name *" value={newDependent.lastName} onChange={(e) => setNewDependent({ ...newDependent, lastName: e.target.value })} className="px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
-              <input type="email" placeholder="Email" value={newDependent.email} onChange={(e) => setNewDependent({ ...newDependent, email: e.target.value })} className="px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
-              <input type="text" placeholder="Relationship" value={newDependent.relationship} onChange={(e) => setNewDependent({ ...newDependent, relationship: e.target.value })} className="px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
-              <input type="text" inputMode="numeric" placeholder="MM/DD/YY" value={newDependent.dateOfBirth} onChange={(e) => setNewDependent(prev => ({ ...prev, dateOfBirth: normalizePortalDateInput(e.target.value) }))} className="px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
-            </div>
-            <div className="flex gap-2 mt-3">
-              <Button type="button" onClick={handleAddDependent} size="sm"><Plus className="h-4 w-4 mr-1" /> Add Dependent</Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => setShowDependentForm(false)}>Cancel</Button>
-            </div>
-          </div>
-        ) : (
-          <Button type="button" variant="outline" size="sm" onClick={() => setShowDependentForm(true)}>
-            <Plus className="h-4 w-4 mr-1" /> Add Dependent
-          </Button>
-        )}
-      </div>
-
-      <div className="bg-indigo-50/50 rounded-lg p-4 border border-indigo-200">
-        <h3 className="font-semibold text-indigo-800 mb-3 flex items-center gap-2">
-          <Briefcase className="h-4 w-4" />
-          US EMPLOYMENT INFORMATION
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
-            <label className="text-sm font-medium block mb-1">US Employer Name/Facility</label>
-            <input type="text" name="employerName" value={formData.employerName} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
-          </div>
-          <div>
-            <label className="text-sm font-medium block mb-1">City</label>
-            <input type="text" name="employerCity" value={formData.employerCity} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-          <div>
-            <label className="text-sm font-medium block mb-1">State</label>
-            <input type="text" name="employerState" value={formData.employerState} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
-          </div>
-          <div>
-            <label className="text-sm font-medium block mb-1">Annual Salary per Contract</label>
-            <input type="text" name="annualSalary" value={formData.annualSalary} onChange={handleChange} placeholder="$0,000" className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
           </div>
         </div>
       </div>
@@ -16563,9 +16503,9 @@ export default function Pipeline() {
     const candidateActionStages = new Set([
       "Arrival Itinerary",
       "Receipt Submission",
-      "Relocation Survey",
-      "U.S. Integration Call (30 Day Call / Survey)",
-      "1 Year Survey"
+      "Relocation Follow up",
+      "US Integration Check-in",
+      "Year One Anniversary Check-in"
     ]);
 
     // CRM-only stages are display/status rows, not candidate actions.
@@ -17209,16 +17149,13 @@ export default function Pipeline() {
           );
           break;
         case "relocationSurvey":
-          openModal("Relocation Survey", <RelocationSurvey onClose={closeModal} user={user} setStages={setStages} />);
+          openModal("Relocation Follow up", <RelocationSurvey onClose={closeModal} user={user} setStages={setStages} />);
           break;
         case "thirtyDaySurvey":
-          openModal("U.S. Integration Call (30 Day Call / Survey)", <ThirtyDaySurvey onClose={closeModal} user={user} setStages={setStages} />);
+          openModal("US Integration Check-in", <ThirtyDaySurvey onClose={closeModal} user={user} setStages={setStages} />);
           break;
         case "oneYearSurvey":
-          openModal("1 Year Survey", <OneYearSurvey onClose={closeModal} user={user} setStages={setStages} />);
-          break;
-        case "ninetyDaySurvey":
-          openModal("90 Day Survey", <NinetyDaySurvey onClose={closeModal} user={user} setStages={setStages} />);
+          openModal("Year One Anniversary Check-in", <OneYearSurvey onClose={closeModal} user={user} setStages={setStages} />);
           break;
         case "orientationStart":
           openModal("Submit Orientation Start Date", <OrientationStartView onClose={closeModal} user={user} setStages={setStages} />);
@@ -17239,7 +17176,7 @@ export default function Pipeline() {
           openModal("Introduction to Deployment", <div className="space-y-4"><div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4"><p className="text-sm font-medium text-emerald-900">Introduction to Deployment</p><p className="mt-1 text-sm text-emerald-800">Review your Step 3 call, skills preparation and deployment documents.</p></div><Button type="button" variant="outline" onClick={() => { closeModal(); navigate("/documents"); }}>Open Document Library</Button></div>);
           break;
         case "deploymentTransition":
-          openModal("Deployment Department Transition Call", <div className="space-y-4"><p className="text-sm text-muted-foreground">This is the final Immigration handoff into Deployment. Existing completion from the previous Deployment & Skills Checklist is preserved automatically.</p></div>);
+          openModal("Immigration to Deployment Transition Call", <div className="space-y-4"><p className="text-sm text-muted-foreground">This call provides the formal handoff from Immigration to Deployment and prepares you for the next phase. Existing completion from the previous transition-call stage is preserved automatically.</p></div>);
           break;
         case "immigrationFlowInfo":
         case "deploymentFlowInfo":
@@ -18577,6 +18514,7 @@ export default function Pipeline() {
     "Visa bill paid",
     "DS-260 / Civil Document Submission",
     "Foundations: Cultural Readiness",
+    "Immigration to Deployment Transition Call",
     "Documentarily Qualified",
 
     // Deployment direct CRM fields / direct portal completion
@@ -18593,11 +18531,11 @@ export default function Pipeline() {
     "Arrived",
 
     // Aftercare source-driven completion
-    "Welcome Call/24 Hour Call",
-    "7 Day Call",
-    "2 Week Call",
-    "Placement Stability Check-in (90 Day Call)",
-    "1 Year Survey"
+    "Welcome Call",
+    "First week in US Check-in",
+    "Second week in US Check-in",
+    "Placement Stability Check-in",
+    "Year One Anniversary Check-in"
   ]);
 
   const deriveLivePipelineStage = stage => {
