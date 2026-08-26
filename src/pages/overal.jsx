@@ -13,11 +13,11 @@ import {
 const API_BASE = 'https://fictional-carnival-3inv.onrender.com';
 
 const THEME = {
-  brand: '#81348d', brandDark: '#5e2568', brandLight: '#a855b5', brandGhost: '#f3e8f5',
-  teal: '#0d9488', tealLight: '#ccfbf1', amber: '#d97706', amberLight: '#fef3c7',
-  red: '#dc2626', redLight: '#fee2e2', green: '#16a34a', greenLight: '#dcfce7',
-  blue: '#2563eb', blueLight: '#dbeafe', bg: '#f8f7fb', card: '#ffffff',
-  border: '#ede9f0', text: '#1a1025', muted: '#7c6f85', subtle: '#c4b8cc',
+  brand: '#6D28D9', brandDark: '#3B0764', brandLight: '#8B5CF6', brandGhost: '#F5F0FF',
+  teal: '#6D28D9', tealLight: '#F5F0FF', amber: '#8B5CF6', amberLight: '#FDF2F8',
+  red: '#C026D3', redLight: '#FDF2F8', green: '#8B5CF6', greenLight: '#F5F0FF',
+  blue: '#6D28D9', blueLight: '#F5F0FF', bg: '#FDF2F8', card: '#FFFFFF',
+  border: '#E8E1F2', text: '#111827', muted: '#64748B', subtle: '#8B5CF6',
 };
 
 const DOCUMENT_REJECTION_REASONS = [

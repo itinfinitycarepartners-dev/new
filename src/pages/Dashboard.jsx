@@ -31,6 +31,8 @@ import {
   Phone,
   Home,
   ClipboardList,
+  Headphones,
+  TrendingUp,
   AlertTriangle,
   Info,
   Loader2
@@ -45,6 +47,7 @@ import { toast } from "sonner";
 // ─── IMPORT FROM src/api/icpClient.js ──────────────────────────────────────
 import { messaging, websocket, tokenStorage } from "@/api/icpClient";
 import { getEnabledPipelineStages } from "@/config/releaseConfig";
+import nurseImage from "../components/nurse.png";
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://fictional-carnival-3inv.onrender.com';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -2381,67 +2384,80 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl bg-gradient-to-br from-primary/10 via-accent to-primary/5 p-6 lg:p-8">
-        <div className="flex flex-col justify-between gap-6 md:flex-row md:items-center">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight lg:text-3xl">
-              {greeting()}, {String(profile?.firstName || profile?.First_Name || profile?.candidateName || user?.full_name || "there").trim().split(/\s+/)[0]} 👋
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
+        <div className="relative flex min-h-[220px] min-w-0 flex-1 flex-col justify-between overflow-hidden rounded-2xl border border-[#E8E1F2] bg-[#FDF2F8] p-6 lg:p-8">
+          <img
+            src={nurseImage}
+            alt="Healthcare professional"
+            className="pointer-events-none absolute inset-y-0 right-0 h-full w-[50%] object-cover object-right opacity-100"
+          />
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-[58%] bg-gradient-to-r from-[#FDF2F8] via-[#FDF2F8]/75 to-transparent" />
+
+          <div className="relative z-10 max-w-[62%]">
+            <h1 className="text-4xl font-bold leading-tight tracking-tight text-[#111827] lg:text-5xl">
+              {greeting()},<br />
+              {String(profile?.firstName || profile?.First_Name || profile?.candidateName || user?.full_name || "there").trim().split(/\s+/)[0]} 👋
             </h1>
 
-            <p className="mt-1 text-muted-foreground">
-              Your candidate portal is synchronized with your current pipeline.
+            <p className="mt-3 max-w-[390px] text-lg leading-7 text-[#111827]">
+              Your journey to a U.S career is our mission. We're here to support you every step of the way.
             </p>
-
-            
           </div>
 
-          {activeStage && (
-            <div className="min-w-[280px] rounded-xl border border-border bg-background/80 p-4 shadow-sm backdrop-blur-sm">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Current Stage
-              </p>
-
-              <p className="mt-1 font-medium">
-                {activeStage.stage_name}
-              </p>
-
-              <DashboardLiveCountdown
-                deadline={activeDeadline}
-                timingStatus={
-                  activeTimer?.timingStatus ||
-                  null
-                }
-              />
-
-              {activeStage.timing_rule && (
-                <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
-                  {activeStage.timing_rule}
-                </p>
-              )}
-
-              {pendingNextStage && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Next: {pendingNextStage.stage_name}
-                </p>
-              )}
-
-              <Link
-                to="/pipeline"
-                className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-              >
-                Open Pipeline
-                <ArrowRight className="h-3 w-3" />
-              </Link>
-            </div>
-          )}
+          <Button asChild className="relative z-10 mt-8 w-fit gap-2">
+            <Link to="/pipeline">
+              View My Profile
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </Button>
         </div>
+
+        {activeStage && (
+          <div className="w-full rounded-xl border border-border bg-card p-4 shadow-sm backdrop-blur-sm lg:w-[320px] lg:flex-shrink-0">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground" style={{ color: "#8B0764" }}>
+              Current Stage
+            </p>
+
+            <p className="mt-1 text-base font-semibold leading-6">
+              Mandatory Pre-Interview Coaching Call
+            </p>
+
+            <DashboardLiveCountdown
+              deadline={activeDeadline}
+              timingStatus={
+                activeTimer?.timingStatus ||
+                null
+              }
+            />
+
+            {activeStage.timing_rule && (
+              <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
+                {activeStage.timing_rule}
+              </p>
+            )}
+
+            {pendingNextStage && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Next:Documents Received
+              </p>
+            )}
+
+            <Link
+              to="/pipeline"
+              className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+            >
+              Open Pipeline
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+        )}
       </div>
 
       {notifications.length > 0 && (
         <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
           <div className="flex items-center gap-2">
-            <Bell className="h-4 w-4 text-blue-700" />
-            <h2 className="text-sm font-semibold text-blue-900">
+            <Bell className="h-5 w-5 text-[#3B0764]" fill="#3B0764" />
+            <h2 className="text-lg font-bold text-[#3B0764]">
               What needs your attention
             </h2>
           </div>
@@ -2456,13 +2472,25 @@ export default function Dashboard() {
                   to="/pipeline"
                   className="rounded-lg border border-blue-200 bg-white p-3 transition hover:border-blue-300"
                 >
-                  <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">
-                    {notification.title}
-                  </p>
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#F5F0FF] text-[#6D28D9]">
+                      {notification.type === "current" ? (
+                        <Headphones className="h-4 w-4" />
+                      ) : (
+                        <ClipboardList className="h-4 w-4" />
+                      )}
+                    </div>
 
-                  <p className="mt-1 text-sm font-medium text-gray-900">
-                    {notification.message}
-                  </p>
+                    <div>
+                      <p className="text-sm font-bold uppercase tracking-wide text-[#8B0764]">
+                        {notification.title}
+                      </p>
+
+                      <p className="mt-1 text-base font-bold text-[#111827]">
+                        {notification.message}
+                      </p>
+                    </div>
+                  </div>
                 </Link>
               )
             )}
@@ -2473,8 +2501,8 @@ export default function Dashboard() {
       <div className="rounded-xl border border-border bg-card p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="flex items-center gap-2 font-semibold">
-              <ClipboardList className="h-4 w-4 text-primary" />
+            <h2 className="flex items-center gap-3 text-lg font-bold text-[#3B0764]">
+              <TrendingUp className="h-6 w-6 text-[#3B0764]" fill="#3B0764" strokeWidth={2.5} />
               Pipeline Progress
             </h2>
 
@@ -2552,7 +2580,7 @@ export default function Dashboard() {
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="flex items-center justify-between">
-            <h2 className="font-semibold">
+            <h2 className="font-semibold" style={{ color: "#8B0764" }}>
               Document Status
             </h2>
 
@@ -2613,7 +2641,7 @@ export default function Dashboard() {
 
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="flex items-center justify-between">
-            <h2 className="font-semibold">
+            <h2 className="font-semibold" style={{ color: "#8B0764" }}>
               Recent Updates
             </h2>
 

@@ -18,7 +18,7 @@ function MessagingStack() {
     <Stack.Navigator
       screenOptions={{
         headerStyle: {
-          backgroundColor: '#81348d',
+          backgroundColor: '#6D28D9',
         },
         headerTintColor: '#fff',
         headerTitleStyle: {
@@ -59,7 +59,7 @@ function MainTabs() {
           }
           return <Icon name={iconName} size={size} color={color} />;
         },
-        tabBarActiveTintColor: '#81348d',
+        tabBarActiveTintColor: '#6D28D9',
         tabBarInactiveTintColor: '#9ca3af',
         headerShown: false,
       })}

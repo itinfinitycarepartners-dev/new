@@ -577,7 +577,7 @@ export default function Layout() {
 
       {/* ─── Main Content ────────────────────────────────────────────────────── */}
       <main className="flex-1 lg:min-h-screen pb-20 lg:pb-0 lg:ml-64 bg-[#F5F0FF]">
-        <div className="max-w-6xl mx-auto p-5 lg:p-7">
+        <div className="mx-auto w-full max-w-[90rem] p-4 lg:p-5">
           <Outlet />
         </div>
       </main>

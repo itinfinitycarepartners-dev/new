@@ -40,7 +40,7 @@ const CATEGORY_COLORS = {
   Aftercare: {
     active: "bg-[#C026D3]",
     done: "bg-[#C026D3]",
-    text: "text-[#86198F]",
+    text: "text-[#3B0764]",
     light: "bg-[#FDF2F8]",
   },
   Reimbursement: {
@@ -52,7 +52,7 @@ const CATEGORY_COLORS = {
   "NCLEX Roadmap": {
     active: "bg-[#C026D3]",
     done: "bg-[#C026D3]",
-    text: "text-[#86198F]",
+    text: "text-[#3B0764]",
     light: "bg-[#FDF2F8]",
   },
 };
