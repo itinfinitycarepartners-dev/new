@@ -32,7 +32,6 @@ import {
   Home,
   ClipboardList,
   Headphones,
-  TrendingUp,
   AlertTriangle,
   Info,
   Loader2
@@ -40,6 +39,7 @@ import {
 import { Button } from "@/components/ui/button";
 import StatusBadge from "../components/StatusBadge";
 import StageContact from "../components/StageContact";
+import diagramImage from "../components/diagram.png";
 import moment from "moment";
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
@@ -2407,7 +2407,7 @@ export default function Dashboard() {
           <Button asChild className="relative z-10 mt-8 w-fit gap-2">
             <Link to="/pipeline">
               View My Profile
-              <ArrowRight className="h-4 w-4" />
+              <ArrowRight className="h-5 w-5" />
             </Link>
           </Button>
         </div>
@@ -2447,7 +2447,7 @@ export default function Dashboard() {
               className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
             >
               Open Pipeline
-              <ArrowRight className="h-3 w-3" />
+              <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
         )}
@@ -2475,9 +2475,9 @@ export default function Dashboard() {
                   <div className="flex items-center gap-3">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#F5F0FF] text-[#6D28D9]">
                       {notification.type === "current" ? (
-                        <Headphones className="h-4 w-4" />
+                        <Headphones className="h-5 w-5" />
                       ) : (
-                        <ClipboardList className="h-4 w-4" />
+                        <ClipboardList className="h-5 w-5" />
                       )}
                     </div>
 
@@ -2502,7 +2502,20 @@ export default function Dashboard() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="flex items-center gap-3 text-lg font-bold text-[#3B0764]">
-              <TrendingUp className="h-6 w-6 text-[#3B0764]" fill="#3B0764" strokeWidth={2.5} />
+              <span
+                aria-hidden="true"
+                className="h-8 w-8 bg-[#3B0764]"
+                style={{
+                  maskImage: `url(${diagramImage})`,
+                  maskPosition: "center",
+                  maskRepeat: "no-repeat",
+                  maskSize: "contain",
+                  WebkitMaskImage: `url(${diagramImage})`,
+                  WebkitMaskPosition: "center",
+                  WebkitMaskRepeat: "no-repeat",
+                  WebkitMaskSize: "contain"
+                }}
+              />
               Pipeline Progress
             </h2>
 
@@ -2560,8 +2573,8 @@ export default function Dashboard() {
                   <span className="absolute right-3 top-3 h-2.5 w-2.5 rounded-full bg-red-500" />
                 )}
 
-                <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${link.color}`}>
-                  <Icon className="h-5 w-5" />
+                <div className={`flex h-12 w-12 items-center justify-center rounded-lg ${link.color}`}>
+                  <Icon className="h-6 w-6" />
                 </div>
 
                 <p className="mt-3 text-sm font-semibold">
@@ -2589,20 +2602,20 @@ export default function Dashboard() {
               className="flex items-center gap-1 text-xs text-primary hover:underline"
             >
               View all
-              <ArrowRight className="h-3 w-3" />
+              <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
 
           <div className="mt-4 flex flex-wrap gap-4">
             <div className="flex items-center gap-2 text-sm">
-              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
               <span>
                 {approvedDocs} in library
               </span>
             </div>
 
             <div className="flex items-center gap-2 text-sm">
-              <Clock className="h-4 w-4 text-amber-500" />
+              <Clock className="h-5 w-5 text-amber-500" />
               <span>
                 {pendingDocs} awaiting approval
               </span>
@@ -2650,7 +2663,7 @@ export default function Dashboard() {
               className="flex items-center gap-1 text-xs text-primary hover:underline"
             >
               View all
-              <ArrowRight className="h-3 w-3" />
+              <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
 
@@ -2692,7 +2705,7 @@ export default function Dashboard() {
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="flex items-center justify-between">
             <h2 className="flex items-center gap-2 font-semibold">
-              <MessageCircle className="h-4 w-4 text-primary" />
+              <MessageCircle className="h-5 w-5 text-primary" />
               Recent Messages
             </h2>
 
