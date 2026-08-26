@@ -22,7 +22,7 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { messaging, websocket, tokenStorage } from "@/api/icpClient";
 // Import the image
-import logoImage from "./logo.jpg";
+import logoImage from "./logo.png";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
@@ -364,8 +364,8 @@ export default function Layout() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* ─── TOP NAVBAR (Blue) ──────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-50 w-full shadow-sm" style={{ background: '#81348d' }}>
-        <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
+      <header className="sticky top-0 z-50 w-full shadow-lg" style={{ background: 'linear-gradient(90deg, #A78BFA 0%, #6D28D9 48%, #24104F 100%)' }}>
+        <div className="max-w-[90rem] mx-auto px-5 h-16 flex items-center justify-between">
           
           {/* Left side - Back button + Logo */}
           <div className="flex-shrink-0 flex items-center gap-2">
@@ -385,8 +385,8 @@ export default function Layout() {
               {!imageError ? (
                 <img 
                   src={logoImage} 
-                  alt="Infinity Care Partners" 
-                  className="h-10 w-auto max-w-[150px] object-contain block"
+                  alt="Infinity Care Partners logo" 
+                  className="h-14 w-[min(220px,42vw)] object-cover object-center block mix-blend-screen"
                   onError={(e) => {
                     console.error('Logo failed to load:', e);
                     setImageError(true);
@@ -410,7 +410,7 @@ export default function Layout() {
               </span>
             ) : (
               <span className="text-white font-semibold text-lg md:text-xl tracking-wide truncate">
-                Infinity Care Partners
+                Candidate Portal
               </span>
             )}
           </div>
@@ -420,7 +420,7 @@ export default function Layout() {
             <Link to="/messages" className="relative p-2 rounded-lg hover:bg-white/10 transition-colors">
               <MessageCircle className="h-5 w-5 text-white" />
               {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center shadow-lg">
+                <span className="absolute -top-1 -right-1 bg-[#C026D3] text-white text-xs w-5 h-5 rounded-full flex items-center justify-center shadow-lg">
                   {unreadCount > 9 ? '9+' : unreadCount}
                 </span>
               )}
@@ -438,7 +438,7 @@ export default function Layout() {
       </header>
 
       {/* ─── Mobile bottom nav ──────────────────────────────────────────────── */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 flex justify-around py-2 px-1">
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur border-t border-[#E8E1F2] z-50 flex justify-around py-2 px-1">
         {navItems.slice(0, 7).map((item) => {
           const Icon = item.icon;
           const active = location.pathname === item.path;
@@ -449,13 +449,13 @@ export default function Layout() {
               key={item.path} 
               to={item.path} 
               className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg transition-colors relative ${
-                active ? "text-[#6a8fcc]" : "text-gray-500"
+                active ? "text-[#6D28D9] bg-[#F5F0FF]" : "text-[#64748B]"
               }`}
             >
               <Icon className="h-5 w-5" />
               <span className="text-[10px]">{item.label.split(" ")[0]}</span>
               {isMessages && unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center">
+                <span className="absolute -top-1 -right-1 bg-[#C026D3] text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center">
                   {unreadCount > 9 ? '9+' : unreadCount}
                 </span>
               )}
@@ -465,8 +465,8 @@ export default function Layout() {
       </nav>
 
       {/* ─── Desktop Sidebar ────────────────────────────────────────────────── */}
-      <aside className="hidden lg:flex flex-col w-64 bg-white/95 backdrop-blur-sm border-r border-gray-200 h-screen fixed left-0 top-14">
-        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+      <aside className="hidden lg:flex flex-col w-64 bg-white/95 backdrop-blur-sm border-r border-[#E8E1F2] h-screen fixed left-0 top-16">
+        <nav className="flex-1 p-4 space-y-1.5 overflow-y-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = location.pathname === item.path;
@@ -539,14 +539,14 @@ export default function Layout() {
                 to={item.path}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 relative ${
                   active
-                    ? "bg-[#6a8fcc]/10 text-[#6a8fcc]"
-                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                    ? "bg-[#F5F0FF] text-[#6D28D9]"
+                    : "text-[#64748B] hover:bg-[#FDF2F8] hover:text-[#3B0764]"
                 }`}
               >
                 <Icon className="h-4 w-4" />
                 {item.label}
                 {isMessages && unreadCount > 0 && (
-                  <span className="ml-auto bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
+                  <span className="ml-auto bg-[#C026D3] text-white text-xs px-2 py-0.5 rounded-full">
                     {unreadCount > 9 ? '9+' : unreadCount}
                   </span>
                 )}
@@ -555,10 +555,10 @@ export default function Layout() {
           })}
         </nav>
 
-        <div className="p-4 border-t border-gray-200 flex-shrink-0">
+        <div className="p-4 border-t border-[#E8E1F2] flex-shrink-0">
           <div className="flex items-center gap-3 mb-3 px-3">
-            <div className="h-8 w-8 rounded-full bg-[#6a8fcc]/10 flex items-center justify-center">
-              <span className="text-xs font-medium text-[#6a8fcc]">{user?.full_name?.[0] || "?"}</span>
+            <div className="h-8 w-8 rounded-full bg-[#F5F0FF] flex items-center justify-center">
+              <span className="text-xs font-medium text-[#6D28D9]">{user?.full_name?.[0] || "?"}</span>
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{user?.full_name || "Candidate"}</p>
@@ -567,7 +567,7 @@ export default function Layout() {
           </div>
           <button
             onClick={() => logout()}
-            className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors w-full rounded-lg hover:bg-gray-100"
+            className="flex items-center gap-2 px-3 py-2 text-sm text-[#64748B] hover:text-[#3B0764] transition-colors w-full rounded-lg hover:bg-[#FDF2F8]"
           >
             <LogOut className="h-4 w-4" />
             Sign Out
@@ -576,8 +576,8 @@ export default function Layout() {
       </aside>
 
       {/* ─── Main Content ────────────────────────────────────────────────────── */}
-      <main className="flex-1 lg:min-h-screen pb-20 lg:pb-0 lg:ml-64 bg-gray-50">
-        <div className="max-w-5xl mx-auto p-4 lg:p-8">
+      <main className="flex-1 lg:min-h-screen pb-20 lg:pb-0 lg:ml-64 bg-[#F5F0FF]">
+        <div className="max-w-6xl mx-auto p-5 lg:p-7">
           <Outlet />
         </div>
       </main>

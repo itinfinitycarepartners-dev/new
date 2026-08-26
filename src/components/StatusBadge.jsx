@@ -1,19 +1,19 @@
 import { cn } from "@/lib/utils";
 
 const variants = {
-  "Pre-Deployment": "bg-amber-50 text-amber-700 border-amber-200",
-  "In Transit": "bg-blue-50 text-blue-700 border-blue-200",
-  "Arrived": "bg-green-50 text-green-700 border-green-200",
-  "Onboarding": "bg-purple-50 text-purple-700 border-purple-200",
-  "Active": "bg-emerald-50 text-emerald-700 border-emerald-200",
-  "Pending Review": "bg-amber-50 text-amber-700 border-amber-200",
-  "Approved": "bg-green-50 text-green-700 border-green-200",
-  "Rejected": "bg-red-50 text-red-700 border-red-200",
-  "Expired": "bg-gray-50 text-gray-500 border-gray-200",
-  "Info": "bg-blue-50 text-blue-700 border-blue-200",
-  "Action Required": "bg-red-50 text-red-700 border-red-200",
-  "Milestone": "bg-green-50 text-green-700 border-green-200",
-  "Reminder": "bg-amber-50 text-amber-700 border-amber-200",
+  "Pre-Deployment": "bg-[#F5F0FF] text-[#3B0764] border-[#E8E1F2]",
+  "In Transit": "bg-[#F5F0FF] text-[#6D28D9] border-[#E8E1F2]",
+  "Arrived": "bg-[#FDF2F8] text-[#86198F] border-[#E8E1F2]",
+  "Onboarding": "bg-[#F5F0FF] text-[#6D28D9] border-[#E8E1F2]",
+  "Active": "bg-[#FDF2F8] text-[#86198F] border-[#E8E1F2]",
+  "Pending Review": "bg-[#F5F0FF] text-[#3B0764] border-[#E8E1F2]",
+  "Approved": "bg-[#FDF2F8] text-[#86198F] border-[#E8E1F2]",
+  "Rejected": "bg-[#FDF2F8] text-[#86198F] border-[#E8E1F2]",
+  "Expired": "bg-[#F5F0FF] text-[#64748B] border-[#E8E1F2]",
+  "Info": "bg-[#F5F0FF] text-[#6D28D9] border-[#E8E1F2]",
+  "Action Required": "bg-[#FDF2F8] text-[#86198F] border-[#E8E1F2]",
+  "Milestone": "bg-[#FDF2F8] text-[#86198F] border-[#E8E1F2]",
+  "Reminder": "bg-[#F5F0FF] text-[#3B0764] border-[#E8E1F2]",
 };
 
 export default function StatusBadge({ status }) {
