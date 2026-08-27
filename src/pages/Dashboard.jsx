@@ -49,6 +49,9 @@ import attentionImage from "../components/attention.png";
 import pipeImage from "../components/pipe.png";
 import person2 from "../components/person2.png";
 import profnurse from "../components/profnurse.png";
+import docsImage from "../components/docs.png";
+import messImage from "../components/mess.png";
+import itineraryImage from "../components/itinerary.png";
 import moment from "moment";
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
@@ -2323,7 +2326,7 @@ export default function Dashboard() {
       sublabel:
         `${documentCount} document${documentCount === 1 ? "" : "s"}`,
       icon:
-        Files,
+        "image:docs",
       color:
         "bg-[#E0F2FE] text-[#0369A1]",
       accent:
@@ -2354,7 +2357,7 @@ export default function Dashboard() {
       sublabel:
         `${unreadMessageCount} unread`,
       icon:
-        MessagesSquare,
+        "image:mess",
       color:
         "bg-[#FCE7F3] text-[#BE185D]",
       accent:
@@ -2373,7 +2376,7 @@ export default function Dashboard() {
           ? "Acknowledged"
           : "View in pipeline",
       icon:
-        Luggage,
+        "image:itinerary",
       color:
         "bg-[#EDE9FE] text-[#6D28D9]",
       accent:
@@ -2618,8 +2621,8 @@ export default function Dashboard() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {quickLinks.map(
           link => {
-            const Icon =
-              link.icon;
+            const isImageIcon = typeof link.icon === "string" && link.icon.startsWith("image:");
+            const Icon = typeof link.icon === "string" ? null : link.icon;
 
             return (
               <Link
@@ -2629,23 +2632,39 @@ export default function Dashboard() {
                 to={
                   link.path
                 }
-                className={`group relative flex min-h-[148px] flex-col rounded-2xl border border-[#E8E1F2] bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md ${link.accent || ""}`}
+                className={`group relative flex min-h-[170px] items-center justify-center gap-4 rounded-2xl border border-[#E8E1F2] bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md ${link.accent || ""}`}
               >
                 {link.badge && (
                   <span className="absolute right-3 top-3 h-2.5 w-2.5 rounded-full bg-red-500" />
                 )}
 
-                <div className={`flex h-12 w-12 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-105 ${link.color}`}>
-                  <Icon className="h-6 w-6" strokeWidth={2.25} />
+                <div className={`flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl transition-transform duration-200 group-hover:scale-105 ${link.color}`}>
+                  {isImageIcon ? (
+                    <img
+                      src={
+                        link.icon === "image:docs"
+                          ? docsImage
+                          : link.icon === "image:mess"
+                            ? messImage
+                            : itineraryImage
+                      }
+                      alt={link.label}
+                      className="h-full w-full object-cover object-center"
+                    />
+                  ) : (
+                    <Icon className="h-8 w-8" strokeWidth={2.25} />
+                  )}
                 </div>
 
-                <p className="mt-3 text-sm font-semibold text-[#111827]">
-                  {link.label}
-                </p>
+                <div className="min-w-0 flex-1 text-left">
+                  <p className="text-base font-semibold text-[#111827]">
+                    {link.label}
+                  </p>
 
-                <p className="mt-0.5 text-xs text-[#64748B]">
-                  {link.sublabel}
-                </p>
+                  <p className="mt-0.5 text-sm text-[#64748B]">
+                    {link.sublabel}
+                  </p>
+                </div>
               </Link>
             );
           }
