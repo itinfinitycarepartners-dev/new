@@ -22,7 +22,9 @@ import {
   CircleHelp,
   Send,
   BookOpen,
-  ChevronDown
+  ChevronDown,
+  X,
+  Eye
 } from "lucide-react";
 
 const API_BASE =
@@ -45,8 +47,8 @@ const QUICK_ACCESS_LINKS = [
   {
     label:
       "Candidate Lifecycle PDF",
-    href:
-      "/resources/infinity-candidate-lifecycle-summary.pdf"
+    action:
+      "candidate-lifecycle"
   },
   {
     label:
@@ -477,9 +479,8 @@ const LICENSURE_RESOURCES = [
   {
     label:
       "License Endorsement Requirements by State",
-    href:
-      import.meta.env.VITE_LICENSE_ENDORSEMENT_REQUIREMENTS_URL ||
-      ""
+    action:
+      "rn-endorsement"
   },
   { label: "TruMerit", href: "https://www.trumerit.org/" },
   { label: "Josef Silny & Associates", href: "https://jsilny.org/" },
@@ -494,6 +495,322 @@ const LICENSURE_RESOURCES = [
     href: "https://www.ncsbn.org/contact-bon.htm"
   }
 ];
+
+
+// Candidate-facing source files. The portal opens these resources in an in-app
+// viewer; the public paths remain available for the embedded PDF/source assets.
+const CANDIDATE_RESOURCE_FILES = {
+  candidateLifecycle:
+    "/resources/infinity-candidate-lifecycle-summary.pdf",
+  endorsementStopover:
+    "/resources/endorsement-stop-over-states.docx",
+  rnEndorsementMatrix:
+    "/resources/rn-endorsement-requirements-2026.xlsx",
+  corporateDiscounts:
+    "/resources/corporate-account-discounts-candidate-safe.xlsx",
+  advancialContacts:
+    "/resources/advancial-pre-arrival-banking-contacts-faq.docx",
+  advancialAffiliationLetter:
+    "/resources/icp-advancial-affiliation-letter-template.docx"
+};
+
+const ENDORSEMENT_STOP_OVER_STATES = [
+  {
+    state: "Illinois",
+    requirements: "CES, fingerprints",
+    notes: "Very portable; accepts alternative NCLEX verification."
+  },
+  {
+    state: "Texas",
+    requirements: "CES, fingerprints",
+    notes: "NLC state; extremely portable."
+  },
+  {
+    state: "Nevada",
+    requirements: "CES, fingerprints",
+    notes: "Fast processing; accepts alternative NCLEX verification."
+  },
+  {
+    state: "New Jersey",
+    requirements: "CES, fingerprints",
+    notes: "Predictable endorsement; Nursys."
+  },
+  {
+    state: "Pennsylvania",
+    requirements: "CES",
+    notes: "Very easy endorsement in/out."
+  },
+  {
+    state: "Colorado",
+    requirements: "CES",
+    notes: "NLC state; highly portable."
+  },
+  {
+    state: "Arizona",
+    requirements: "CES",
+    notes: "NLC state; friendly to foreign-educated nurses."
+  },
+  {
+    state: "Missouri",
+    requirements: "CES",
+    notes: "Accepts alternative NCLEX verification; Nursys."
+  }
+];
+
+
+const RN_ENDORSEMENT_MATRIX_2026 = [
+  { state: "Alabama", ces: "❌", nursys: "✔", ssn: "✔", fingerprint: "Alabama Law Enforcement Agency (ALEA)", english: "Alabama Strict  CES must confirm English-medium instruction TOEFL, IELTS, PTE, OET" },
+  { state: "Alaska", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "FD-258 Ink Card Only", english: "Alaska  Strict  CES must confirm English-medium instruction TOEFL, IELTS, PTE, OET, MET" },
+  { state: "Arizona", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Fieldprint/ (Ink card if abroad)", english: "Arizona Strict  CES must confirm English-medium instruction TOEFL, IELTS, PTE, OET" },
+  { state: "Arkansas", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Arkansas State Police", english: "Arkansas    Strict  CES must confirm English-medium instruction TOEFL, IELTS, PTE, OET, MET" },
+  { state: "California", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "CA DOJ Live Scan (state-approved vendors)", english: "California  Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "Colorado", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Fieldprint/ (Ink card if abroad)", english: "Colorado    Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "Connecticut", ces: "✔*", nursys: "✔", ssn: "✔", fingerprint: "Ink Card (if out of state)", english: "Connecticut Conditional Exam required only if CES cannot verify English instruction TOEFL, IELTS, PTE, OET" },
+  { state: "Delaware", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Fieldprint/ (Ink card if abroad)", english: "Delaware    Strict  CES must confirm English-medium instruction TOEFL, IELTS, PTE, OET" },
+  { state: "District of Columbia (DC)", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Fieldprint/ (Ink card if abroad)", english: "District of Columbia    Strict  Exam OR 12 months U.S. RN experience    TOEFL, IELTS, PTE, OET" },
+  { state: "Florida", ces: "✔", nursys: "✔", ssn: "✔*", fingerprint: "FDLE Live Scan", english: "Florida Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "Georgia", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "IdentoGO", english: "Georgia Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "Hawaii", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Fieldprint (US) / Ink Card (abroad)", english: "Hawaii  Conditional Exam required only if CES cannot verify English instruction TOEFL, IELTS, PTE, OET" },
+  { state: "Idaho", ces: "❌", nursys: "✔", ssn: "✔", fingerprint: "Idaho State Police", english: "Idaho   Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "Illinois", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Illinois State Police / Approved Vendors", english: "Illinois    Strict  CES must confirm English-medium instruction TOEFL, IELTS, PTE, OET, MET" },
+  { state: "Indiana", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "IdentoGO", english: "Indiana Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "Iowa", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Iowa DPS", english: "Iowa    Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "Kansas", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Kansas Bureau of Investigation", english: "Kansas  Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "Kentucky", ces: "❌", nursys: "✔", ssn: "✔", fingerprint: "Kentucky State Police", english: "Kentucky    Strict  CES must confirm English-medium instruction TOEFL, IELTS, PTE, OET" },
+  { state: "Louisiana", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Louisiana State Police", english: "Louisiana   Strict  CES must confirm English-medium instruction TOEFL, IELTS, PTE, OET" },
+  { state: "Maine", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Maine State Police", english: "Maine   Conditional Exam required only if CES cannot verify English instruction TOEFL, IELTS, PTE, OET" },
+  { state: "Maryland", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Fieldprint/ (Ink card if abroad)", english: "Maryland    Strict  CES must confirm English-medium instruction TOEFL, IELTS, PTE, OET" },
+  { state: "Massachusetts", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "IdentoGO", english: "Massachusetts   Strict  CES must confirm English-medium instruction TOEFL, IELTS, PTE, OET" },
+  { state: "Michigan", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "IdentoGO", english: "Michigan    Strict  CES must confirm English-medium instruction TOEFL, IELTS, PTE, OET, MET" },
+  { state: "Minnesota", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "MN Bureau of Criminal Apprehension", english: "Minnesota   Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "Mississippi", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "IdentoGO", english: "Mississippi Conditional Exam required only if CES cannot verify English instruction TOEFL, IELTS, PTE, OET" },
+  { state: "Missouri", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Missouri Highway Patrol", english: "Missouri    Strict  CES must confirm English-medium instruction TOEFL, IELTS, PTE, OET, MET" },
+  { state: "Montana", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Montana DOJ / Ink Card", english: "Montana Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "Nebraska", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Nebraska State Patrol / Ink Card", english: "Nebraska    Strict  CES must confirm English-medium instruction TOEFL, IELTS, PTE, OET" },
+  { state: "Nevada", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Nevada DPS", english: "Nevada  Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "New Hampshire", ces: "❌", nursys: "✔", ssn: "✔", fingerprint: "NH State Police", english: "New Hampshire   Conditional Exam required only if CES cannot verify English instruction TOEFL, IELTS, PTE, OET" },
+  { state: "New Jersey", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Fieldprint/ (Ink card if abroad)", english: "New Jersey  Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "New Mexico", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Fieldprint/ (Ink card if abroad)", english: "New Mexico  Conditional Exam required only if CES cannot verify English instruction TOEFL, IELTS, PTE, OET, MET" },
+  { state: "New York", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "IdentoGO", english: "New York    Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "North Carolina", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "IdentoGO", english: "North Carolina  Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "North Dakota", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "ND Bureau of Criminal Investigation / Ink Card", english: "North Dakota    Strict  CES must confirm English-medium instruction TOEFL, IELTS, PTE, OET" },
+  { state: "Ohio", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "IdentoGO", english: "Ohio    Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "Oklahoma", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Oklahoma State Bureau of Investigation", english: "Oklahoma    Conditional Exam required only if CES cannot verify English instruction TOEFL, IELTS, PTE, OET" },
+  { state: "Oregon", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Oregon State Police", english: "Oregon  Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "Pennsylvania", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "❌ No fingerprints required", english: "Pennsylvania    Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "Rhode Island", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "RI State Police", english: "Rhode Island    Conditional Exam required only if CES cannot verify English instruction TOEFL, IELTS, PTE, OET, MET" },
+  { state: "South Carolina", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Fieldprint/ (Ink card if abroad)", english: "South Carolina  Strict  CES must confirm English-medium instruction TOEFL, IELTS, PTE, OET" },
+  { state: "South Dakota", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "IdentoGO / Ink Card", english: "South Dakota    Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "Tennessee", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "IdentoGO", english: "Tennessee   Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "Texas", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "IdentoGO", english: "Texas   Conditional Exam required only if CES cannot verify English instruction TOEFL, IELTS, PTE, OET, MET" },
+  { state: "Utah", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Utah Bureau of Criminal Identification", english: "Utah    Strict  CES must confirm English-medium instruction TOEFL, IELTS, PTE, OET" },
+  { state: "Vermont", ces: "❌", nursys: "✔", ssn: "✔", fingerprint: "❌ No fingerprints required", english: "Vermont Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "Virginia", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Virginia State Police", english: "Virginia    Strict  CES must confirm English-medium instruction TOEFL, IELTS, PTE, OET, MET" },
+  { state: "Washington", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Washington State Patrol", english: "Washington  Strict  CES must confirm English-medium instruction TOEFL, IELTS, PTE, OET" },
+  { state: "West Virginia", ces: "❌*", nursys: "✔", ssn: "✔", fingerprint: "IdentoGO / Ink Card", english: "West Virginia   Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "Wisconsin", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Fieldprint or State Police/ Ink card if abroad", english: "Wisconsin   Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" },
+  { state: "Wyoming", ces: "✔", nursys: "✔", ssn: "✔", fingerprint: "Wyoming DCI / IdentoGO/ Ink card if abroad", english: "Wyoming Not Required    Exam only if CES cannot verify English instruction  TOEFL, IELTS, PTE, OET" }
+];
+
+const ENDORSEMENT_GUIDE_PRINCIPLES = [
+  {
+    title: "1. Original-state license verification matters",
+    text: "Some states use national verification systems while others use their own internal systems. Endorsement can be blocked when the receiving Board cannot verify the original license through a compatible method."
+  },
+  {
+    title: "2. NCLEX verification methods differ",
+    text: "States store and release NCLEX results differently. If the receiving Board requires verification that the original state cannot provide, endorsement may not proceed through the usual path."
+  },
+  {
+    title: "3. Some Boards require original-state verification",
+    text: "When a receiving state insists on NCLEX confirmation directly from the original licensing state, a verification mismatch can stop the endorsement even when the nurse's education, English exam, immigration status and work history are otherwise acceptable."
+  },
+  {
+    title: "4. Some states accept alternative verification paths",
+    text: "Alternative routes may include score transfers, third-party credential evaluations, secondary verification from another licensed state, or manual verification methods."
+  },
+  {
+    title: "5. The receiving state's rules determine portability",
+    text: "Two nurses with similar qualifications can have different endorsement outcomes because state verification systems and Board requirements are not identical."
+  }
+];
+
+const ADVANCIAL_AFFILIATION_TEMPLATE = [
+  "ICP Affiliation Confirmation Letter",
+  "Date",
+  "",
+  "To Whom It May Concern,",
+  "",
+  "(Candidate Name), RN is affiliated with Infinity Care Partners and is now a contracted employee of (Employer Name) in (City, State).",
+  "",
+  "Name (employee):",
+  "Title / Position Type: Nurse",
+  "Employment contract duration: 3 years",
+  "Salary: $",
+  "Human Resources Director:",
+  "Infinity Care Partners representative: Alex MacInnis",
+  "",
+  "Thank you,",
+  "Alex MacInnis",
+  "amacinnis@infinitycarepartners.com",
+  "Infinity Care Partners"
+];
+
+const CORPORATE_DISCOUNT_RESOURCES = [
+  {
+    category: "Hotel",
+    vendor: "Hilton",
+    detail:
+      "ICP business-account invitation link. Use the ICP vendor email when requested.",
+    href:
+      "https://www.hilton.com/en/business/invite/3NsGu772s1XwEsc650yz1tHvlONJFvmVkYj1puqXrSTRP8pnCa1m8xbEVYVZo0rMj5v_5ZNMNZtu-kqdWXfLCQ",
+    code: "icpvendor@infinitycarepartners.com"
+  },
+  {
+    category: "Hotel",
+    vendor: "IHG Hotels",
+    detail:
+      "ICP has business-account access. Contact the ICP vendor/support team for account-based access; credentials are not published in the candidate portal."
+  },
+  {
+    category: "Hotel",
+    vendor: "Choice Hotels",
+    detail:
+      "ICP has business-account access. Contact the ICP vendor/support team for account-based access; credentials are not published in the candidate portal."
+  },
+  {
+    category: "Rental Car",
+    vendor: "Sixt",
+    detail:
+      "Use the ICP corporate guest link and search for Infinity Care Partners when prompted.",
+    href:
+      "https://corporate-guest.sixt.com/?sfid=965ce02a-9f09-4559-b953-2a1c8e76fe47"
+  },
+  {
+    category: "Rental Car",
+    vendor: "Avis",
+    detail:
+      "Worldwide Discount Code can be used with an existing Avis account at checkout; source notes up to 30% off the base rate.",
+    code: "W736250"
+  },
+  {
+    category: "Rental Car",
+    vendor: "Hertz",
+    detail:
+      "ICP corporate discount. The source notes that the non-employee link is still awaiting approval; add the CDP number to your Hertz profile where permitted.",
+    code: "CDP #2317543 · 20% discount"
+  }
+];
+
+const ADVANCIAL_FAQ_SECTION = {
+  key: "advancial-pre-arrival-banking",
+  name: "Advancial Pre-Arrival Banking FAQs",
+  shortName: "Advancial Banking",
+  email: "SpecialtyAccounts@advancial.org",
+  icon: Landmark,
+  questions: [
+    {
+      question: "What is the pre-arrival banking program?",
+      answer:
+        "The program allows you to begin opening a U.S. bank account up to 15 days before arriving in the United States."
+    },
+    {
+      question: "Why should I open my bank account before arriving?",
+      answer:
+        "Starting early helps reduce delays, lowers stress after arrival, and allows you to focus on housing, transportation, and orientation."
+    },
+    {
+      question: "How early can I start the process?",
+      answer:
+        "You can begin the process up to 15 days before your scheduled arrival date."
+    },
+    {
+      question: "Which bank is providing this service?",
+      answer:
+        "Advancial Credit Union is providing the pre-arrival banking service."
+    },
+    {
+      question: "How do I apply?",
+      answer:
+        "Submit an application for an Advancial account and follow the instructions provided by their team."
+    },
+    {
+      question: "What address should I use on my application?",
+      answer:
+        "Use Infinity Care Partners' corporate address: 5016 Centennial Blvd, Suite 200, Nashville, TN 37209."
+    },
+    {
+      question: "Why do I need to use the corporate address?",
+      answer:
+        "It allows Advancial to safely send your banking materials before you have permanent housing in the U.S."
+    },
+    {
+      question: "What support does Infinity Care Partners provide?",
+      answer:
+        "Infinity Care Partners provides a liability letter that authorizes Advancial to send banking materials to the corporate address."
+    },
+    {
+      question: "What banking materials can be sent to the corporate address?",
+      answer:
+        "Debit cards, approved credit cards, and other account materials can be sent there."
+    },
+    {
+      question: "Will I have a dedicated banking representative?",
+      answer:
+        "Yes. Advancial will assign you a representative to guide you through the setup process."
+    },
+    {
+      question: "What financial topics can I discuss with my representative?",
+      answer:
+        "You can discuss budgeting, credit-building, loans, and financial planning."
+    },
+    {
+      question: "When will Advancial contact me?",
+      answer:
+        "Advancial will typically contact you 12–15 days before your scheduled arrival date."
+    },
+    {
+      question: "Can I apply for a car loan through Advancial?",
+      answer:
+        "Yes, provided you meet the required documentation requirements."
+    },
+    {
+      question: "Can I apply for other credit products?",
+      answer:
+        "Yes. Credit products may be available if the required employment information is provided."
+    },
+    {
+      question: "What information must be included in my job offer letter for lending purposes?",
+      answer:
+        "Your offer letter must include either a specific start date or at least the start month and year."
+    },
+    {
+      question: "Why is a start date important?",
+      answer:
+        "Without a start date or start month/year, loan or credit applications may be delayed."
+    },
+    {
+      question: "What should I do after I arrive in the U.S.?",
+      answer:
+        "Once you secure permanent housing, update your address directly with Advancial."
+    },
+    {
+      question: "Will I need additional paperwork to update my address?",
+      answer:
+        "No. No additional paperwork is required when updating your address after arrival."
+    },
+    {
+      question: "Who should I contact if I have questions or want to get started?",
+      answer:
+        "Email SpecialtyAccounts@advancial.org and copy your Infinity Care Partners department email address."
+    },
+    {
+      question: "What is the main benefit of the pre-arrival banking program?",
+      answer:
+        "The program helps you arrive in the U.S. with greater financial stability, personalized banking support, and fewer immediate responsibilities."
+    }
+  ]
+};
 
 const EXCLUSIVE_MEMBER_SERVICES = [
   {
@@ -704,6 +1021,322 @@ function ResourceLink({
   );
 }
 
+
+
+function InAppResourceCard({
+  title,
+  description,
+  fileType = "Resource",
+  onOpen
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex w-full items-start gap-4 rounded-xl border bg-white p-4 text-left transition hover:border-primary/40 hover:bg-primary/5 hover:shadow-sm"
+    >
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+        <FileCheck2 className="h-5 w-5 text-primary" />
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="font-semibold">{title}</p>
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+            {fileType}
+          </span>
+        </div>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+          {description}
+        </p>
+        <p className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary">
+          <Eye className="h-3.5 w-3.5" />
+          Open in My Resources
+        </p>
+      </div>
+
+      <Eye className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
+    </button>
+  );
+}
+
+function ResourceDocumentViewer({
+  documentKey,
+  onClose
+}) {
+  if (!documentKey) return null;
+
+  const titleMap = {
+    "candidate-lifecycle": "Candidate Lifecycle",
+    "rn-endorsement": "RN Endorsement Requirements (2026)",
+    "endorsement-stopover": "Endorsement Stop-over States Guide",
+    "corporate-discounts": "Corporate Account Discounts",
+    "advancial-contacts": "Advancial Contacts & Pre-Arrival Banking FAQ",
+    "advancial-affiliation": "ICP Advancial Affiliation Letter Template"
+  };
+
+  const title =
+    titleMap[documentKey] ||
+    "Resource";
+
+  return (
+    <div
+      className="fixed inset-0 z-[130] flex items-center justify-center bg-black/55 p-3 sm:p-5"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      onMouseDown={event => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border bg-background shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b bg-slate-50 px-5 py-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+              In-app resource viewer
+            </p>
+            <h2 className="mt-1 text-lg font-bold sm:text-xl">
+              {title}
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              This resource stays inside the candidate portal.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border bg-white p-2 text-muted-foreground transition hover:bg-slate-100 hover:text-foreground"
+            aria-label="Close resource viewer"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+          {documentKey === "candidate-lifecycle" ? (
+            <div className="h-[72vh] overflow-hidden rounded-xl border bg-slate-100">
+              <iframe
+                title="Candidate Lifecycle PDF"
+                src={CANDIDATE_RESOURCE_FILES.candidateLifecycle}
+                className="h-full w-full"
+              />
+            </div>
+          ) : documentKey === "rn-endorsement" ? (
+            <div className="space-y-4">
+              <div className="rounded-xl border bg-primary/5 p-4">
+                <p className="font-semibold">2026 State Endorsement Matrix</p>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                  Review CES, Nursys, SSN, fingerprint/vendor process, and English-exam information for each state.
+                </p>
+              </div>
+
+              <div className="overflow-x-auto rounded-xl border">
+                <table className="min-w-[1050px] w-full text-left text-sm">
+                  <thead className="sticky top-0 z-10 bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
+                    <tr>
+                      <th className="px-4 py-3">State</th>
+                      <th className="px-4 py-3">CES</th>
+                      <th className="px-4 py-3">Nursys</th>
+                      <th className="px-4 py-3">SSN</th>
+                      <th className="px-4 py-3">Fingerprint Vendor / Process</th>
+                      <th className="px-4 py-3">English Exam</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {RN_ENDORSEMENT_MATRIX_2026.map(item => (
+                      <tr key={item.state} className="align-top odd:bg-white even:bg-slate-50/60">
+                        <td className="px-4 py-3 font-semibold">{item.state}</td>
+                        <td className="px-4 py-3">{item.ces}</td>
+                        <td className="px-4 py-3">{item.nursys}</td>
+                        <td className="px-4 py-3">{item.ssn}</td>
+                        <td className="px-4 py-3 leading-6">{item.fingerprint}</td>
+                        <td className="px-4 py-3 leading-6">{item.english}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : documentKey === "endorsement-stopover" ? (
+            <div className="space-y-5">
+              <div className="rounded-xl border bg-primary/5 p-4">
+                <h3 className="font-semibold">
+                  Why Some RN Licenses Can Be Endorsed Easily and Others Can’t
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Endorsement depends on how the original licensing state verifies the license and NCLEX results, and on what the receiving Board accepts.
+                </p>
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-2">
+                {ENDORSEMENT_GUIDE_PRINCIPLES.map(item => (
+                  <div key={item.title} className="rounded-xl border bg-white p-4">
+                    <p className="font-semibold">{item.title}</p>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      {item.text}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="overflow-hidden rounded-xl border">
+                <div className="border-b bg-slate-50 px-4 py-3">
+                  <p className="font-semibold">Friendly “Stop-over” States</p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="bg-slate-50 text-xs uppercase tracking-wide text-muted-foreground">
+                      <tr>
+                        <th className="px-4 py-3">State</th>
+                        <th className="px-4 py-3">Requirements</th>
+                        <th className="px-4 py-3">Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {ENDORSEMENT_STOP_OVER_STATES.map(item => (
+                        <tr key={item.state}>
+                          <td className="px-4 py-3 font-semibold">{item.state}</td>
+                          <td className="px-4 py-3">{item.requirements}</td>
+                          <td className="px-4 py-3">{item.notes}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ) : documentKey === "corporate-discounts" ? (
+            <div className="space-y-4">
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <p className="font-semibold text-amber-900">Candidate-safe access</p>
+                <p className="mt-1 text-sm leading-6 text-amber-800">
+                  Shared business-account passwords and private staff login credentials are intentionally not shown in the candidate portal. Contact ICP for account-based access where required.
+                </p>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                {CORPORATE_DISCOUNT_RESOURCES.map(resource => (
+                  <div key={`${resource.category}:${resource.vendor}`} className="rounded-xl border bg-white p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                      {resource.category}
+                    </p>
+                    <p className="mt-1 font-semibold">{resource.vendor}</p>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      {resource.detail}
+                    </p>
+                    {resource.code ? (
+                      <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                        <span className="font-semibold">Access / Code: </span>
+                        <span className="break-all">{resource.code}</span>
+                      </div>
+                    ) : null}
+                    {resource.href ? (
+                      <a
+                        href={resource.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+                      >
+                        Open vendor website
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : documentKey === "advancial-contacts" ? (
+            <div className="space-y-5">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="rounded-xl border bg-slate-50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                    Specialty Accounts Manager
+                  </p>
+                  <p className="mt-2 font-semibold">Zoey Parr</p>
+                  <a href="mailto:zparr@advancial.org" className="mt-1 block break-all text-sm font-medium text-primary hover:underline">
+                    zparr@advancial.org
+                  </a>
+                </div>
+
+                <div className="rounded-xl border bg-slate-50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                    Specialty Accounts
+                  </p>
+                  <a href="mailto:SpecialtyAccounts@advancial.org" className="mt-2 block break-all font-semibold text-primary hover:underline">
+                    SpecialtyAccounts@advancial.org
+                  </a>
+                </div>
+
+                <div className="rounded-xl border bg-slate-50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                    ICP Mailing Address
+                  </p>
+                  <p className="mt-2 text-sm font-semibold leading-6">
+                    5016 Centennial Blvd, Suite 200<br />
+                    Nashville, TN 37209
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {ADVANCIAL_FAQ_SECTION.questions.map((item, index) => (
+                  <div key={`viewer-advancial:${index}`} className="rounded-xl border bg-white p-4">
+                    <p className="font-semibold">
+                      {index + 1}. {item.question}
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      {item.answer}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : documentKey === "advancial-affiliation" ? (
+            <div className="mx-auto max-w-3xl rounded-xl border bg-white p-6 shadow-sm sm:p-8">
+              {ADVANCIAL_AFFILIATION_TEMPLATE.map((line, index) => {
+                if (index === 0) {
+                  return (
+                    <h3 key={index} className="mb-8 text-center text-2xl font-bold">
+                      {line}
+                    </h3>
+                  );
+                }
+
+                if (line === "") {
+                  return <div key={index} className="h-5" />;
+                }
+
+                return (
+                  <p
+                    key={index}
+                    className={`mb-3 leading-7 ${
+                      [
+                        "Name (employee):",
+                        "Title / Position Type: Nurse",
+                        "Employment contract duration: 3 years",
+                        "Salary: $",
+                        "Human Resources Director:",
+                        "Infinity Care Partners representative: Alex MacInnis"
+                      ].includes(line)
+                        ? "font-semibold"
+                        : ""
+                    }`}
+                  >
+                    {line}
+                  </p>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DepartmentFaqSection({
   department,
   openFaqItem,
@@ -904,6 +1537,12 @@ function MemberServiceCard({
 export default function Resource() {
   const [tab, setTab] =
     useState("relocation");
+
+  const [
+    openResourceDocument,
+    setOpenResourceDocument
+  ] =
+    useState("");
 
   const [
     openFaqItem,
@@ -1244,7 +1883,12 @@ export default function Resource() {
                   onClick={
                     resource.action === "faqs"
                       ? () => setTab("faqs")
-                      : undefined
+                      : resource.action === "candidate-lifecycle"
+                        ? () =>
+                            setOpenResourceDocument(
+                              "candidate-lifecycle"
+                            )
+                        : undefined
                   }
                 />
               ))}
@@ -1357,12 +2001,67 @@ export default function Resource() {
               </div>
             </div>
 
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <InAppResourceCard
+                title="RN Endorsement Requirements (2026)"
+                description="50-state endorsement matrix covering CES, Nursys, SSN, fingerprint/vendor process, and English-exam requirements."
+                fileType="XLSX"
+                onOpen={() =>
+                  setOpenResourceDocument(
+                    "rn-endorsement"
+                  )
+                }
+              />
+
+              <InAppResourceCard
+                title="Endorsement Stop-over States Guide"
+                description="Explains endorsement/NCLEX verification compatibility and identifies candidate-friendly stop-over states."
+                fileType="DOCX"
+                onOpen={() =>
+                  setOpenResourceDocument(
+                    "endorsement-stopover"
+                  )
+                }
+              />
+            </div>
+
+            <div className="mt-6 overflow-hidden rounded-xl border">
+              <div className="border-b bg-primary/5 px-4 py-3">
+                <p className="font-semibold">Friendly “Stop-over” States</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  Endorsement depends on whether the receiving Board can verify the original license and NCLEX record. These states were identified in the ICP guide as more portable options.
+                </p>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-left text-sm">
+                  <thead className="bg-slate-50 text-xs uppercase tracking-wide text-muted-foreground">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold">State</th>
+                      <th className="px-4 py-3 font-semibold">Requirements</th>
+                      <th className="px-4 py-3 font-semibold">Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {ENDORSEMENT_STOP_OVER_STATES.map(item => (
+                      <tr key={item.state} className="bg-white">
+                        <td className="px-4 py-3 font-medium">{item.state}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{item.requirements}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{item.notes}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <ResourceLink
                 label="License Endorsement Requirements by State"
-                href={
-                  import.meta.env.VITE_LICENSE_ENDORSEMENT_REQUIREMENTS_URL ||
-                  ""
+                onClick={() =>
+                  setOpenResourceDocument(
+                    "rn-endorsement"
+                  )
                 }
               />
 
@@ -1398,6 +2097,15 @@ export default function Resource() {
                 <ResourceLink
                   key={resource.label}
                   {...resource}
+                  onClick={
+                    resource.action ===
+                    "rn-endorsement"
+                      ? () =>
+                          setOpenResourceDocument(
+                            "rn-endorsement"
+                          )
+                      : undefined
+                  }
                 />
               ))}
             </div>
@@ -1524,7 +2232,191 @@ export default function Resource() {
                 />
               ))}
             </div>
+
+            <div className="mt-4 rounded-xl border bg-slate-50 p-4">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                  <Car className="h-5 w-5 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold">
+                    International AutoSource (IAS) Contact
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Director: James D. Krulder
+                  </p>
+                  <a
+                    href="tel:+15164961810"
+                    className="mt-2 inline-flex text-sm font-semibold text-primary hover:underline"
+                  >
+                    516.496.1810
+                  </a>
+                </div>
+              </div>
+            </div>
           </section>
+
+
+          <section className="rounded-2xl border bg-card p-5">
+            <div className="flex items-center gap-3">
+              <Car className="h-5 w-5 text-primary" />
+              <div>
+                <h2 className="font-semibold">
+                  Corporate Account Discounts
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Candidate-safe hotel and rental-car corporate offers. Shared staff login passwords are intentionally not displayed in the portal.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              {CORPORATE_DISCOUNT_RESOURCES.map(resource => (
+                <div
+                  key={`${resource.category}:${resource.vendor}`}
+                  className="rounded-xl border bg-white p-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                        {resource.category}
+                      </p>
+                      <p className="mt-1 font-semibold">{resource.vendor}</p>
+                    </div>
+                    {resource.href ? (
+                      <a
+                        href={resource.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-lg border p-2 text-primary transition hover:bg-primary/5"
+                        aria-label={`Open ${resource.vendor} corporate resource`}
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
+                    ) : null}
+                  </div>
+
+                  <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                    {resource.detail}
+                  </p>
+
+                  {resource.code ? (
+                    <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                      <span className="font-semibold">Access / Code: </span>
+                      <span className="break-all">{resource.code}</span>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-5">
+              <InAppResourceCard
+                title="Corporate Account Discounts — Candidate Safe Copy"
+                description="Open the candidate-facing hotel and rental-car discount guide inside the portal. Internal shared passwords and staff login credentials remain hidden."
+                fileType="XLSX"
+                onOpen={() =>
+                  setOpenResourceDocument(
+                    "corporate-discounts"
+                  )
+                }
+              />
+            </div>
+          </section>
+
+          <section className="rounded-2xl border bg-card p-5">
+            <div className="flex items-center gap-3">
+              <Landmark className="h-5 w-5 text-primary" />
+              <div>
+                <h2 className="font-semibold">
+                  Advancial Pre-Arrival Banking
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Banking contacts, pre-arrival guidance, and the ICP affiliation-letter template used to support account setup.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-4 lg:grid-cols-3">
+              <div className="rounded-xl border bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                  Specialty Accounts Manager
+                </p>
+                <p className="mt-2 font-semibold">Zoey Parr</p>
+                <a
+                  href="mailto:zparr@advancial.org"
+                  className="mt-1 block break-all text-sm font-medium text-primary hover:underline"
+                >
+                  zparr@advancial.org
+                </a>
+              </div>
+
+              <div className="rounded-xl border bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                  General Specialty Accounts
+                </p>
+                <a
+                  href="mailto:SpecialtyAccounts@advancial.org"
+                  className="mt-2 block break-all font-semibold text-primary hover:underline"
+                >
+                  SpecialtyAccounts@advancial.org
+                </a>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Include your Infinity Care Partners department email when contacting Advancial.
+                </p>
+              </div>
+
+              <div className="rounded-xl border bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                  Timing
+                </p>
+                <p className="mt-2 font-semibold">Up to 15 days pre-arrival</p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Advancial typically contacts candidates about 12–15 days before the scheduled arrival date.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-primary/15 bg-primary/5 p-4">
+              <p className="font-semibold">ICP corporate mailing address for the application</p>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                5016 Centennial Blvd, Suite 200, Nashville, TN 37209
+              </p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                ICP provides an affiliation/liability letter so approved banking materials can be sent to the corporate address before permanent U.S. housing is established.
+              </p>
+            </div>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <InAppResourceCard
+                title="Advancial Contacts & Pre-Arrival Banking FAQ"
+                description="Specialty-account contacts plus the full 20-question pre-arrival banking guide."
+                fileType="DOCX"
+                onOpen={() =>
+                  setOpenResourceDocument(
+                    "advancial-contacts"
+                  )
+                }
+              />
+
+              <InAppResourceCard
+                title="ICP Advancial Affiliation Letter Template"
+                description="Template confirming ICP affiliation, employer, location, contract duration, salary, and ICP representative details."
+                fileType="DOCX"
+                onOpen={() =>
+                  setOpenResourceDocument(
+                    "advancial-affiliation"
+                  )
+                }
+              />
+            </div>
+          </section>
+
+          <DepartmentFaqSection
+            department={ADVANCIAL_FAQ_SECTION}
+            openFaqItem={openFaqItem}
+            setOpenFaqItem={setOpenFaqItem}
+          />
 
           <section className="rounded-2xl border bg-card p-5">
             <div className="flex items-center gap-3">
@@ -1744,6 +2636,15 @@ export default function Resource() {
           )}
         </div>
       )}
+
+      <ResourceDocumentViewer
+        documentKey={openResourceDocument}
+        onClose={() =>
+          setOpenResourceDocument(
+            ""
+          )
+        }
+      />
     </div>
   );
 }
