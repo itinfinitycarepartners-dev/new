@@ -47,6 +47,8 @@ import StageContact from "../components/StageContact";
 import diagramImage from "../components/diagram.png";
 import attentionImage from "../components/attention.png";
 import pipeImage from "../components/pipe.png";
+import person2 from "../components/person2.png";
+import profnurse from "../components/profnurse.png";
 import moment from "moment";
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
@@ -2520,11 +2522,19 @@ export default function Dashboard() {
                   className="rounded-lg border border-blue-200 bg-white p-3 transition hover:border-blue-300"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#F5F0FF] text-[#6D28D9]">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[#F5F0FF] text-[#6D28D9]">
                       {notification.type === "current" ? (
-                        <Headphones className="h-5 w-5" />
+                        <img
+                          src={person2}
+                          alt="Current stage"
+                          className="h-full w-full object-cover object-center"
+                        />
                       ) : (
-                        <ClipboardList className="h-5 w-5" />
+                        <img
+                          src={profnurse}
+                          alt="Next stage"
+                          className="h-full w-full object-cover object-center"
+                        />
                       )}
                     </div>
 
