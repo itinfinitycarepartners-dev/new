@@ -13,7 +13,6 @@ import {
   BookOpen,
   ClipboardList,
   MessageCircle,
-  Headphones,
   Megaphone,
   Home,
   ArrowLeft,
@@ -24,6 +23,7 @@ import { toast } from "sonner";
 import { messaging, websocket, tokenStorage } from "@/api/icpClient";
 // Import the image
 import logoImage from "./logo.png";
+import userImage from "./user1.png";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
@@ -558,8 +558,15 @@ export default function Layout() {
 
         <div className="border-t border-[#E8E1F2] p-4 flex-shrink-0">
           <div className="mb-4 rounded-xl bg-[#F5F0FF] p-4">
-            <div className="flex items-start gap-3">
-              <Headphones className="mt-0.5 h-6 w-6 shrink-0 text-[#6D28D9]" />
+            <div className="flex items-start gap-4">
+              <div className="mt-0.5 flex h-16 w-16 shrink-0 items-center justify-center text-[#6D28D9]">
+                <img
+                  src={userImage}
+                  alt=""
+                  aria-hidden="true"
+                  className="h-16 w-16 object-contain"
+                />
+              </div>
               <div className="min-w-0">
                 <p className="font-bold text-[#111827]">
                   Need help?
