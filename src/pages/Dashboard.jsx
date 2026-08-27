@@ -4,8 +4,10 @@ import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
 import { Link } from "react-router-dom";
 import { 
-  FileText, 
+  FileText,
+  Files,
   Bell, 
+  BellRing,
   MapPin, 
   Briefcase, 
   ArrowRight, 
@@ -13,6 +15,7 @@ import {
   Clock, 
   AlertCircle,
   MessageCircle,
+  MessagesSquare,
   Users,
   Send,
   Timer,
@@ -26,11 +29,13 @@ import {
   Download,
   Video,
   Plane,
+  Luggage,
   User,
   Receipt,
   Phone,
   Home,
   ClipboardList,
+  ClipboardCheck,
   Headphones,
   AlertTriangle,
   Info,
@@ -2316,9 +2321,11 @@ export default function Dashboard() {
       sublabel:
         `${documentCount} document${documentCount === 1 ? "" : "s"}`,
       icon:
-        FileText,
+        Files,
       color:
-        "bg-blue-50 text-blue-600"
+        "bg-[#E0F2FE] text-[#0369A1]",
+      accent:
+        "hover:border-[#38BDF8] hover:bg-[#F0F9FF]"
     },
     {
       path:
@@ -2328,9 +2335,11 @@ export default function Dashboard() {
       sublabel:
         `${unreadUpdates} unread`,
       icon:
-        Bell,
+        BellRing,
       color:
-        "bg-amber-50 text-amber-600",
+        "bg-[#FEF3C7] text-[#B45309]",
+      accent:
+        "hover:border-[#F59E0B] hover:bg-[#FFFBEB]",
       badge:
         unreadUpdates >
         0
@@ -2343,9 +2352,11 @@ export default function Dashboard() {
       sublabel:
         `${unreadMessageCount} unread`,
       icon:
-        MessageCircle,
+        MessagesSquare,
       color:
-        "bg-purple-50 text-purple-600",
+        "bg-[#FCE7F3] text-[#BE185D]",
+      accent:
+        "hover:border-[#EC4899] hover:bg-[#FFF1F8]",
       badge:
         unreadMessageCount >
         0
@@ -2360,9 +2371,11 @@ export default function Dashboard() {
           ? "Acknowledged"
           : "View in pipeline",
       icon:
-        Briefcase,
+        Luggage,
       color:
-        "bg-indigo-50 text-indigo-600"
+        "bg-[#EDE9FE] text-[#6D28D9]",
+      accent:
+        "hover:border-[#8B5CF6] hover:bg-[#F5F3FF]"
     },
     {
       path:
@@ -2372,9 +2385,11 @@ export default function Dashboard() {
       sublabel:
         "R&L, Housing, Behavioral",
       icon:
-        ClipboardList,
+        ClipboardCheck,
       color:
-        "bg-emerald-50 text-emerald-600"
+        "bg-[#D1FAE5] text-[#047857]",
+      accent:
+        "hover:border-[#10B981] hover:bg-[#ECFDF5]"
     }
   ];
 
@@ -2604,21 +2619,21 @@ export default function Dashboard() {
                 to={
                   link.path
                 }
-                className="relative rounded-xl border border-border bg-card p-4 transition hover:-translate-y-0.5 hover:shadow-sm"
+                className={`group relative flex min-h-[148px] flex-col rounded-2xl border border-[#E8E1F2] bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md ${link.accent || ""}`}
               >
                 {link.badge && (
                   <span className="absolute right-3 top-3 h-2.5 w-2.5 rounded-full bg-red-500" />
                 )}
 
-                <div className={`flex h-12 w-12 items-center justify-center rounded-lg ${link.color}`}>
-                  <Icon className="h-6 w-6" />
+                <div className={`flex h-12 w-12 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-105 ${link.color}`}>
+                  <Icon className="h-6 w-6" strokeWidth={2.25} />
                 </div>
 
-                <p className="mt-3 text-sm font-semibold">
+                <p className="mt-3 text-sm font-semibold text-[#111827]">
                   {link.label}
                 </p>
 
-                <p className="mt-0.5 text-xs text-muted-foreground">
+                <p className="mt-0.5 text-xs text-[#64748B]">
                   {link.sublabel}
                 </p>
               </Link>
