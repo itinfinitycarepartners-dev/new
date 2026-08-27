@@ -1,5 +1,5 @@
-/* stylelint-disable */
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Source+Sans+3:wght@400;500;600;700&display=swap');
+/* stylelint-disable */ 
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -7,8 +7,10 @@
 
 @layer base {
   :root {
-    --font-heading: 'Manrope', sans-serif;
-    --font-body: 'Source Sans 3', sans-serif;
+    --font-heading: 'Montserrat', sans-serif;
+    --font-body: 'Montserrat', sans-serif;
+    --app-font-size: 13px;
+
     --background: 263 100% 97%;
     --foreground: 221 39% 11%;
     --card: 0 0% 100%;
@@ -84,10 +86,23 @@
   * {
     @apply border-border outline-ring/50;
   }
+
+  /*
+    IMPORTANT:
+    Tailwind text classes such as text-xs, text-sm, text-base, text-lg,
+    etc. use rem units. Changing the root font size below lets the
+    --app-font-size variable resize most of the application.
+  */
+  html {
+    font-size: var(--app-font-size);
+  }
+
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-body);
+    font-size: 1rem;
   }
+
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-heading);
   }
@@ -207,7 +222,7 @@
   .main-content::before {
     background: rgba(255, 255, 255, 0.82);
   }
-  
+
   .dark .main-content::before {
     background: rgba(15, 23, 42, 0.85);
   }
@@ -217,11 +232,11 @@
   .main-content {
     background-attachment: scroll;
   }
-  
+
   .main-content::before {
     background: rgba(255, 255, 255, 0.88);
   }
-  
+
   .dark .main-content::before {
     background: rgba(15, 23, 42, 0.9);
   }

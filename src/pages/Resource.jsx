@@ -1493,7 +1493,7 @@ export default function Resource() {
 
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               <MemberServiceCard
-                title="Preferred 3rd Party Licensure Agent"
+                title="Preferred Licensure Agent"
                 description="ICP's preferred third-party licensure support option with an exclusive candidate-member offering."
                 href={
                   preferredLicensureAgentUrl
@@ -1698,7 +1698,7 @@ export default function Resource() {
             <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
               <div className="w-full max-w-lg rounded-2xl border bg-background p-6 shadow-2xl">
                 <h2 className="text-xl font-bold">
-                  Preferred 3rd Party Licensure Agent
+                  Preferred Licensure Agent
                 </h2>
 
                 <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-4">

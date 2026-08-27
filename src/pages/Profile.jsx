@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { useAuth } from "@/lib/AuthContext";
-import { User, Phone, Mail, MapPin, Briefcase, Plane, Building2, UserCheck, Calendar, Award, FileText, FileCheck, Clock, Shield, CheckCircle, AlertCircle, Building, Loader2, Users, CalendarDays, ExternalLink, Camera, Globe2, BadgeCheck, ChevronRight } from "lucide-react";
+import { User, Phone, Mail, MapPin, Briefcase, Plane, Building2, UserCheck, Calendar, Award, FileText, FileCheck, Clock, Shield, CheckCircle, AlertCircle, Building, Loader2, Users, CalendarDays, ExternalLink, Camera, Globe2, BadgeCheck } from "lucide-react";
 import { useState, useEffect } from "react";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://fictional-carnival-3inv.onrender.com';
@@ -1244,46 +1244,45 @@ export default function Profile() {
             </div>
           </div>
 
-          {/* Decorative ID-card illustration from the screenshot */}
-          <div className="relative mr-[24px] hidden h-[100px] w-[185px] shrink-0 items-center justify-center md:flex">
-            <div className="absolute left-[-20px] top-[30px] h-[72px] w-[110px] rounded-[50%] border border-[#d9c7f7]/50 bg-[#e9dffc]/35" />
-            <div className="absolute left-[20px] top-[9px] h-[88px] w-[58px] rotate-[26deg] rounded-[50%] border border-[#d8c3f8]/60 bg-[#e4d6fb]/45" />
-            <div className="relative z-10 rotate-[8deg] rounded-[10px] bg-gradient-to-br from-[#5e2aa9] to-[#7a40d2] px-[15px] py-[13px] shadow-[0_9px_18px_rgba(82,35,154,0.28)]">
-              <div className="flex items-start gap-3">
-                <div className="flex h-[32px] w-[32px] items-center justify-center rounded-[6px] bg-white/16 text-white">
-                  <User className="h-[18px] w-[18px]" />
-                </div>
-                <div className="pt-[3px]">
-                  <div className="h-[4px] w-[45px] rounded-full bg-white/55" />
-                  <div className="mt-[6px] h-[4px] w-[33px] rounded-full bg-white/30" />
-                  <div className="mt-[6px] h-[4px] w-[40px] rounded-full bg-white/22" />
-                </div>
-              </div>
-              <div className="mt-[13px] h-[4px] w-[82px] rounded-full bg-white/28" />
-            </div>
-            <div className="absolute bottom-[1px] right-[4px] z-20 flex h-[34px] w-[34px] items-center justify-center rounded-full border-[5px] border-[#efe6ff] bg-white text-[#7a4dc3] shadow-md">
-              <CheckCircle className="h-[17px] w-[17px]" />
-            </div>
-          </div>
-        </div>
-      </div>
+          {/* Exclusive Member Rewards — animated envelope trigger */}
+          <button
+            type="button"
+            onClick={() => setShowPreferredLicensureAgentOffer(true)}
+            aria-label="Open Exclusive Member Rewards"
+            title="Exclusive Member Rewards"
+            className="group relative mr-0 flex h-[100px] w-[200px] shrink-0 items-center justify-center rounded-[20px] outline-none transition-transform duration-300 hover:-translate-y-1 focus-visible:ring-2 focus-visible:ring-[#8b5bd5] focus-visible:ring-offset-2 sm:h-[108px] sm:w-[148px] md:mr-[18px] md:h-[116px] md:w-[205px]"
+          >
+            <div className="pointer-events-none absolute left-[-10px] top-[28px] h-[66px] w-[98px] rounded-[50%] border border-[#d9c7f7]/50 bg-[#e9dffc]/35 sm:left-0 sm:h-[78px] sm:w-[116px] md:left-[-18px] md:top-[32px] md:h-[82px] md:w-[126px]" />
+            <div className="pointer-events-none absolute right-[-5px] top-[3px] h-[74px] w-[48px] rotate-[24deg] rounded-[50%] border border-[#d8c3f8]/60 bg-[#e4d6fb]/45 sm:right-[4px] sm:h-[88px] sm:w-[56px] md:left-[24px] md:right-auto md:top-[8px] md:h-[100px] md:w-[66px]" />
 
-      {/* Preferred 3rd Party licensure agent — directly below the top profile box */}
-      <div className="mt-[14px]">
-        <button
-          type="button"
-          onClick={() => setShowPreferredLicensureAgentOffer(true)}
-          className="group flex w-full items-center justify-between gap-4 rounded-[16px] border border-[#ece8f4] bg-white p-4 text-left shadow-[0_2px_12px_rgba(57,38,99,0.035)] transition hover:border-[#ddcff6] hover:bg-[#faf7ff]"
-        >
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-[#8b5bd5]">Click here</p>
-            <p className="mt-1 text-sm font-semibold text-[#302a42]">Preferred 3rd Party licensure agent</p>
-            {!preferredLicensureAgentUrl ? (
-              <p className="mt-1 text-xs text-muted-foreground">Service link is not currently available.</p>
-            ) : null}
-          </div>
-          <ChevronRight className="h-5 w-5 text-[#8b5bd5]" />
-        </button>
+            <div className="relative z-10 h-[68px] w-[98px] sm:h-[100px] sm:w-[150px] md:h-[100px] md:w-[150px]">
+              {/* Letter rises as the envelope opens */}
+              <div className="absolute left-[10%] top-[8%] z-[2] h-[72%] w-[80%] rounded-[7px] border border-[#e8ddf8] bg-white px-[10px] pt-[11px] shadow-[0_5px_14px_rgba(83,43,145,0.13)] transition-all duration-300 ease-out group-hover:-translate-y-[23px] group-focus-visible:-translate-y-[23px]">
+                <div className="h-[4px] w-[72%] rounded-full bg-[#8b5bd5]/55" />
+                <div className="mt-[6px] h-[3px] w-full rounded-full bg-[#d9ccf1]" />
+                <div className="mt-[5px] h-[3px] w-[82%] rounded-full bg-[#e4dbf3]" />
+              </div>
+
+              {/* Envelope back */}
+              <div className="absolute inset-x-0 bottom-0 z-[1] h-[78%] rounded-[10px] bg-gradient-to-br from-[#5e2aa9] to-[#7a40d2] shadow-[0_9px_18px_rgba(82,35,154,0.24)]" />
+
+              {/* Opening flap */}
+              <div className="absolute inset-x-0 top-[22%] z-[4] h-[45%] origin-top bg-[#8b5bd5] [clip-path:polygon(0_0,100%_0,50%_100%)] transition-all duration-300 ease-out group-hover:-translate-y-[14px] group-hover:scale-y-[-1] group-focus-visible:-translate-y-[14px] group-focus-visible:scale-y-[-1]" />
+
+              {/* Front folds */}
+              <div className="absolute inset-x-0 bottom-0 z-[5] h-[62%] rounded-b-[10px] bg-[#6d36ba] [clip-path:polygon(0_0,50%_62%,100%_0,100%_100%,0_100%)]" />
+              <div className="absolute inset-x-0 bottom-0 z-[6] h-[58%] rounded-b-[10px] bg-gradient-to-t from-[#5f2da9] to-[#7540c5] [clip-path:polygon(0_100%,50%_35%,100%_100%)]" />
+
+              <div className="absolute bottom-[8px] left-1/2 z-[7] -translate-x-1/2 whitespace-nowrap rounded-full bg-white/15 px-[7px] py-[3px] text-[6.5px] font-bold uppercase tracking-[0.08em] text-white/90 sm:text-[7px] md:text-[7.5px]">
+                Preferred Licensure Agent
+              </div>
+            </div>
+
+            <span className="pointer-events-none absolute -bottom-[4px] left-1/2 z-20 hidden -translate-x-1/2 whitespace-nowrap rounded-full border border-[#e7ddf8] bg-white/95 px-2 py-1 text-[8px] font-semibold text-[#7954c7] opacity-0 shadow-sm transition-opacity duration-200 group-hover:opacity-100 md:block">
+              Preferred Licensure Agent
+            </span>
+          </button>
+        </div>
       </div>
 
       {/* Exactly the same 2 x 2 card arrangement shown in the screenshot */}
@@ -1731,7 +1730,7 @@ export default function Profile() {
       {showPreferredLicensureAgentOffer ? (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-lg rounded-2xl border bg-background p-6 shadow-2xl">
-            <h2 className="text-xl font-bold">Preferred 3rd Party Licensure Agent</h2>
+            <h2 className="text-xl font-bold">Exclusive Member Rewards</h2>
             <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-4">
               <p className="text-sm leading-6 text-foreground">
                 ICP candidates receive an exclusive member offering of 10% off processing fees for the selected service. If you elect to use this service, you will be re-directed to a 3rd party licensure HUB for processing. Please follow the instructions provided to begin this process. An agent will guide you through this journey.
