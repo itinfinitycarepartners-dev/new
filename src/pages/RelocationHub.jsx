@@ -615,8 +615,16 @@ export default function RelocationHub() {
 
       
       {/* Local Resources */}
-      <div className="bg-card rounded-xl border border-border p-5">
-        <h3 className="font-semibold mb-4">Local Resources</h3>
+      <div className="rounded-2xl border border-[#E9D5FF] bg-gradient-to-br from-white via-[#FFF7FB] to-[#F0F9FF] p-5 shadow-sm lg:p-6">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#F5F0FF] to-[#FBCFE8] text-[#6D28D9] shadow-sm">
+            <MapPin className="h-6 w-6" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-[#3B0764]">Local Resources</h3>
+            <p className="text-xs text-[#64748B]">Helpful places and services near {displayCity}</p>
+          </div>
+        </div>
         <div className="grid sm:grid-cols-2 gap-3">
           {resourceCategories.map(cat => {
             const Icon = cat.icon;
@@ -626,24 +634,24 @@ export default function RelocationHub() {
                 href={`https://www.google.com/search?q=${encodeURIComponent(cat.query + " in " + displayCity + " " + displayState)}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors group"
+                className="group flex items-center gap-4 rounded-xl border border-[#E9D5FF] bg-white/80 p-4 transition-all hover:-translate-y-0.5 hover:border-[#C026D3] hover:bg-white hover:shadow-md"
               >
-                <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <Icon className="h-4 w-4 text-primary" />
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#F5F0FF] text-[#6D28D9] transition-colors group-hover:bg-[#FBCFE8] group-hover:text-[#8B0764]">
+                  <Icon className="h-6 w-6" strokeWidth={2.25} />
                 </div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium">{cat.label}</p>
-                  <p className="text-xs text-muted-foreground">Find {cat.label.toLowerCase()} nearby</p>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-[#3B0764]">{cat.label}</p>
+                  <p className="text-xs text-[#64748B]">Find {cat.label.toLowerCase()} nearby</p>
                 </div>
-                <ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                <ExternalLink className="h-5 w-5 shrink-0 text-[#94A3B8] transition-colors group-hover:text-[#C026D3]" />
               </a>
             );
           })}
         </div>
         
         {/* Helpful Links */}
-        <div className="mt-4 pt-4 border-t border-border space-y-2">
-          <p className="text-sm font-medium mb-2">Key Resources</p>
+        <div className="mt-5 space-y-2 border-t border-[#E9D5FF] pt-5">
+          <p className="mb-2 text-sm font-semibold text-[#3B0764]">Key Resources</p>
           <a href={`https://www.numbeo.com/cost-of-living/in/${encodeURIComponent(displayCity)}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-primary hover:underline">
             <ExternalLink className="h-3 w-3" />
             Cost of Living in {displayCity}
