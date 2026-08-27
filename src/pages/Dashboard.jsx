@@ -336,9 +336,9 @@ const DashboardLiveCountdown = ({
 
 const DASHBOARD_DEPLOYMENT_TIMING_REQUIREMENTS = Object.freeze({
   "Introduction to Deployment Call": {
-    anchor: "all-clear",
+    anchor: "immigration-deployment-transition",
     offsetDays: 60,
-    timingRule: "Attend within 60 days of becoming All Clear."
+    timingRule: "Attend 60 days after the Immigration to Deployment Transition Call is completed."
   },
   "Speciality Classes": {
     anchor: "arrival",
@@ -380,15 +380,15 @@ const DASHBOARD_DEPLOYMENT_TIMING_REQUIREMENTS = Object.freeze({
     offsetDays: -30,
     timingRule: "Complete deployMate readiness 30 days before the scheduled arrival date."
   },
-  "Arrival Itinerary": {
+  "Welcome Packet": {
     anchor: "arrival",
-    offsetDays: -14,
-    timingRule: "Review the Arrival Itinerary 10–14 days before the scheduled arrival date; countdown target is 14 days before arrival."
+    offsetDays: -30,
+    timingRule: "Review and acknowledge the Welcome Packet 30 days before the scheduled arrival date."
   },
   "Receipt Submission": {
     anchor: "arrival",
     offsetDays: -7,
-    timingRule: "Complete the Expense Report 7 days before the scheduled arrival date."
+    timingRule: "Complete the Expense Report 7–10 days before the scheduled arrival date; countdown target is 7 days before arrival."
   },
   "Arrived": {
     anchor: "arrival",
@@ -531,6 +531,28 @@ const hydrateDashboardDeploymentTiming = (
       documentarilyQualifiedStage?.completed_at
     );
 
+  const transitionCallStage =
+    (allStages || []).find(
+      item =>
+        item?.stage_name ===
+        "Immigration to Deployment Transition Call"
+    );
+
+  const immigrationDeploymentTransition =
+    parseDashboardTimingDate(
+      readDashboardField(
+        profile,
+        [
+          "Immigration_to_Deployment_Transition_call",
+          "Immigration_to_Deployment_Transition_Call",
+          "immigrationToDeploymentTransitionCall",
+          "immigration_to_deployment_transition_call"
+        ]
+      ) ||
+      transitionCallStage?.completed_date ||
+      transitionCallStage?.completed_at
+    );
+
   const arrival =
     parseDashboardTimingDate(
       readDashboardField(
@@ -549,9 +571,12 @@ const hydrateDashboardDeploymentTiming = (
     );
 
   const timingAnchor =
-    requirement.anchor === "all-clear"
-      ? allClear
-      : arrival;
+    requirement.anchor ===
+      "immigration-deployment-transition"
+      ? immigrationDeploymentTransition
+      : requirement.anchor === "all-clear"
+        ? allClear
+        : arrival;
 
   if (!timingAnchor) {
     return {
@@ -605,7 +630,7 @@ const REQUIRED_STAGE_ACTIONS = {
   "Pre-Arrival Banking Call": { message: "Attend your pre-arrival banking call.", cta: "View Deployment", icon: Phone, urgency: "high" },
   "Mandatory Petitioner / Employer Call": { message: "Attend the mandatory petitioner/employer call.", cta: "View Deployment", icon: Phone, urgency: "high" },
   "deployMate Ready": { message: "Complete your deployMate readiness requirements.", cta: "View Deployment", icon: CheckCircle2, urgency: "high" },
-  "Arrival Itinerary": { message: "Review and acknowledge your welcome packet.", cta: "View Packet", icon: FileText, urgency: "high" },
+  "Welcome Packet": { message: "Review and acknowledge your welcome packet.", cta: "View Packet", icon: FileText, urgency: "high" },
   "Receipt Submission": { message: "Review your expense report and press Acknowledge Expense Report to complete this stage.", cta: "Review Report", icon: Receipt, urgency: "high" },
   "Arrived": { message: "Your arrival is confirmed. Your Aftercare journey is next.", cta: "View Pipeline", icon: Plane, urgency: "medium" },
   "Request for further evidence": { message: "If an RFE is active, follow the immigration team's evidence instructions. This step closes when the immigration stage becomes Approved.", cta: "View Immigration", icon: FileText, urgency: "high" },
@@ -1358,7 +1383,7 @@ export default function Dashboard() {
     staleTime:
       0,
     refetchInterval:
-      15 * 1000,
+      5 * 1000,
     refetchIntervalInBackground:
       false,
     refetchOnWindowFocus:
@@ -1382,7 +1407,9 @@ export default function Dashboard() {
                 "no-store",
               headers: {
                 Authorization:
-                  `Bearer ${token}`
+                  `Bearer ${token}`,
+                "Cache-Control": "no-cache",
+                Pragma: "no-cache"
               }
             }
           );
@@ -1406,33 +1433,6 @@ export default function Dashboard() {
       }
   });
 
-
-  useEffect(() => {
-    const refreshPipelineSummary =
-      () => {
-        refetch();
-      };
-
-    window.addEventListener(
-      "pipeline-updated",
-      refreshPipelineSummary
-    );
-    window.addEventListener(
-      "candidate-data-updated",
-      refreshPipelineSummary
-    );
-
-    return () => {
-      window.removeEventListener(
-        "pipeline-updated",
-        refreshPipelineSummary
-      );
-      window.removeEventListener(
-        "candidate-data-updated",
-        refreshPipelineSummary
-      );
-    };
-  }, [refetch]);
 
   const {
     data:
@@ -1729,57 +1729,92 @@ export default function Dashboard() {
     ) ||
     null;
 
-  const furthestReachedStage =
-    orderedVisibleStages.reduce(
-      (furthest, stage) => {
-        const reached =
-          isPipelineStageComplete(stage) ||
-          stage?.source_trigger_unlocked === true ||
-          stage?.trigger_unlocked === true ||
-          stage?.crm_unlocked === true ||
-          stage?.recruit_unlocked === true ||
-          stage?.nclex_unlocked === true ||
-          String(stage?.status || "").trim().toLowerCase() === "in progress";
+  // Dashboard must use the exact current/next stage calculated by the backend.
+  // Re-deriving the current stage from the furthest independently-reached CRM
+  // row can make Dashboard disagree with My Pipeline when several later CRM
+  // gates are already populated. The ordered fallback is used only when the
+  // server has no usable authoritative stage.
+  const authoritativeVisibleMatch =
+    rawActiveStage?.stage_name
+      ? orderedVisibleStages.find(
+          stage =>
+            stage?.stage_name ===
+            rawActiveStage.stage_name
+        )
+      : null;
 
-        if (!reached) return furthest;
-
-        return !furthest ||
-          Number(stage?.stage_order || 0) >
-            Number(furthest?.stage_order || 0)
-          ? stage
-          : furthest;
-      },
-      null
+  const syntheticQualificationStage =
+    rawActiveStage &&
+    [
+      "Qualified Candidate Pool",
+      "Not Qualified - to close"
+    ].includes(
+      rawActiveStage.stage_name
     );
 
-  const usableRawActiveStage =
+  const authoritativeStageFromServer =
     rawActiveStage &&
     !isPipelineStageComplete(
       rawActiveStage
+    ) &&
+    !obsoleteQualificationStage(
+      rawActiveStage
+    ) &&
+    (
+      authoritativeVisibleMatch ||
+      syntheticQualificationStage
     )
       ? rawActiveStage
       : null;
 
   const activeStage =
-    usableRawActiveStage ||
-    fallbackActiveStage ||
-    orderedVisibleStages.find(stage =>
-      !isPipelineStageComplete(stage)
-    ) ||
-    null;
+    authoritativeStageFromServer
+      ? {
+          ...(authoritativeVisibleMatch || {}),
+          ...authoritativeStageFromServer
+        }
+      : (
+          fallbackActiveStage ||
+          orderedVisibleStages.find(stage =>
+            !isPipelineStageComplete(stage)
+          ) ||
+          null
+        );
+
+  const authoritativeNextVisibleMatch =
+    rawPendingNextStage?.stage_name
+      ? orderedVisibleStages.find(
+          stage =>
+            stage?.stage_name ===
+            rawPendingNextStage.stage_name
+        )
+      : null;
+
+  const authoritativeNextFromServer =
+    rawPendingNextStage &&
+    !isPipelineStageComplete(
+      rawPendingNextStage
+    ) &&
+    !obsoleteQualificationStage(
+      rawPendingNextStage
+    ) &&
+    authoritativeNextVisibleMatch
+      ? rawPendingNextStage
+      : null;
 
   const pendingNextStage =
-    usableRawActiveStage
-      ? rawPendingNextStage
-      : (
-          activeStage
-            ? orderedVisibleStages.find(stage =>
-                Number(stage?.stage_order || 0) >
-                  Number(activeStage?.stage_order || 0) &&
-                !isPipelineStageComplete(stage)
-              ) || null
-            : null
-        );
+    authoritativeNextFromServer
+      ? {
+          ...authoritativeNextVisibleMatch,
+          ...authoritativeNextFromServer
+        }
+      : activeStage
+        ? orderedVisibleStages.find(stage =>
+            Number(stage?.stage_order || 0) >
+              Number(activeStage?.stage_order || 0) &&
+            !isPipelineStageComplete(stage)
+          ) || null
+        : null;
 
   const serverTimerMatchesActive =
     pipeline.timer?.stageName &&
@@ -2097,6 +2132,11 @@ export default function Dashboard() {
       refresh
     );
 
+    window.addEventListener(
+      "crm-recruit-updated",
+      refresh
+    );
+
     return () => {
       websocket.off("pipeline-updated", refresh);
       websocket.off("candidate-data-updated", refresh);
@@ -2119,6 +2159,11 @@ export default function Dashboard() {
 
       window.removeEventListener(
         "candidate-data-updated",
+        refresh
+      );
+
+      window.removeEventListener(
+        "crm-recruit-updated",
         refresh
       );
     };
@@ -2370,7 +2415,7 @@ export default function Dashboard() {
       path:
         "/pipeline?stage=welcome-packet",
       label:
-        "Arrival Itinerary",
+        "Welcome Packet",
       sublabel:
         welcomeCompleted
           ? "Acknowledged"

@@ -149,6 +149,15 @@ export default function Profile() {
     recruitCandidate: {},
     recruitApplication: {}
   });
+  // Full canonical source records used as field-level fallbacks across the
+  // entire Profile page, not only Interview & Hiring.
+  const [canonicalProfileSources, setCanonicalProfileSources] = useState({
+    mapped: {},
+    crm: {},
+    recruitCandidate: {},
+    recruitApplication: {}
+  });
+  const [liveCrmProfile, setLiveCrmProfile] = useState({});
   const [extendedProfile, setExtendedProfile] = useState({
     dependants: [],
     travelSummary: {}
@@ -194,12 +203,18 @@ export default function Profile() {
 
         console.log("[Profile] Fetching profile data for:", user.email);
 
-        const response = await fetch(`${API_BASE}/api/zoho/my-deals`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
+        const response = await fetch(
+          `${API_BASE}/api/zoho/my-deals?refresh=false&_=${Date.now()}`,
+          {
+            cache: "no-store",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+              "Cache-Control": "no-cache",
+              Pragma: "no-cache"
+            }
           }
-        });
+        );
 
         console.log("[Profile] Response status:", response.status);
 
@@ -226,6 +241,28 @@ export default function Profile() {
     };
 
     fetchProfile();
+
+    const refresh = () => fetchProfile();
+    const refreshOnVisibility = () => {
+      if (!document.hidden) fetchProfile();
+    };
+
+    window.addEventListener("candidate-data-updated", refresh);
+    window.addEventListener("crm-recruit-updated", refresh);
+    window.addEventListener("pipeline-updated", refresh);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refreshOnVisibility);
+
+    const profileRefreshTimer = window.setInterval(fetchProfile, 30 * 1000);
+
+    return () => {
+      window.removeEventListener("candidate-data-updated", refresh);
+      window.removeEventListener("crm-recruit-updated", refresh);
+      window.removeEventListener("pipeline-updated", refresh);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refreshOnVisibility);
+      window.clearInterval(profileRefreshTimer);
+    };
   }, [user?.email]);
 
   // Fetch canonical Interview & Hiring data from the backend.
@@ -255,7 +292,7 @@ export default function Profile() {
 
         const response =
           await fetch(
-            `${API_BASE}/api/profile/source-data?refresh=true&_=${Date.now()}`,
+            `${API_BASE}/api/profile/source-data?refresh=false&_=${Date.now()}`,
             {
               cache: "no-store",
               headers: {
@@ -310,16 +347,69 @@ export default function Profile() {
               {}
           };
 
+        const rawCrm = data.modules?.CRM_Deals || {};
+        const rawRecruitCandidate = data.modules?.Recruit_Candidates || {};
+        const rawRecruitApplication = data.modules?.Recruit_Applications || {};
+
+        setCanonicalProfileSources({
+          mapped,
+          crm: rawCrm,
+          recruitCandidate: rawRecruitCandidate,
+          recruitApplication: rawRecruitApplication
+        });
+
+        // A sparse or temporarily failed /my-deals response must not blank the
+        // Profile. Build a field-by-field fallback from the exact canonical raw
+        // sources returned by the backend. CRM Deal wins over Recruit for CRM-owned
+        // fields, while mapped values fill portal aliases.
+        const canonicalFallbackProfile =
+          data.profileFallback || {
+            ...rawRecruitCandidate,
+            ...rawCrm,
+            ...mapped
+          };
+
+        setProfileData(previous => {
+          const next = {
+            ...(previous || {})
+          };
+
+          const isBlank = value => {
+            if (value === undefined || value === null) return true;
+            if (typeof value === "string") {
+              return ["", "—", "-", "null", "undefined"].includes(
+                value.trim().toLowerCase()
+              );
+            }
+            return false;
+          };
+
+          Object.entries(canonicalFallbackProfile || {}).forEach(([key, value]) => {
+            if (isBlank(next[key]) && !isBlank(value)) {
+              next[key] = value;
+            }
+          });
+
+          return next;
+        });
+
+        // Canonical source data is sufficient to render the Profile even if the
+        // broad comprehensive endpoint was temporarily unavailable.
+        setError(null);
+
         setInterviewHiringSources({
-          crm:
-            sourcePayload.crm ||
-            {},
-          recruitCandidate:
-            sourcePayload.recruitCandidate ||
-            {},
-          recruitApplication:
-            sourcePayload.recruitApplication ||
-            {}
+          crm: {
+            ...rawCrm,
+            ...(sourcePayload.crm || {})
+          },
+          recruitCandidate: {
+            ...rawRecruitCandidate,
+            ...(sourcePayload.recruitCandidate || {})
+          },
+          recruitApplication: {
+            ...rawRecruitApplication,
+            ...(sourcePayload.recruitApplication || {})
+          }
         });
 
         setCurrentEmployer(
@@ -406,6 +496,14 @@ export default function Profile() {
       "candidate-data-updated",
       refresh
     );
+    window.addEventListener(
+      "crm-recruit-updated",
+      refresh
+    );
+    window.addEventListener(
+      "pipeline-updated",
+      refresh
+    );
 
     window.addEventListener(
       "focus",
@@ -415,12 +513,20 @@ export default function Profile() {
     const refreshTimer =
       window.setInterval(
         fetchRecruitData,
-        60 * 1000
+        30 * 1000
       );
 
     return () => {
       window.removeEventListener(
         "candidate-data-updated",
+        refresh
+      );
+      window.removeEventListener(
+        "crm-recruit-updated",
+        refresh
+      );
+      window.removeEventListener(
+        "pipeline-updated",
         refresh
       );
 
@@ -432,6 +538,109 @@ export default function Profile() {
       window.clearInterval(
         refreshTimer
       );
+    };
+  }, [user?.email]);
+
+
+  // ─── Deterministic live CRM profile fallback ────────────────────────────────
+  // The same endpoint that keeps Pipeline current also returns the tracked raw
+  // CRM Deal fields. This layer updates Profile within the short live CRM window
+  // without forcing Recruit or waiting for the comprehensive candidate cache.
+  useEffect(() => {
+    if (!user?.email) return;
+
+    let cancelled = false;
+    let timer = null;
+    let inFlight = false;
+
+    const loadLiveCrmProfile = async () => {
+      if (cancelled || document.hidden || inFlight) return;
+
+      const token = localStorage.getItem("icp_auth_token");
+      if (!token) return;
+
+      inFlight = true;
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/pipeline/live-crm-state?_=${Date.now()}`,
+          {
+            cache: "no-store",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Cache-Control": "no-cache",
+              Pragma: "no-cache"
+            }
+          }
+        );
+
+        const data = await response.json().catch(() => ({}));
+        if (cancelled || !response.ok || data.success !== true) return;
+
+        const fields = data.changedFields || data.fields || {};
+        if (fields && typeof fields === "object") {
+          setLiveCrmProfile(previous => ({
+            ...previous,
+            ...fields
+          }));
+
+          // Fill blank transformed values immediately, but never erase a usable
+          // value when CRM sends an empty field.
+          setProfileData(previous => {
+            const next = { ...(previous || {}) };
+            for (const [key, value] of Object.entries(fields)) {
+              const existing = next[key];
+              const existingBlank =
+                existing === undefined ||
+                existing === null ||
+                String(existing).trim() === "" ||
+                String(existing).trim() === "—";
+              const incomingUsable =
+                value !== undefined &&
+                value !== null &&
+                String(value).trim() !== "" &&
+                String(value).trim() !== "—";
+
+              if (existingBlank && incomingUsable) {
+                next[key] = value;
+              }
+            }
+            return next;
+          });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.warn(
+            "[Profile] Live CRM fallback unavailable:",
+            error?.message || error
+          );
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const refresh = () => loadLiveCrmProfile();
+    const onVisibility = () => {
+      if (!document.hidden) loadLiveCrmProfile();
+    };
+
+    loadLiveCrmProfile();
+    timer = window.setInterval(loadLiveCrmProfile, 5000);
+
+    window.addEventListener("candidate-data-updated", refresh);
+    window.addEventListener("crm-recruit-updated", refresh);
+    window.addEventListener("pipeline-updated", refresh);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      cancelled = true;
+      if (timer) window.clearInterval(timer);
+      window.removeEventListener("candidate-data-updated", refresh);
+      window.removeEventListener("crm-recruit-updated", refresh);
+      window.removeEventListener("pipeline-updated", refresh);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [user?.email]);
 
@@ -734,6 +943,14 @@ export default function Profile() {
     }
   };
 
+  const hasCanonicalProfileFallback = Boolean(
+    profileData ||
+    Object.keys(liveCrmProfile || {}).length > 0 ||
+    Object.keys(canonicalProfileSources?.crm || {}).length > 0 ||
+    Object.keys(canonicalProfileSources?.mapped || {}).length > 0 ||
+    Object.keys(canonicalProfileSources?.recruitCandidate || {}).length > 0
+  );
+
   // Show loading state
   if (loading || recruitLoading) {
     return (
@@ -743,8 +960,9 @@ export default function Profile() {
     );
   }
 
-  // Show error state
-  if (error) {
+  // Show the hard error only when every canonical/live fallback is empty.
+  // A temporary /my-deals failure must not hide a valid CRM-backed profile.
+  if (error && !hasCanonicalProfileFallback) {
     return (
       <div className="text-center py-12 max-w-lg mx-auto">
         <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-4">
@@ -762,8 +980,8 @@ export default function Profile() {
     );
   }
 
-  // Show empty state
-  if (!profileData) {
+  // Show empty only if the broad profile AND all canonical/live sources are empty.
+  if (!hasCanonicalProfileFallback) {
     return (
       <div className="text-center py-12 max-w-lg mx-auto">
         <User className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
@@ -779,12 +997,55 @@ export default function Profile() {
     );
   }
 
-  // Helper to safely get a value from the profile data
-  const getValue = (field) => {
-    if (!profileData) return null;
-    const value = profileData[field];
-    if (value === undefined || value === null || value === "—" || value === "") return null;
+  const unwrapProfileSourceValue = value => {
+    if (value === undefined || value === null) return null;
+
+    if (Array.isArray(value)) {
+      const values = value
+        .map(unwrapProfileSourceValue)
+        .filter(item => item !== null && item !== undefined && item !== "");
+      return values.length ? values.join(", ") : null;
+    }
+
+    if (typeof value === "object") {
+      const unwrapped =
+        value.value ??
+        value.name ??
+        value.display_value ??
+        value.displayValue ??
+        value.label;
+      return unwrapped !== undefined
+        ? unwrapProfileSourceValue(unwrapped)
+        : value;
+    }
+
+    const text = String(value).trim();
+    if (["", "—", "-", "null", "undefined"].includes(text.toLowerCase())) {
+      return null;
+    }
+
     return value;
+  };
+
+  // Read the normal comprehensive profile first, then fall back field-by-field
+  // to the CURRENT raw CRM Deal, canonical mapped value and Recruit records.
+  // This prevents a blank transformed profile field from hiding a populated CRM field.
+  const getValue = (field) => {
+    const candidates = [
+      liveCrmProfile?.[field],
+      profileData?.[field],
+      canonicalProfileSources?.crm?.[field],
+      canonicalProfileSources?.mapped?.[field],
+      canonicalProfileSources?.recruitCandidate?.[field],
+      canonicalProfileSources?.recruitApplication?.[field]
+    ];
+
+    for (const candidateValue of candidates) {
+      const value = unwrapProfileSourceValue(candidateValue);
+      if (value !== null && value !== undefined && value !== "") return value;
+    }
+
+    return null;
   };
 
   // ─── Helper to get formatted date value ────────────────────────────────────
@@ -1123,9 +1384,16 @@ export default function Profile() {
   };
 
   const displayName =
-    getValue("candidateName") ||
-    getValue("firstName") ||
-    getValue("Candidate_Name") ||
+    getFirstValue(
+      "candidateName",
+      "Candidate_Name",
+      "Full_Name",
+      "Name"
+    ) ||
+    [
+      getFirstValue("firstName", "First_Name"),
+      getFirstValue("lastName", "Last_Name")
+    ].filter(Boolean).join(" ") ||
     getValue("email") ||
     user?.email ||
     "Candidate";
@@ -1150,18 +1418,23 @@ export default function Profile() {
       "nationality",
       "Nationality",
       "citizenship",
-      "Country_of_Citizenship"
+      "Country_of_Citizenship",
+      "Citizenship",
+      "Country_of_Nationality"
     ) ||
     "—";
 
   const currentLocationValue =
     getFirstValue(
       "currentLocation",
-      "Current_Location"
+      "Current_Location",
+      "Location",
+      "Current_City"
     ) ||
     [
-      getFirstValue("city", "City"),
-      getFirstValue("country", "Country")
+      getFirstValue("city", "City", "Current_City"),
+      getFirstValue("state", "State", "Current_State"),
+      getFirstValue("country", "Country", "Country_of_Residence")
     ].filter(Boolean).join(", ") ||
     "—";
 
@@ -1170,7 +1443,10 @@ export default function Profile() {
       "position",
       "Position",
       "professionalSpecialty",
-      "Professional_Specialty"
+      "Professional_Specialty",
+      "Nurse_Specialty",
+      "Speciality",
+      "Specialty"
     ) ||
     "—";
 
@@ -1179,6 +1455,7 @@ export default function Profile() {
       "yearsOfExperience",
       "Years_of_Experience",
       "Experience_Years",
+      "Experience_in_Years",
       "Experience"
     ) ||
     "—";
@@ -1342,12 +1619,12 @@ export default function Profile() {
             <div>
               <InfoRow label="Full Name" value={displayName} icon={User} alwaysVisible />
               <InfoRow label="Email" value={displayEmail} icon={Mail} alwaysVisible />
-              <InfoRow label="Phone" value={getFirstValue("phone", "Phone") || "—"} icon={Phone} alwaysVisible />
+              <InfoRow label="Phone" value={getFirstValue("phone", "Phone", "Mobile", "Mobile_Phone", "Phone_Number", "mobilePhone") || "—"} icon={Phone} alwaysVisible />
               <InfoRow label="Nationality" value={nationalityValue} icon={Globe2} alwaysVisible />
               <InfoRow label="Current Location" value={currentLocationValue} icon={MapPin} alwaysVisible />
               <InfoRow
                 label="Date of Birth"
-                value={getFormattedDate("dateOfBirth") || "—"}
+                value={getFirstFormattedDate("dateOfBirth", "DOB", "Date_of_Birth_DOB", "Date_of_Birth", "Birth_Date") || "—"}
                 icon={Calendar}
                 alwaysVisible
               />
@@ -1408,14 +1685,14 @@ export default function Profile() {
               />
               <InfoRow
                 label="Specialty"
-                value={getFirstValue("professionalSpecialty", "Professional_Specialty") || "—"}
+                value={getFirstValue("professionalSpecialty", "Professional_Specialty", "Nurse_Specialty", "Speciality", "Specialty") || "—"}
                 icon={Award}
                 alwaysVisible
               />
               
               <InfoRow
                 label="Hospital Name"
-                value={getFirstValue("hospitalName", "Hospital_Name") || "—"}
+                value={getFirstValue("hospitalName", "Hospital_Name", "Account_Name", "Hired_Location") || "—"}
                 icon={Building2}
                 alwaysVisible
               />

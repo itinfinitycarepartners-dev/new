@@ -430,8 +430,14 @@ const PREFERRED_VENDOR_RESOURCES = [
   {
     label:
       "International AutoSource (IAS)",
-    href:
-      "https://intlauto.com/"
+    contactRole:
+      "Director",
+    contactName:
+      "James D. Krulder",
+    phone:
+      "516.496.1810",
+    phoneHref:
+      "tel:+15164961810"
   },
   {
     label:
@@ -2225,34 +2231,37 @@ export default function Resource() {
             </p>
 
             <div className="mt-4 grid gap-3 md:grid-cols-2">
-              {PREFERRED_VENDOR_RESOURCES.map(resource => (
-                <ResourceLink
-                  key={resource.label}
-                  {...resource}
-                />
-              ))}
-            </div>
-
-            <div className="mt-4 rounded-xl border bg-slate-50 p-4">
-              <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-                  <Car className="h-5 w-5 text-primary" />
-                </div>
-                <div className="min-w-0">
-                  <p className="font-semibold">
-                    International AutoSource (IAS) Contact
-                  </p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Director: James D. Krulder
-                  </p>
-                  <a
-                    href="tel:+15164961810"
-                    className="mt-2 inline-flex text-sm font-semibold text-primary hover:underline"
+              {PREFERRED_VENDOR_RESOURCES.map(resource =>
+                resource.phone ? (
+                  <div
+                    key={resource.label}
+                    className="flex items-start gap-3 rounded-lg border bg-white px-4 py-3"
                   >
-                    516.496.1810
-                  </a>
-                </div>
-              </div>
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                      <Car className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold">
+                        {resource.label}
+                      </p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {resource.contactRole}: {resource.contactName}
+                      </p>
+                      <a
+                        href={resource.phoneHref}
+                        className="mt-1 inline-flex text-sm font-semibold text-primary hover:underline"
+                      >
+                        {resource.phone}
+                      </a>
+                    </div>
+                  </div>
+                ) : (
+                  <ResourceLink
+                    key={resource.label}
+                    {...resource}
+                  />
+                )
+              )}
             </div>
           </section>
 
