@@ -443,13 +443,7 @@ const PREFERRED_VENDOR_RESOURCES = [
     href:
       "https://www.regions.com/"
   },
-  {
-    label:
-      "Transportation Vendors",
-    href:
-      import.meta.env.VITE_TRANSPORTATION_VENDORS_URL ||
-      ""
-  }
+ 
 ];
 
 const COMMUNITY_RESOURCES = [

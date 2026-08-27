@@ -13,11 +13,11 @@ import {
 const API_BASE = 'https://fictional-carnival-3inv.onrender.com';
 
 const THEME = {
-  brand: '#6D28D9', brandDark: '#3B0764', brandLight: '#8B5CF6', brandGhost: '#F5F0FF',
-  teal: '#6D28D9', tealLight: '#F5F0FF', amber: '#8B5CF6', amberLight: '#FDF2F8',
-  red: '#C026D3', redLight: '#FDF2F8', green: '#8B5CF6', greenLight: '#F5F0FF',
-  blue: '#6D28D9', blueLight: '#F5F0FF', bg: '#FDF2F8', card: '#FFFFFF',
-  border: '#E8E1F2', text: '#111827', muted: '#64748B', subtle: '#8B5CF6',
+  brand: '#81348d', brandDark: '#5e2568', brandLight: '#a855b5', brandGhost: '#f3e8f5',
+  teal: '#0d9488', tealLight: '#ccfbf1', amber: '#d97706', amberLight: '#fef3c7',
+  red: '#dc2626', redLight: '#fee2e2', green: '#16a34a', greenLight: '#dcfce7',
+  blue: '#2563eb', blueLight: '#dbeafe', bg: '#f8f7fb', card: '#ffffff',
+  border: '#ede9f0', text: '#1a1025', muted: '#7c6f85', subtle: '#c4b8cc',
 };
 
 const DOCUMENT_REJECTION_REASONS = [
@@ -202,6 +202,47 @@ const PIPELINE_STATUS = {
   "Not Started": { icon: Circle, color: "text-gray-400", badge: "bg-gray-100 text-gray-600 border-gray-200" },
 };
 
+const getAdminPipelineRisk = stage => {
+  if (
+    !stage ||
+    stage.status === "Completed" ||
+    stage.completed === true ||
+    stage.is_completed === true
+  ) {
+    return null;
+  }
+
+  const backendStatus =
+    String(
+      stage.timing_status ||
+      stage.timingStatus ||
+      ""
+    ).trim();
+
+  if (["At Risk", "Late"].includes(backendStatus)) {
+    return backendStatus;
+  }
+
+  const target =
+    stage.target_date ||
+    stage.targetDate ||
+    stage.due_date ||
+    stage.dueDate ||
+    null;
+
+  if (!target) return null;
+
+  const deadline = new Date(target);
+  if (Number.isNaN(deadline.getTime())) return null;
+
+  const hoursRemaining =
+    (deadline.getTime() - Date.now()) / 3600000;
+
+  if (hoursRemaining < 0) return "Late";
+  if (hoursRemaining <= 24) return "At Risk";
+  return "Good Standing";
+};
+
 // ─── MODALS & PANELS ─────────────────────────────────────────────────────────
 
 const UserDetailModal = ({ user, onClose, onMessage }) => {
@@ -228,9 +269,11 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   useEffect(() => {
     if (!user) return;
 
-    const fetchDetailedData = async () => {
-      setLoading(true);
-      setDocActionError(null);
+    const fetchDetailedData = async (silent = false) => {
+      if (!silent) {
+        setLoading(true);
+        setDocActionError(null);
+      }
 
       try {
         const { adminToken, userToken } = getTokens();
@@ -363,11 +406,44 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
         console.error('Error fetching detailed candidate data:', error);
         setDocActionError(error.message || 'Unable to load the candidate details.');
       } finally {
-        setLoading(false);
+        if (!silent) {
+          setLoading(false);
+        }
       }
     };
 
-    fetchDetailedData();
+    fetchDetailedData(false);
+
+    const interval =
+      window.setInterval(
+        () => {
+          if (
+            document.visibilityState ===
+              "visible"
+          ) {
+            fetchDetailedData(true);
+          }
+        },
+        10 * 1000
+      );
+
+    const onFocus = () =>
+      fetchDetailedData(true);
+
+    window.addEventListener(
+      "focus",
+      onFocus
+    );
+
+    return () => {
+      window.clearInterval(
+        interval
+      );
+      window.removeEventListener(
+        "focus",
+        onFocus
+      );
+    };
   }, [user]);
 
   const handleViewDocument = async (doc) => {
@@ -822,9 +898,21 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                               const cfg = PIPELINE_STATUS[stage.status] || PIPELINE_STATUS["Not Started"];
                               const Icon = cfg.icon;
                               const isGate = stage.is_gate === true;
+                              const riskStatus = getAdminPipelineRisk(stage);
                               
                               return (
-                                <div key={stage.id || stage._id} className={`flex items-start gap-4 px-5 py-4 ${isGate ? 'bg-blue-50/30 border-l-4 border-l-blue-400' : ''}`}>
+                                <div
+                                  key={stage.id || stage._id}
+                                  className={`flex items-start gap-4 px-5 py-4 ${
+                                    riskStatus === 'Late'
+                                      ? 'bg-red-50 border-l-4 border-l-red-500'
+                                      : riskStatus === 'At Risk'
+                                        ? 'bg-yellow-50 border-l-4 border-l-yellow-400'
+                                        : isGate
+                                          ? 'bg-blue-50/30 border-l-4 border-l-blue-400'
+                                          : ''
+                                  }`}
+                                >
                                   <div className="flex-shrink-0 mt-0.5">
                                     {isGate ? <GitBranch className={`w-5 h-5 ${cfg.color}`} /> : <Icon className={`w-5 h-5 ${cfg.color}`} />}
                                   </div>
@@ -835,8 +923,34 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                     </p>
                                     {stage.completed_date && <p className="text-xs text-emerald-600 font-semibold mt-1">Completed {formatDate(stage.completed_date)}</p>}
                                     {stage.status === 'In Progress' && <p className="text-xs text-blue-600 font-semibold mt-1">Currently in progress</p>}
+                                    {stage.target_date && stage.status !== 'Completed' && (
+                                      <p className={`text-xs font-semibold mt-1 ${
+                                        riskStatus === 'Late'
+                                          ? 'text-red-700'
+                                          : riskStatus === 'At Risk'
+                                            ? 'text-amber-700'
+                                            : 'text-gray-500'
+                                      }`}>
+                                        Target {formatDate(stage.target_date)}
+                                      </p>
+                                    )}
+                                    {stage.timing_rule && (
+                                      <p className="mt-1 text-xs text-gray-500">
+                                        {stage.timing_rule}
+                                      </p>
+                                    )}
                                   </div>
                                   <div className="flex items-center gap-2 flex-shrink-0">
+                                    {riskStatus === 'At Risk' && (
+                                      <span className="text-xs px-3 py-1 rounded-full font-bold border border-amber-200 bg-amber-50 text-amber-700">
+                                        At Risk
+                                      </span>
+                                    )}
+                                    {riskStatus === 'Late' && (
+                                      <span className="text-xs px-3 py-1 rounded-full font-bold border border-red-200 bg-red-50 text-red-700">
+                                        Late
+                                      </span>
+                                    )}
                                     <span className={`text-xs px-3 py-1 rounded-full font-bold border ${cfg.badge}`}>
                                       {stage.status}
                                     </span>
@@ -1723,9 +1837,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
                         <div className="text-sm font-semibold text-gray-900 truncate">{getConversationName(conversation)}</div>
-                        <div className="pl-2 text-xs text-gray-500 truncate">
-                          {conversation.lastMessage?.content || "No messages yet"}
-                        </div>
+                        <div className="text-xs text-gray-500 truncate">{email}</div>
                       </div>
                       {thread?.isActive && <div className="w-2 h-2 shrink-0 rounded-full bg-green-500" />}
                     </div>
@@ -1810,9 +1922,11 @@ const MessagingPanel = ({ users, initialTarget }) => {
             <div className="border-b px-5 py-4 bg-white flex items-center justify-between shadow-sm z-10">
               <div>
                 <h3 className="font-bold text-gray-900">
-                  {threads.find(t => String(t.email).toLowerCase() === String(selected).toLowerCase())?.name || selected.split('@')[0]}
+                  {threads.find(t => t.email === selected)?.name || selected}
                 </h3>
                 <p className="text-xs text-gray-500">
+                  {selected}
+                  {" • "}
                   {departments.find(
                     item =>
                       item.id === department
@@ -1820,7 +1934,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
                 </p>
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-5 space-y-3 bg-[#efeae2]">
+            <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-gray-50/50">
               {messageError && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{messageError}</div>}
               {loadingHistory ? (
                 <div className="text-center text-xs text-gray-400 mt-4">Loading conversation...</div>
@@ -1828,19 +1942,9 @@ const MessagingPanel = ({ users, initialTarget }) => {
                 <div className="text-center text-xs text-gray-400 mt-4">This is the start of your conversation.</div>
               ) : (
                 chat.map((msg) => (
-                  <div key={msg._id || msg.id} className={`flex ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'justify-start' : 'justify-end'}`}>
-                    <div className="max-w-[75%]">
-                      <div className={`mb-1 px-2 text-xs font-semibold ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'text-left text-emerald-700' : 'text-right text-gray-700'}`}>
-                        {msg.senderEmail === 'admin' || msg.from === 'admin'
-                          ? 'Admin'
-                          : threads.find(thread => String(thread.email).toLowerCase() === String(msg.senderEmail || '').toLowerCase())?.name || getConversationName({ participants: [msg.senderEmail] })}
-                      </div>
-                      <div className={`ml-2 rounded-lg px-3 py-2 text-sm shadow-sm ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'rounded-bl-none bg-[#d9fdd3] text-gray-800' : 'rounded-br-none bg-white text-gray-800'}`}>
-                        <div className="whitespace-pre-wrap break-words">{msg.content || msg.text}</div>
-                        <div className="mt-1 text-right text-[10px] text-gray-500">
-                          {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                        </div>
-                      </div>
+                  <div key={msg._id || msg.id} className={`flex ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-sm shadow-sm ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'text-white rounded-br-sm' : 'border bg-white text-gray-800 rounded-bl-sm'}`} style={{ background: msg.senderEmail === 'admin' || msg.from === 'admin' ? THEME.brand : '' }}>
+                      {msg.content || msg.text}
                     </div>
                   </div>
                 ))
@@ -1945,9 +2049,9 @@ const AdminRequestsPanel = ({ onOpenUser }) => {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-xl font-bold">Candidate Requests</h2>
+        <h2 className="text-xl font-bold">Candidate Inquiries & Requests</h2>
         <p className="text-sm text-gray-500">
-          Requests are tied to the specific candidate and remain pending until an admin approves or rejects them.
+          Inquiries and requests are tied to the specific candidate and remain pending until an admin approves or rejects them.
         </p>
       </div>
       {requests.length === 0 ? (
@@ -1967,7 +2071,13 @@ const AdminRequestsPanel = ({ onOpenUser }) => {
                     {request.candidate_email}
                   </button>
                   <p className="mt-1 text-sm font-semibold capitalize">
-                    {String(request.request_type || "request").replaceAll("_"," ")}
+                    {request.request_type === "embassy_change"
+                      ? "Embassy Transfer Request"
+                      : request.request_type === "add_dependant"
+                        ? "Add Dependant"
+                        : request.request_type === "additional_inquiry"
+                          ? "Additional Inquiry"
+                          : String(request.request_type || "request").replaceAll("_"," ")}
                   </p>
                   <div className="mt-2 text-sm text-gray-600">
                     {Object.entries(details)
@@ -1976,7 +2086,11 @@ const AdminRequestsPanel = ({ onOpenUser }) => {
                           "passport_attachment_id",
                           "passport_deal_id",
                           "passport_source",
-                          "passport_mime_type"
+                          "passport_mime_type",
+                          "evidence_attachment_id",
+                          "evidence_deal_id",
+                          "evidence_source",
+                          "evidence_mime_type"
                         ].includes(key)
                       )
                       .map(([key,value]) => (
@@ -2045,6 +2159,71 @@ const AdminRequestsPanel = ({ onOpenUser }) => {
                           className="mt-3 rounded-lg border border-purple-200 px-3 py-2 text-xs font-semibold text-purple-700"
                         >
                           View Passport Image
+                        </button>
+                      )}
+
+                    {(request.request_type === "embassy_change" ||
+                      request.request_type === "additional_inquiry") &&
+                      details.evidence_attachment_id && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const { adminToken } = getTokens();
+                              const response = await fetch(
+                                `${API_BASE}/api/admin/documents/download/${encodeURIComponent(
+                                  details.evidence_attachment_id
+                                )}?email=${encodeURIComponent(
+                                  request.candidate_email
+                                )}&source=${encodeURIComponent(
+                                  details.evidence_source || "crm"
+                                )}&crmRecordId=${encodeURIComponent(
+                                  details.evidence_deal_id || ""
+                                )}`,
+                                {
+                                  headers: {
+                                    Authorization:
+                                      `AdminBearer ${adminToken}`,
+                                    "x-admin-token":
+                                      adminToken
+                                  },
+                                  credentials:
+                                    "include"
+                                }
+                              );
+
+                              if (!response.ok) {
+                                throw new Error(
+                                  `Server returned ${response.status}`
+                                );
+                              }
+
+                              const blob =
+                                await response.blob();
+
+                              const url =
+                                URL.createObjectURL(blob);
+
+                              window.open(
+                                url,
+                                "_blank",
+                                "noopener,noreferrer"
+                              );
+
+                              setTimeout(
+                                () => URL.revokeObjectURL(url),
+                                60000
+                              );
+                            } catch (error) {
+                              alert(
+                                error.message ||
+                                "Unable to open supporting evidence."
+                              );
+                            }
+                          }}
+                          className="mt-3 ml-2 rounded-lg border border-purple-200 px-3 py-2 text-xs font-semibold text-purple-700"
+                        >
+                          View Supporting Evidence
                         </button>
                       )}
                   </div>

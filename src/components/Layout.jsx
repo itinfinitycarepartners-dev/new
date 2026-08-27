@@ -18,7 +18,7 @@ import {
   ArrowLeft,
   Send
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { messaging, websocket, tokenStorage } from "@/api/icpClient";
 // Import the image
@@ -28,6 +28,12 @@ import userImage from "./user1.png";
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
   "https://fictional-carnival-3inv.onrender.com";
+
+// Webhooks remain the primary instant path. This visible-tab heartbeat is the
+// deterministic fallback for CRM Deals only, so Profile/Dashboard do not wait
+// for long candidate caches if a Zoho callback is delayed or missed.
+const GLOBAL_CRM_SYNC_INTERVAL_MS =
+  10 * 1000;
 
 const normalizeLeadStatus = value =>
   String(value || "")
@@ -42,7 +48,7 @@ const getNavItems = (licensureUrl) => {
     { path: "/profile", label: "My Profile", icon: User },
     { path: "/documents", label: "Document Library", icon: FileText },
     { path: "/forms", label: "Forms", icon: ClipboardList },
-    { path: "/make-request", label: "Make a Request", icon: Send },
+    { path: "/make-request", label: "Submit an Inquiry", icon: Send },
     { path: "/messages", label: "Messages", icon: MessageCircle },
     { path: "/updates", label: "Updates", icon: Bell },
     { path: "/pipeline", label: "My Pipeline", icon: GitBranch },
@@ -65,6 +71,7 @@ export default function Layout() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [imageError, setImageError] = useState(false);
   const [licensureUrl, setLicensureUrl] = useState(undefined);
+  const stageRiskToastRef = useRef("");
 
   // ─── Load licensure URL ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -89,7 +96,7 @@ export default function Layout() {
   // ─── Transfer to ICP USRN School branch redirect ───────────────────────────
   // Applications.Application_Status is the canonical Hiring source.
   // Redirect only once per authenticated session so the user can still visit
-  // Forms, Documents, Make a Request, etc. after the NCLEX branch opens.
+  // Forms, Documents, Submit an Inquiry, etc. after the NCLEX branch opens.
   useEffect(() => {
     if (!user?.email) {
       return;
@@ -188,6 +195,385 @@ export default function Layout() {
     location.search,
     navigate
   ]);
+
+  // ─── Global fast CRM freshness sync ────────────────────────────────────────
+  useEffect(() => {
+    if (!user?.email) return;
+
+    let active = true;
+    let inFlight = false;
+
+    const syncLiveCrm =
+      async () => {
+        if (
+          !active ||
+          inFlight ||
+          document.visibilityState !==
+            "visible"
+        ) {
+          return;
+        }
+
+        const authToken =
+          tokenStorage.get();
+
+        if (!authToken) return;
+
+        inFlight = true;
+
+        try {
+          const response =
+            await fetch(
+              `${API_BASE}/api/pipeline/live-crm-state?_=${Date.now()}`,
+              {
+                cache:
+                  "no-store",
+                headers: {
+                  Authorization:
+                    `Bearer ${authToken}`,
+                  "Cache-Control":
+                    "no-cache",
+                  Pragma:
+                    "no-cache"
+                }
+              }
+            );
+
+          const payload =
+            await response
+              .json()
+              .catch(() => ({}));
+
+          if (
+            !active ||
+            !response.ok ||
+            payload?.success !==
+              true ||
+            payload?.changed !==
+              true
+          ) {
+            return;
+          }
+
+          const detail = {
+            event:
+              "global-live-crm",
+            source:
+              "crm",
+            candidateEmail:
+              payload.candidateEmail ||
+              user.email,
+            changedFields:
+              payload.changedFields ||
+              {},
+            fetchedAt:
+              payload.fetchedAt ||
+              new Date()
+                .toISOString()
+          };
+
+          // Candidate pages already know how to refresh on these browser events.
+          // The backend clears the shared candidate cache before this event is
+          // emitted, so each page receives fresh CRM-backed data.
+          window.dispatchEvent(
+            new CustomEvent(
+              "candidate-data-updated",
+              { detail }
+            )
+          );
+
+          window.dispatchEvent(
+            new CustomEvent(
+              "pipeline-updated",
+              { detail }
+            )
+          );
+
+          window.dispatchEvent(
+            new CustomEvent(
+              "crm-recruit-updated",
+              { detail }
+            )
+          );
+        } catch (error) {
+          if (active) {
+            console.warn(
+              "[Layout] Fast CRM sync failed:",
+              error?.message ||
+              error
+            );
+          }
+        } finally {
+          inFlight = false;
+        }
+      };
+
+    syncLiveCrm();
+
+    const interval =
+      window.setInterval(
+        syncLiveCrm,
+        GLOBAL_CRM_SYNC_INTERVAL_MS
+      );
+
+    const onFocus = () =>
+      syncLiveCrm();
+
+    const onVisibility = () => {
+      if (
+        document.visibilityState ===
+          "visible"
+      ) {
+        syncLiveCrm();
+      }
+    };
+
+    window.addEventListener(
+      "focus",
+      onFocus
+    );
+    document.addEventListener(
+      "visibilitychange",
+      onVisibility
+    );
+
+    return () => {
+      active = false;
+      window.clearInterval(
+        interval
+      );
+      window.removeEventListener(
+        "focus",
+        onFocus
+      );
+      document.removeEventListener(
+        "visibilitychange",
+        onVisibility
+      );
+    };
+  }, [user?.email]);
+
+  // ─── Global current-stage risk notifications ────────────────────────────────
+  useEffect(() => {
+    if (!user?.email) return;
+
+    let active = true;
+
+    const checkCurrentStageRisk = async () => {
+      try {
+        const authToken =
+          tokenStorage.get();
+
+        if (!authToken) return;
+
+        const response = await fetch(
+          `${API_BASE}/api/pipeline/get?email=${encodeURIComponent(
+            user.email
+          )}&_=${Date.now()}`,
+          {
+            cache: "no-store",
+            headers: {
+              Authorization:
+                `Bearer ${authToken}`,
+              "Cache-Control":
+                "no-cache",
+              Pragma:
+                "no-cache"
+            }
+          }
+        );
+
+        const data =
+          await response
+            .json()
+            .catch(() => ({}));
+
+        if (
+          !active ||
+          !response.ok ||
+          data.success !== true
+        ) {
+          return;
+        }
+
+        const stages =
+          (Array.isArray(data.stages)
+            ? data.stages
+            : []
+          )
+            .filter(stage =>
+              stage &&
+              stage.is_deleted !== true
+            )
+            .sort(
+              (a, b) =>
+                Number(a.stage_order || 0) -
+                Number(b.stage_order || 0)
+            );
+
+        const currentStage =
+          stages.find(stage =>
+            stage.status ===
+              "In Progress" &&
+            stage.status !==
+              "Completed"
+          ) ||
+          stages.find(stage =>
+            !(
+              stage.status ===
+                "Completed" ||
+              stage.completed ===
+                true ||
+              stage.is_completed ===
+                true
+            )
+          );
+
+        if (!currentStage) {
+          stageRiskToastRef.current =
+            "";
+          return;
+        }
+
+        let riskStatus =
+          String(
+            currentStage.timing_status ||
+            currentStage.timingStatus ||
+            ""
+          ).trim();
+
+        if (
+          ![
+            "At Risk",
+            "Late"
+          ].includes(riskStatus)
+        ) {
+          const target =
+            currentStage.target_date ||
+            currentStage.targetDate ||
+            null;
+
+          if (target) {
+            const deadline =
+              new Date(target);
+
+            if (
+              !Number.isNaN(
+                deadline.getTime()
+              )
+            ) {
+              const hoursRemaining =
+                (
+                  deadline.getTime() -
+                  Date.now()
+                ) /
+                3600000;
+
+              riskStatus =
+                hoursRemaining < 0
+                  ? "Late"
+                  : hoursRemaining <= 24
+                    ? "At Risk"
+                    : "Good Standing";
+            }
+          }
+        }
+
+        if (
+          ![
+            "At Risk",
+            "Late"
+          ].includes(riskStatus)
+        ) {
+          stageRiskToastRef.current =
+            "";
+          return;
+        }
+
+        const stageName =
+          currentStage.display_name ||
+          currentStage.stage_name ||
+          "Current stage";
+
+        const toastKey =
+          `${stageName}:${riskStatus}:${
+            currentStage.target_date ||
+            currentStage.targetDate ||
+            "no-target"
+          }`;
+
+        if (
+          stageRiskToastRef.current ===
+          toastKey
+        ) {
+          return;
+        }
+
+        stageRiskToastRef.current =
+          toastKey;
+
+        if (riskStatus === "Late") {
+          toast.error(
+            `Current stage late: ${stageName}`,
+            {
+              description:
+                "This stage is past its required target date. Please complete the required action or contact ICP as soon as possible.",
+              duration: 9000
+            }
+          );
+        } else {
+          toast.warning(
+            `Current stage at risk: ${stageName}`,
+            {
+              description:
+                "This stage is approaching its target date. Please complete the required action to keep your pipeline on track.",
+              duration: 9000
+            }
+          );
+        }
+      } catch (error) {
+        console.warn(
+          "[Layout] Stage risk check failed:",
+          error?.message || error
+        );
+      }
+    };
+
+    checkCurrentStageRisk();
+
+    const interval =
+      window.setInterval(
+        checkCurrentStageRisk,
+        60 * 1000
+      );
+
+    const refresh = () =>
+      checkCurrentStageRisk();
+
+    window.addEventListener(
+      "candidate-data-updated",
+      refresh
+    );
+    window.addEventListener(
+      "pipeline-updated",
+      refresh
+    );
+
+    return () => {
+      active = false;
+      window.clearInterval(
+        interval
+      );
+      window.removeEventListener(
+        "candidate-data-updated",
+        refresh
+      );
+      window.removeEventListener(
+        "pipeline-updated",
+        refresh
+      );
+    };
+  }, [user?.email]);
 
   // ─── Load unread count ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -322,6 +708,7 @@ export default function Layout() {
 
     window.addEventListener("pipeline-updated", refreshNotificationPopups);
     window.addEventListener("candidate-data-updated", refreshNotificationPopups);
+    window.addEventListener("crm-recruit-updated", refreshNotificationPopups);
     window.addEventListener("documents-updated", refreshNotificationPopups);
 
     return () => {
@@ -336,9 +723,73 @@ export default function Layout() {
 
       window.removeEventListener("pipeline-updated", refreshNotificationPopups);
       window.removeEventListener("candidate-data-updated", refreshNotificationPopups);
+      window.removeEventListener("crm-recruit-updated", refreshNotificationPopups);
       window.removeEventListener("documents-updated", refreshNotificationPopups);
     };
   }, [user?.email]);
+
+  // ─── Portal access enforcement ─────────────────────────────────────────────
+            
+          
+  useEffect(() => {
+    if (!user?.email) return;
+
+    let cancelled = false;
+    let timer = null;
+
+    const enforceAccess = async () => {
+      try {
+        const authToken = tokenStorage.get();
+        if (!authToken) return;
+
+        const response = await fetch(
+          `${API_BASE}/api/pipeline/field-status?refresh=false&_=${Date.now()}`,
+          {
+            cache:"no-store",
+            headers:{
+              Authorization:`Bearer ${authToken}`
+            }
+          }
+        );
+
+        const data = await response.json().catch(() => ({}));
+        if (
+          cancelled ||
+          !response.ok ||
+          data.success !== true
+        ) {
+          return;
+        }
+
+        const policy = data.accessPolicy || {};
+
+        // "locked" only controls which pipeline sections are available during
+        // a restricted/grace-period state. It must NOT terminate the login.
+        // The candidate should be signed out only after the backend confirms
+        // the actual portal-access deadline has been reached.
+        if (
+          policy.portal_locked === true
+        ) {
+          sessionStorage.setItem(
+            "candidate-access-message",
+            policy.message ||
+            "Your candidate portal access period has ended."
+          );
+          await logout();
+          navigate("/login");
+        }
+      } catch {
+      }
+    };
+
+    enforceAccess();
+    timer = window.setInterval(enforceAccess, 30000);
+
+    return () => {
+      cancelled = true;
+      if (timer) window.clearInterval(timer);
+    };
+  }, [user?.email, logout, navigate]);
 
   // Check if we're on the home/dashboard page
   const isHomePage = location.pathname === "/";
@@ -472,67 +923,6 @@ export default function Layout() {
             const Icon = item.icon;
             const active = location.pathname === item.path;
             const isMessages = item.path === "/messages";
-            
-          
-  useEffect(() => {
-    if (!user?.email) return;
-
-    let cancelled = false;
-    let timer = null;
-
-    const enforceAccess = async () => {
-      try {
-        const authToken = tokenStorage.get();
-        if (!authToken) return;
-
-        const response = await fetch(
-          `${API_BASE}/api/pipeline/field-status?refresh=false&_=${Date.now()}`,
-          {
-            cache:"no-store",
-            headers:{
-              Authorization:`Bearer ${authToken}`
-            }
-          }
-        );
-
-        const data = await response.json().catch(() => ({}));
-        if (
-          cancelled ||
-          !response.ok ||
-          data.success !== true
-        ) {
-          return;
-        }
-
-        const policy = data.accessPolicy || {};
-
-        // "locked" only controls which pipeline sections are available during
-        // a restricted/grace-period state. It must NOT terminate the login.
-        // The candidate should be signed out only after the backend confirms
-        // the actual portal-access deadline has been reached.
-        if (
-          policy.portal_locked === true
-        ) {
-          sessionStorage.setItem(
-            "candidate-access-message",
-            policy.message ||
-            "Your candidate portal access period has ended."
-          );
-          await logout();
-          navigate("/login");
-        }
-      } catch {
-      }
-    };
-
-    enforceAccess();
-    timer = window.setInterval(enforceAccess, 30000);
-
-    return () => {
-      cancelled = true;
-      if (timer) window.clearInterval(timer);
-    };
-  }, [user?.email, logout, navigate]);
 
   return (
               <Link

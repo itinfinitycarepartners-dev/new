@@ -1076,6 +1076,52 @@ export default function Profile() {
     )
   );
 
+  // Approved dependant requests are copied into the extended profile by the
+  // backend. Show the approved travel choice regardless of the field name used
+  // by older/newer request payloads.
+  const getDependantTravelPlan = dependant => {
+    const raw =
+      dependant?.arrival_plan ||
+      dependant?.arrivalPlan ||
+      dependant?.travelPlan ||
+      dependant?.travel_plan ||
+      dependant?.travelStatus ||
+      "";
+
+    const value = String(raw || "").trim();
+    if (!value) return "";
+
+    const normalized = value
+      .toLowerCase()
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (
+      normalized === "follow to join" ||
+      normalized === "join to follow"
+    ) {
+      return "Follow to Join";
+    }
+
+    if (
+      normalized === "coming with you" ||
+      normalized === "arriving" ||
+      normalized === "arriving with you"
+    ) {
+      return "Coming With You";
+    }
+
+    if (
+      normalized === "coming later" ||
+      normalized === "later"
+    ) {
+      return "Coming Later";
+    }
+
+    return value;
+  };
+
   const displayName =
     getValue("candidateName") ||
     getValue("firstName") ||
@@ -1718,6 +1764,20 @@ export default function Profile() {
                     dependant.relationship || null
                   ].filter(Boolean).join(" · ")}
                 </p>
+
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-[#f3ecff] text-[#7c4fd6]">
+                    <Plane className="h-3.5 w-3.5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-medium text-[#8f8aa0]">
+                      Travel Plan
+                    </p>
+                    <p className="text-xs font-semibold text-[#37324a]">
+                      {getDependantTravelPlan(dependant) || "—"}
+                    </p>
+                  </div>
+                </div>
               </div>
             ))}
             <p className="mt-3 text-xs text-muted-foreground">

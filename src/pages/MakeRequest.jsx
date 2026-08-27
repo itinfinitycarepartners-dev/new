@@ -15,7 +15,8 @@ import {
   BadgeHelp,
   Calendar,
   Upload,
-  Image as ImageIcon
+  Image as ImageIcon,
+  MessageSquareText
 } from "lucide-react";
 import {
   tokenStorage,
@@ -30,6 +31,7 @@ const emptyDependant = () => ({
   name: "",
   age: "",
   relationship: "",
+  arrivalPlan: "",
   passport: "",
   passportFile: null,
   passportPreview: ""
@@ -50,12 +52,26 @@ export default function MakeRequest() {
     useState("");
   const [embassyReason, setEmbassyReason] =
     useState("");
+  const [embassyEvidenceType, setEmbassyEvidenceType] =
+    useState("");
+  const [embassyEvidenceFile, setEmbassyEvidenceFile] =
+    useState(null);
+  const [embassyEvidencePreview, setEmbassyEvidencePreview] =
+    useState("");
   const [dependant, setDependant] =
     useState(emptyDependant());
   const [dependants, setDependants] =
     useState([]);
   const [requests, setRequests] =
     useState([]);
+  const [additionalInquiryType, setAdditionalInquiryType] =
+    useState("");
+  const [additionalInquiryExplanation, setAdditionalInquiryExplanation] =
+    useState("");
+  const [additionalEvidenceFile, setAdditionalEvidenceFile] =
+    useState(null);
+  const [additionalEvidencePreview, setAdditionalEvidencePreview] =
+    useState("");
 
   const requestDate =
     new Date().toLocaleDateString();
@@ -73,6 +89,61 @@ export default function MakeRequest() {
     return {
       Authorization:
         `Bearer ${token}`
+    };
+  };
+
+  const getUploadMetadata = (
+    uploadResult,
+    file
+  ) => {
+    const payload =
+      uploadResult?.document ||
+      uploadResult?.data ||
+      uploadResult?.file ||
+      uploadResult ||
+      {};
+
+    return {
+      evidenceFileName:
+        file?.name ||
+        payload.name ||
+        "",
+      evidenceUploaded: true,
+      evidenceSource:
+        String(
+          payload.source ||
+          uploadResult?.source ||
+          "crm"
+        ).trim(),
+      evidenceAttachmentId:
+        String(
+          payload.attachmentId ||
+          payload.attachment_id ||
+          payload.crmAttachmentId ||
+          uploadResult?.attachmentId ||
+          uploadResult?.attachment_id ||
+          uploadResult?.crmAttachmentId ||
+          ""
+        ).trim(),
+      evidenceDealId:
+        String(
+          payload.dealId ||
+          payload.recordId ||
+          payload.record_id ||
+          payload.crmRecordId ||
+          uploadResult?.dealId ||
+          uploadResult?.recordId ||
+          uploadResult?.record_id ||
+          uploadResult?.crmRecordId ||
+          ""
+        ).trim(),
+      evidenceMimeType:
+        String(
+          file?.type ||
+          payload.mimeType ||
+          payload.mime_type ||
+          ""
+        ).trim()
     };
   };
 
@@ -149,6 +220,25 @@ export default function MakeRequest() {
     load();
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (embassyEvidencePreview) {
+        URL.revokeObjectURL(
+          embassyEvidencePreview
+        );
+      }
+
+      if (additionalEvidencePreview) {
+        URL.revokeObjectURL(
+          additionalEvidencePreview
+        );
+      }
+    };
+  }, [
+    embassyEvidencePreview,
+    additionalEvidencePreview
+  ]);
+
   const fetchWithTimeout = async (
     url,
     options = {},
@@ -198,10 +288,12 @@ export default function MakeRequest() {
 
       if (
         !nextLocation ||
-        !reason
+        !reason ||
+        !embassyEvidenceType ||
+        !embassyEvidenceFile
       ) {
         setNotice(
-          "New embassy location and reason are required."
+          "New embassy location, reason, evidence type and an evidence image are required."
         );
         return;
       }
@@ -213,12 +305,48 @@ export default function MakeRequest() {
       setNotice("");
 
       try {
+        const uploadResult =
+          await documentLibrary.upload({
+            file:
+              embassyEvidenceFile,
+            category:
+              "embassy-transfer-evidence",
+            destination:
+              "crm",
+            documentType:
+              `Embassy Transfer ${embassyEvidenceType}`,
+            pipelineSection:
+              "Embassy Transfer",
+            requirementKey:
+              "embassy-transfer-evidence"
+          });
+
+        if (
+          !uploadResult ||
+          uploadResult.success !== true
+        ) {
+          throw new Error(
+            uploadResult?.error ||
+            uploadResult?.message ||
+            "The embassy transfer evidence could not be uploaded."
+          );
+        }
+
+        const evidenceMetadata =
+          getUploadMetadata(
+            uploadResult,
+            embassyEvidenceFile
+          );
+
         const body = {
           embassyLocation:
             nextLocation,
           newEmbassyLocation:
             nextLocation,
           reason,
+          evidenceType:
+            embassyEvidenceType,
+          ...evidenceMetadata,
           requestedDate:
             new Date()
               .toISOString()
@@ -333,7 +461,14 @@ export default function MakeRequest() {
                 nextLocation,
               newEmbassyLocation:
                 nextLocation,
-              reason
+              reason,
+              evidenceType:
+                embassyEvidenceType,
+              evidenceFileName:
+                embassyEvidenceFile?.name ||
+                "",
+              evidenceUploaded:
+                true
             },
             requested_at:
               new Date()
@@ -380,6 +515,22 @@ export default function MakeRequest() {
         );
 
         setEmbassyReason(
+          ""
+        );
+
+        if (embassyEvidencePreview) {
+          URL.revokeObjectURL(
+            embassyEvidencePreview
+          );
+        }
+
+        setEmbassyEvidenceType(
+          ""
+        );
+        setEmbassyEvidenceFile(
+          null
+        );
+        setEmbassyEvidencePreview(
           ""
         );
 
@@ -569,6 +720,8 @@ export default function MakeRequest() {
       ).trim();
     const relationship =
       dependant.relationship.trim();
+    const arrivalPlan =
+      dependant.arrivalPlan.trim();
     const passportFile =
       dependant.passportFile;
 
@@ -576,10 +729,11 @@ export default function MakeRequest() {
       !name ||
       !age ||
       !relationship ||
+      !arrivalPlan ||
       !passportFile
     ) {
       setNotice(
-        "Full name, age, relationship and a passport image are required."
+        "Full name, age, relationship, travel timing and a passport image are required."
       );
       return;
     }
@@ -636,6 +790,9 @@ export default function MakeRequest() {
                   name,
                   age,
                   relationship,
+                  arrivalPlan,
+                  travelPlan:
+                    arrivalPlan,
                   passport:
                     passportFile.name,
                   passportDocumentName:
@@ -695,6 +852,190 @@ export default function MakeRequest() {
     }
   };
 
+  const submitAdditionalInquiry = async () => {
+    if (submitting) return;
+
+    const inquiryType =
+      additionalInquiryType.trim();
+    const explanation =
+      additionalInquiryExplanation.trim();
+
+    if (!inquiryType) {
+      setNotice(
+        "Please select Job, Location or Other."
+      );
+      return;
+    }
+
+    if (
+      inquiryType ===
+        "Other" &&
+      !explanation
+    ) {
+      setNotice(
+        "Please explain what you need for your Other inquiry."
+      );
+      return;
+    }
+
+    setSubmitting(
+      "additional_inquiry"
+    );
+    setNotice("");
+
+    try {
+      let evidenceMetadata = {
+        evidenceFileName: "",
+        evidenceUploaded: false,
+        evidenceSource: "",
+        evidenceAttachmentId: "",
+        evidenceDealId: "",
+        evidenceMimeType: ""
+      };
+
+      if (
+        inquiryType ===
+          "Other" &&
+        additionalEvidenceFile
+      ) {
+        const uploadResult =
+          await documentLibrary.upload({
+            file:
+              additionalEvidenceFile,
+            category:
+              "additional-inquiry-evidence",
+            destination:
+              "crm",
+            documentType:
+              "Additional Inquiry Evidence",
+            pipelineSection:
+              "Additional Inquiries",
+            requirementKey:
+              "additional-inquiry-evidence"
+          });
+
+        if (
+          !uploadResult ||
+          uploadResult.success !== true
+        ) {
+          throw new Error(
+            uploadResult?.error ||
+            uploadResult?.message ||
+            "The inquiry evidence could not be uploaded."
+          );
+        }
+
+        evidenceMetadata =
+          getUploadMetadata(
+            uploadResult,
+            additionalEvidenceFile
+          );
+      }
+
+      const response =
+        await fetchWithTimeout(
+          `${API_BASE}/api/requests`,
+          {
+            method: "POST",
+            cache: "no-store",
+            headers: {
+              ...getHeaders(),
+              "Content-Type":
+                "application/json",
+              "Cache-Control":
+                "no-cache",
+              Pragma:
+                "no-cache"
+            },
+            body:
+              JSON.stringify({
+                requestType:
+                  "additional_inquiry",
+                request_type:
+                  "additional_inquiry",
+                details: {
+                  inquiryType,
+                  explanation,
+                  ...evidenceMetadata
+                }
+              })
+          },
+          15000
+        );
+
+      const data =
+        await response
+          .json()
+          .catch(() => ({}));
+
+      if (
+        !response.ok ||
+        data.success !== true
+      ) {
+        throw new Error(
+          data.error ||
+          data.message ||
+          "The inquiry could not be submitted."
+        );
+      }
+
+      if (additionalEvidencePreview) {
+        URL.revokeObjectURL(
+          additionalEvidencePreview
+        );
+      }
+
+      setAdditionalInquiryType(
+        ""
+      );
+      setAdditionalInquiryExplanation(
+        ""
+      );
+      setAdditionalEvidenceFile(
+        null
+      );
+      setAdditionalEvidencePreview(
+        ""
+      );
+
+      setNotice(
+        data.message ||
+        "Your inquiry was submitted successfully for admin review."
+      );
+
+      await load({
+        background: true
+      });
+
+      window.dispatchEvent(
+        new CustomEvent(
+          "candidate-data-updated",
+          {
+            detail: {
+              event:
+                "additional-inquiry-submitted",
+              requestId:
+                data.requestId,
+              inquiryType
+            }
+          }
+        )
+      );
+    } catch (error) {
+      setNotice(
+        error?.name ===
+          "AbortError"
+          ? "The inquiry took too long to respond. Please try again."
+          : (
+              error.message ||
+              "The inquiry could not be submitted."
+            )
+      );
+    } finally {
+      setSubmitting("");
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-[360px] items-center justify-center">
@@ -716,10 +1057,10 @@ export default function MakeRequest() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-900">
-          Make a Request
+          Submit an Inquiry
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Submit requests to ICP.
+          Submit transfer requests, dependant updates and additional inquiries to ICP.
         </p>
       </div>
 
@@ -762,9 +1103,11 @@ export default function MakeRequest() {
           <Building2 className="h-5 w-5 text-purple-600" />
           <div>
             <h2 className="font-semibold">
-              Embassy Change
+              Embassy Transfer Request
             </h2>
-           
+            <p className="text-sm text-slate-500">
+              Request an embassy transfer and upload supporting evidence. Admin approval is required before CRM Deals → Embassy_Location is updated.
+            </p>
           </div>
         </div>
 
@@ -814,6 +1157,102 @@ export default function MakeRequest() {
           className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
         />
 
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <div>
+            <label className="block text-sm font-medium text-slate-700">
+              Supporting Evidence Type
+            </label>
+            <select
+              value={embassyEvidenceType}
+              onChange={event =>
+                setEmbassyEvidenceType(
+                  event.target.value
+                )
+              }
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+            >
+              <option value="">Select evidence type</option>
+              <option value="Residency Evidence">Residency Evidence</option>
+              <option value="Work Permit">Work Permit</option>
+              <option value="Passport">Passport</option>
+            </select>
+          </div>
+
+          <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-dashed px-3 py-3 text-sm md:self-end">
+            <Upload className="h-4 w-4 text-purple-600" />
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-slate-700">
+                Evidence image
+              </p>
+              <p className="truncate text-xs text-slate-500">
+                {embassyEvidenceFile?.name ||
+                  "Upload residency evidence, work permit or passport"}
+              </p>
+            </div>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+              className="hidden"
+              onChange={event => {
+                const file =
+                  event.target.files?.[0] ||
+                  null;
+
+                if (!file) return;
+
+                if (!file.type.startsWith("image/")) {
+                  setNotice(
+                    "Embassy transfer evidence must be uploaded as an image."
+                  );
+                  event.target.value = "";
+                  return;
+                }
+
+                if (
+                  file.size >
+                  15 * 1024 * 1024
+                ) {
+                  setNotice(
+                    "Embassy transfer evidence image must be under 15MB."
+                  );
+                  event.target.value = "";
+                  return;
+                }
+
+                if (embassyEvidencePreview) {
+                  URL.revokeObjectURL(
+                    embassyEvidencePreview
+                  );
+                }
+
+                setNotice("");
+                setEmbassyEvidenceFile(
+                  file
+                );
+                setEmbassyEvidencePreview(
+                  URL.createObjectURL(
+                    file
+                  )
+                );
+              }}
+            />
+          </label>
+
+          {embassyEvidencePreview && (
+            <div className="md:col-span-2 rounded-lg border bg-slate-50 p-3">
+              <div className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-700">
+                <ImageIcon className="h-4 w-4 text-purple-600" />
+                {embassyEvidenceType || "Supporting evidence"} selected
+              </div>
+              <img
+                src={embassyEvidencePreview}
+                alt="Embassy transfer evidence preview"
+                className="max-h-52 rounded-md border object-contain"
+              />
+            </div>
+          )}
+        </div>
+
         {pendingEmbassy && (
           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
             <p className="font-medium">
@@ -838,7 +1277,9 @@ export default function MakeRequest() {
             submitting ===
               "embassy_change" ||
             !requestedEmbassyLocation.trim() ||
-            !embassyReason.trim()
+            !embassyReason.trim() ||
+            !embassyEvidenceType ||
+            !embassyEvidenceFile
           }
           onClick={
             submitEmbassyChange
@@ -890,6 +1331,15 @@ export default function MakeRequest() {
                       "Dependant"}
                     {item.age
                       ? ` · Age ${item.age}`
+                      : ""}
+                    {item.arrival_plan ||
+                    item.arrivalPlan ||
+                    item.travelPlan
+                      ? ` · ${
+                          item.arrival_plan ||
+                          item.arrivalPlan ||
+                          item.travelPlan
+                        }`
                       : ""}
                     {item.passport
                       ? " · Passport uploaded"
@@ -943,6 +1393,23 @@ export default function MakeRequest() {
               }))
             }
           />
+
+          <select
+            className="rounded-lg border px-3 py-2 text-sm"
+            value={dependant.arrivalPlan}
+            onChange={event =>
+              setDependant(value => ({
+                ...value,
+                arrivalPlan:
+                  event.target.value
+              }))
+            }
+          >
+            <option value="">When will this dependant travel?</option>
+            <option value="Follow to Join">Follow to Join</option>
+            <option value="Coming With You">Coming With You</option>
+            <option value="Coming Later">Coming Later</option>
+          </select>
 
           <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-dashed px-3 py-3 text-sm md:col-span-2">
             <Upload className="h-4 w-4 text-purple-600" />
@@ -1037,6 +1504,7 @@ export default function MakeRequest() {
             !dependant.name.trim() ||
             !String(dependant.age).trim() ||
             !dependant.relationship.trim() ||
+            !dependant.arrivalPlan.trim() ||
             !dependant.passportFile
           }
           onClick={
@@ -1051,6 +1519,180 @@ export default function MakeRequest() {
             <Plus className="h-4 w-4" />
           )}
           Submit Dependant for Approval
+        </button>
+      </section>
+
+      <section className="rounded-xl border bg-white p-5">
+        <div className="flex items-center gap-3">
+          <MessageSquareText className="h-5 w-5 text-purple-600" />
+          <div>
+            <h2 className="font-semibold">
+              Additional Inquiries
+            </h2>
+            <p className="text-sm text-slate-500">
+              Ask ICP about a job, location, or another matter.
+            </p>
+          </div>
+        </div>
+
+        <label className="mt-4 block text-sm font-medium text-slate-700">
+          Inquiry Type
+        </label>
+        <select
+          value={additionalInquiryType}
+          onChange={event => {
+            const value =
+              event.target.value;
+
+            setAdditionalInquiryType(
+              value
+            );
+
+            if (value !== "Other") {
+              setAdditionalInquiryExplanation(
+                ""
+              );
+
+              if (additionalEvidencePreview) {
+                URL.revokeObjectURL(
+                  additionalEvidencePreview
+                );
+              }
+
+              setAdditionalEvidenceFile(
+                null
+              );
+              setAdditionalEvidencePreview(
+                ""
+              );
+            }
+          }}
+          className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+        >
+          <option value="">Select inquiry type</option>
+          <option value="Job">Job</option>
+          <option value="Location">Location</option>
+          <option value="Other">Other</option>
+        </select>
+
+        {additionalInquiryType ===
+          "Other" && (
+          <>
+            <label className="mt-4 block text-sm font-medium text-slate-700">
+              Explain What You Need
+            </label>
+            <textarea
+              value={additionalInquiryExplanation}
+              onChange={event =>
+                setAdditionalInquiryExplanation(
+                  event.target.value
+                )
+              }
+              rows={5}
+              placeholder="Describe your inquiry so ICP can direct it to the right person."
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+            />
+
+            <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-lg border border-dashed px-3 py-3 text-sm">
+              <Upload className="h-4 w-4 text-purple-600" />
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-slate-700">
+                  Attach Evidence
+                </p>
+                <p className="truncate text-xs text-slate-500">
+                  {additionalEvidenceFile?.name ||
+                    "Optional supporting image"}
+                </p>
+              </div>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                className="hidden"
+                onChange={event => {
+                  const file =
+                    event.target.files?.[0] ||
+                    null;
+
+                  if (!file) return;
+
+                  if (!file.type.startsWith("image/")) {
+                    setNotice(
+                      "Inquiry evidence must be uploaded as an image."
+                    );
+                    event.target.value = "";
+                    return;
+                  }
+
+                  if (
+                    file.size >
+                    15 * 1024 * 1024
+                  ) {
+                    setNotice(
+                      "Inquiry evidence image must be under 15MB."
+                    );
+                    event.target.value = "";
+                    return;
+                  }
+
+                  if (additionalEvidencePreview) {
+                    URL.revokeObjectURL(
+                      additionalEvidencePreview
+                    );
+                  }
+
+                  setNotice("");
+                  setAdditionalEvidenceFile(
+                    file
+                  );
+                  setAdditionalEvidencePreview(
+                    URL.createObjectURL(
+                      file
+                    )
+                  );
+                }}
+              />
+            </label>
+
+            {additionalEvidencePreview && (
+              <div className="mt-3 rounded-lg border bg-slate-50 p-3">
+                <div className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-700">
+                  <ImageIcon className="h-4 w-4 text-purple-600" />
+                  Inquiry evidence selected
+                </div>
+                <img
+                  src={additionalEvidencePreview}
+                  alt="Inquiry evidence preview"
+                  className="max-h-52 rounded-md border object-contain"
+                />
+              </div>
+            )}
+          </>
+        )}
+
+        <button
+          type="button"
+          disabled={
+            submitting ===
+              "additional_inquiry" ||
+            !additionalInquiryType ||
+            (
+              additionalInquiryType ===
+                "Other" &&
+              !additionalInquiryExplanation.trim()
+            )
+          }
+          onClick={
+            submitAdditionalInquiry
+          }
+          className="mt-4 inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          {submitting ===
+          "additional_inquiry" ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Save className="h-4 w-4" />
+          )}
+          Submit Inquiry
         </button>
       </section>
     </div>

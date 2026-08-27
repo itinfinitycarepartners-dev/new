@@ -1,3 +1,4 @@
+
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/lib/AuthContext";
@@ -597,8 +598,15 @@ const STAGES_CONFIG = [
   { id: 26, stage_name: "Visa bill paid", stage_category: "Immigration", stage_order: 26 },
   { id: 27, stage_name: "DS-260 / Civil Document Submission", stage_category: "Immigration", stage_order: 27 },
   { id: 28, stage_name: "Foundations: Cultural Readiness", stage_category: "Immigration", stage_order: 28 },
-  { id: 28.5, stage_name: "Immigration to Deployment Transition Call", stage_category: "Immigration", stage_order: 28.5 },
-  { id: 29, stage_name: "Documentarily Qualified", stage_category: "Immigration", stage_order: 29 },
+  { id: 28.5, stage_name: "Documentarily Qualified", stage_category: "Immigration", stage_order: 28.5 },
+  {
+    id: 29,
+    stage_name: "Immigration to Deployment Transition Call",
+    stage_category: "Immigration",
+    stage_order: 29,
+    candidate_notice:
+      "Before this transition call, ICP must confirm active bedside employment, current licensure status, academic course status, and other deployment-readiness requirements."
+  },
 
   // Stage 3 — Deployment. Deadlines are calculated from All Clear / scheduled arrival.
   { id: 29.5, stage_name: "Introduction to Deployment Call", stage_category: "Deployment", stage_order: 29.5 },
@@ -610,7 +618,7 @@ const STAGES_CONFIG = [
   { id: 35, stage_name: "Pre-Arrival Banking Call", stage_category: "Deployment", stage_order: 35 },
   { id: 36, stage_name: "Employer Pre-Arrival Call", stage_category: "Deployment", stage_order: 36 },
   { id: 37, stage_name: "deployMate Ready", stage_category: "Deployment", stage_order: 37 },
-  { id: 38, stage_name: "Arrival Itinerary", stage_category: "Deployment", stage_order: 38 },
+  { id: 38, stage_name: "Welcome Packet", stage_category: "Deployment", stage_order: 38 },
   { id: 39, stage_name: "Receipt Submission", display_name: "Expense Report", stage_category: "Deployment", stage_order: 39 },
   { id: 40, stage_name: "Arrived", stage_category: "Deployment", stage_order: 40 },
 
@@ -734,9 +742,9 @@ const getFixedDayOneStageTarget = (
 
 const DEPLOYMENT_TIMING_REQUIREMENTS = Object.freeze({
   "Introduction to Deployment Call": {
-    anchor: "all-clear",
+    anchor: "immigration-deployment-transition",
     offsetDays: 60,
-    timingRule: "Attend within 60 days of becoming All Clear."
+    timingRule: "Attend 60 days after the Immigration to Deployment Transition Call is completed."
   },
   "Speciality Classes": {
     anchor: "arrival",
@@ -778,10 +786,10 @@ const DEPLOYMENT_TIMING_REQUIREMENTS = Object.freeze({
     offsetDays: -30,
     timingRule: "Complete deployMate readiness 30 days before the scheduled arrival date."
   },
-  "Arrival Itinerary": {
+  "Welcome Packet": {
     anchor: "arrival",
-    offsetDays: -14,
-    timingRule: "Review the Arrival Itinerary 10–14 days before the scheduled arrival date; countdown target is 14 days before arrival."
+    offsetDays: -30,
+    timingRule: "Review and acknowledge the Welcome Packet 30 days before the scheduled arrival date."
   },
   "Receipt Submission": {
     anchor: "arrival",
@@ -910,6 +918,45 @@ const getDeploymentStageTiming = ({
         ?.completed_at
     );
 
+  const transitionStage =
+    (Array.isArray(sourceStages)
+      ? sourceStages
+      : []
+    ).find(
+      stage =>
+        stage?.stage_name ===
+        "Immigration to Deployment Transition Call"
+    );
+
+  const transitionStageStatus =
+    liveFields
+      ?.__stageStatus
+      ?.[
+        "Immigration to Deployment Transition Call"
+      ] ||
+    {};
+
+  const transitionAnchor =
+    parsePipelineTimingDate(
+      transitionStageStatus
+        ?.completed_date ||
+      transitionStageStatus
+        ?.completed_at ||
+      transitionStage
+        ?.completed_date ||
+      transitionStage
+        ?.completed_at ||
+      getLivePipelineFieldValue(
+        liveFields,
+        [
+          "Immigration_to_Deployment_Transition_Call_Date",
+          "Immigration_to_Deployment_Transition_call_Date",
+          "Deployment_Transition_Call_Date",
+          "deploymentTransitionCallDate"
+        ]
+      )
+    );
+
   const arrivalAnchor =
     parsePipelineTimingDate(
       finalArrivalDate ||
@@ -934,7 +981,10 @@ const getDeploymentStageTiming = ({
     requirement.anchor ===
       "all-clear"
       ? allClearAnchor
-      : arrivalAnchor;
+      : requirement.anchor ===
+          "immigration-deployment-transition"
+        ? transitionAnchor
+        : arrivalAnchor;
 
   if (!timingAnchor) {
     return {
@@ -974,7 +1024,7 @@ const REQUIRED_STAGE_NOTICES = {
   "Housing / Transportation Call": "Attend the housing and transportation call and confirm your arrangements.",
   "Pre-Arrival Banking Call": "Attend the pre-arrival banking call.",
   "deployMate Ready": "Complete the deployMate readiness requirements.",
-  "Arrival Itinerary": "Review your arrival itinerary and relocation information.",
+  "Welcome Packet": "Review and acknowledge your Welcome Packet 30 days before your scheduled arrival.",
   "Receipt Submission": "Upload reimbursement receipts, review the Expense Report, and acknowledge it to complete this stage.",
   "Arrived": "Arrival confirmed. Continue to Aftercare.",
 };
@@ -2373,7 +2423,7 @@ const PIPELINE_STAGE_COMMENTS = {
   "Visa bill issued": "Infinity Care Partners will pay for your fee bill when your filing date is current and required preparation is complete.",
   "DS-260 / Civil Document Submission": "Complete your DS-260 and submit any remaining civil documents through the required process.",
   "Foundations: Cultural Readiness": "These foundations courses provide critical cultural insight that will prepare you in your transition to the United States.",
-  "Immigration to Deployment Transition Call": "A transition call between the Immigration and Deployment teams to prepare you for the next phase of your candidate journey.",
+  "Immigration to Deployment Transition Call": "Scheduled 60 days after your All Clear date. Before the call, ICP confirms active bedside employment, licensure status, academic course status, and other deployment-readiness requirements.",
   "Documentarily Qualified": "The NVC has determined and marked your case complete and ready for embassy interview scheduling.",
   "Introduction to Deployment Call": "Your Stage 3 introduction call starts the Deployment phase.",
   "Final Self Assessment": "The final skills assessment is a personal assessment of your nursing skills.",
@@ -2383,7 +2433,7 @@ const PIPELINE_STAGE_COMMENTS = {
   "Pre-Arrival Banking Call": "Our partners at Advancial offer pre-arrival banking services. On this call you will review Advancial’s pre-arrival banking offer and all of your U.S. banking options.",
   "Employer Pre-Arrival Call": "You likely have not spoken with your employer since your original interview date. On this call, you will reconnect with your employer with ICP facilitating the discussion and ask questions specific to your transition to the facility.",
   "deployMate Ready": "Our all-in-one mobile platform is designed to support you throughout your journey to living and working in the United States. From travel coordination, flight details, housing information, personalized itineraries, and airport pickup services, DeployMate provides a seamless experience before, during, and after arrival.",
-  "Arrival Itinerary": "A comprehensive relocation guide that provides nurses with the essential information needed for a smooth transition to the United States. It includes flight details, arrival and onboarding itineraries, housing information, banking resources and employer information.",
+  "Welcome Packet": "A comprehensive pre-arrival packet with flight details, arrival and onboarding information, housing information, banking resources, employer information and other relocation guidance.",
   "Arrived": "You have officially arrived in the United States!",
   "Welcome Call": "The deployment team will connect with you via your new U.S. phone number within 24 hours of your U.S. arrival.",
   "Relocation Follow up": "This is your relocation experience tell all! Let us know how we did and what we can do to improve the experience of those arriving after you.",
@@ -2470,7 +2520,7 @@ const CLICKABLE_STAGES = {
   "Pre-Arrival Banking Call": { clickable: false, type: "field" },
   "Mandatory Petitioner / Employer Call": { clickable: true, type: "view", viewType: "deploymentFlowInfo" },
   "deployMate Ready": { clickable: false, type: "field" },
-  "Arrival Itinerary": { clickable: true, type: "view", viewType: "welcomePacket" },
+  "Welcome Packet": { clickable: true, type: "view", viewType: "welcomePacket" },
   "Receipt Submission": { clickable: true, type: "view", viewType: "reimbursementExpenses" },
   "Arrived": { clickable: false, type: "field" },
 
@@ -2597,7 +2647,7 @@ const riskConfig = {
   },
   "Late": {
     icon: Timer,
-    color: "text-orange-500",
+    color: "text-red-600",
     label: "Late"
   }
 };
@@ -4554,16 +4604,39 @@ const SurveyView = ({
     crmDealId:
       "",
     dealName:
-      ""
+      "",
+    crmAssociatedUrl:
+      "",
+    associationReady:
+      false,
+    crmRegistered:
+      false,
+    crmMessageId:
+      "",
+    reusedExistingInvite:
+      false
   });
+
+  const [
+    surveyContextLoading,
+    setSurveyContextLoading
+  ] = useState(true);
+
+  const [
+    surveyContextError,
+    setSurveyContextError
+  ] = useState("");
 
   const [
     iframeKey,
     setIframeKey
   ] = useState(0);
 
-  const refreshIframe = () => {
+  const refreshIframe = async () => {
     setIsLoading(true);
+
+    await loadSurveyContext();
+
     setIframeKey(
       previous =>
         previous + 1
@@ -4612,6 +4685,9 @@ const SurveyView = ({
         !stageName ||
         !user?.email
       ) {
+        setSurveyContextLoading(
+          false
+        );
         return;
       }
 
@@ -4621,28 +4697,48 @@ const SurveyView = ({
         );
 
       if (!token) {
+        setSurveyContextLoading(
+          false
+        );
+        setSurveyContextError(
+          "Your session has expired. Please sign in again."
+        );
         return;
       }
+
+      setSurveyContextLoading(
+        true
+      );
+      setSurveyContextError(
+        ""
+      );
 
       try {
         const response =
           await fetchWithTimeout(
-            `${API_BASE}/api/pipeline/aftercare-survey-context?stage_name=${encodeURIComponent(stageName)}&_=${Date.now()}`,
+            `${API_BASE}/api/pipeline/aftercare-survey/open-native`,
             {
               method:
-                "GET",
+                "POST",
               cache:
                 "no-store",
               headers: {
                 Authorization:
                   `Bearer ${token}`,
+                "Content-Type":
+                  "application/json",
                 "Cache-Control":
                   "no-cache",
                 Pragma:
                   "no-cache"
-              }
+              },
+              body:
+                JSON.stringify({
+                  stage_name:
+                    stageName
+                })
             },
-            8000
+            45000
           );
 
         const data =
@@ -4653,97 +4749,164 @@ const SurveyView = ({
             );
 
         if (
-          response.ok &&
-          data.success ===
-            true
+          !response.ok ||
+          data.success !==
+            true ||
+          data.crm_registered !==
+            true ||
+          !data.crm_deal_id ||
+          !data.crm_generated_survey_url
         ) {
-          setSurveyContext({
-            crmDealId:
-              data.crm_deal_id ||
-              "",
-            dealName:
-              data.deal_name ||
-              ""
-          });
-
-          setCrmSurveyCount(
-            Number(
-              data.crm_survey_count ||
-              0
-            )
+          throw new Error(
+            data.error ||
+            "Zoho CRM did not confirm the native survey registration."
           );
+        }
+
+        let verifiedUrl =
+          "";
+
+        try {
+          const parsed =
+            new URL(
+              data.crm_generated_survey_url
+            );
+
+          const fromService =
+            String(
+              parsed.searchParams.get(
+                "fromservice"
+              ) ||
+              ""
+            ).toUpperCase();
+
+          const crmAssociation =
+            String(
+              parsed.searchParams.get(
+                "zs_potentials"
+              ) ||
+              ""
+            ).trim();
 
           if (
-            Number(
-              data.crm_survey_count ||
-              0
-            ) >
-            0
+            parsed.hostname ===
+              "survey.zohopublic.com" &&
+            fromService ===
+              "ZCRM" &&
+            crmAssociation &&
+            !crmAssociation.includes(
+              "${"
+            )
           ) {
-            setCrmSurveyVisible(
-              true
-            );
+            verifiedUrl =
+              parsed.toString();
           }
+        } catch {
+          verifiedUrl =
+            "";
         }
+
+        if (!verifiedUrl) {
+          throw new Error(
+            "Zoho CRM returned an invalid or unmerged survey link."
+          );
+        }
+
+        setSurveyContext({
+          crmDealId:
+            String(
+              data.crm_deal_id
+            ),
+          dealName:
+            data.deal_name ||
+            "",
+          crmAssociatedUrl:
+            verifiedUrl,
+          associationReady:
+            true,
+          crmRegistered:
+            true,
+          crmMessageId:
+            data.crm_message_id ||
+            "",
+          reusedExistingInvite:
+            data.reused_existing_invite ===
+            true
+        });
+
+        setCrmSurveyVisible(
+          true
+        );
+
+        setCrmSurveyCount(
+          Number(
+            data.crm_survey_count_after ||
+            0
+          )
+        );
       } catch (error) {
+        setSurveyContext({
+          crmDealId:
+            "",
+          dealName:
+            "",
+          crmAssociatedUrl:
+            "",
+          associationReady:
+            false,
+          crmRegistered:
+            false,
+          crmMessageId:
+            "",
+          reusedExistingInvite:
+            false
+        });
+
         if (
-          error?.name !==
+          error?.name ===
           "AbortError"
         ) {
+          setSurveyContextError(
+            "Zoho CRM registration timed out. Retry this screen; the backend will reuse any survey email it already created."
+          );
+        } else {
+          setSurveyContextError(
+            error.message ||
+            "Unable to register this survey with Zoho CRM."
+          );
+
           console.warn(
-            "[Aftercare Survey] CRM context unavailable:",
+            "[Aftercare Survey] Native CRM registration unavailable:",
             error
           );
         }
+      } finally {
+        setSurveyContextLoading(
+          false
+        );
       }
     };
 
-  // The portal passes CRM context into Zoho Survey as URL/custom variables.
-  // Each Zoho Survey must be configured with the Zoho CRM integration against
-  // Deals (Add/Update) so the submitted response appears in the native
-  // "Zoho Survey" related list instead of CRM Attachments.
-  const resolvedSurveyUrl = (() => {
-    try {
-      const url =
-        new URL(
-          surveyUrl
-        );
+  // IMPORTANT: the portal no longer manufactures a public survey URL.
+  // It only opens the rendered link returned from a Zoho CRM email template
+  // after the backend has verified a new native Zoho Survey related-list row.
+  const resolvedSurveyUrl =
+    surveyContext.crmRegistered ===
+      true &&
+    surveyContext.associationReady ===
+      true
+      ? surveyContext.crmAssociatedUrl
+      : "";
 
-      if (user?.email) {
-        url.searchParams.set(
-          "candidate_email",
-          user.email
-        );
-
-        url.searchParams.set(
-          "email",
-          user.email
-        );
-      }
-
-      if (
-        surveyContext.crmDealId
-      ) {
-        url.searchParams.set(
-          "crm_deal_id",
-          surveyContext.crmDealId
-        );
-      }
-
-      if (
-        surveyContext.dealName
-      ) {
-        url.searchParams.set(
-          "deal_name",
-          surveyContext.dealName
-        );
-      }
-
-      return url.toString();
-    } catch {
-      return surveyUrl;
-    }
-  })();
+  const surveyAssociationReady =
+    Boolean(
+      surveyContext.crmRegistered ===
+        true &&
+      surveyContext.associationReady ===
+        true &&
+      surveyContext.crmDealId &&
+      resolvedSurveyUrl
+    );
 
   const checkCrmSurveyStatus =
     async ({
@@ -4838,6 +5001,7 @@ const SurveyView = ({
         ) {
           setSurveyContext(
             previous => ({
+              ...previous,
               crmDealId:
                 data.crm_deal_id ||
                 previous.crmDealId,
@@ -4873,6 +5037,16 @@ const SurveyView = ({
         !stageName ||
         !user?.email
       ) {
+        return;
+      }
+
+      if (
+        !surveyAssociationReady
+      ) {
+        toast.error(
+          surveyContextError ||
+          "This survey is not yet linked to your CRM record. Retry the CRM link before submitting."
+        );
         return;
       }
 
@@ -5145,6 +5319,9 @@ const SurveyView = ({
             onClick={
               refreshIframe
             }
+            disabled={
+              surveyContextLoading
+            }
             className="text-gray-500 hover:text-gray-700"
           >
             <RefreshCw className="h-4 w-4" />
@@ -5195,40 +5372,89 @@ const SurveyView = ({
       </div>
 
       <div className="flex-1 relative bg-gray-50">
-        {isLoading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50">
+        {surveyContextLoading ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 px-6 text-center">
             <Loader2 className="h-10 w-10 animate-spin text-rose-500" />
-            <span className="mt-3 text-sm text-muted-foreground">
-              Loading survey...
+            <span className="mt-3 text-sm font-medium text-gray-700">
+              Registering survey with Zoho CRM...
+            </span>
+            <span className="mt-1 max-w-md text-xs text-muted-foreground">
+              The portal is asking Zoho CRM to send the survey template, register it in the native Zoho Survey related list, and return the CRM-generated link.
             </span>
           </div>
-        )}
+        ) : !surveyAssociationReady ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 px-6 text-center">
+            <AlertCircle className="h-10 w-10 text-red-500" />
+            <p className="mt-3 text-sm font-semibold text-red-700">
+              Survey was not registered in CRM
+            </p>
+            <p className="mt-2 max-w-lg text-xs leading-5 text-muted-foreground">
+              {surveyContextError ||
+                "Zoho CRM did not confirm a native Zoho Survey record. The survey was intentionally not opened."}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-4"
+              onClick={
+                loadSurveyContext
+              }
+            >
+              Retry CRM Registration
+            </Button>
+          </div>
+        ) : (
+          <>
+            {isLoading && (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-gray-50">
+                <Loader2 className="h-10 w-10 animate-spin text-rose-500" />
+                <span className="mt-3 text-sm text-muted-foreground">
+                  Loading CRM-registered survey...
+                </span>
+              </div>
+            )}
 
-        <iframe
-          key={
-            iframeKey
-          }
-          src={
-            resolvedSurveyUrl
-          }
-          className="w-full h-full border-0"
-          onLoad={
-            handleIframeLoad
-          }
-          title={
-            title
-          }
-          allow="fullscreen; geolocation; microphone; camera"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-top-navigation"
-          loading="lazy"
-        />
+            <iframe
+              key={
+                iframeKey
+              }
+              src={
+                resolvedSurveyUrl
+              }
+              className="w-full h-full border-0"
+              onLoad={
+                handleIframeLoad
+              }
+              title={
+                title
+              }
+              allow="fullscreen; geolocation; microphone; camera"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-top-navigation"
+              loading="lazy"
+            />
+          </>
+        )}
       </div>
 
       <div className="flex items-center justify-between gap-4 px-6 py-3 border-t border-gray-200 bg-white flex-shrink-0">
         <div>
           <p className="text-xs text-muted-foreground">
-            Survey responses are not saved to CRM Attachments. They are linked through the native Zoho Survey integration and should appear under the CRM record&apos;s Zoho Survey section.
+            Zoho CRM registers this survey first using the configured CRM email template with <span className="font-medium">Insert Survey Link</span>. The portal then opens the exact CRM-generated survey link here.
           </p>
+
+          {surveyAssociationReady && (
+            <p className="mt-1 text-xs font-medium text-blue-700">
+              CRM survey registered and ready
+              {surveyContext.dealName
+                ? ` for ${surveyContext.dealName}`
+                : ""}
+              {surveyContext.reusedExistingInvite
+                ? " • existing CRM invite reused"
+                : ""}
+              .
+            </p>
+          )}
 
           {crmSurveyVisible && (
             <p className="mt-1 text-xs font-medium text-emerald-700">
@@ -5242,7 +5468,7 @@ const SurveyView = ({
           {submitted &&
             !crmSurveyVisible && (
               <p className="mt-1 text-xs font-medium text-emerald-700">
-                Survey submitted successfully. CRM synchronization continues automatically in the background.
+                Survey submitted successfully. Zoho CRM will expose View Response when the native Survey integration finishes recording the response.
               </p>
             )}
         </div>
@@ -5254,7 +5480,8 @@ const SurveyView = ({
             size="sm"
             disabled={
               submitted ||
-              isSavingSubmission
+              isSavingSubmission ||
+              !surveyAssociationReady
             }
             onClick={
               persistSurveySubmission
@@ -6754,7 +6981,7 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
       }
 
       setStages?.(prev => prev.map(stage =>
-        stage.stage_name === "Arrival Itinerary"
+        stage.stage_name === "Welcome Packet"
           ? {
               ...stage,
               status: "Completed",
@@ -6780,8 +7007,8 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
           ...current,
           __stageStatus: {
             ...(current.__stageStatus || {}),
-            "Arrival Itinerary": {
-              ...(current.__stageStatus?.["Arrival Itinerary"] || {}),
+            "Welcome Packet": {
+              ...(current.__stageStatus?.["Welcome Packet"] || {}),
               evaluated: true,
               completed: true,
               is_completed: true,
@@ -6796,7 +7023,7 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
           },
           __completionMap: {
             ...(current.__completionMap || {}),
-            "Arrival Itinerary": true
+            "Welcome Packet": true
           }
         };
       });
@@ -6804,7 +7031,7 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
       window.dispatchEvent(new CustomEvent("pipeline-updated", {
         detail: {
           email: user?.email,
-          stage_name: "Arrival Itinerary",
+          stage_name: "Welcome Packet",
           status: "Completed",
           completed: true,
           source: "candidate_acknowledgement"
@@ -10821,13 +11048,9 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
               on my behalf, prior to my arrival in the United States, for deployment expenses including, but not limited to, License certification, dependent(s)’ visa fees, housing, and relocation costs and any other advanced expenses as noted.
             </p>
 
-            <p>
-              I agree to remit payment in full for the total amount advanced within <strong>120 days</strong> of my arrival in the United States.
-            </p>
+            
 
-            <p className="text-xs text-purple-700">
-              The amount above is read directly from CRM field <strong>Total Due to ICP/RN</strong> (API: <strong>Total_Due_to_ICP_RN</strong>).
-            </p>
+            
           </div>
 
           <label className="flex items-start gap-3 text-sm text-purple-950">
@@ -10996,115 +11219,111 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
           Your payment information is encrypted during submission and is not displayed after it has been sent.
         </p>
         
-        {isSubmitted ? (
-          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 text-center">
-            <CheckCircle2 className="h-8 w-8 text-emerald-600 mx-auto mb-2" />
-            <p className="text-sm font-medium text-emerald-700">Payment Details Submitted Successfully!</p>
-            <p className="text-xs text-emerald-600 mt-1">
-              Your payment information has been submitted successfully.
-            </p>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="mt-3"
-              onClick={() => setIsSubmitted(false)}
-            >
-              Update Bank Details
-            </Button>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmitBankDetails} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium block mb-1">Account Name <span className="text-red-500">*</span></label>
-                <input
-                  type="text"
-                  name="accountName"
-                  autoComplete="name"
-                  spellCheck={false}
-                  value={bankDetails.accountName}
-                  onChange={handleBankChange}
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Full name on account"
-                  required
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium block mb-1">Bank Name <span className="text-red-500">*</span></label>
-                <input
-                  type="text"
-                  name="bankName"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={bankDetails.bankName}
-                  onChange={handleBankChange}
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Bank name"
-                  required
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium block mb-1">Account Number <span className="text-red-500">*</span></label>
-                <input
-                  type="text"
-                  name="accountNumber"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={bankDetails.accountNumber}
-                  onChange={handleBankChange}
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Account number"
-                  required
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium block mb-1">Routing Number <span className="text-red-500">*</span></label>
-                <input
-                  type="text"
-                  name="routingNumber"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={bankDetails.routingNumber}
-                  onChange={handleBankChange}
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Routing number"
-                  required
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium block mb-1">Account Type</label>
-                <select
-                  name="accountType"
-                  value={bankDetails.accountType}
-                  onChange={handleBankChange}
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="Checking">Checking</option>
-                  <option value="Savings">Savings</option>
-                </select>
-              </div>
-            </div>
-            
-            <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-              <p className="text-xs text-yellow-700">
-                Your payment information is encrypted during submission.
+        {isSubmitted && (
+          <div className="mb-4 flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+            <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+            <div>
+              <p className="text-sm font-medium text-emerald-700">
+                Payment details were submitted previously.
+              </p>
+              <p className="mt-1 text-xs text-emerald-600">
+                The fields remain open so you can enter or update your information and submit again if anything changes.
               </p>
             </div>
-
-            <div className="flex gap-3 justify-end pt-2">
-              <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-              <Button type="submit" disabled={isSubmitting} className="min-w-[140px] gap-2 bg-blue-600 hover:bg-blue-700">
-                {isSubmitting ? (
-                  <><Loader2 className="h-4 w-4 animate-spin" /> Submitting...</>
-                ) : (
-                  <><CheckCircle2 className="h-4 w-4" /> Submit</>
-                )}
-              </Button>
-            </div>
-          </form>
+          </div>
         )}
+
+        <form onSubmit={handleSubmitBankDetails} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm font-medium block mb-1">Account Name <span className="text-red-500">*</span></label>
+              <input
+                type="text"
+                name="accountName"
+                autoComplete="name"
+                spellCheck={false}
+                value={bankDetails.accountName}
+                onChange={handleBankChange}
+                className="w-full px-3 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Full name on account"
+                required
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium block mb-1">Bank Name <span className="text-red-500">*</span></label>
+              <input
+                type="text"
+                name="bankName"
+                autoComplete="off"
+                spellCheck={false}
+                value={bankDetails.bankName}
+                onChange={handleBankChange}
+                className="w-full px-3 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Bank name"
+                required
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium block mb-1">Account Number <span className="text-red-500">*</span></label>
+              <input
+                type="text"
+                name="accountNumber"
+                inputMode="numeric"
+                autoComplete="off"
+                spellCheck={false}
+                value={bankDetails.accountNumber}
+                onChange={handleBankChange}
+                className="w-full px-3 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Account number"
+                required
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium block mb-1">Routing Number <span className="text-red-500">*</span></label>
+              <input
+                type="text"
+                name="routingNumber"
+                inputMode="numeric"
+                autoComplete="off"
+                spellCheck={false}
+                value={bankDetails.routingNumber}
+                onChange={handleBankChange}
+                className="w-full px-3 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Routing number"
+                required
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium block mb-1">Account Type</label>
+              <select
+                name="accountType"
+                value={bankDetails.accountType}
+                onChange={handleBankChange}
+                className="w-full px-3 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="Checking">Checking</option>
+                <option value="Savings">Savings</option>
+              </select>
+            </div>
+          </div>
+          
+          <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <p className="text-xs text-yellow-700">
+              Your payment information is encrypted during submission.
+            </p>
+          </div>
+
+          <div className="flex gap-3 justify-end pt-2">
+            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button type="submit" disabled={isSubmitting} className="min-w-[140px] gap-2 bg-blue-600 hover:bg-blue-700">
+              {isSubmitting ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Submitting...</>
+              ) : (
+                <><CheckCircle2 className="h-4 w-4" /> {isSubmitted ? "Update Details" : "Submit"}</>
+              )}
+            </Button>
+          </div>
+        </form>
       </div>
 
       <div className="flex gap-2 justify-end pt-2 border-t border-border">
@@ -14369,10 +14588,42 @@ export default function Pipeline() {
           submittedToImmigrationDate
         );
 
-      const filedAnchor =
+      const immigrationApprovedStage =
+        savedByName.get(
+          "Immigration approved"
+        );
+
+      const approvalAnchor =
         parsePipelineDate(
-          immigrationFiledDate ||
-          directFieldStatus.Filed_Date
+          directFieldStatus
+            .Approval_Date ||
+          directFieldStatus
+            .Approval_datetime ||
+          immigrationApprovedStage
+            ?.completed_date ||
+          immigrationApprovedStage
+            ?.completed_at
+        );
+
+      const visaBillIssuedStage =
+        savedByName.get(
+          "Visa bill issued"
+        );
+
+      const visaBillReceivedAnchor =
+        parsePipelineDate(
+          directFieldStatus
+            .Visa_Fee_Bill_Received_Date ||
+          directFieldStatus
+            .Visa_Fee_Bill_Received ||
+          directFieldStatus
+            .Fee_Bill_Received_Date ||
+          directFieldStatus
+            .Visa_Fee_Bill_Date ||
+          visaBillIssuedStage
+            ?.completed_date ||
+          visaBillIssuedStage
+            ?.completed_at
         );
 
       const visaPaidStage =
@@ -14386,16 +14637,52 @@ export default function Pipeline() {
             .Visa_Fee_Bill_Paid_Date ||
           directFieldStatus
             .Visa_Fee_Paid_Date ||
+          directFieldStatus
+            .Fee_Bill_Paid_Date ||
           visaPaidStage
             ?.completed_date ||
           visaPaidStage
             ?.completed_at
         );
 
-      const ds260SubmittedAnchor =
+      const ds260Stage =
+        savedByName.get(
+          "DS-260 / Civil Document Submission"
+        );
+
+      const civilDocsSubmittedAnchor =
         parsePipelineDate(
           directFieldStatus
-            .DS260_Submission_Projected_Date
+            .DS260_Submission_Date ||
+          directFieldStatus
+            .DS_260_Submission_Date ||
+          directFieldStatus
+            .Civil_Documents_Submitted_Date ||
+          directFieldStatus
+            .DS260_Submission_Projected_Date ||
+          ds260Stage
+            ?.completed_date ||
+          ds260Stage
+            ?.completed_at
+        );
+
+      const documentarilyQualifiedStage =
+        savedByName.get(
+          "Documentarily Qualified"
+        );
+
+      const allClearAnchor =
+        parsePipelineDate(
+          directFieldStatus
+            .All_Clear_Date ||
+          directFieldStatus
+            .All_Clear_Date_Time ||
+          directFieldStatus
+            .allClearDate ||
+          documentarilyQualifiedStage
+            ?.completed_date ||
+          documentarilyQualifiedStage
+            ?.completed_at
         );
 
       allStages =
@@ -14407,9 +14694,11 @@ export default function Pipeline() {
             return stage;
           }
 
+          // 1. Immigration forms submitted:
+          //    submitted date + 7 days.
           if (
             stage.stage_name ===
-              "Foundations: Pillars" &&
+              "Immigration forms submitted" &&
             submittedImmigrationAnchor
           ) {
             return {
@@ -14420,73 +14709,147 @@ export default function Pipeline() {
                   7
                 ).toISOString(),
               timing_rule:
-                "Within 7 days of submitted for immigration date",
+                "Submitted for immigration date + 7 days",
               timing_anchor:
                 submittedImmigrationAnchor
                   .toISOString()
             };
           }
 
+          // 2. Foundation courses:
+          //    submitted date + 90 days.
+          if (
+            stage.stage_name ===
+              "Foundations: Pillars" &&
+            submittedImmigrationAnchor
+          ) {
+            return {
+              ...stage,
+              target_date:
+                addDays(
+                  submittedImmigrationAnchor,
+                  90
+                ).toISOString(),
+              timing_rule:
+                "Submitted for immigration date + 90 days",
+              timing_anchor:
+                submittedImmigrationAnchor
+                  .toISOString()
+            };
+          }
+
+          // Keep Cultural Readiness aligned to the broader Foundation-course
+          // timeline rather than the previous filed-date 3–18 month window.
           if (
             stage.stage_name ===
               "Foundations: Cultural Readiness" &&
-            filedAnchor
+            submittedImmigrationAnchor
           ) {
             return {
               ...stage,
               target_date:
-                addMonths(
-                  filedAnchor,
-                  3
-                ).toISOString(),
-              timing_window_start:
-                addMonths(
-                  filedAnchor,
-                  3
-                ).toISOString(),
-              timing_window_end:
-                addMonths(
-                  filedAnchor,
-                  18
+                addDays(
+                  submittedImmigrationAnchor,
+                  90
                 ).toISOString(),
               timing_rule:
-                "Begins 90 days after filed date and continues through month 18",
+                "Submitted for immigration date + 90 days",
               timing_anchor:
-                filedAnchor
+                submittedImmigrationAnchor
                   .toISOString()
             };
           }
 
+          // 3. Endorsement courses:
+          //    submitted date + 20 months.
           if (
             stage.stage_name ===
               "Foundations: Endorsement Discovery" &&
-            filedAnchor
+            submittedImmigrationAnchor
           ) {
             return {
               ...stage,
               target_date:
                 addMonths(
-                  filedAnchor,
+                  submittedImmigrationAnchor,
                   20
-                ).toISOString(),
-              timing_window_start:
-                addMonths(
-                  filedAnchor,
-                  20
-                ).toISOString(),
-              timing_window_end:
-                addMonths(
-                  filedAnchor,
-                  24
                 ).toISOString(),
               timing_rule:
-                "Endorsement discovery months 20 through 24 after filed date",
+                "Submitted for immigration date + 20 months",
               timing_anchor:
-                filedAnchor
+                submittedImmigrationAnchor
                   .toISOString()
             };
           }
 
+          // 4. Case approved:
+          //    submitted date + 24 months.
+          if (
+            stage.stage_name ===
+              "Immigration approved" &&
+            submittedImmigrationAnchor
+          ) {
+            return {
+              ...stage,
+              target_date:
+                addMonths(
+                  submittedImmigrationAnchor,
+                  24
+                ).toISOString(),
+              timing_rule:
+                "Submitted for immigration date + 24 months",
+              timing_anchor:
+                submittedImmigrationAnchor
+                  .toISOString()
+            };
+          }
+
+          // 5. Visa fee bill:
+          //    approved date + 90 days.
+          if (
+            stage.stage_name ===
+              "Visa bill issued" &&
+            approvalAnchor
+          ) {
+            return {
+              ...stage,
+              target_date:
+                addDays(
+                  approvalAnchor,
+                  90
+                ).toISOString(),
+              timing_rule:
+                "Case approval date + 90 days",
+              timing_anchor:
+                approvalAnchor
+                  .toISOString()
+            };
+          }
+
+          // 6. Fee bill paid:
+          //    fee bill received date + 30 days.
+          if (
+            stage.stage_name ===
+              "Visa bill paid" &&
+            visaBillReceivedAnchor
+          ) {
+            return {
+              ...stage,
+              target_date:
+                addDays(
+                  visaBillReceivedAnchor,
+                  30
+                ).toISOString(),
+              timing_rule:
+                "Visa fee bill received date + 30 days",
+              timing_anchor:
+                visaBillReceivedAnchor
+                  .toISOString()
+            };
+          }
+
+          // 7. DS-260 / civil documents submitted:
+          //    fee bill paid date + 30 days.
           if (
             stage.stage_name ===
               "DS-260 / Civil Document Submission" &&
@@ -14497,33 +14860,59 @@ export default function Pipeline() {
               target_date:
                 addDays(
                   visaFeePaidAnchor,
-                  28
+                  30
                 ).toISOString(),
               timing_rule:
-                "Within 4 weeks of fee bill paid date",
+                "Visa fee bill paid date + 30 days",
               timing_anchor:
                 visaFeePaidAnchor
                   .toISOString()
             };
           }
 
+          // 8. Documentarily Qualified / All Clear:
+          //    civil documents submitted date + 60 days.
           if (
             stage.stage_name ===
               "Documentarily Qualified" &&
-            ds260SubmittedAnchor
+            civilDocsSubmittedAnchor
           ) {
             return {
               ...stage,
               target_date:
                 addDays(
-                  ds260SubmittedAnchor,
-                  30
+                  civilDocsSubmittedAnchor,
+                  60
                 ).toISOString(),
               timing_rule:
-                "30 days after DS-260 / civil documents submitted date",
+                "DS-260 / civil documents submitted date + 60 days",
               timing_anchor:
-                ds260SubmittedAnchor
+                civilDocsSubmittedAnchor
                   .toISOString()
+            };
+          }
+
+          // 9. Immigration to Deployment Transition Call:
+          //    All Clear date + 60 days.
+          if (
+            stage.stage_name ===
+              "Immigration to Deployment Transition Call" &&
+            allClearAnchor
+          ) {
+            return {
+              ...stage,
+              target_date:
+                addDays(
+                  allClearAnchor,
+                  60
+                ).toISOString(),
+              timing_rule:
+                "All Clear date + 60 days",
+              timing_anchor:
+                allClearAnchor
+                  .toISOString(),
+              candidate_notice:
+                "Before this transition call, ICP must confirm active bedside employment, licensure status, academic course status, and other deployment-readiness requirements."
             };
           }
 
@@ -16259,6 +16648,24 @@ export default function Pipeline() {
       return null;
     }
 
+    const backendTimingStatus =
+      String(
+        stage.timing_status ||
+        stage.timingStatus ||
+        ""
+      ).trim();
+
+    if (
+      [
+        "At Risk",
+        "Late"
+      ].includes(
+        backendTimingStatus
+      )
+    ) {
+      return backendTimingStatus;
+    }
+
     // The backend owns the sequential clock. Every screen must use the exact
     // saved target_date so Dashboard and Pipeline cannot count from different
     // dates. Legacy calculations are used only if an old row has no target.
@@ -16501,7 +16908,7 @@ export default function Pipeline() {
     }
 
     const candidateActionStages = new Set([
-      "Arrival Itinerary",
+      "Welcome Packet",
       "Receipt Submission",
       "Relocation Follow up",
       "US Integration Check-in",
@@ -17176,7 +17583,25 @@ export default function Pipeline() {
           openModal("Introduction to Deployment", <div className="space-y-4"><div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4"><p className="text-sm font-medium text-emerald-900">Introduction to Deployment</p><p className="mt-1 text-sm text-emerald-800">Review your Step 3 call, skills preparation and deployment documents.</p></div><Button type="button" variant="outline" onClick={() => { closeModal(); navigate("/documents"); }}>Open Document Library</Button></div>);
           break;
         case "deploymentTransition":
-          openModal("Immigration to Deployment Transition Call", <div className="space-y-4"><p className="text-sm text-muted-foreground">This call provides the formal handoff from Immigration to Deployment and prepares you for the next phase. Existing completion from the previous transition-call stage is preserved automatically.</p></div>);
+          openModal(
+            "Immigration to Deployment Transition Call",
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                This call is scheduled 60 days after your All Clear date and provides the formal handoff from Immigration to Deployment.
+              </p>
+              <div className="rounded-xl border border-[#DDD6FE] bg-[#F5F0FF] p-4">
+                <p className="text-sm font-semibold text-[#6D28D9]">
+                  Before the transition call, ICP must confirm:
+                </p>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                  <li>Active bedside employment / recent bedside status</li>
+                  <li>Current licensure and endorsement status</li>
+                  <li>Academic / required course completion status</li>
+                  <li>Other deployment-readiness requirements requested by ICP</li>
+                </ul>
+              </div>
+            </div>
+          );
           break;
         case "immigrationFlowInfo":
         case "deploymentFlowInfo":
@@ -18527,7 +18952,7 @@ export default function Pipeline() {
     "Pre-Arrival Banking Call",
     "Employer Pre-Arrival Call",
     "deployMate Ready",
-    // Arrival Itinerary is completed by candidate acknowledgement, not CRM.
+    // Welcome Packet is completed by candidate acknowledgement, not CRM.
     "Arrived",
 
     // Aftercare source-driven completion
@@ -19542,17 +19967,18 @@ export default function Pipeline() {
                   stage.stage_category === "NCLEX Roadmap";
                 const isImmigrationStage = stage.stage_category === "Immigration";
                 const isGate = stage.is_gate === true;
+                const hasTimingTarget =
+                  Boolean(
+                    stage.target_date ||
+                    stage.targetDate ||
+                    stage.due_date ||
+                    stage.dueDate
+                  );
                 const riskStatus =
                   (
                     isHiring ||
                     stage.days_from_start ||
-                    (
-                      isImmigrationStage &&
-                      Boolean(
-                        stage.target_date ||
-                        stage.targetDate
-                      )
-                    ) ||
+                    hasTimingTarget ||
                     stage.stage_name ===
                       "Immigration Call"
                   ) &&
@@ -19566,8 +19992,7 @@ export default function Pipeline() {
                     stage
                   ) &&
                   Boolean(
-                    stage.target_date ||
-                    stage.targetDate ||
+                    hasTimingTarget ||
                     stage.stage_name ===
                       "Immigration Call"
                   );
@@ -19691,7 +20116,7 @@ export default function Pipeline() {
                               "flex items-center gap-1 rounded-full border px-3 py-1 text-xs",
                               riskStatus ===
                                 "Late" &&
-                                "border-orange-200 bg-orange-50 text-orange-700",
+                                "border-red-200 bg-red-50 text-red-700",
                               riskStatus ===
                                 "At Risk" &&
                                 "border-amber-200 bg-amber-50 text-amber-700",
