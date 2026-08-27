@@ -116,7 +116,7 @@ export default function Forms() {
           Forms
         </h1>
         <p className="mt-2 text-base text-muted-foreground">
-          Complete your forms directly here. You will not be redirected to Pipeline.
+          Stay on track with your required forms
         </p>
       </div>
 
@@ -125,12 +125,10 @@ export default function Forms() {
           <Info className="mt-0.5 h-7 w-7 shrink-0 text-blue-700" />
           <div>
             <h2 className="text-xl font-bold text-[#111827]">
-              Complete forms at your convenience
+              Complete the forms available to you now.
             </h2>
             <p className="mt-2 text-base leading-7 text-[#111827]">
-              All forms are saved automatically as you go.
-              <br />
-              You can return anytime to finish and submit.
+               Additional forms will be released as you move through the process.
             </p>
           </div>
         </div>

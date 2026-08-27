@@ -2416,9 +2416,9 @@ export default function Dashboard() {
           <img
             src={nurseImage}
             alt="Healthcare professional"
-            className="pointer-events-none absolute inset-y-0 right-0 h-full w-[50%] object-cover object-right opacity-100"
+            className="pointer-events-none absolute bottom-0 right-0 h-[116%] w-[62%] object-contain object-right-bottom opacity-100 drop-shadow-[0_12px_18px_rgba(59,7,100,0.18)]"
           />
-          <div className="pointer-events-none absolute inset-y-0 right-0 w-[58%] bg-gradient-to-r from-[#FDF2F8] via-[#FDF2F8]/75 to-transparent" />
+          <div className="pointer-events-none absolute inset-y-0 right-[34%] w-[20%] bg-gradient-to-r from-[#FDF2F8] via-[#FDF2F8]/70 to-transparent" />
 
           <div className="relative z-10 max-w-[62%]">
             <h1 className="text-4xl font-bold leading-tight tracking-tight text-[#111827] lg:text-5xl">
@@ -2485,7 +2485,7 @@ export default function Dashboard() {
           <img
             src={attentionImage}
             alt="Support illustration"
-            className="pointer-events-none absolute inset-y-0 right-0 hidden h-full w-[40%] object-contain object-right md:block"
+            className="pointer-events-none absolute inset-y-0 right-0 hidden h-full w-[30%] object-contain object-right md:block"
           />
           <div className="flex items-center gap-2">
             <Bell className="h-5 w-5 text-[#3B0764]" fill="#3B0764" />
