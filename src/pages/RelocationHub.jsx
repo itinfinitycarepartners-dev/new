@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
 import { useState, useEffect } from "react";
-import { MapPin, Cloud, ExternalLink, Building2, GraduationCap, ShoppingBag, Heart, Bus, Utensils, Loader2, Wifi, Info, Plane, Calendar, Phone, Mail, Thermometer, Wind } from "lucide-react";
+import { MapPin, Cloud, CloudSun, CloudRain, Snowflake, Sun, ExternalLink, Building2, GraduationCap, ShoppingBag, Heart, Bus, Utensils, Loader2, Wifi, Info, Plane, Calendar, Phone, Mail, Thermometer, Wind } from "lucide-react";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
@@ -106,19 +106,19 @@ const fetchWeather = async (lat, lon) => {
 // USA General Information Component
 function USAGeneralInfo() {
   return (
-    <div className="space-y-6">
+    <div className="-mx-2 -my-2 space-y-4 lg:-mx-3 lg:-my-3">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Relocation Hub</h1>
         <p className="text-sm text-muted-foreground">General Information about the United States</p>
       </div>
 
       {/* USA Overview */}
-      <div className="bg-gradient-to-r from-primary/10 via-accent to-primary/5 rounded-2xl p-6 lg:p-8">
-        <div className="flex items-center gap-2 mb-2">
-          <MapPin className="h-5 w-5 text-primary" />
-          <h2 className="text-xl font-bold">Welcome to the United States</h2>
+      <div className="rounded-2xl border border-[#E9D5FF] bg-gradient-to-br from-[#F5F0FF] via-[#FFF1F8] to-[#E0F2FE] p-6 shadow-sm lg:p-8">
+        <div className="mb-2 flex items-center gap-3">
+          <MapPin className="h-7 w-7 text-[#8B0764]" />
+          <h2 className="text-2xl font-bold text-[#3B0764]">Welcome to the United States</h2>
         </div>
-        <p className="text-sm text-muted-foreground max-w-2xl">
+        <p className="max-w-[80%] text-lg leading-8 text-black">
           The United States of America is a diverse and vast country offering countless opportunities for newcomers. 
           From bustling cities to serene landscapes, the US is a land of possibilities with a rich cultural tapestry 
           and a welcoming spirit for international professionals.
@@ -128,22 +128,22 @@ function USAGeneralInfo() {
       {/* Quick Facts */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-card rounded-xl border border-border p-4 text-center">
-          <Plane className="h-6 w-6 text-primary mx-auto mb-2" />
+          <Plane className="mx-auto mb-2 h-6 w-6 text-[#8B0764]" />
           <p className="text-sm font-medium">50 States</p>
           <p className="text-xs text-muted-foreground">Diverse geography and culture</p>
         </div>
         <div className="bg-card rounded-xl border border-border p-4 text-center">
-          <Calendar className="h-6 w-6 text-primary mx-auto mb-2" />
+          <Calendar className="mx-auto mb-2 h-6 w-6 text-[#2563EB]" />
           <p className="text-sm font-medium">4 Seasons</p>
           <p className="text-xs text-muted-foreground">Varied climate across regions</p>
         </div>
         <div className="bg-card rounded-xl border border-border p-4 text-center">
-          <Phone className="h-6 w-6 text-primary mx-auto mb-2" />
+          <Phone className="mx-auto mb-2 h-6 w-6 text-[#0891B2]" />
           <p className="text-sm font-medium">+1 Country Code</p>
           <p className="text-xs text-muted-foreground">International dialing</p>
         </div>
         <div className="bg-card rounded-xl border border-border p-4 text-center">
-          <Mail className="h-6 w-6 text-primary mx-auto mb-2" />
+          <Mail className="mx-auto mb-2 h-6 w-6 text-[#DB2777]" />
           <p className="text-sm font-medium">USPS</p>
           <p className="text-xs text-muted-foreground">Postal service nationwide</p>
         </div>
@@ -489,7 +489,7 @@ export default function RelocationHub() {
 
   if (loadingInfo) {
     return (
-      <div className="space-y-6">
+      <div className="-mx-2 -my-2 space-y-4 lg:-mx-3 lg:-my-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Relocation Hub</h1>
           <p className="text-sm text-muted-foreground">Loading info for {displayCity}{displayState ? `, ${displayState}` : ''}...</p>
@@ -503,7 +503,7 @@ export default function RelocationHub() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="-mx-2 -my-2 space-y-4 lg:-mx-3 lg:-my-3">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Relocation Hub</h1>
         <p className="text-sm text-muted-foreground">Your guide to {displayCity}{displayState ? `, ${displayState}` : ''}</p>
@@ -519,24 +519,24 @@ export default function RelocationHub() {
       )}
 
       {/* City Header */}
-      <div className="bg-gradient-to-r from-primary/10 via-accent to-primary/5 rounded-2xl p-6 lg:p-8">
+      <div className="rounded-2xl border border-[#E9D5FF] bg-gradient-to-br from-[#F5F0FF] via-[#FFF1F8] to-[#E0F2FE] p-6 shadow-sm lg:p-8">
         <div className="flex items-center gap-2 mb-2">
-          <MapPin className="h-5 w-5 text-primary" />
-          <h2 className="text-xl font-bold">{displayCity}{displayState ? `, ${displayState}` : ''}</h2>
+          <MapPin className="h-7 w-7 text-[#8B0764]" />
+          <h2 className="text-2xl font-bold text-[#3B0764]">{displayCity}{displayState ? `, ${displayState}` : ''}</h2>
         </div>
-        <p className="text-sm text-muted-foreground max-w-2xl">
+        <p className="max-w-[80%] text-lg leading-8 text-black">
           {cityInfo?.wikipedia?.description || `${displayCity} is a vibrant destination in the United States. Known for its rich culture and welcoming community, it offers various opportunities for newcomers.`}
         </p>
         
         {/* Current Weather */}
         {cityInfo?.weather && (
           <div className="flex flex-wrap gap-4 mt-4 text-sm">
-            <span className="bg-card/80 backdrop-blur px-3 py-1.5 rounded-lg flex items-center gap-2">
-              <Thermometer className="h-4 w-4" />
+            <span className="flex items-center gap-2 rounded-lg border border-white/70 bg-white/75 px-3 py-1.5 text-[#3B0764] shadow-sm backdrop-blur">
+              <Thermometer className="h-4 w-4 text-[#DB2777]" />
               Current: {cityInfo.weather.temperature}°F
             </span>
-            <span className="bg-card/80 backdrop-blur px-3 py-1.5 rounded-lg flex items-center gap-2">
-              <Wind className="h-4 w-4" />
+            <span className="flex items-center gap-2 rounded-lg border border-white/70 bg-white/75 px-3 py-1.5 text-[#3B0764] shadow-sm backdrop-blur">
+              <Wind className="h-4 w-4 text-[#0891B2]" />
               Wind: {cityInfo.weather.windspeed} km/h
             </span>
           </div>
@@ -548,7 +548,7 @@ export default function RelocationHub() {
             href={cityInfo.wikipedia.pageUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 mt-4 text-sm text-primary hover:underline"
+            className="mt-4 flex w-full items-center justify-end gap-2 text-sm font-medium text-[#8B0764] hover:underline"
           >
             <Wifi className="h-4 w-4" />
             Read more on Wikipedia →
@@ -573,28 +573,42 @@ export default function RelocationHub() {
       {/* Weather Section */}
       <div className="bg-card rounded-xl border border-border p-5">
         <div className="flex items-center gap-2 mb-4">
-          <Cloud className="h-5 w-5 text-primary" />
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-[#FDE68A] via-[#FBCFE8] to-[#BAE6FD] shadow-sm">
+            <Cloud className="h-8 w-8 text-[#6D28D9]" strokeWidth={2.5} />
+          </div>
           <h3 className="font-semibold">Climate & Weather</h3>
         </div>
         <p className="text-sm text-muted-foreground mb-4">
           {displayCity} experiences varied weather throughout the year. Check local forecasts for current conditions.
         </p>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="bg-muted/50 rounded-lg p-3 text-center">
-            <p className="text-xs text-muted-foreground capitalize">Spring</p>
-            <p className="font-semibold text-sm mt-1">Variable</p>
+          <div className="flex min-h-36 items-center justify-center gap-3 rounded-lg border border-[#BAE6FD] bg-[#F0F9FF] p-4 text-left">
+            <CloudSun className="h-10 w-10 shrink-0 text-[#0284C7]" />
+            <div>
+              <p className="text-sm capitalize text-muted-foreground">Spring</p>
+              <p className="mt-1 text-base font-semibold">Variable</p>
+            </div>
           </div>
-          <div className="bg-muted/50 rounded-lg p-3 text-center">
-            <p className="text-xs text-muted-foreground capitalize">Summer</p>
-            <p className="font-semibold text-sm mt-1">Warm</p>
+          <div className="flex min-h-36 items-center justify-center gap-3 rounded-lg border border-[#FED7AA] bg-[#FFF7ED] p-4 text-left">
+            <Sun className="h-10 w-10 shrink-0 text-[#EA580C]" />
+            <div>
+              <p className="text-sm capitalize text-muted-foreground">Summer</p>
+              <p className="mt-1 text-base font-semibold">Warm</p>
+            </div>
           </div>
-          <div className="bg-muted/50 rounded-lg p-3 text-center">
-            <p className="text-xs text-muted-foreground capitalize">Fall</p>
-            <p className="font-semibold text-sm mt-1">Mild</p>
+          <div className="flex min-h-36 items-center justify-center gap-3 rounded-lg border border-[#FBCFE8] bg-[#FFF1F8] p-4 text-left">
+            <CloudRain className="h-10 w-10 shrink-0 text-[#DB2777]" />
+            <div>
+              <p className="text-sm capitalize text-muted-foreground">Fall</p>
+              <p className="mt-1 text-base font-semibold">Mild</p>
+            </div>
           </div>
-          <div className="bg-muted/50 rounded-lg p-3 text-center">
-            <p className="text-xs text-muted-foreground capitalize">Winter</p>
-            <p className="font-semibold text-sm mt-1">Cool</p>
+          <div className="flex min-h-36 items-center justify-center gap-3 rounded-lg border border-[#DDD6FE] bg-[#F5F3FF] p-4 text-left">
+            <Snowflake className="h-10 w-10 shrink-0 text-[#4F46E5]" />
+            <div>
+              <p className="text-sm capitalize text-muted-foreground">Winter</p>
+              <p className="mt-1 text-base font-semibold">Cool</p>
+            </div>
           </div>
         </div>
       </div>
