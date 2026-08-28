@@ -1562,6 +1562,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
               ? { ...item, unreadCount: 0 }
               : item
           ));
+          window.dispatchEvent(new CustomEvent('admin-messaging-read'));
         }
       } catch (error) {
         if (!cancelled) setMessageError(error.message || 'Could not load this conversation.');
@@ -2973,6 +2974,7 @@ const AdminPanel = () => {
   const [backendHealth, setBackendHealth] = useState({ zoho: false, db: false });
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [receiptCount, setReceiptCount] = useState(0);
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
 
   const openMessageThread = useCallback((user) => {
     setMsgTarget(user);
@@ -3176,11 +3178,50 @@ const AdminPanel = () => {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+
+    const loadUnreadMessages = async () => {
+      try {
+        const { adminToken, userToken } = getTokens();
+        const response = await fetch(`${API_BASE}/api/admin/messaging/conversations`, {
+          credentials: 'include',
+          headers: {
+            ...(adminToken ? {
+              Authorization: `AdminBearer ${adminToken}`,
+              'x-admin-token': adminToken
+            } : {}),
+            ...(!adminToken && userToken ? { Authorization: `Bearer ${userToken}` } : {})
+          }
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!active || !response.ok || data.success !== true) return;
+
+        const total = (data.conversations || []).reduce(
+          (sum, conversation) => sum + Number(conversation.unreadCount || 0),
+          0
+        );
+        setUnreadMessageCount(total);
+      } catch {
+      }
+    };
+
+    loadUnreadMessages();
+    const interval = window.setInterval(loadUnreadMessages, 30000);
+    window.addEventListener('admin-messaging-read', loadUnreadMessages);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener('admin-messaging-read', loadUnreadMessages);
+    };
+  }, []);
+
   const navItems = [
     { id: 'overview', icon: <Home className="w-4 h-4" />, label: 'Overview' },
     { id: 'users', icon: <Users className="w-4 h-4" />, label: 'Users', badge: stats.total },
     { id: 'analytics', icon: <BarChart3 className="w-4 h-4" />, label: 'Analytics' },
-    { id: 'messages', icon: <MessageSquare className="w-4 h-4" />, label: 'Messages' },
+    { id: 'messages', icon: <MessageSquare className="w-4 h-4" />, label: 'Messages', badge: unreadMessageCount },
     { id: 'requests', icon: <ClipboardList className="w-4 h-4" />, label: 'Requests', badge: pendingRequestCount },
     { id: 'receipts', icon: <Receipt className="w-4 h-4" />, label: 'Receipts', badge: receiptCount },
   ];

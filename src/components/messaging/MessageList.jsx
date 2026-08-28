@@ -165,6 +165,7 @@ export default function MessageList() {
       const response = await messaging.markAsRead(conversationId);
       if (response.success) {
         setConversation(prev => prev ? { ...prev, unreadCount: 0 } : prev);
+        window.dispatchEvent(new CustomEvent('messaging-read'));
       }
     } catch (error) {
       console.error('Error marking as read:', error);

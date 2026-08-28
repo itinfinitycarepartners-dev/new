@@ -597,10 +597,19 @@ export default function Layout() {
       setUnreadCount(prev => prev + 1);
     };
 
+    const refreshUnreadCount = () => {
+      loadUnreadCount();
+    };
+
+    const interval = window.setInterval(loadUnreadCount, 30000);
+
     websocket.on('new_message', handleNewMessage);
+    window.addEventListener('messaging-read', refreshUnreadCount);
 
     return () => {
       websocket.off('new_message', handleNewMessage);
+      window.removeEventListener('messaging-read', refreshUnreadCount);
+      window.clearInterval(interval);
     };
   }, []);
 
