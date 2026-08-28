@@ -7,6 +7,15 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { messaging, websocket, tokenStorage } from '@/api/icpClient';
 import { formatDistanceToNow } from 'date-fns';
+import {
+  FileText,
+  HandHeart,
+  Laptop,
+  Megaphone,
+  Plane,
+  ShieldCheck,
+  Users
+} from 'lucide-react';
 
 export default function ConversationList({
   allowDirectMessaging = false,
@@ -318,14 +327,17 @@ const sendMessage = useCallback(async () => {
     conversation?.groupName?.toLowerCase().includes("announcement");
 
   const messageDepartments = [
-    { id: "admin", label: "Admin" },
-    { id: "public", label: "Public" },
-    { id: "it", label: "IT" },
-    { id: "recruitment", label: "Recruitment" },
-    { id: "immigration", label: "Immigration" },
-    { id: "deployment", label: "Deployment" },
-    { id: "aftercare", label: "Aftercare" }
+    { id: "admin", label: "Admin", Icon: ShieldCheck, avatarClass: "bg-violet-600 text-white" },
+    { id: "public", label: "Public", Icon: Megaphone, avatarClass: "bg-emerald-600 text-white" },
+    { id: "it", label: "IT", Icon: Laptop, avatarClass: "bg-sky-600 text-white" },
+    { id: "recruitment", label: "Recruitment", Icon: Users, avatarClass: "bg-rose-600 text-white" },
+    { id: "immigration", label: "Immigration", Icon: FileText, avatarClass: "bg-amber-600 text-white" },
+    { id: "deployment", label: "Deployment", Icon: Plane, avatarClass: "bg-indigo-600 text-white" },
+    { id: "aftercare", label: "Aftercare", Icon: HandHeart, avatarClass: "bg-teal-600 text-white" }
   ];
+
+  const getDepartmentProfile = (departmentId) =>
+    messageDepartments.find(department => department.id === departmentId) || messageDepartments[0];
 
   const getConversationDepartment = conversation => {
     if (
@@ -386,6 +398,10 @@ const sendMessage = useCallback(async () => {
   const canMessageSelectedConversation =
     selectedId === "it" ||
     String(selectedConversation?.department || "").toLowerCase() === "it";
+  const selectedDepartmentProfile = getDepartmentProfile(
+    getConversationDepartment(selectedConversation || { _id: selectedId, department: selectedId })
+  );
+  const SelectedDepartmentIcon = selectedDepartmentProfile.Icon;
 
   // Upgraded WebSocket Event Handlers
   useEffect(() => {
@@ -752,8 +768,11 @@ const sendMessage = useCallback(async () => {
                       <button
                         type="button"
                         onClick={() => handleConversationClick("it")}
-                        className="w-full px-4 py-3 text-left text-sm font-medium text-purple-700 transition-colors hover:bg-purple-50"
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium text-purple-700 transition-colors hover:bg-purple-50"
                       >
+                        <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${department.avatarClass}`}>
+                          <department.Icon className="h-6 w-6" aria-hidden="true" />
+                        </span>
                         Contact IT support
                       </button>
                     ) : (
@@ -766,6 +785,8 @@ const sendMessage = useCallback(async () => {
                 const isUnread = (conversation.unreadCount || 0) > 0;
                 const isBroadcast = isBroadcastConversation(conversation);
                 const isSelected = selectedId === conversation._id;
+                const departmentProfile = getDepartmentProfile(getConversationDepartment(conversation));
+                const DepartmentIcon = departmentProfile.Icon;
 
                 return (
                   <button
@@ -774,7 +795,10 @@ const sendMessage = useCallback(async () => {
                     className={`w-full p-4 hover:bg-slate-50 transition-colors text-left flex items-center gap-3 ${isBroadcast ? 'border-l-4 border-purple-400' : ''} ${isSelected ? 'bg-purple-50' : ''}`}
                   >
                     <div className="flex-shrink-0">
-                      <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold text-lg ${isBroadcast ? 'bg-purple-600' : 'bg-purple-100 text-purple-700'}`}>
+                      <div className={`w-12 h-12 rounded-full flex items-center justify-center ${departmentProfile.avatarClass}`}>
+                        <DepartmentIcon className="h-6 w-6" aria-hidden="true" />
+                      </div>
+                      <div className="hidden">
                         {isBroadcast ? '📢' : name.charAt(0).toUpperCase()}
                       </div>
                     </div>
@@ -807,10 +831,13 @@ const sendMessage = useCallback(async () => {
             <>
               <div className="p-4 border-b border-slate-200 bg-white flex-shrink-0">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-semibold text-lg">
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-full ${selectedDepartmentProfile.avatarClass}`}>
+                    <SelectedDepartmentIcon className="h-5 w-5" aria-hidden="true" />
+                    <span className="hidden">
                     {selectedConversation?._id === "community"
                       ? "🌐"
                       : "A"}
+                    </span>
                   </div>
                   <div>
                     <h2 className="font-semibold text-slate-800">

@@ -3,6 +3,26 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { messaging, websocket, tokenStorage } from '@/api/icpClient';
+import {
+  FileText,
+  HandHeart,
+  Laptop,
+  Megaphone,
+  Plane,
+  ShieldCheck,
+  Users
+} from 'lucide-react';
+
+const DEPARTMENT_PROFILES = {
+  admin: { Icon: ShieldCheck, avatarClass: 'bg-violet-600 text-white' },
+  community: { Icon: Megaphone, avatarClass: 'bg-emerald-600 text-white' },
+  public: { Icon: Megaphone, avatarClass: 'bg-emerald-600 text-white' },
+  it: { Icon: Laptop, avatarClass: 'bg-sky-600 text-white' },
+  recruitment: { Icon: Users, avatarClass: 'bg-rose-600 text-white' },
+  immigration: { Icon: FileText, avatarClass: 'bg-amber-600 text-white' },
+  deployment: { Icon: Plane, avatarClass: 'bg-indigo-600 text-white' },
+  aftercare: { Icon: HandHeart, avatarClass: 'bg-teal-600 text-white' }
+};
 
 // Helper to convert File to Base64
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -25,6 +45,8 @@ export default function MessageList() {
     aftercare:"Aftercare"
   };
   const activeSection=MESSAGE_SECTIONS[conversationId]?conversationId:"admin";
+  const departmentProfile = DEPARTMENT_PROFILES[activeSection] || DEPARTMENT_PROFILES.admin;
+  const DepartmentIcon = departmentProfile.Icon;
   const isCommunityConversation=conversationId === "community" || conversationId === "public";
   const navigate = useNavigate();
   const [messages, setMessages] = useState([]);
@@ -942,6 +964,9 @@ export default function MessageList() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
           </svg>
         </button>
+        <div className={`mr-3 flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${departmentProfile.avatarClass}`}>
+          <DepartmentIcon className="h-5 w-5" aria-hidden="true" />
+        </div>
         <div>
           <h2 className="font-bold text-lg text-slate-800">
             {MESSAGE_SECTIONS[activeSection]}
