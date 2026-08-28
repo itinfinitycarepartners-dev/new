@@ -24,7 +24,7 @@ export default function Messages() {
 
     if (!message) {
       setError(
-        "Enter a community message."
+        "Enter a public message."
       );
       return;
     }
@@ -48,14 +48,14 @@ export default function Messages() {
         throw new Error(
           data?.error ||
           data?.message ||
-          "The community message could not be posted."
+          "The public message could not be posted."
         );
       }
 
       setContent("");
       setShowBroadcast(false);
       setSuccess(
-        "Community message posted."
+        "Public message posted."
       );
 
       window.dispatchEvent(
@@ -76,7 +76,7 @@ export default function Messages() {
     } catch (sendError) {
       setError(
         sendError?.message ||
-        "The community message could not be posted."
+        "The public message could not be posted."
       );
     } finally {
       setSending(false);
@@ -90,7 +90,7 @@ export default function Messages() {
           <div>
             <h1 className="text-lg font-bold text-slate-900">Messages</h1>
             <p className="text-xs text-slate-500">
-              You have two message spaces: Admin Messages and Community Messages.
+              You have two message spaces: Admin Messages and Public Messages.
             </p>
           </div>
 
@@ -104,7 +104,7 @@ export default function Messages() {
             className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-700"
           >
             <Megaphone className="h-4 w-4" />
-            New Community Message
+            New Public Message
           </button>
         </div>
       </div>
@@ -137,10 +137,10 @@ export default function Messages() {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-bold text-slate-900">
-                  New Community Message
+                  New Public Message
                 </h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  Post a message to the shared Community Messages thread.
+                  Post a message to the shared Public Messages thread.
                 </p>
               </div>
               <button
@@ -193,7 +193,7 @@ export default function Messages() {
                 ) : (
                   <>
                     <Megaphone className="h-4 w-4" />
-                    Post to Community
+                    Post to Public
                   </>
                 )}
               </button>

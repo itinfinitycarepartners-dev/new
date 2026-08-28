@@ -16,8 +16,9 @@ export default function MessageList() {
   const { conversationId } = useParams();
   const MESSAGE_SECTIONS={
     admin:"Admin Messages",
-    community:"Community Messages",
-    public:"Community Messages",
+    community:"Public Messages",
+    public:"Public Messages",
+    it:"IT Messages",
     immigration:"Immigration",
     recruitment:"Recruitment",
     deployment:"Deployment",

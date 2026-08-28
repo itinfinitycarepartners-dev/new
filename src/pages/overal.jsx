@@ -1495,6 +1495,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
   const [expandedDepartments, setExpandedDepartments] = useState({
     admin: true,
     public: true,
+    it: true,
     immigration: true,
     recruitment: true,
     deployment: true,
@@ -1687,8 +1688,9 @@ const MessagingPanel = ({ users, initialTarget }) => {
   const departments = [
     { id: "admin", label: "Admin Messages" },
     { id: "public", label: "Public Messages" },
-    { id: "immigration", label: "Immigration" },
+    { id: "it", label: "IT Messages" },
     { id: "recruitment", label: "Recruitment" },
+    { id: "immigration", label: "Immigration" },
     { id: "deployment", label: "Deployment" },
     { id: "aftercare", label: "Aftercare" }
   ];
@@ -1804,7 +1806,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
                     }`}
                   >
                     <div className="text-sm font-semibold text-gray-900">
-                      Community / Public
+                      Public Messages
                     </div>
                     <div className="text-xs text-gray-500">
                       Post a message visible to all candidates
@@ -1863,10 +1865,10 @@ const MessagingPanel = ({ users, initialTarget }) => {
             <div className="flex-1 flex flex-col items-center justify-center bg-gray-50/50 px-8 text-center">
               <MessageSquare className="mb-3 h-12 w-12 text-purple-200" />
               <p className="font-semibold text-gray-700">
-                Community message
+                Public message
               </p>
               <p className="mt-1 max-w-md text-sm text-gray-500">
-                Use the composer below to post a public message to all candidates. Individual replies should be handled in the appropriate Admin, Immigration, Recruitment, Deployment, or Aftercare section.
+                Use the composer below to post a public message to all candidates. Individual replies should be handled in the appropriate Admin, IT, Recruitment, Immigration, Deployment, or Aftercare section.
               </p>
 
               {messageError && (

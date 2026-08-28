@@ -328,6 +328,27 @@ const sendMessage = useCallback(async () => {
     conversation?.groupName?.toLowerCase().includes("broadcast") ||
     conversation?.groupName?.toLowerCase().includes("announcement");
 
+  const messageDepartments = [
+    { id: "admin", label: "Admin" },
+    { id: "public", label: "Public" },
+    { id: "it", label: "IT" },
+    { id: "recruitment", label: "Recruitment" },
+    { id: "immigration", label: "Immigration" },
+    { id: "deployment", label: "Deployment" },
+    { id: "aftercare", label: "Aftercare" }
+  ];
+
+  const getConversationDepartment = conversation => {
+    if (
+      conversation?._id === "community" ||
+      conversation?.type === "community" ||
+      isBroadcastConversation(conversation)
+    ) {
+      return "public";
+    }
+    return String(conversation?.department || "admin").toLowerCase();
+  };
+
   // Candidates must be able to see:
   // - broadcasts they sent,
   // - admin broadcasts they received,
@@ -335,7 +356,15 @@ const sendMessage = useCallback(async () => {
   // The previous code defaulted to an "admin" tab but rendered no tab controls,
   // which silently hid every broadcast conversation.
   const visibleConversations =
-    conversations;
+    [...conversations].sort((a, b) => {
+      const departmentOrder = Object.fromEntries(
+        messageDepartments.map((department, index) => [department.id, index])
+      );
+      const getOrder = conversation => {
+        return departmentOrder[getConversationDepartment(conversation)] ?? 99;
+      };
+      return getOrder(a) - getOrder(b);
+    });
 
   const toggleThread = (messageId) => {
     setExpandedThreads(prev => {
@@ -472,7 +501,7 @@ const sendMessage = useCallback(async () => {
       conversation.type ===
         "community"
     ) {
-      return "Community Messages";
+      return "Public Messages";
     }
 
     if (
@@ -483,10 +512,20 @@ const sendMessage = useCallback(async () => {
     }
 
     if (conversation.department) {
-      return `${conversation.department[0].toUpperCase()}${conversation.department.slice(1)} Messages`;
+      const departmentLabels = {
+        admin: "Admin Messages",
+        public: "Public Messages",
+        community: "Public Messages",
+        it: "IT Messages",
+        recruitment: "Recruitment Messages",
+        immigration: "Immigration Messages",
+        deployment: "Deployment Messages",
+        aftercare: "Aftercare Messages"
+      };
+      return departmentLabels[String(conversation.department).toLowerCase()] || `${conversation.department[0].toUpperCase()}${conversation.department.slice(1)} Messages`;
     }
 
-    if (conversation.type === 'broadcast') return "Community Messages";
+    if (conversation.type === 'broadcast') return "Public Messages";
     if (conversation.type === 'group') return conversation.groupName || 'Group Chat';
     const currentUserEmail = getCurrentUserEmail();
     const otherUser =
@@ -705,22 +744,26 @@ const sendMessage = useCallback(async () => {
             </div>
           </div>
 
-          {conversations.length === 0 ? (
-            <div className="text-center py-16">
-              <div className="text-5xl mb-4">💬</div>
-              <p className="text-slate-500">No messages yet</p>
-              <p className="text-sm text-slate-400 mt-1">Start a new conversation by sending a message</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-slate-100">
-              {visibleConversations.map((conversation) => {
+          <div className="divide-y divide-slate-100">
+            {messageDepartments.map(department => {
+              const departmentConversations = visibleConversations.filter(
+                conversation => getConversationDepartment(conversation) === department.id
+              );
+
+              return (
+                <section key={department.id}>
+                  <div className="flex items-center justify-between bg-slate-50 px-4 py-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+                    <span>{department.label}</span>
+                    <span>{departmentConversations.length}</span>
+                  </div>
+                  {departmentConversations.length === 0 ? (
+                    <div className="px-4 py-3 text-sm text-slate-400">No messages yet</div>
+                  ) : departmentConversations.map((conversation) => {
                 const name = getConversationName(conversation);
                 const preview = getLastMessagePreview(conversation);
                 const timeAgo = getTimeAgo(conversation.lastMessageAt);
                 const isUnread = (conversation.unreadCount || 0) > 0;
-                const isBroadcast =
-                  conversation._id ===
-                    "community";
+                const isBroadcast = isBroadcastConversation(conversation);
                 const isSelected = selectedId === conversation._id;
 
                 return (
@@ -738,7 +781,7 @@ const sendMessage = useCallback(async () => {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <span className={`font-medium ${isUnread ? 'text-slate-900' : 'text-slate-600'}`}>
-                          {isBroadcast ? "Community Messages" : name}
+                          {isBroadcast ? "Public Messages" : name}
                         </span>
                         <span className="text-xs text-slate-400">{timeAgo}</span>
                       </div>
@@ -750,8 +793,10 @@ const sendMessage = useCallback(async () => {
                   </button>
                 );
               })}
-            </div>
-          )}
+                </section>
+              );
+            })}
+          </div>
         </div>
 
         <div className="w-2/3 flex flex-col bg-[#efeae2] flex-1 min-w-0 h-full">
@@ -767,7 +812,7 @@ const sendMessage = useCallback(async () => {
                   <div>
                     <h2 className="font-semibold text-slate-800">
                       {selectedConversation?._id === "community"
-                        ? "Community Messages"
+                        ? "Public Messages"
                         : "Admin Messages"}
                     </h2>
                     <p className="text-xs text-slate-400">
@@ -838,7 +883,7 @@ const sendMessage = useCallback(async () => {
               ) : (
                 <div className="border-t border-slate-200 bg-white p-4 text-center text-sm text-slate-500">
                   {selectedConversation?._id === "community"
-                    ? "Use New Community Message above to post to the community."
+                    ? "Use New Public Message above to post to the public thread."
                     : "Admin Messages are read-only for candidate accounts."}
                 </div>
               )}
