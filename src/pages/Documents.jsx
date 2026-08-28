@@ -60,8 +60,7 @@ const API_BASE = (() => {
 const WORKFLOW_SECTION_ICONS = {
   Recruiting: ClipboardPenLine,
   Immigration: FileText,
-  Deployment: Plane,
-  Aftercare: Building2
+  Deployment: Plane
 };
 
 const getAuthToken = () =>
@@ -883,7 +882,6 @@ export default function Documents() {
     "Recruiting",
     "Immigration",
     "Deployment",
-    "Aftercare"
   ];
 
   const departments = useMemo(
