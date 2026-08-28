@@ -845,6 +845,221 @@ const EXCLUSIVE_MEMBER_SERVICES = [
   }
 ];
 
+const PRE_DEPARTURE_FAQ_GROUPS = [
+  {
+    "title": "General Preparation",
+    "questions": [
+      {
+        "question": "What is the purpose of the Pre-Departure Readiness Program?",
+        "answer": "The program helps participants prepare for relocation to the United States by covering travel preparation, workplace expectations, daily living requirements, financial readiness, and personal wellbeing."
+      },
+      {
+        "question": "What should I do before leaving for the U.S.?",
+        "answer": "Review your travel documents, organize important records, prepare personal items, and ensure you have access to sufficient funds for your transition."
+      },
+      {
+        "question": "Should I open my visa packet before traveling?",
+        "answer": "No. Review your documents, but do not open your visa packet unless instructed by immigration officials."
+      },
+      {
+        "question": "What items should I pack?",
+        "answer": "Bring professional clothing, weather-appropriate clothing, medications, important documents, and essential personal care items. Pack critical items in your carry-on luggage whenever possible."
+      },
+      {
+        "question": "What if I take prescription medication?",
+        "answer": "Bring enough medication to cover several weeks, carry prescriptions or supporting documentation, and verify airline and customs requirements before travel."
+      }
+    ]
+  },
+  {
+    "title": "Travel and Arrival",
+    "questions": [
+      {
+        "question": "What can I expect during my trip to the United States?",
+        "answer": "Most travelers will complete an international flight, pass through immigration, clear customs, and then proceed to their arranged arrival destination."
+      },
+      {
+        "question": "What happens during immigration processing?",
+        "answer": "You will present your passport and visa, answer basic questions, and have your documents reviewed by immigration officials."
+      },
+      {
+        "question": "How should I respond to immigration officers?",
+        "answer": "Remain calm, answer questions honestly, and provide requested documentation."
+      },
+      {
+        "question": "What should I do during my first few days in the U.S.?",
+        "answer": "You may complete important appointments such as banking, cellphone setup, grocery shopping, employer onboarding, and settling into your housing."
+      },
+      {
+        "question": "Which phone numbers should I save immediately?",
+        "answer": "Save your employer contacts, ICP support contacts, emergency services (911), and important family or personal contacts."
+      }
+    ]
+  },
+  {
+    "title": "Working in the U.S. Healthcare System",
+    "questions": [
+      {
+        "question": "What values are important in U.S. healthcare workplaces?",
+        "answer": "Teamwork, communication, accountability, patient-centered care, and professional conduct are highly valued."
+      },
+      {
+        "question": "What is a nurse's scope of practice?",
+        "answer": "A nurse's scope of practice defines the tasks and responsibilities permitted based on education, experience, licensure, employer policies, and state regulations."
+      },
+      {
+        "question": "What are common responsibilities of Registered Nurses (RNs)?",
+        "answer": "Responsibilities include assessments, patient care planning, medication administration, patient education, monitoring patient conditions, and documenting care outcomes."
+      },
+      {
+        "question": "What are RNs generally not allowed to do independently?",
+        "answer": "In most situations, RNs cannot independently diagnose medical conditions, prescribe medications, perform surgery, or administer anesthesia without proper authorization and credentials."
+      },
+      {
+        "question": "Why does scope of practice differ from one workplace to another?",
+        "answer": "State laws, facility policies, specialty certifications, and supervision requirements may all affect what nurses are authorized to do."
+      },
+      {
+        "question": "What should I do if I do not understand a healthcare term or instruction?",
+        "answer": "Ask for clarification immediately to ensure patient safety and effective communication."
+      }
+    ]
+  },
+  {
+    "title": "Workplace Expectations",
+    "questions": [
+      {
+        "question": "What are employers expecting from me?",
+        "answer": "Employers expect punctuality, professionalism, teamwork, reliability, and clear communication."
+      },
+      {
+        "question": "Why does workplace communication sometimes feel direct?",
+        "answer": "Direct communication is common in many U.S. workplaces and is intended to promote clarity and efficiency."
+      },
+      {
+        "question": "What should I do if I am unsure about instructions?",
+        "answer": "Ask questions, seek clarification, and confirm expectations before proceeding."
+      },
+      {
+        "question": "What is the chain of command in a healthcare setting?",
+        "answer": "Healthcare organizations follow reporting structures that often involve charge nurses, nurse managers, and department leadership. Concerns should be communicated through the appropriate channels."
+      }
+    ]
+  },
+  {
+    "title": "Living in the United States",
+    "questions": [
+      {
+        "question": "What should I know about housing?",
+        "answer": "Many rental agreements are for 12 months, often requiring a security deposit and first month's rent before move-in. Always review lease terms carefully."
+      },
+      {
+        "question": "What transportation options are available?",
+        "answer": "Transportation may include personal vehicles, public transportation, rideshare services, or employer-supported transportation solutions depending on your location."
+      },
+      {
+        "question": "Do I need a U.S. driver's license?",
+        "answer": "To legally drive, you will typically need a valid driver's license and vehicle insurance in accordance with local requirements."
+      },
+      {
+        "question": "What weather conditions should I prepare for?",
+        "answer": "Conditions vary by region and may include snow, cold weather, severe storms, flooding, hurricanes, tornadoes, or extreme heat."
+      },
+      {
+        "question": "What community resources can help me adjust?",
+        "answer": "Public libraries, community centers, faith-based organizations, cultural groups, and local resource networks can help support your transition."
+      },
+      {
+        "question": "Is it normal to feel overwhelmed during the first month?",
+        "answer": "Yes. Most newcomers experience a period of adjustment while developing routines and becoming familiar with their new environment."
+      }
+    ]
+  },
+  {
+    "title": "Financial Readiness",
+    "questions": [
+      {
+        "question": "What is a W-2 form?",
+        "answer": "A W-2 form summarizes your annual earnings and taxes withheld by your employer. It is used for tax filing purposes."
+      },
+      {
+        "question": "When are taxes generally due in the United States?",
+        "answer": "Federal income tax returns are generally due by April 15 each year."
+      },
+      {
+        "question": "What is a W-4 form?",
+        "answer": "The W-4 tells your employer how much federal income tax to withhold from your paycheck."
+      },
+      {
+        "question": "What is an I-9 form?",
+        "answer": "The I-9 verifies your identity and authorization to work in the United States."
+      },
+      {
+        "question": "Why is my take-home pay different from my salary calculation?",
+        "answer": "Your paycheck may include deductions for taxes, insurance, retirement plans, and other authorized deductions."
+      },
+      {
+        "question": "What expenses should I prepare for during my first month?",
+        "answer": "Common expenses include housing costs, groceries, transportation, phone service, and household items."
+      },
+      {
+        "question": "Why is budgeting important?",
+        "answer": "Budgeting helps you manage expenses, build savings, and reduce financial stress during your transition."
+      }
+    ]
+  },
+  {
+    "title": "Safety, Rights, and Wellbeing",
+    "questions": [
+      {
+        "question": "What rights do workers have in the United States?",
+        "answer": "Workers are entitled to fair treatment, safe working conditions, and protection from discrimination."
+      },
+      {
+        "question": "What scams should I watch out for?",
+        "answer": "Be cautious of housing scams, financial scams, and immigration-related scams. Always verify information before providing money or personal information."
+      },
+      {
+        "question": "When should I call 911?",
+        "answer": "Call 911 during emergencies that require immediate assistance from police, fire, or medical services."
+      },
+      {
+        "question": "Is culture shock normal?",
+        "answer": "Yes. Many people experience homesickness, stress, and culture shock when moving to a new country."
+      },
+      {
+        "question": "How can I manage stress during my transition?",
+        "answer": "Stay connected with family and friends, establish healthy routines, seek support when needed, and maintain a balance between work and personal life."
+      },
+      {
+        "question": "When should I seek additional support?",
+        "answer": "Seek support if you feel overwhelmed, isolated, or unable to adjust. Employee Assistance Programs (EAPs) and other support resources may be available through your employer."
+      }
+    ]
+  },
+  {
+    "title": "Immigration and Career Growth",
+    "questions": [
+      {
+        "question": "How do I maintain my immigration status?",
+        "answer": "Maintain employment, keep immigration documents current, and follow all applicable immigration requirements."
+      },
+      {
+        "question": "What should I do before traveling outside the U.S.?",
+        "answer": "Verify documentation requirements, review re-entry rules, and obtain any necessary approvals from your employer."
+      },
+      {
+        "question": "What career growth opportunities are available to nurses in the U.S.?",
+        "answer": "Opportunities may include specialty certifications, leadership positions, advanced practice roles, education, compliance, informatics, and management careers."
+      },
+      {
+        "question": "What are the most important keys to success in my transition?",
+        "answer": "Preparation, financial planning, workplace professionalism, personal safety, and maintaining wellbeing are all critical to long-term success."
+      }
+    ]
+  }
+];
+
 const phaseSections = [
   {
     title: "Pre-Arrival Phase",
@@ -1869,6 +2084,96 @@ export default function Resource() {
                     );
                   })}
                 </div>
+
+                {section.title === "Pre-Arrival Phase" && (
+                  <div className="border-t bg-white">
+                    <div className="border-b bg-gradient-to-r from-primary/10 via-primary/5 to-transparent px-5 py-5">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                          <BookOpen className="h-6 w-6 text-primary" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-semibold">
+                            ICP Pre-Departure Readiness Program FAQs
+                          </h3>
+                          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                            43 pre-departure questions covering preparation, travel, U.S. healthcare, workplace expectations, daily living, finances, safety, wellbeing, immigration, and career growth.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4 p-5">
+                      {PRE_DEPARTURE_FAQ_GROUPS.map((group, groupIndex) => (
+                        <div
+                          key={`predeparture-group:${group.title}`}
+                          className="overflow-hidden rounded-xl border bg-white"
+                        >
+                          <div className="border-b bg-slate-50 px-4 py-3">
+                            <p className="text-sm font-bold">
+                              {group.title}
+                            </p>
+                          </div>
+
+                          <div className="divide-y">
+                            {group.questions.map((item, itemIndex) => {
+                              const faqKey =
+                                `predeparture:${groupIndex}:${itemIndex}`;
+                              const isOpen =
+                                openFaqItem === faqKey;
+
+                              return (
+                                <div
+                                  key={faqKey}
+                                  className={
+                                    itemIndex % 2 === 0
+                                      ? "bg-[#f7f1ff]"
+                                      : "bg-white"
+                                  }
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setOpenFaqItem(
+                                        isOpen
+                                          ? ""
+                                          : faqKey
+                                      )
+                                    }
+                                    aria-expanded={isOpen}
+                                    className="flex w-full items-start justify-between gap-4 px-5 py-4 text-left transition hover:bg-primary/5"
+                                  >
+                                    <div className="flex min-w-0 gap-3">
+                                      <CircleHelp className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                      <span className="text-sm font-semibold leading-6">
+                                        {item.question}
+                                      </span>
+                                    </div>
+                                    <ChevronDown
+                                      className={`mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${
+                                        isOpen
+                                          ? "rotate-180"
+                                          : ""
+                                      }`}
+                                    />
+                                  </button>
+
+                                  {isOpen && (
+                                    <div className="px-5 pb-5 pl-12">
+                                      <p className="text-sm leading-7 text-muted-foreground">
+                                        {item.answer}
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </section>
             );
           })}

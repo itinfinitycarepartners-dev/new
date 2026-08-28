@@ -50,7 +50,7 @@ const getNavItems = (licensureUrl) => {
     { path: "/forms", label: "Forms", icon: ClipboardList },
     { path: "/make-request", label: "Submit an Inquiry", icon: Send },
     { path: "/messages", label: "Messages", icon: MessageCircle },
-    { path: "/updates", label: "Updates", icon: Bell },
+    { path: "/updates", label: "Notifications", icon: Bell },
     { path: "/pipeline", label: "My Pipeline", icon: GitBranch },
     { path: "/relocation", label: "Relocation Hub", icon: MapPin },
     { path: "/resource", label: "My Resources", icon: BookOpen },

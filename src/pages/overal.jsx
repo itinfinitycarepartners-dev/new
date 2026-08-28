@@ -40,23 +40,535 @@ const DOCUMENT_REJECTION_REASONS = [
 
 // ─── PIPELINE CONFIG ─────────────────────────────────────────────────────────
 const STAGES_CONFIG = [
-  { id: 1, stage_name: "Applied", category: "Hiring" },
-  { id: 2, stage_name: "Associated with Job", category: "Hiring" },
-  { id: 3, stage_name: "Qualified - Match", category: "Hiring" },
-  { id: 7, stage_name: "Select Prescreen Time", category: "Hiring" },
-  { id: 9, stage_name: "Prescreen Completed", category: "Hiring" },
-  { id: 12, stage_name: "Interview Scheduled", category: "Hiring" },
-  { id: 13, stage_name: "Interview Attended", category: "Hiring" },
-  { id: 14, stage_name: "Offer Made", category: "Hiring" },
-  { id: 15, stage_name: "Offer Accepted", category: "Hiring" },
-  { id: 18, stage_name: "Employment Contract Signed", category: "Hiring" },
-  { id: 20, stage_name: "Hired", category: "Hiring" },
-  { id: 21, stage_name: "Licensure", category: "Immigration" },
-  { id: 22, stage_name: "i140 Submitted", category: "Immigration" },
-  { id: 24, stage_name: "Approved", category: "Immigration" },
-  { id: 28, stage_name: "Deployment Details", category: "Deployment" },
-  { id: 39, stage_name: "Orientation Start", category: "Aftercare" },
+  // Candidate-facing Hiring flow
+  { id: 1, stage_name: "Applied", stage_category: "Hiring", stage_order: 1 },
+  { id: 2, stage_name: "Associated with Job", stage_category: "Hiring", stage_order: 2 },
+  { id: 3, stage_name: "Not Qualified - to close", stage_category: "Hiring", stage_order: 3 },
+  { id: 4, stage_name: "Qualified - Match", stage_category: "Hiring", stage_order: 4 },
+  { id: 5, stage_name: "Qualified Candidate Pool", stage_category: "Hiring", stage_order: 5 },
+  { id: 6, stage_name: "Transfer to ICP USRN School", stage_category: "Hiring", stage_order: 6 },
+  { id: 7, stage_name: "Select Prescreen Time", stage_category: "Hiring", stage_order: 7 },
+  { id: 8, stage_name: "Prescreen Scheduled", stage_category: "Hiring", stage_order: 8 },
+  { id: 9, stage_name: "Prescreen Completed", stage_category: "Hiring", stage_order: 9 },
+  { id: 10, stage_name: "Client Documents & Video Provided", stage_category: "Hiring", stage_order: 10 },
+  { id: 11, stage_name: "Pending Interview Selection", stage_category: "Hiring", stage_order: 11 },
+  { id: "11b", stage_name: "Mandatory Pre-Interview Coaching Call", stage_category: "Hiring", stage_order: 11.5 },
+  { id: 12, stage_name: "Interview Scheduled", stage_category: "Hiring", stage_order: 12 },
+  { id: 13, stage_name: "Interview Attended", stage_category: "Hiring", stage_order: 13 },
+  { id: 14, stage_name: "Offer Made", stage_category: "Hiring", stage_order: 14 },
+  { id: 15, stage_name: "Offer Accepted", stage_category: "Hiring", stage_order: 15 },
+  { id: 16, stage_name: "Offer Declined", stage_category: "Hiring", stage_order: 16 },
+  { id: 17, stage_name: "Employment Contract Sent", stage_category: "Hiring", stage_order: 17 },
+  { id: 18, stage_name: "Employment Contract Signed", stage_category: "Hiring", stage_order: 18 },
+  { id: 19, stage_name: "Documents Received", stage_category: "Hiring", stage_order: 19 },
+  { id: 20, stage_name: "Hired", stage_category: "Hiring", stage_order: 20 },
+
+  // Candidate-facing Immigration flow
+  { id: 21, stage_name: "Immigration forms submitted", stage_category: "Immigration", stage_order: 21 },
+  { id: 22, stage_name: "Foundations: Pillars", stage_category: "Immigration", stage_order: 22 },
+  { id: 23, stage_name: "Foundations: Endorsement Discovery", stage_category: "Immigration", stage_order: 23 },
+  { id: 24, stage_name: "Immigration approved", stage_category: "Immigration", stage_order: 24 },
+  { id: 25, stage_name: "Visa bill issued", stage_category: "Immigration", stage_order: 25 },
+  { id: 26, stage_name: "Visa bill paid", stage_category: "Immigration", stage_order: 26 },
+  { id: 27, stage_name: "DS-260 / Civil Document Submission", stage_category: "Immigration", stage_order: 27 },
+  { id: 28, stage_name: "Foundations: Cultural Readiness", stage_category: "Immigration", stage_order: 28 },
+  { id: 28.5, stage_name: "Documentarily Qualified", stage_category: "Immigration", stage_order: 28.5 },
+  { id: 29, stage_name: "Immigration to Deployment Transition Call", stage_category: "Immigration", stage_order: 29 },
+
+  // Candidate-facing Deployment flow
+  { id: 29.5, stage_name: "Introduction to Deployment Call", stage_category: "Deployment", stage_order: 29.5 },
+  { id: 30, stage_name: "Speciality Classes", stage_category: "Deployment", stage_order: 30 },
+  { id: 31, stage_name: "Final Self Assessment", stage_category: "Deployment", stage_order: 31 },
+  { id: 32, stage_name: "Speciality with Trainer Skills Check", stage_category: "Deployment", stage_order: 32 },
+  { id: 33, stage_name: "Housing / Transportation Call", stage_category: "Deployment", stage_order: 33 },
+  { id: 34, stage_name: "Deployment Pre-Arrival Call", stage_category: "Deployment", stage_order: 34 },
+  { id: 35, stage_name: "Pre-Arrival Banking Call", stage_category: "Deployment", stage_order: 35 },
+  { id: 36, stage_name: "Employer Pre-Arrival Call", stage_category: "Deployment", stage_order: 36 },
+  { id: 37, stage_name: "deployMate Ready", stage_category: "Deployment", stage_order: 37 },
+  { id: 38, stage_name: "Welcome Packet", stage_category: "Deployment", stage_order: 38 },
+  { id: 39, stage_name: "Receipt Submission", display_name: "Expense Report", stage_category: "Deployment", stage_order: 39 },
+  { id: 40, stage_name: "Arrived", stage_category: "Deployment", stage_order: 40 },
+
+  // Candidate-facing Aftercare flow
+  { id: 41, stage_name: "Welcome Call", stage_category: "Aftercare", stage_order: 41 },
+  { id: 42, stage_name: "Relocation Follow up", stage_category: "Aftercare", stage_order: 42 },
+  { id: 43, stage_name: "First week in US Check-in", stage_category: "Aftercare", stage_order: 43 },
+  { id: 44, stage_name: "Second week in US Check-in", stage_category: "Aftercare", stage_order: 44 },
+  { id: 45, stage_name: "US Integration Check-in", stage_category: "Aftercare", stage_order: 45 },
+  { id: 46, stage_name: "Placement Stability Check-in", stage_category: "Aftercare", stage_order: 46 },
+  { id: 47, stage_name: "Year One Anniversary Check-in", stage_category: "Aftercare", stage_order: 47 }
 ];
+
+const ADMIN_NCLEX_PROGRAM_FLOW = [
+  // EXACT candidate My Pipeline NCLEX / ICP USRN subprocess order and rules.
+  { stage_name: "Complete Pre-assessment", stage_category: "NCLEX Program", stage_order: 6.01, days: 5, field: "NCLEX_Pre_Exam", type: "picklist", accepted: ["1st Attempt Pass", "2nd Attempt Pass"] },
+  { stage_name: "Program Prescreen", stage_category: "NCLEX Program", stage_order: 6.02, days: 10, field: "Prescreen_Status", type: "picklist", accepted: ["Attended"] },
+  { stage_name: "Document Review", stage_category: "NCLEX Program", stage_order: 6.03, days: 24, field: "Documents_Submitted", type: "present" },
+  { stage_name: "Educational Program Agreement", stage_category: "NCLEX Program", stage_order: 6.04, days: 24, field: "Sponsorship_Agreement", type: "boolean" },
+  { stage_name: "Program Approval", stage_category: "NCLEX Program", stage_order: 6.05, days: 24, field: "Program_Status", type: "picklist", accepted: ["Approved"] },
+  { stage_name: "Credential Evaluation Set-up", stage_category: "NCLEX Program", stage_order: 6.06, days: 27, field: "Credential_Service", type: "picklist", accepted: ["Paid by ICP", "Sponsored by ICP", "To be Sponsored by Infinity", "Paid by Infinity"] },
+  { stage_name: "Credential Evaluation Completed", stage_category: "NCLEX Program", stage_order: 6.07, days: 92, field: "Credential_Registration_Date", type: "present" },
+  { stage_name: "CES Report Issued", stage_category: "NCLEX Program", stage_order: 6.08, days: 102, field: "Date_Report_Issued", type: "present" },
+  { stage_name: "Performance Check 1", stage_category: "NCLEX Program", stage_order: 6.09, days: 77, type: "performance", performanceGate: { assessmentsRequired: 2, assignmentsRequired: 6, ratingRequired: true } },
+  { stage_name: "Board Registration", stage_category: "NCLEX Program", stage_order: 6.10, days: 120, field: "State_License_Board_of_Registration", type: "picklist", accepted: ["Paid by ICP", "Sponsored by ICP", "To be Sponsored by Infinity", "Paid by Infinity"] },
+  { stage_name: "Select Meeting Time", stage_category: "NCLEX Program", stage_order: 6.11, days: 120, type: "booking", non_counted_section: true },
+  { stage_name: "Performance Check 2", stage_category: "NCLEX Program", stage_order: 6.12, days: 102, type: "performance", performanceGate: { assessmentsRequired: 4, assignmentsRequired: 15, ratingRequired: true } },
+  { stage_name: "Board Approval", stage_category: "NCLEX Program", stage_order: 6.13, days: 127, field: "Board_Username", type: "present" },
+  { stage_name: "Pearson Vue Registration", stage_category: "NCLEX Program", stage_order: 6.14, days: 150, field: "Pearson_Vue_Status", type: "picklist", accepted: ["Complete"] },
+  { stage_name: "Performance Check 3", stage_category: "NCLEX Program", stage_order: 6.15, days: 127, type: "performance", performanceGate: { assessmentsRequired: 5, assignmentsRequired: 0, ratingRequired: true } },
+  { stage_name: "ATT Received", stage_category: "NCLEX Program", stage_order: 6.16, days: 150, field: "ATT_Received_Date", type: "present" },
+  { stage_name: "Performance Check 4", stage_category: "NCLEX Program", stage_order: 6.17, days: 150, type: "performance", performanceGate: { assessmentsRequired: 6, assignmentsRequired: 0, ratingRequired: true } },
+  { stage_name: "Exam Scheduled", stage_category: "NCLEX Program", stage_order: 6.18, days: 165, field: "NCLEX_Exam_Date", type: "present" },
+  { stage_name: "Exam Results", stage_category: "NCLEX Program", stage_order: 6.19, days: 195, field: "NCLEX_Status", type: "picklist", accepted: ["Passed"] }
+];
+
+const unwrapAdminNCLEXValue = value => {
+  if (value === undefined || value === null) return value;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "";
+    if (value.length === 1) return unwrapAdminNCLEXValue(value[0]);
+    return value.map(unwrapAdminNCLEXValue);
+  }
+  if (typeof value === "object") {
+    const preferred =
+      value.value ??
+      value.display_value ??
+      value.displayValue ??
+      value.name ??
+      value.label ??
+      value.actual_value ??
+      value.selected ??
+      value.checked ??
+      value.date ??
+      value.datetime;
+    if (preferred !== undefined) return unwrapAdminNCLEXValue(preferred);
+  }
+  return value;
+};
+
+const readAdminNCLEXField = (data, field) => {
+  if (!data || !field) return undefined;
+  const aliases = [
+    field,
+    field.replace(/_/g, ""),
+    field.charAt(0).toLowerCase() + field.slice(1)
+  ];
+  for (const alias of aliases) {
+    if (Object.prototype.hasOwnProperty.call(data, alias)) {
+      return unwrapAdminNCLEXValue(data[alias]);
+    }
+  }
+  return undefined;
+};
+
+const normalizeAdminNCLEXValue = value =>
+  String(unwrapAdminNCLEXValue(value) ?? "").trim().toLowerCase();
+
+const adminNCLEXHasValue = value => {
+  const raw = unwrapAdminNCLEXValue(value);
+  if (raw === undefined || raw === null || raw === false) return false;
+  if (Array.isArray(raw)) return raw.some(adminNCLEXHasValue);
+  return !["", "none", "null", "undefined", "—", "-"].includes(
+    String(raw).trim().toLowerCase()
+  );
+};
+
+const adminNCLEXTruthy = value => {
+  const raw = unwrapAdminNCLEXValue(value);
+  return raw === true || raw === 1 || ["true", "yes", "checked", "1"].includes(
+    normalizeAdminNCLEXValue(raw)
+  );
+};
+
+const parseAdminNCLEXCount = value => {
+  const parsed = Number.parseInt(
+    normalizeAdminNCLEXValue(value).replace(/[^0-9]/g, ""),
+    10
+  );
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const isAdminNCLEXPerformanceGateSatisfied = (gate, data = {}) => {
+  if (!gate) return true;
+  const assessments = parseAdminNCLEXCount(
+    readAdminNCLEXField(data, "Assessments_Completed")
+  );
+  const assignments = parseAdminNCLEXCount(
+    readAdminNCLEXField(data, "Assignments_Completed")
+  );
+  const rating = normalizeAdminNCLEXValue(
+    readAdminNCLEXField(data, "Performance_Rating")
+  );
+  return (
+    assessments >= Number(gate.assessmentsRequired || 0) &&
+    assignments >= Number(gate.assignmentsRequired || 0) &&
+    (!gate.ratingRequired || ["high", "very high"].includes(rating))
+  );
+};
+
+const isAdminNCLEXItemComplete = (item, data = {}) => {
+  if (!item || item.type === "booking") return false;
+  if (item.type === "performance") {
+    return isAdminNCLEXPerformanceGateSatisfied(item.performanceGate, data);
+  }
+  if (!item.field) return false;
+  const value = readAdminNCLEXField(data, item.field);
+  if (item.type === "present") return adminNCLEXHasValue(value);
+  if (item.type === "boolean") return adminNCLEXTruthy(value);
+  if (item.type === "picklist") {
+    const normalized = normalizeAdminNCLEXValue(value);
+    return (item.accepted || []).some(
+      option => normalizeAdminNCLEXValue(option) === normalized
+    );
+  }
+  return false;
+};
+
+const isAdminNCLEXItemUnlocked = (item, index, data = {}) => {
+  if (!item) return false;
+  if (index <= 0) return true;
+
+  let furthestSourceReachedIndex = 0;
+  ADMIN_NCLEX_PROGRAM_FLOW.forEach((candidateItem, candidateIndex) => {
+    const gateSatisfied = candidateItem?.performanceGate
+      ? isAdminNCLEXPerformanceGateSatisfied(candidateItem.performanceGate, data)
+      : false;
+    const sourceComplete = isAdminNCLEXItemComplete(candidateItem, data);
+    if (gateSatisfied || sourceComplete) {
+      furthestSourceReachedIndex = Math.max(
+        furthestSourceReachedIndex,
+        candidateIndex
+      );
+    }
+  });
+
+  if (index <= furthestSourceReachedIndex) return true;
+  if (item.performanceGate) {
+    return isAdminNCLEXPerformanceGateSatisfied(item.performanceGate, data);
+  }
+  if (isAdminNCLEXItemComplete(item, data)) return true;
+
+  const previousItem = ADMIN_NCLEX_PROGRAM_FLOW[index - 1];
+  if (previousItem?.type === "booking" && previousItem?.non_counted_section === true) {
+    const beforeBooking = ADMIN_NCLEX_PROGRAM_FLOW[Math.max(0, index - 2)];
+    return !beforeBooking || isAdminNCLEXItemComplete(beforeBooking, data);
+  }
+  return isAdminNCLEXItemComplete(previousItem, data);
+};
+
+const normalizeAdminApplicationStatus = value =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[–—]/g, "-")
+    .replace(/\s*-\s*/g, "-")
+    .replace(/\s+/g, " ");
+
+const adminStageComplete = stage => {
+  const status =
+    String(stage?.status || "")
+      .trim()
+      .toLowerCase();
+
+  return (
+    status === "completed" ||
+    status === "complete" ||
+    stage?.completed === true ||
+    stage?.is_completed === true ||
+    Boolean(stage?.completed_date || stage?.completed_at)
+  );
+};
+
+const buildAdminCandidatePipelineFlow = (
+  savedStages = [],
+  profile = {}
+) => {
+  const saved = Array.isArray(savedStages)
+    ? savedStages
+    : [];
+
+  const byName = new Map();
+
+  for (const stage of saved) {
+    if (
+      !stage?.stage_name ||
+      stage.is_gate === true ||
+      stage.hidden_from_main_flow === true ||
+      stage.is_deleted === true
+    ) {
+      continue;
+    }
+
+    const current =
+      byName.get(stage.stage_name);
+
+    if (
+      !current ||
+      (
+        adminStageComplete(stage) &&
+        !adminStageComplete(current)
+      ) ||
+      new Date(
+        stage.updated_at ||
+        stage.completed_date ||
+        stage.completed_at ||
+        0
+      ).getTime() >
+        new Date(
+          current.updated_at ||
+          current.completed_date ||
+          current.completed_at ||
+          0
+        ).getTime()
+    ) {
+      byName.set(
+        stage.stage_name,
+        stage
+      );
+    }
+  }
+
+  const applicationStatus =
+    normalizeAdminApplicationStatus(
+      profile.Application_Status ||
+      profile.applicationStatus ||
+      profile.Lead_Management_Status ||
+      profile.leadManagementStatus ||
+      ""
+    );
+
+  const unqualified =
+    [
+      "unqualified",
+      "not qualified-to close",
+      "not qualified-to-close",
+      "not qualified to close",
+      "to be closed",
+      "to-be-closed"
+    ].includes(applicationStatus);
+
+  const qualifiedPool =
+    [
+      "qualified-candidate pool",
+      "qualified candidate pool"
+    ].includes(applicationStatus);
+
+  const transferSelected =
+    [
+      "transfer to icp usrn school",
+      "transfer to ivp usrn school"
+    ].includes(applicationStatus);
+
+  const sourceNCLEXProgressExists =
+    ADMIN_NCLEX_PROGRAM_FLOW.some(
+      item =>
+        isAdminNCLEXItemComplete(
+          item,
+          profile
+        )
+    );
+
+  const hasNCLEXHistory =
+    transferSelected ||
+    sourceNCLEXProgressExists ||
+    profile?.customModule1Found === true ||
+    Boolean(profile?.customModule1RecordId) ||
+    saved.some(stage =>
+      stage?.nclex_stage === true ||
+      stage?.nclex_subprocess === true ||
+      stage?.stage_category === "NCLEX Program" ||
+      ADMIN_NCLEX_PROGRAM_FLOW.some(
+        item =>
+          item.stage_name === stage?.stage_name &&
+          (
+            adminStageComplete(stage) ||
+            String(stage?.status || "")
+              .trim()
+              .toLowerCase() === "in progress"
+          )
+      )
+    ) ||
+    adminStageComplete(
+      byName.get(
+        "Transfer to ICP USRN School"
+      )
+    );
+
+  const offerAccepted =
+    applicationStatus === "offer accepted" ||
+    adminStageComplete(
+      byName.get("Offer Accepted")
+    );
+
+  const offerDeclined =
+    applicationStatus === "offer declined" ||
+    (
+      !offerAccepted &&
+      adminStageComplete(
+        byName.get("Offer Declined")
+      )
+    );
+
+  let mainFlow =
+    STAGES_CONFIG.filter(stage => {
+      if (unqualified) {
+        return Number(stage.stage_order) <= 3;
+      }
+
+      if (qualifiedPool) {
+        return [
+          "Applied",
+          "Associated with Job",
+          "Qualified - Match",
+          "Qualified Candidate Pool"
+        ].includes(stage.stage_name);
+      }
+
+      if (
+        [
+          "Not Qualified - to close",
+          "Qualified Candidate Pool"
+        ].includes(stage.stage_name)
+      ) {
+        return false;
+      }
+
+      if (
+        stage.stage_name ===
+          "Transfer to ICP USRN School" &&
+        !hasNCLEXHistory
+      ) {
+        return false;
+      }
+
+      if (
+        offerAccepted &&
+        stage.stage_name ===
+          "Offer Declined"
+      ) {
+        return false;
+      }
+
+      if (
+        offerDeclined &&
+        stage.stage_name ===
+          "Offer Accepted"
+      ) {
+        return false;
+      }
+
+      return true;
+    });
+
+  const materialize = config => {
+    const savedStage =
+      byName.get(
+        config.stage_name
+      );
+
+    const complete =
+      adminStageComplete(
+        savedStage
+      );
+
+    const status =
+      complete
+        ? "Completed"
+        : (
+            savedStage?.status ||
+            "Not Started"
+          );
+
+    return {
+      ...config,
+      ...(savedStage || {}),
+      stage_name:
+        config.stage_name,
+      stage_category:
+        config.stage_category,
+      stage_order:
+        config.stage_order,
+      display_name:
+        config.display_name ||
+        savedStage?.display_name ||
+        null,
+      status,
+      completed:
+        complete,
+      is_completed:
+        complete,
+      admin_synthesized:
+        !savedStage
+    };
+  };
+
+  const fullFlow = [
+    ...mainFlow.map(
+      materialize
+    ),
+    ...(
+      hasNCLEXHistory
+        ? ADMIN_NCLEX_PROGRAM_FLOW.map(
+            (config, index) => {
+              const savedStage = byName.get(config.stage_name);
+              const sourceComplete = isAdminNCLEXItemComplete(config, profile);
+              const sourceUnlocked = isAdminNCLEXItemUnlocked(config, index, profile);
+              const savedComplete = adminStageComplete(savedStage);
+
+              // Candidate My Pipeline uses the Recruit CustomModule1 field as the
+              // live source of truth, then keeps a persisted completion if it was
+              // already stored. The non-counted booking step is candidate-driven.
+              const complete =
+                config.type === "booking"
+                  ? savedComplete
+                  : (sourceComplete || savedComplete);
+
+              const status = complete
+                ? "Completed"
+                : sourceUnlocked
+                  ? "In Progress"
+                  : (savedStage?.status || "Not Started");
+
+              return {
+                ...config,
+                ...(savedStage || {}),
+                stage_name: config.stage_name,
+                stage_category: config.stage_category,
+                stage_order: config.stage_order,
+                days_from_start: config.days,
+                timing_rule: `Due by day ${config.days} from Day 1.`,
+                timing_source: "nclex_day_1_fixed",
+                nclex_stage: true,
+                nclex_sequence_index: index,
+                status,
+                completed: complete,
+                is_completed: complete,
+                completed_date: complete
+                  ? (
+                      savedStage?.completed_date ||
+                      savedStage?.completed_at ||
+                      null
+                    )
+                  : null,
+                nclex_unlocked: sourceUnlocked,
+                source_trigger_unlocked: sourceUnlocked,
+                trigger_unlocked: sourceUnlocked,
+                synced_from_custom_module_1: sourceComplete,
+                admin_synthesized: !savedStage
+              };
+            }
+          )
+        : []
+    )
+  ]
+    .sort(
+      (a, b) =>
+        Number(a.stage_order || 0) -
+        Number(b.stage_order || 0)
+    );
+
+  return fullFlow;
+};
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
 
@@ -193,6 +705,7 @@ const PIPELINE_CATEGORIES = {
   Aftercare: { bg: "bg-rose-50", text: "text-rose-700", border: "border-rose-200" },
   "NCLEX Roadmap": { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200" },
   "NCLEX Prescreen": { bg: "bg-orange-50", text: "text-orange-700", border: "border-orange-200" },
+  "NCLEX Program": { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200" },
 };
 
 const PIPELINE_STATUS = {
@@ -331,6 +844,31 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
             ...zoho,
             ...latestDeal,
             ...candidate,
+
+            // NCLEX / ICP USRN values are owned by Recruit CustomModule1.
+            // Restore the canonical comprehensive values AFTER Candidate/Deal
+            // spreads so blank same-named fields in those modules cannot erase
+            // the exact progress the candidate sees in My Pipeline.
+            NCLEX_Pre_Exam: zoho.NCLEX_Pre_Exam,
+            Prescreen_Status: zoho.Prescreen_Status,
+            Documents_Submitted: zoho.Documents_Submitted,
+            Sponsorship_Agreement: zoho.Sponsorship_Agreement,
+            Program_Status: zoho.Program_Status,
+            Credential_Service: zoho.Credential_Service,
+            Credentialing_Status: zoho.Credentialing_Status,
+            Credential_Registration_Date: zoho.Credential_Registration_Date,
+            Date_Report_Issued: zoho.Date_Report_Issued,
+            State_License_Board_of_Registration: zoho.State_License_Board_of_Registration,
+            Board_Username: zoho.Board_Username,
+            Pearson_Vue_Status: zoho.Pearson_Vue_Status,
+            Assessments_Completed: zoho.Assessments_Completed,
+            Assignments_Completed: zoho.Assignments_Completed,
+            Performance_Rating: zoho.Performance_Rating,
+            ATT_Received_Date: zoho.ATT_Received_Date,
+            NCLEX_Exam_Date: zoho.NCLEX_Exam_Date,
+            NCLEX_Status: zoho.NCLEX_Status,
+            customModule1Found: zoho.customModule1Found,
+            customModule1RecordId: zoho.customModule1RecordId,
             candidateName: zoho.candidateName || candidate.Full_Name || candidate.Candidate_Name || detail.name,
             email: zoho.email || candidate.Email || detail.email,
             orientationStartDate:
@@ -670,9 +1208,15 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
   if (!user) return null;
 
+  const adminVisiblePipeline =
+    buildAdminCandidatePipelineFlow(
+      pipeline,
+      profile
+    );
+
   const tabs = [
     { id: 'profile', label: 'Candidate Profile' },
-    { id: 'pipeline', label: 'Candidate Pipeline', badge: pipeline.length },
+    { id: 'pipeline', label: 'Candidate Pipeline', badge: adminVisiblePipeline.length },
     { id: 'documents', label: 'Candidate Documents', badge: documents.length },
     { id: 'deployment', label: 'Travel & Extras' },
     { id: 'aftercare', label: 'Aftercare Dates' },
@@ -680,13 +1224,66 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     { id: 'overview', label: 'System Overview' },
   ];
 
-  const displayStages = pipeline.filter(s => !s.is_gate);
-  const completedCount = displayStages.filter(s => s.status === "Completed").length;
-  const progressPct = displayStages.length > 0 ? Math.round((completedCount / displayStages.length) * 100) : 0;
-  const activeCategories = ["Hiring", "Immigration", "Deployment", "Aftercare", "NCLEX Roadmap", "NCLEX Prescreen"];
+  const displayStages =
+    adminVisiblePipeline.filter(
+      stage =>
+        stage.is_gate !== true &&
+        stage.non_counted_section !== true
+    );
+
+  const completedCount =
+    displayStages.filter(
+      stage =>
+        adminStageComplete(stage)
+    ).length;
+
+  const progressPct =
+    displayStages.length > 0
+      ? Math.round(
+          (
+            completedCount /
+            displayStages.length
+          ) *
+            100
+        )
+      : 0;
+
+  const activeCategories = [
+    "Hiring",
+    "NCLEX Program",
+    "Immigration",
+    "Deployment",
+    "Aftercare"
+  ];
+
+  const authoritativeCurrentStageName =
+    adminDetails?.pipelineProgress?.currentStage ||
+    user?.pipeline?.currentStage ||
+    adminVisiblePipeline.find(
+      stage =>
+        !adminStageComplete(stage) &&
+        String(stage?.status || "")
+          .trim()
+          .toLowerCase() === "in progress"
+    )?.stage_name ||
+    adminVisiblePipeline.find(
+      stage =>
+        !adminStageComplete(stage) &&
+        (
+          stage?.unlocked === true ||
+          stage?.is_unlocked === true ||
+          stage?.source_trigger_unlocked === true ||
+          stage?.nclex_unlocked === true
+        )
+    )?.stage_name ||
+    adminVisiblePipeline.find(
+      stage =>
+        !adminStageComplete(stage)
+    )?.stage_name ||
+    null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-0 backdrop-blur-sm sm:p-4">
       {rejectingDocument && (
         <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl">
@@ -730,7 +1327,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
           </div>
         </div>
       )}
-      <div className="bg-gray-50 rounded-2xl max-w-5xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+      <div className="flex h-[100dvh] w-full max-w-5xl flex-col overflow-hidden bg-gray-50 shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-2xl">
         {userPendingRequests.length > 0 && (
           <div className="border-b border-amber-200 bg-amber-50 px-6 py-3">
             <p className="text-sm font-bold text-amber-900">
@@ -743,16 +1340,16 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
         )}
         
         {/* HEADER */}
-        <div className="bg-white border-b px-8 py-6 z-10 sticky top-0" style={{ borderColor: THEME.border }}>
-          <div className="flex justify-between items-start">
-            <div className="flex items-center gap-5">
-              <div className="h-16 w-16 rounded-2xl flex items-center justify-center shadow-sm" style={{ background: THEME.brandGhost }}>
-                <span className="text-2xl font-bold" style={{ color: THEME.brand }}>
+        <div className="sticky top-0 z-10 border-b bg-white px-4 py-4 sm:px-8 sm:py-6" style={{ borderColor: THEME.border }}>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex min-w-0 items-center gap-3 sm:gap-5">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl shadow-sm sm:h-16 sm:w-16 sm:rounded-2xl" style={{ background: THEME.brandGhost }}>
+                <span className="text-lg font-bold sm:text-2xl" style={{ color: THEME.brand }}>
                   {initials(profile.candidateName || profile.firstName || user.name || user.email)}
                 </span>
               </div>
               <div>
-                <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+                <h1 className="break-words text-xl font-bold tracking-tight text-gray-900 sm:text-2xl">
                   {extractString(profile.candidateName) !== "—" ? extractString(profile.candidateName) : extractString(user.name) !== "—" ? extractString(user.name) : 'Candidate'}
                 </h1>
                 <p className="text-sm text-gray-500 mt-0.5">{extractString(profile.email) !== "—" ? extractString(profile.email) : user.email}</p>
@@ -762,8 +1359,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
               </div>
             </div>
             
-            <div className="flex items-center gap-3">
-              <button onClick={() => { onMessage(user); onClose(); }} className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-bold transition hover:opacity-90 shadow-sm" style={{ background: THEME.brand }}>
+            <div className="flex w-full items-center gap-2 sm:w-auto sm:gap-3">
+              <button onClick={() => { onMessage(user); onClose(); }} className="flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:opacity-90 sm:flex-none sm:px-5" style={{ background: THEME.brand }}>
                 <MessageSquare className="w-4 h-4" /> Message
               </button>
               <button onClick={onClose} className="p-2.5 rounded-xl hover:bg-gray-100 transition border border-gray-200">
@@ -772,7 +1369,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
             </div>
           </div>
 
-          <div className="flex pt-6 gap-6 overflow-x-auto">
+          <div className="-mx-4 flex gap-4 overflow-x-auto px-4 pt-4 pb-1 sm:mx-0 sm:gap-6 sm:px-0 sm:pt-6">
             {tabs.map(t => (
               <button
                 key={t.id}
@@ -787,7 +1384,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
         </div>
 
         {/* CONTENT AREA */}
-        <div className="p-8 overflow-y-auto flex-1">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-5 lg:p-8">
           {loading ? (
             <div className="flex flex-col items-center justify-center h-48 text-gray-400">
               <Loader2 className="w-8 h-8 animate-spin mb-3 text-purple-600" />
@@ -872,14 +1469,37 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                     </div>
                   </div>
 
-                  {pipeline.length === 0 ? (
+                  <div className="rounded-xl border border-purple-100 bg-purple-50/60 px-5 py-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wider text-purple-700">
+                          Candidate-facing flow
+                        </p>
+                        <p className="mt-1 text-sm text-gray-700">
+                          Hiring → NCLEX Program (when applicable) → Immigration → Deployment → Aftercare
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-purple-200 bg-white px-3 py-2">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                          Current Stage
+                        </p>
+                        <p className="mt-0.5 text-sm font-bold text-purple-700">
+                          {authoritativeCurrentStageName || "Not started"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {adminVisiblePipeline.length === 0 ? (
                     <div className="text-center py-12 bg-white rounded-xl border border-dashed border-gray-300">
                       <Activity className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                       <p className="text-gray-600 font-medium">No pipeline established yet.</p>
                     </div>
                   ) : (
                     activeCategories.map(cat => {
-                      const catStages = pipeline.filter(s => s?.stage_category === cat).sort((a, b) => a.stage_order - b.stage_order);
+                      const catStages = adminVisiblePipeline
+                        .filter(s => s?.stage_category === cat)
+                        .sort((a, b) => Number(a.stage_order || 0) - Number(b.stage_order || 0));
                       if (!catStages || catStages.length === 0) return null;
                       
                       const colors = PIPELINE_CATEGORIES[cat] || PIPELINE_CATEGORIES.Hiring;
@@ -903,14 +1523,16 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                               return (
                                 <div
                                   key={stage.id || stage._id}
-                                  className={`flex items-start gap-4 px-5 py-4 ${
+                                  className={`flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-start sm:gap-4 sm:px-5 ${
                                     riskStatus === 'Late'
                                       ? 'bg-red-50 border-l-4 border-l-red-500'
                                       : riskStatus === 'At Risk'
                                         ? 'bg-yellow-50 border-l-4 border-l-yellow-400'
-                                        : isGate
-                                          ? 'bg-blue-50/30 border-l-4 border-l-blue-400'
-                                          : ''
+                                        : authoritativeCurrentStageName === stage.stage_name
+                                          ? 'bg-purple-50 border-l-4 border-l-purple-500'
+                                          : isGate
+                                            ? 'bg-blue-50/30 border-l-4 border-l-blue-400'
+                                            : ''
                                   }`}
                                 >
                                   <div className="flex-shrink-0 mt-0.5">
@@ -919,7 +1541,12 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                   <div className="flex-1 min-w-0">
                                     <p className={`text-sm font-bold ${stage.status === 'Completed' ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
                                       {isGate && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded mr-2 font-bold">GATE</span>}
-                                      {stage.stage_name}
+                                      {stage.display_name || stage.stage_name}
+                                      {authoritativeCurrentStageName === stage.stage_name && (
+                                        <span className="ml-2 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-purple-700">
+                                          Current
+                                        </span>
+                                      )}
                                     </p>
                                     {stage.completed_date && <p className="text-xs text-emerald-600 font-semibold mt-1">Completed {formatDate(stage.completed_date)}</p>}
                                     {stage.status === 'In Progress' && <p className="text-xs text-blue-600 font-semibold mt-1">Currently in progress</p>}
@@ -940,7 +1567,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                       </p>
                                     )}
                                   </div>
-                                  <div className="flex items-center gap-2 flex-shrink-0">
+                                  <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-shrink-0 sm:justify-end">
                                     {riskStatus === 'At Risk' && (
                                       <span className="text-xs px-3 py-1 rounded-full font-bold border border-amber-200 bg-amber-50 text-amber-700">
                                         At Risk
@@ -1091,7 +1718,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
               {activeTab === 'deployment' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <Section title={<><Plane className="w-5 h-5 text-blue-600" /> Flight Itinerary</>} className="md:col-span-2">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-2">
+                    <div className="grid grid-cols-1 gap-y-2 sm:grid-cols-2 sm:gap-x-6 lg:grid-cols-3 lg:gap-x-8">
                       <InfoRow label="Primary Airline" value={profile.primaryairline} icon={Plane} />
                       <InfoRow label="Departure City" value={profile.departcity} icon={MapPin} />
                       <InfoRow label="Port of Entry" value={profile.entryport} icon={MapPin} />
@@ -1108,7 +1735,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                       <InfoRow label="Confirmation #" value={profile.confirmationnumbers} icon={FileText} />
                     </div>
                     
-                    <div className="mt-4 pt-4 border-t border-gray-100 grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="mt-4 grid grid-cols-1 gap-4 border-t border-gray-100 pt-4 sm:grid-cols-2 lg:grid-cols-3">
                       <InfoRow label="Flight Booked Status" value={profile.Flight_Booked_Emailed || profile.flightConfirmation} icon={CheckCircle} />
                       <InfoRow label="RN Flight Cost" value={profile.RN_Flight_Cost} icon={DollarSign} />
                       <InfoRow label="Dependent Flight Cost" value={profile.Dependent_Flight_Cost} icon={DollarSign} />
