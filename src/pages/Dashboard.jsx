@@ -2639,11 +2639,23 @@ export default function Dashboard() {
           </span>
         </div>
 
-        <div className="relative z-10 mt-4 h-2.5 max-w-[72%] overflow-hidden rounded-full bg-muted">
-          <div
-            className="h-full rounded-full bg-gradient-to-r from-blue-500 via-purple-500 to-emerald-500 transition-all"
+        <div className="relative z-10 mt-4 max-w-[72%]">
+          <div className="h-2.5 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-blue-500 via-purple-500 to-emerald-500 transition-all duration-700"
+              style={{
+                width:
+                  `${pipelineProgressPercent}%`
+              }}
+            />
+          </div>
+
+          <img
+            src={person2}
+            alt="Your current pipeline progress"
+            className="pointer-events-none absolute top-1/2 h-11 w-11 -translate-y-1/2 -translate-x-1/2 object-contain drop-shadow-md transition-all duration-700 ease-out"
             style={{
-              width:
+              left:
                 `${pipelineProgressPercent}%`
             }}
           />
