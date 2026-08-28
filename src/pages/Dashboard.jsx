@@ -2639,7 +2639,7 @@ export default function Dashboard() {
           </span>
         </div>
 
-        <div className="relative z-10 mt-4 max-w-[72%]">
+        <div className="relative z-10 mt-12 max-w-[72%]">
           <div className="h-2.5 overflow-hidden rounded-full bg-muted">
             <div
               className="h-full rounded-full bg-gradient-to-r from-blue-500 via-purple-500 to-emerald-500 transition-all duration-700"
@@ -2650,15 +2650,20 @@ export default function Dashboard() {
             />
           </div>
 
-          <img
-            src={person2}
-            alt="Your current pipeline progress"
-            className="pointer-events-none absolute top-1/2 h-11 w-11 -translate-y-1/2 -translate-x-1/2 object-contain drop-shadow-md transition-all duration-700 ease-out"
+          <span
+            role="img"
+            aria-label="Your current pipeline progress"
+            className="pointer-events-none absolute -translate-x-1/2 select-none leading-none transition-all duration-700 ease-out"
             style={{
               left:
-                `${pipelineProgressPercent}%`
+                `${pipelineProgressPercent}%`,
+              bottom: "100%",
+              fontSize: "34px",
+              filter: "drop-shadow(0 3px 4px rgba(0,0,0,0.25))"
             }}
-          />
+          >
+            🧑‍⚕️
+          </span>
         </div>
 
         <div className="relative z-10 mt-2 flex max-w-[72%] justify-between text-xs text-muted-foreground">
