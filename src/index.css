@@ -218,16 +218,58 @@
   animation: bgFadeIn 0.8s ease-in-out forwards;
 }
 
-@media (max-width: 1024px) {
-  .main-content::before {
-    background: rgba(255, 255, 255, 0.82);
-  }
-
-  .dark .main-content::before {
-    background: rgba(15, 23, 42, 0.85);
-  }
+/* ─── Messages Page Full Height Fix ────────────────────────────────────────── */
+/* This ensures messages page takes full height without being cut off */
+.messages-page-container {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
+/* Ensure ConversationList fills its container */
+.messages-page-container .conversation-list-wrapper,
+.messages-page-container > div:last-child {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+/* Fix for any internal scrolling issues */
+.messages-page-container .conversation-list-scroll {
+  height: 100%;
+  overflow-y: auto;
+}
+
+/* Force ConversationList to fill height - override any internal styles */
+.messages-page-container [class*="ConversationList"],
+.messages-page-container > div:last-child > div {
+  flex: 1 1 0%;
+  min-height: 0;
+  height: 100% !important;
+  max-height: 100% !important;
+  overflow-y: auto;
+}
+
+/* Remove any padding that might be causing gaps */
+.messages-page-container [class*="ConversationList"] > div:first-child {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+/* ─── Mobile Responsive Fixes ──────────────────────────────────────────────── */
 @media (max-width: 640px) {
   .main-content {
     background-attachment: scroll;
@@ -239,6 +281,40 @@
 
   .dark .main-content::before {
     background: rgba(15, 23, 42, 0.9);
+  }
+  
+  /* Mobile messages page fix - ensure proper height */
+  .messages-page-container {
+    height: 100%;
+    min-height: 0;
+  }
+}
+
+@media (max-width: 1024px) {
+  .main-content::before {
+    background: rgba(255, 255, 255, 0.82);
+  }
+
+  .dark .main-content::before {
+    background: rgba(15, 23, 42, 0.85);
+  }
+  
+  /* Ensure messages page fills height on tablet */
+  .messages-page-container {
+    height: 100%;
+    min-height: 0;
+  }
+}
+
+/* Desktop messages page fix */
+@media (min-width: 1024px) {
+  .lg\:ml-64 {
+    margin-left: 16rem;
+  }
+  
+  .messages-page-container {
+    height: 100%;
+    min-height: 0;
   }
 }
 /* stylelint-enable */

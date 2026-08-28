@@ -16,7 +16,9 @@ import {
   Megaphone,
   Home,
   ArrowLeft,
-  Send
+  Send,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
@@ -72,6 +74,8 @@ export default function Layout() {
   const [imageError, setImageError] = useState(false);
   const [licensureUrl, setLicensureUrl] = useState(undefined);
   const stageRiskToastRef = useRef("");
+  const [mobileNavScroll, setMobileNavScroll] = useState(0);
+  const mobileNavRef = useRef(null);
 
   // ─── Load licensure URL ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -94,9 +98,6 @@ export default function Layout() {
   const navItems = getNavItems(licensureUrl);
 
   // ─── Transfer to ICP USRN School branch redirect ───────────────────────────
-  // Applications.Application_Status is the canonical Hiring source.
-  // Redirect only once per authenticated session so the user can still visit
-  // Forms, Documents, Submit an Inquiry, etc. after the NCLEX branch opens.
   useEffect(() => {
     if (!user?.email) {
       return;
@@ -272,9 +273,6 @@ export default function Layout() {
                 .toISOString()
           };
 
-          // Candidate pages already know how to refresh on these browser events.
-          // The backend clears the shared candidate cache before this event is
-          // emitted, so each page receives fresh CRM-backed data.
           window.dispatchEvent(
             new CustomEvent(
               "candidate-data-updated",
@@ -692,8 +690,6 @@ export default function Layout() {
               });
             }
 
-            // Do not mark the backend notification read just because a popup was
-            // displayed. This only prevents duplicate popups during this session.
             sessionStorage.setItem(notificationKey, "1");
           });
       } catch (error) {
@@ -738,8 +734,6 @@ export default function Layout() {
   }, [user?.email]);
 
   // ─── Portal access enforcement ─────────────────────────────────────────────
-            
-          
   useEffect(() => {
     if (!user?.email) return;
 
@@ -772,10 +766,6 @@ export default function Layout() {
 
         const policy = data.accessPolicy || {};
 
-        // "locked" only controls which pipeline sections are available during
-        // a restricted/grace-period state. It must NOT terminate the login.
-        // The candidate should be signed out only after the backend confirms
-        // the actual portal-access deadline has been reached.
         if (
           policy.portal_locked === true
         ) {
@@ -804,7 +794,6 @@ export default function Layout() {
   const isHomePage = location.pathname === "/";
   
   // Check if we're on a page that should show the back button
-  // You can customize this list based on your routes
   const showBackButton = !isHomePage && location.pathname !== "/profile";
 
   // Get the page title based on current route
@@ -813,12 +802,27 @@ export default function Layout() {
     return currentItem?.label || "Page";
   };
 
-  // Handle back navigation - goes to previous page or dashboard
+  // Handle back navigation
   const handleBack = () => {
     if (window.history.length > 2) {
       navigate(-1);
     } else {
       navigate("/");
+    }
+  };
+
+  // Check if current page is messages to apply special styling
+  const isMessagesPage = location.pathname === "/messages";
+
+  // Scroll mobile nav
+  const scrollMobileNav = (direction) => {
+    if (mobileNavRef.current) {
+      const scrollAmount = 200;
+      const newScroll = mobileNavRef.current.scrollLeft + (direction === 'left' ? -scrollAmount : scrollAmount);
+      mobileNavRef.current.scrollTo({
+        left: newScroll,
+        behavior: 'smooth'
+      });
     }
   };
 
@@ -898,31 +902,58 @@ export default function Layout() {
         </div>
       </header>
 
-      {/* ─── Mobile bottom nav ──────────────────────────────────────────────── */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur border-t border-[#E8E1F2] z-50 flex justify-around py-2 px-1">
-        {navItems.slice(0, 7).map((item) => {
-          const Icon = item.icon;
-          const active = location.pathname === item.path;
-          const isMessages = item.path === "/messages";
-          
-          return (
-            <Link 
-              key={item.path} 
-              to={item.path} 
-              className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg transition-colors relative ${
-                active ? "text-[#6D28D9] bg-[#F5F0FF]" : "text-[#64748B]"
-              }`}
-            >
-              <Icon className="h-5 w-5" />
-              <span className="text-[10px]">{item.label.split(" ")[0]}</span>
-              {isMessages && unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-[#C026D3] text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center">
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </Link>
-          );
-        })}
+      {/* ─── Mobile bottom nav - SCROLLABLE ─────────────────────────────────── */}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur border-t border-[#E8E1F2] z-50">
+        <div className="relative flex items-center">
+          {/* Left scroll button */}
+          <button
+            onClick={() => scrollMobileNav('left')}
+            className="absolute left-0 z-10 h-full px-1 bg-white/80 hover:bg-white/95 transition-colors flex items-center justify-center"
+            aria-label="Scroll left"
+          >
+            <ChevronLeft className="h-4 w-4 text-slate-600" />
+          </button>
+
+          {/* Scrollable nav items */}
+          <div 
+            ref={mobileNavRef}
+            className="flex overflow-x-auto scrollbar-hide py-2 px-6 gap-1 snap-x snap-mandatory"
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          >
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const active = location.pathname === item.path;
+              const isMessages = item.path === "/messages";
+              
+              return (
+                <Link 
+                  key={item.path} 
+                  to={item.path} 
+                  className={`flex-shrink-0 flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg transition-colors relative snap-start ${
+                    active ? "text-[#6D28D9] bg-[#F5F0FF]" : "text-[#64748B]"
+                  }`}
+                >
+                  <Icon className="h-5 w-5" />
+                  <span className="text-[10px] whitespace-nowrap">{item.label}</span>
+                  {isMessages && unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-[#C026D3] text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+
+          {/* Right scroll button */}
+          <button
+            onClick={() => scrollMobileNav('right')}
+            className="absolute right-0 z-10 h-full px-1 bg-white/80 hover:bg-white/95 transition-colors flex items-center justify-center"
+            aria-label="Scroll right"
+          >
+            <ChevronRight className="h-4 w-4 text-slate-600" />
+          </button>
+        </div>
       </nav>
 
       {/* ─── Desktop Sidebar ────────────────────────────────────────────────── */}
@@ -933,7 +964,7 @@ export default function Layout() {
             const active = location.pathname === item.path;
             const isMessages = item.path === "/messages";
 
-  return (
+            return (
               <Link
                 key={item.path}
                 to={item.path}
@@ -1003,11 +1034,19 @@ export default function Layout() {
       </aside>
 
       {/* ─── Main Content ────────────────────────────────────────────────────── */}
-      <main className="flex-1 lg:min-h-screen pb-20 lg:pb-0 lg:ml-64 bg-[#F5F0FF]">
-        <div className="mx-auto w-full max-w-[90rem] p-4 lg:p-5">
-          <Outlet />
-        </div>
-      </main>
+<main 
+  className={`flex-1 lg:min-h-screen pb-20 lg:pb-0 lg:ml-64 bg-[#F5F0FF] ${
+    isMessagesPage ? 'overflow-hidden h-[calc(100vh-4rem)]' : ''
+  }`}
+>
+  <div 
+    className={`mx-auto w-full ${
+      isMessagesPage ? 'h-full p-0 m-0' : 'max-w-[90rem] p-4 lg:p-5'
+    }`}
+  >
+    <Outlet />
+  </div>
+</main>
     </div>
   );
 }
