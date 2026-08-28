@@ -732,7 +732,6 @@ const sendMessage = useCallback(async () => {
             <div className="flex justify-between items-center flex-wrap gap-2">
               <div>
                 <h1 className="text-xl font-semibold text-slate-800">Departments</h1>
-                {unreadCount > 0 && <span className="text-sm text-purple-600 ml-2">{unreadCount} unread</span>}
               </div>
             </div>
           </div>
@@ -747,7 +746,6 @@ const sendMessage = useCallback(async () => {
                 <section key={department.id}>
                   <div className="flex items-center justify-between bg-slate-50 px-4 py-2 text-xs font-bold uppercase tracking-wide text-slate-500">
                     <span>{department.label}</span>
-                    <span>{departmentConversations.length}</span>
                   </div>
                   {departmentConversations.length === 0 ? (
                     department.id === "it" ? (
@@ -782,15 +780,17 @@ const sendMessage = useCallback(async () => {
                     </div>
                     
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-2">
                         <span className={`font-medium ${isUnread ? 'text-slate-900' : 'text-slate-600'}`}>
                           {isBroadcast ? "Public Messages" : name}
                         </span>
-                        <span className="text-xs text-slate-400">{timeAgo}</span>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className="text-xs text-slate-400">{timeAgo}</span>
+                          {isUnread && <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-emerald-600 px-1 py-0.5 text-[10px] font-bold leading-none text-white">{conversation.unreadCount}</span>}
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className={`text-sm truncate ${isUnread ? 'text-slate-700 font-medium' : 'text-slate-500'}`}>{preview}</span>
-                        {isUnread && <span className="flex-shrink-0 w-2 h-2 bg-purple-600 rounded-full"></span>}
                       </div>
                     </div>
                   </button>

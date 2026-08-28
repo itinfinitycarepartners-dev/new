@@ -1557,6 +1557,11 @@ const MessagingPanel = ({ users, initialTarget }) => {
         const historyData = await readResponse(historyResponse);
         if (!cancelled) {
           setMessages(prev => ({ ...prev, [selected]: historyData.messages || [] }));
+          setDepartmentConversations(previous => previous.map(item =>
+            item._id === conversation._id
+              ? { ...item, unreadCount: 0 }
+              : item
+          ));
         }
       } catch (error) {
         if (!cancelled) setMessageError(error.message || 'Could not load this conversation.');
@@ -1704,6 +1709,19 @@ const MessagingPanel = ({ users, initialTarget }) => {
     const thread = threads.find(item => String(item.email).toLowerCase() === String(email).toLowerCase());
     return thread?.name || email?.split('@')[0] || 'Unknown user';
   };
+  const getConversationUnreadCount = conversation => {
+    // Newer API responses provide the full count. Fall back to the populated
+    // last message so the badge remains useful during a backend rollout.
+    if (Object.prototype.hasOwnProperty.call(conversation, "unreadCount")) {
+      return Number(conversation.unreadCount || 0);
+    }
+
+    const lastMessage = conversation.lastMessage;
+    const sentByAdmin =
+      String(lastMessage?.senderEmail || "").toLowerCase() === "admin";
+
+    return lastMessage && !lastMessage.isRead && !sentByAdmin ? 1 : 0;
+  };
   const conversationsByDepartment = department => {
     if (department === "public") {
       return [];
@@ -1724,11 +1742,36 @@ const MessagingPanel = ({ users, initialTarget }) => {
       });
     return Array.from(uniqueConversations.values());
   };
+  const selectConversation = (conversation, departmentId) => {
+    const email = getConversationEmail(conversation);
+
+    setDepartment(departmentId);
+    setSelected(email);
+    // Clear the badge immediately on selection; the history endpoint also
+    // persists the read state so it remains cleared after a refresh.
+    setDepartmentConversations(previous => previous.map(item =>
+      item._id === conversation._id
+        ? { ...item, unreadCount: 0 }
+        : item
+    ));
+  };
   const chat = selected ? messages[selected] || [] : [];
+  const selectedName =
+    threads.find(thread => thread.email === selected)?.name ||
+    selected ||
+    "";
 
   return (
-    <div className="bg-white rounded-xl border overflow-hidden h-[600px] flex shadow-sm">
-      <div className="w-1/3 border-r overflow-y-auto bg-gray-50/30">
+    <div className="h-[680px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-200/50 flex">
+      <div className="w-[340px] shrink-0 border-r border-slate-200 bg-slate-50/70 overflow-y-auto">
+        <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Message inbox</h2>
+              <p className="text-xs text-slate-500">Candidate conversations by team</p>
+            </div>
+          </div>
+        </div>
         {departments.map(item => {
           const departmentThreads =
             conversationsByDepartment(
@@ -1740,7 +1783,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
             ];
 
           return (
-            <div key={item.id} className="border-b border-gray-200">
+            <div key={item.id} className="border-b border-slate-200/80">
               <button
                 type="button"
                 onClick={() => {
@@ -1766,23 +1809,19 @@ const MessagingPanel = ({ users, initialTarget }) => {
                     );
                   }
                 }}
-                className={`w-full px-4 py-3 flex items-center justify-between text-left font-bold text-sm ${
+                className={`w-full px-5 py-3 flex items-center justify-between text-left text-sm font-bold transition-colors ${
                   department === item.id
                     ? "bg-purple-50 text-purple-800"
-                    : "bg-white text-gray-800 hover:bg-gray-50"
+                    : "bg-transparent text-slate-700 hover:bg-white"
                 }`}
               >
                 <span>{item.label}</span>
-                <span className="text-xs font-semibold text-gray-400">
-                  {item.id === "public"
-                    ? "Group"
-                    : departmentThreads.length}
-                </span>
+                {item.id === "public" && <span className="text-xs font-semibold text-slate-400">Group</span>}
               </button>
               {isExpanded &&
                 item.id !== "public" &&
                 departmentThreads.length === 0 && (
-                  <div className="px-7 py-2 text-xs italic text-gray-400 bg-gray-50">
+                  <div className="px-7 py-3 text-xs italic text-slate-400 bg-slate-50">
                     No messages
                   </div>
                 )}
@@ -1799,7 +1838,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
                         null
                       );
                     }}
-                    className={`w-full px-7 py-3 text-left border-t border-gray-100 transition ${
+                    className={`w-full px-7 py-3 text-left border-t border-slate-100 transition ${
                       department === "public"
                         ? "bg-purple-100"
                         : "bg-gray-50 hover:bg-purple-50"
@@ -1816,32 +1855,33 @@ const MessagingPanel = ({ users, initialTarget }) => {
 
               {isExpanded && item.id !== "public" && departmentThreads.map(conversation => {
                 const email = getConversationEmail(conversation);
-                const thread = threads.find(user => String(user.email).toLowerCase() === String(email).toLowerCase());
                 return (
                   <button
                     type="button"
                     key={conversation._id}
-                    onClick={() => {
-                      setDepartment(
-                        item.id
-                      );
-                      setSelected(
-                        email
-                      );
-                    }}
-                    className={`w-full px-7 py-3 text-left border-t border-gray-100 transition ${
+                    onClick={() => selectConversation(conversation, item.id)}
+                    className={`w-full px-5 py-3 text-left border-t border-slate-100 transition ${
                       selected === email &&
                       department === item.id
-                        ? "bg-purple-100"
-                        : "bg-gray-50 hover:bg-purple-50"
+                        ? "bg-purple-100/80"
+                        : getConversationUnreadCount(conversation) > 0
+                          ? "bg-white hover:bg-purple-50"
+                          : "bg-slate-50/50 hover:bg-purple-50"
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold text-gray-900 truncate">{getConversationName(conversation)}</div>
-                        <div className="text-xs text-gray-500 truncate">{email}</div>
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-purple-100 text-sm font-bold text-purple-700">
+                          {getConversationName(conversation).charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <div className={`truncate text-sm ${getConversationUnreadCount(conversation) > 0 ? "font-bold text-slate-900" : "font-semibold text-slate-700"}`}>
+                            {getConversationName(conversation)}
+                          </div>
+                          <div className="truncate text-xs text-slate-500">{conversation.lastMessage?.content || email}</div>
+                        </div>
                       </div>
-                      {thread?.isActive && <div className="w-2 h-2 shrink-0 rounded-full bg-green-500" />}
+                      {getConversationUnreadCount(conversation) > 0 && <span className="inline-flex min-w-4 shrink-0 items-center justify-center rounded-full bg-emerald-600 px-1 py-0.5 text-[10px] font-bold leading-none text-white">{getConversationUnreadCount(conversation)}</span>}
                     </div>
                   </button>
                 );
@@ -1850,7 +1890,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
           );
         })}
       </div>
-      <div className="w-2/3 flex flex-col bg-white">
+      <div className="min-w-0 flex-1 flex flex-col bg-slate-50/50">
         {department === "public" ? (
           <>
             <div className="border-b px-5 py-4 bg-white shadow-sm">
@@ -1915,18 +1955,21 @@ const MessagingPanel = ({ users, initialTarget }) => {
             </div>
           </>
         ) : !selected ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
-            <MessageSquare className="w-12 h-12 mb-3 text-gray-200" />
-            <p>Select a user to start messaging</p>
+          <div className="flex-1 flex flex-col items-center justify-center px-8 text-center text-slate-400">
+            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-purple-100 text-purple-600"><MessageSquare className="h-8 w-8" /></div>
+            <p className="font-semibold text-slate-700">Select a conversation</p>
+            <p className="mt-1 text-sm">Choose a candidate from the inbox to read and reply.</p>
           </div>
         ) : (
           <>
-            <div className="border-b px-5 py-4 bg-white flex items-center justify-between shadow-sm z-10">
-              <div>
-                <h3 className="font-bold text-gray-900">
-                  {threads.find(t => t.email === selected)?.name || selected}
-                </h3>
-                <p className="text-xs text-gray-500">
+            <div className="z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 shadow-sm">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-purple-600 font-bold text-white">
+                  {selectedName.charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                <h3 className="truncate font-bold text-slate-900">{selectedName}</h3>
+                <p className="truncate text-xs text-slate-500">
                   {selected}
                   {" • "}
                   {departments.find(
@@ -1934,9 +1977,11 @@ const MessagingPanel = ({ users, initialTarget }) => {
                       item.id === department
                   )?.label || department}
                 </p>
+                </div>
               </div>
+              <span className="rounded-full bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700">{departments.find(item => item.id === department)?.label || department}</span>
             </div>
-            <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-gray-50/50">
+            <div className="flex-1 space-y-4 overflow-y-auto bg-slate-100/60 p-6">
               {messageError && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{messageError}</div>}
               {loadingHistory ? (
                 <div className="text-center text-xs text-gray-400 mt-4">Loading conversation...</div>
@@ -1945,7 +1990,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
               ) : (
                 chat.map((msg) => (
                   <div key={msg._id || msg.id} className={`flex ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-sm shadow-sm ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'text-white rounded-br-sm' : 'border bg-white text-gray-800 rounded-bl-sm'}`} style={{ background: msg.senderEmail === 'admin' || msg.from === 'admin' ? THEME.brand : '' }}>
+                    <div className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-sm shadow-sm ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'text-white rounded-br-sm' : 'border border-slate-200 bg-white text-slate-800 rounded-bl-sm'}`} style={{ background: msg.senderEmail === 'admin' || msg.from === 'admin' ? THEME.brand : '' }}>
                       {msg.content || msg.text}
                     </div>
                   </div>
@@ -1953,9 +1998,9 @@ const MessagingPanel = ({ users, initialTarget }) => {
               )}
               <div ref={chatEndRef} />
             </div>
-            <div className="p-4 border-t bg-white flex gap-3">
-              <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()} placeholder="Type a message..." className="flex-1 px-4 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-purple-500 bg-gray-50" />
-              <button onClick={sendMessage} disabled={loading || !input.trim()} className="px-6 py-2.5 rounded-xl text-white font-bold transition hover:opacity-90 disabled:opacity-50 shadow-sm flex items-center gap-2" style={{ background: THEME.brand }}>
+            <div className="flex gap-3 border-t border-slate-200 bg-white p-4">
+              <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()} placeholder={`Message ${selectedName}...`} className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+              <button onClick={sendMessage} disabled={loading || !input.trim()} className="flex items-center gap-2 rounded-xl px-6 py-2.5 text-sm font-bold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50" style={{ background: THEME.brand }}>
                 {loading ? 'Sending' : 'Send'} <Send className="w-4 h-4" />
               </button>
             </div>
