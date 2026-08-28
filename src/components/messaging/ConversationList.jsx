@@ -254,20 +254,9 @@ const sendMessage = useCallback(async () => {
   if (!newMessageContent.trim() || !selectedId) return;
   setSendingMessage(true);
   try {
-    // Check if this is a direct message to admin or another user
-    const conversation = conversations.find(c => c._id === selectedId);
-    const isAdminConversation =
-      conversation?.participants?.some(
-        participant =>
-          participant ===
-            "admin" ||
-          participant.includes(
-            "admin@"
-          )
-      );
-
-    // For direct admin messages, use the admin send endpoint
-    const response = await messaging.sendMessage(selectedId, newMessageContent, isAdminConversation ? 'direct' : 'text');
+    // `messageType` describes the content format, not the conversation type.
+    // Department messages are still normal text messages in a direct thread.
+    const response = await messaging.sendMessage(selectedId, newMessageContent, 'text');
     
     if (response.success) {
       const userName = response.message?.senderName || getUserName();
@@ -393,6 +382,10 @@ const sendMessage = useCallback(async () => {
     if (selectedId === conversationId) return;
     navigate(`/messages/${conversationId}`);
   };
+
+  const canMessageSelectedConversation =
+    selectedId === "it" ||
+    String(selectedConversation?.department || "").toLowerCase() === "it";
 
   // Upgraded WebSocket Event Handlers
   useEffect(() => {
@@ -757,7 +750,17 @@ const sendMessage = useCallback(async () => {
                     <span>{departmentConversations.length}</span>
                   </div>
                   {departmentConversations.length === 0 ? (
-                    <div className="px-4 py-3 text-sm text-slate-400">No messages yet</div>
+                    department.id === "it" ? (
+                      <button
+                        type="button"
+                        onClick={() => handleConversationClick("it")}
+                        className="w-full px-4 py-3 text-left text-sm font-medium text-purple-700 transition-colors hover:bg-purple-50"
+                      >
+                        Contact IT support
+                      </button>
+                    ) : (
+                      <div className="px-4 py-3 text-sm text-slate-400">No messages yet</div>
+                    )
                   ) : departmentConversations.map((conversation) => {
                 const name = getConversationName(conversation);
                 const preview = getLastMessagePreview(conversation);
@@ -813,12 +816,17 @@ const sendMessage = useCallback(async () => {
                     <h2 className="font-semibold text-slate-800">
                       {selectedConversation?._id === "community"
                         ? "Public Messages"
-                        : "Admin Messages"}
+                        : getConversationName(selectedConversation || {
+                            _id: selectedId,
+                            department: selectedId
+                          })}
                     </h2>
                     <p className="text-xs text-slate-400">
                       {selectedConversation?._id === "community"
                         ? "Shared candidate community"
-                        : "Direct messages from Admin"}
+                        : canMessageSelectedConversation
+                          ? "Send a private message to the IT department"
+                          : "Direct messages from Admin"}
                     </p>
                   </div>
                 </div>
@@ -839,12 +847,12 @@ const sendMessage = useCallback(async () => {
                 <div ref={messagesEndRef} className="h-1" />
               </div>
 
-              {false ? (
+              {canMessageSelectedConversation ? (
                 <div className="p-4 border-t border-slate-200 bg-white flex-shrink-0">
                   <div className="flex items-center gap-2">
                     <input
                       type="text"
-                      placeholder="Type a message..."
+                      placeholder="Write a message to IT..."
                       value={newMessageContent}
                       onChange={(e) =>
                         setNewMessageContent(e.target.value)
@@ -884,7 +892,7 @@ const sendMessage = useCallback(async () => {
                 <div className="border-t border-slate-200 bg-white p-4 text-center text-sm text-slate-500">
                   {selectedConversation?._id === "community"
                     ? "Use New Public Message above to post to the public thread."
-                    : "Admin Messages are read-only for candidate accounts."}
+                    : "Messages for this department are read-only for candidate accounts."}
                 </div>
               )}
             </>
