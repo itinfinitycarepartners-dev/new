@@ -621,7 +621,7 @@ export default function RelocationHub() {
             <MapPin className="h-6 w-6" />
           </div>
           <div>
-            <h3 className="font-semibold text-[#3B0764]">Local Resources</h3>
+            <h3 className="text-xl font-extrabold text-[#3B0764]">Local Resources</h3>
             <p className="text-xs text-[#64748B]">Helpful places and services near {displayCity}</p>
           </div>
         </div>
