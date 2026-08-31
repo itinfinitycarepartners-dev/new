@@ -1356,6 +1356,13 @@ export default function Dashboard() {
   const { user } =
     useAuth();
 
+  // Candidate photo is sourced from Zoho CRM -> Deals -> Candidate_Photo.
+  // The backend proxies the bytes so the browser never sees Zoho credentials.
+  const [
+    candidatePhotoUrl,
+    setCandidatePhotoUrl
+  ] = useState(null);
+
   const [
     unreadMessageCount,
     setUnreadMessageCount
@@ -1365,6 +1372,65 @@ export default function Dashboard() {
     recentMessages,
     setRecentMessages
   ] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl = null;
+
+    const loadCandidatePhoto = async () => {
+      const token = tokenStorage.get();
+
+      if (!token) {
+        if (!cancelled) setCandidatePhotoUrl(null);
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/candidate/photo`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          }
+        );
+
+        if (!response.ok) {
+          if (!cancelled) setCandidatePhotoUrl(null);
+          return;
+        }
+
+        const blob = await response.blob();
+
+        if (!blob || blob.size === 0) {
+          if (!cancelled) setCandidatePhotoUrl(null);
+          return;
+        }
+
+        objectUrl = URL.createObjectURL(blob);
+
+        if (!cancelled) {
+          setCandidatePhotoUrl(objectUrl);
+        }
+      } catch (error) {
+        console.warn(
+          "[Dashboard] Candidate photo unavailable:",
+          error?.message || error
+        );
+
+        if (!cancelled) {
+          setCandidatePhotoUrl(null);
+        }
+      }
+    };
+
+    loadCandidatePhoto();
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [user?.email]);
 
   const {
     data: summary,
@@ -1381,13 +1447,17 @@ export default function Dashboard() {
         user?.email
       ),
     staleTime:
-      0,
+      20 * 1000,
+    gcTime:
+      5 * 60 * 1000,
     refetchInterval:
-      5 * 1000,
+      false,
     refetchIntervalInBackground:
       false,
     refetchOnWindowFocus:
-      true,
+      false,
+    refetchOnReconnect:
+      false,
     queryFn:
       async () => {
         const token =
@@ -1401,15 +1471,10 @@ export default function Dashboard() {
 
         const response =
           await fetch(
-            `${API_BASE}/api/candidate/dashboard-summary?_=${Date.now()}`,
+            `${API_BASE}/api/candidate/dashboard-summary`,
             {
-              cache:
-                "no-store",
               headers: {
-                Authorization:
-                  `Bearer ${token}`,
-                "Cache-Control": "no-cache",
-                Pragma: "no-cache"
+                Authorization: `Bearer ${token}`
               }
             }
           );
@@ -1449,11 +1514,13 @@ export default function Dashboard() {
         user?.email
       ),
     staleTime:
-      0,
+      30 * 1000,
+    gcTime:
+      5 * 60 * 1000,
     refetchInterval:
-      10 * 1000,
+      60 * 1000,
     refetchOnWindowFocus:
-      true,
+      false,
     queryFn:
       async () => {
         const token =
@@ -2443,6 +2510,8 @@ export default function Dashboard() {
     }
   ];
 
+
+
   if (isLoading) {
     return (
       <div className="flex min-h-[420px] items-center justify-center">
@@ -2650,20 +2719,31 @@ export default function Dashboard() {
             />
           </div>
 
-          <span
-            role="img"
+          <div
             aria-label="Your current pipeline progress"
-            className="pointer-events-none absolute -translate-x-1/2 select-none leading-none transition-all duration-700 ease-out"
+            className="pointer-events-none absolute -translate-x-1/2 select-none transition-all duration-700 ease-out"
             style={{
-              left:
-                `${pipelineProgressPercent}%`,
-              bottom: "100%",
-              fontSize: "34px",
+              left: `${pipelineProgressPercent}%`,
+              bottom: "calc(100% - 6px)",
               filter: "drop-shadow(0 3px 4px rgba(0,0,0,0.25))"
             }}
           >
-            🧑‍⚕️
-          </span>
+            {candidatePhotoUrl ? (
+              <img
+                src={candidatePhotoUrl}
+                alt="Candidate progress"
+                className="h-10 w-10 rounded-full border-2 border-white object-cover shadow-md"
+              />
+            ) : (
+              <span
+                role="img"
+                aria-label="Candidate progress"
+                className="block text-[34px] leading-none"
+              >
+                🧑‍⚕️
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="relative z-10 mt-2 flex max-w-[72%] justify-between text-xs text-muted-foreground">

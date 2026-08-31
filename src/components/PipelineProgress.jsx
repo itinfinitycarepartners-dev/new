@@ -143,8 +143,76 @@ export default function PipelineProgress() {
   const { user } = useAuth();
   const [stages, setStages] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [candidatePhotoUrl, setCandidatePhotoUrl] = useState(null);
 
   const storageKey = user?.email ? `pipeline_${user.email}` : null;
+
+  /*
+   * Candidate_Photo is stored on Zoho CRM -> Deals.
+   * The backend proxies the image through /api/candidate/photo so the browser
+   * never needs access to Zoho credentials.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl = null;
+
+    const loadCandidatePhoto = async () => {
+      const token = localStorage.getItem("icp_auth_token");
+
+      if (!token) {
+        if (!cancelled) setCandidatePhotoUrl(null);
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/candidate/photo`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        if (!response.ok) {
+          if (!cancelled) setCandidatePhotoUrl(null);
+          return;
+        }
+
+        const blob = await response.blob();
+
+        if (!blob || blob.size === 0) {
+          if (!cancelled) setCandidatePhotoUrl(null);
+          return;
+        }
+
+        objectUrl = URL.createObjectURL(blob);
+
+        if (!cancelled) {
+          setCandidatePhotoUrl(objectUrl);
+        }
+      } catch (error) {
+        console.warn(
+          "[PipelineProgress] Candidate photo unavailable:",
+          error?.message || error
+        );
+
+        if (!cancelled) {
+          setCandidatePhotoUrl(null);
+        }
+      }
+    };
+
+    loadCandidatePhoto();
+
+    return () => {
+      cancelled = true;
+
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [user?.email]);
 
   const loadStages = useCallback(
     async ({ refreshRecruit = false } = {}) => {
@@ -154,23 +222,22 @@ export default function PipelineProgress() {
         return;
       }
 
-      let nextStages = getEnabledPipelineStages(readSavedStages(user.email));
+      let nextStages = getEnabledPipelineStages(
+        readSavedStages(user.email)
+      );
 
       if (nextStages.length === 0) {
         nextStages = createDefaultStages(user.email);
       }
 
-      /*
-       * Keep the first two stages consistent with the full Pipeline page:
-       * Applied = email exists in Applications.
-       * Associated with Job = email exists in Applications and Candidates.
-       */
       const token = localStorage.getItem("icp_auth_token");
 
       if (token) {
         try {
           const response = await fetch(
-            `${API_BASE}/api/zoho/my-deals${refreshRecruit ? "?refresh=true" : ""}`,
+            `${API_BASE}/api/zoho/my-deals${
+              refreshRecruit ? "?refresh=true" : ""
+            }`,
             {
               method: "GET",
               headers: {
@@ -183,9 +250,16 @@ export default function PipelineProgress() {
           if (response.ok) {
             const payload = await response.json();
             const presence = normalizeModuleNames(payload?.data || {});
-            nextStages = applyRecruitStageRules(nextStages, presence);
 
-            localStorage.setItem(storageKey, JSON.stringify(nextStages));
+            nextStages = applyRecruitStageRules(
+              nextStages,
+              presence
+            );
+
+            localStorage.setItem(
+              storageKey,
+              JSON.stringify(nextStages)
+            );
           }
         } catch (error) {
           console.warn(
@@ -228,27 +302,37 @@ export default function PipelineProgress() {
     window.addEventListener("storage", handleStorageChange);
     window.addEventListener("pipeline-updated", handlePipelineUpdate);
     window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange
+    );
 
-    /*
-     * The browser storage event does not fire in the same tab that writes to
-     * localStorage. This lightweight check keeps the dashboard card synced
-     * when the full Pipeline page updates the stages in the same tab.
-     */
     const intervalId = window.setInterval(() => {
-      const saved = getEnabledPipelineStages(readSavedStages(user?.email));
+      const saved = getEnabledPipelineStages(
+        readSavedStages(user?.email)
+      );
+
       if (saved.length > 0) {
         setStages((current) => {
           const currentJson = JSON.stringify(current);
           const savedJson = JSON.stringify(saved);
-          return currentJson === savedJson ? current : saved;
+
+          return currentJson === savedJson
+            ? current
+            : saved;
         });
       }
     }, 2000);
 
     return () => {
-      window.removeEventListener("storage", handleStorageChange);
-      window.removeEventListener("pipeline-updated", handlePipelineUpdate);
+      window.removeEventListener(
+        "storage",
+        handleStorageChange
+      );
+      window.removeEventListener(
+        "pipeline-updated",
+        handlePipelineUpdate
+      );
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener(
         "visibilitychange",
@@ -259,7 +343,10 @@ export default function PipelineProgress() {
   }, [loadStages, storageKey, user?.email]);
 
   const completedCount = useMemo(
-    () => stages.filter((stage) => stage.status === "Completed").length,
+    () =>
+      stages.filter(
+        (stage) => stage.status === "Completed"
+      ).length,
     [stages]
   );
 
@@ -273,11 +360,18 @@ export default function PipelineProgress() {
   const categories = useMemo(
     () =>
       CATEGORY_ORDER.filter((category) =>
-        stages.some((stage) => stage.stage_category === category)
+        stages.some(
+          (stage) => stage.stage_category === category
+        )
       ),
     [stages]
   );
 
+  /*
+   * If CRM has Candidate_Photo, use it as the visual marker for the current
+   * in-progress stage. Completed/blocked stages keep their semantic icons.
+   * If no image exists, the original Clock icon remains unchanged.
+   */
   const renderStageIcon = (stage, colors) => {
     const isActive = stage.status === "In Progress";
     const isDone = stage.status === "Completed";
@@ -289,11 +383,13 @@ export default function PipelineProgress() {
 
     if (isDone) {
       IconComponent = CheckCircle2;
-      iconClassName = `h-5 w-5 ${colors.done.replace("bg-", "text-")}`;
+      iconClassName =
+        `h-5 w-5 ${colors.done.replace("bg-", "text-")}`;
       tooltipText = `${stage.stage_name} — Completed`;
     } else if (isActive) {
       IconComponent = Clock;
-      iconClassName = `h-5 w-5 ${colors.active.replace("bg-", "text-")}`;
+      iconClassName =
+        `h-5 w-5 ${colors.active.replace("bg-", "text-")}`;
       tooltipText = `${stage.stage_name} — In Progress`;
     } else if (isBlocked) {
       IconComponent = AlertCircle;
@@ -301,9 +397,26 @@ export default function PipelineProgress() {
       tooltipText = `${stage.stage_name} — Blocked`;
     }
 
+    const showCandidatePhoto =
+      isActive && Boolean(candidatePhotoUrl);
+
     return (
-      <div className="relative group" key={`${stage.id}-${stage.stage_name}`}>
-        <IconComponent className={iconClassName} />
+      <div
+        className="relative group"
+        key={`${stage.id}-${stage.stage_name}`}
+      >
+        {showCandidatePhoto ? (
+          <img
+            src={candidatePhotoUrl}
+            alt="Candidate"
+            className="h-6 w-6 rounded-full object-cover border-2 border-white shadow-sm"
+            title={tooltipText}
+          />
+        ) : (
+          <IconComponent
+            className={iconClassName}
+          />
+        )}
 
         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block z-20 pointer-events-none">
           <div className="bg-foreground text-background text-[10px] rounded px-2 py-1 whitespace-nowrap max-w-[240px]">
@@ -326,7 +439,9 @@ export default function PipelineProgress() {
     return (
       <div className="bg-card rounded-2xl border border-border p-5 flex items-center justify-between">
         <div>
-          <p className="font-semibold text-sm">Pipeline Progress</p>
+          <p className="font-semibold text-sm">
+            Pipeline Progress
+          </p>
           <p className="text-xs text-muted-foreground mt-0.5">
             Your journey stages have not been set up yet.
           </p>
@@ -347,7 +462,9 @@ export default function PipelineProgress() {
     <div className="bg-card rounded-2xl border border-border p-5 space-y-4">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <p className="font-semibold">Pipeline Progress</p>
+          <p className="font-semibold">
+            Pipeline Progress
+          </p>
           <p className="text-xs text-muted-foreground mt-0.5">
             {completedCount} of {totalCount} stages completed
           </p>
@@ -371,7 +488,9 @@ export default function PipelineProgress() {
       <div className="h-2 bg-muted rounded-full overflow-hidden">
         <div
           className="h-full bg-gradient-to-r from-blue-500 via-purple-500 to-emerald-500 rounded-full transition-all duration-500"
-          style={{ width: `${progressPct}%` }}
+          style={{
+            width: `${progressPct}%`
+          }}
         />
       </div>
 
@@ -385,19 +504,26 @@ export default function PipelineProgress() {
       >
         {categories.map((category) => {
           const categoryStages = stages.filter(
-            (stage) => stage.stage_category === category
+            (stage) =>
+              stage.stage_category === category
           );
 
           const colors =
-            CATEGORY_COLORS[category] || CATEGORY_COLORS.Hiring;
+            CATEGORY_COLORS[category] ||
+            CATEGORY_COLORS.Hiring;
 
-          const categoryCompleted = categoryStages.filter(
-            (stage) => stage.status === "Completed"
-          ).length;
+          const categoryCompleted =
+            categoryStages.filter(
+              (stage) =>
+                stage.status === "Completed"
+            ).length;
 
-          const categoryTotal = categoryStages.length;
+          const categoryTotal =
+            categoryStages.length;
+
           const isComplete =
-            categoryTotal > 0 && categoryCompleted === categoryTotal;
+            categoryTotal > 0 &&
+            categoryCompleted === categoryTotal;
 
           return (
             <div
@@ -405,7 +531,8 @@ export default function PipelineProgress() {
               className={cn(
                 "rounded-xl p-3 transition-all",
                 colors.light,
-                isComplete && "ring-1 ring-emerald-300"
+                isComplete &&
+                  "ring-1 ring-emerald-300"
               )}
             >
               <div className="flex items-center justify-between mb-2 gap-2">
@@ -421,14 +548,22 @@ export default function PipelineProgress() {
                     : category}
                 </span>
 
-                <span className={cn("text-xs font-medium", colors.text)}>
+                <span
+                  className={cn(
+                    "text-xs font-medium",
+                    colors.text
+                  )}
+                >
                   {categoryCompleted}/{categoryTotal}
                 </span>
               </div>
 
               <div className="flex flex-wrap gap-1.5">
                 {categoryStages.map((stage) =>
-                  renderStageIcon(stage, colors)
+                  renderStageIcon(
+                    stage,
+                    colors
+                  )
                 )}
               </div>
 
@@ -444,26 +579,44 @@ export default function PipelineProgress() {
       </div>
 
       <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-border">
-        <span className="text-xs text-muted-foreground">Legend:</span>
+        <span className="text-xs text-muted-foreground">
+          Legend:
+        </span>
 
         <div className="flex items-center gap-1.5">
           <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-          <span className="text-xs text-muted-foreground">Completed</span>
+          <span className="text-xs text-muted-foreground">
+            Completed
+          </span>
         </div>
 
         <div className="flex items-center gap-1.5">
-          <Clock className="h-3.5 w-3.5 text-blue-500" />
-          <span className="text-xs text-muted-foreground">In Progress</span>
+          {candidatePhotoUrl ? (
+            <img
+              src={candidatePhotoUrl}
+              alt="Candidate"
+              className="h-3.5 w-3.5 rounded-full object-cover"
+            />
+          ) : (
+            <Clock className="h-3.5 w-3.5 text-blue-500" />
+          )}
+          <span className="text-xs text-muted-foreground">
+            In Progress
+          </span>
         </div>
 
         <div className="flex items-center gap-1.5">
           <Circle className="h-3.5 w-3.5 text-muted-foreground/30" />
-          <span className="text-xs text-muted-foreground">Not Started</span>
+          <span className="text-xs text-muted-foreground">
+            Not Started
+          </span>
         </div>
 
         <div className="flex items-center gap-1.5">
           <AlertCircle className="h-3.5 w-3.5 text-red-500" />
-          <span className="text-xs text-muted-foreground">Blocked</span>
+          <span className="text-xs text-muted-foreground">
+            Blocked
+          </span>
         </div>
       </div>
     </div>
