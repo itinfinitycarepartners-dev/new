@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-  Users, UserCheck, UserX, Search, Download, RefreshCw, Eye, 
+  Users, UserCheck, Search, Download, RefreshCw, Eye, 
   BarChart3, Shield, XCircle, Send, MessageSquare, LogOut, Home, 
   AlertTriangle, ServerCrash, Phone, Mail, MapPin, Briefcase, 
   Building2, Calendar, Award, FileText, CheckCircle, Building, 
@@ -2051,11 +2051,10 @@ const UsersTable = ({ users, onSelectUser, onMessageUser, onBroadcast }) => {
 
       <div className="bg-white rounded-xl border overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1450px]">
+          <table className="w-full min-w-[1280px]">
             <thead style={{ background: THEME.bg }}>
               <tr>
                 <th className="px-5 py-3 text-left text-xs font-bold uppercase text-gray-500">User Details</th>
-                <th className="px-5 py-3 text-left text-xs font-bold uppercase text-gray-500">Status</th>
                 <th className="px-5 py-3 text-left text-xs font-bold uppercase text-gray-500">Pipeline Progress</th>
                 <th className="px-5 py-3 text-left text-xs font-bold uppercase text-gray-500">Current Stage</th>
                 <th className="px-5 py-3 text-left text-xs font-bold uppercase text-gray-500">Orientation Start</th>
@@ -2076,7 +2075,6 @@ const UsersTable = ({ users, onSelectUser, onMessageUser, onBroadcast }) => {
                       <div className="text-xs text-gray-500">{u.email}</div>
                     </div>
                   </td>
-                  <td className="px-5 py-3"><StatusBadge status={u.isActive ? 'active' : 'expired'} /></td>
                   <td className="px-5 py-3 min-w-[170px]">
                     <div className="flex items-center justify-between text-xs mb-1">
                       <span className="font-semibold text-gray-700">{u.pipeline?.completed || 0}/{u.pipeline?.total || 0}</span>
@@ -2098,7 +2096,7 @@ const UsersTable = ({ users, onSelectUser, onMessageUser, onBroadcast }) => {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan="9" className="text-center py-10 text-gray-400 font-medium">No users found matching your criteria.</td>
+                  <td colSpan="8" className="text-center py-10 text-gray-400 font-medium">No users found matching your criteria.</td>
                 </tr>
               )}
             </tbody>
@@ -3914,10 +3912,9 @@ const AdminPanel = () => {
           )}
 
           {(tab === 'overview' || tab === 'users' || tab === 'analytics') && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
               <StatCard icon={<Users className="w-6 h-6 text-purple-700" />} label="Total Users" value={stats.total} />
               <StatCard icon={<UserCheck className="w-6 h-6 text-green-600" />} label="Active Sessions" value={stats.active} color={THEME.greenLight} />
-              <StatCard icon={<UserX className="w-6 h-6 text-red-600" />} label="Expired" value={stats.expired} color={THEME.redLight} />
             </div>
           )}
 
