@@ -294,10 +294,6 @@ const encryptSensitivePayload = async (payload, token) => {
   };
 };
 
-// ============= Generic field-lookup helpers =============
-// "ga" = "get attribute": tries a list of possible CRM/Zoho field names and
-// returns the first one that has a real value. This lets us stay resilient
-// to inconsistent field naming between Zoho/CRM and our backend responses.
 const ga = (data, ...fieldNames) => {
   if (!data) return null;
   for (const name of fieldNames) {
@@ -2068,11 +2064,6 @@ const isICPUSRNItemUnlocked = (item, index, data = {}) => {
   if (!item) return false;
   if (index <= 0) return true;
 
-  // Find the furthest NCLEX item that CRM/Recruit has already reached.
-  // IMPORTANT: when a gate in the middle of the NCLEX flow is satisfied, that
-  // proves the candidate has reached that point. Every earlier NCLEX item must
-  // therefore be accessible too, even if one of those earlier rows does not
-  // yet have its own completion flag saved locally.
   let furthestSourceReachedIndex = 0;
 
   ICP_USRN_SUBPROCESS_CONFIG.forEach((candidateItem, candidateIndex) => {
@@ -2103,14 +2094,12 @@ const isICPUSRNItemUnlocked = (item, index, data = {}) => {
     return isNCLEXPerformanceGateSatisfied(item.performanceGate, data);
   }
 
-  // A stage whose own CRM/Recruit completion field is already satisfied stays
-  // accessible regardless of local pipeline history.
+
   if (isICPUSRNItemComplete(item, data)) {
     return true;
   }
 
-  // Only the first stage after the furthest source-reached point follows the
-  // ordinary sequential rule.
+  
   const previousItem = ICP_USRN_SUBPROCESS_CONFIG[index - 1];
 
   if (
@@ -2353,10 +2342,6 @@ const IMMIGRATION_STAGE_DETAILS = {
   }
 };
 
-// ============= CRM-driven checklist field groups for Immigration stages =============
-// These are read-only from the candidate's perspective: they are populated
-// directly from CRM/Zoho fields and check themselves off automatically. The
-// stage as a whole is marked "Completed" once every item in the group is true.
 const FOUNDATIONS_PILLARS = [
   { key: "Pillar_1_Clinical_Readiness", aliases: ["pillar1", "Pillar1ClinicalReadiness", "Pillar_1_Clinical_Readiness_Discovery_Class"], label: "Pillar 1 - Clinical Readiness" },
   { key: "Pillar_2_Communication_Cultural_Integration", aliases: ["pillar2", "Pillar2CommunicationCulturalIntegration", "Pillar_2_Communication_and_Cultural_Integration"], label: "Pillar 2 - Communication & Cultural Integration" },
@@ -3018,10 +3003,7 @@ const getSequencedMainStages = (allStages) => {
       stage.hidden_from_main_flow !== true
     )
     .sort((first, second) => {
-      // Always use the CURRENT visible pipeline configuration for ordering.
-      // Saved Mongo rows can carry legacy stage_order values, which previously
-      // caused a Deployment stage to appear logically before/after the wrong
-      // section and remain locked even though its CRM gate was satisfied.
+  
       const firstOrder = getCanonicalStageOrder(first);
       const secondOrder = getCanonicalStageOrder(second);
 
@@ -10295,7 +10277,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
         0
       ) {
         toast.error(
-          "Total Due to ICP/RN is not available in CRM yet."
+          "Total Due to ICP/RN is not available yet."
         );
         return;
       }
@@ -11190,7 +11172,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
           
           <div className="grid grid-cols-4 gap-2 border-t border-green-200 bg-green-50 p-3 text-sm font-bold">
             <div className="col-span-3 text-green-800">
-              Total from CRM
+              Total 
             </div>
             <div className="text-right text-green-800">
               ${crmTotalAmount.toFixed(2)}
