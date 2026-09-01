@@ -10,30 +10,25 @@ const BASE_URL = (() => {
 })();
 
 const TOKEN_KEY = 'icp_auth_token';
+const DEBUG_API = import.meta.env.DEV && import.meta.env.VITE_DEBUG_API === 'true';
 
 // ─── Token helpers with logging ──────────────────────────────────────────────
 export const tokenStorage = {
   get: () => {
     const token = localStorage.getItem(TOKEN_KEY);
-    console.log('[TokenStorage] Getting token:', token ? `exists (length: ${token.length})` : 'none');
-    if (token) {
-      console.log('[TokenStorage] Token preview:', token.substring(0, 20) + '...');
-    }
+    if (DEBUG_API) console.log('[TokenStorage] Getting token:', token ? 'exists' : 'none');
     return token;
   },
   set: (token) => {
-    console.log('[TokenStorage] Setting token:', token ? `exists (length: ${token.length})` : 'none');
-    if (token) {
-      console.log('[TokenStorage] Token preview:', token.substring(0, 20) + '...');
-    }
+    if (DEBUG_API) console.log('[TokenStorage] Setting token:', token ? 'exists' : 'none');
     localStorage.setItem(TOKEN_KEY, token);
     
     // Verify the token was stored
     const stored = localStorage.getItem(TOKEN_KEY);
-    console.log('[TokenStorage] Token stored successfully:', !!stored);
+    if (DEBUG_API) console.log('[TokenStorage] Token stored successfully:', !!stored);
   },
   clear: () => {
-    console.log('[TokenStorage] Clearing token');
+    if (DEBUG_API) console.log('[TokenStorage] Clearing token');
     localStorage.removeItem(TOKEN_KEY);
   },
   has: () => {
@@ -56,9 +51,9 @@ async function apiFetch(path, options = {}) {
   // Add Authorization header if token exists
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
-    console.log(`[API] Request to ${path} with token: ${token.substring(0, 10)}...`);
+    if (DEBUG_API) console.log(`[API] Request to ${path} with a token`);
   } else {
-    console.warn(`[API] No token for request to ${path}`);
+    if (DEBUG_API) console.warn(`[API] No token for request to ${path}`);
   }
 
   const fetchOptions = {
@@ -76,7 +71,7 @@ async function apiFetch(path, options = {}) {
   }
 
   try {
-    console.log(`[API] Fetching: ${BASE_URL}${path}`);
+    if (DEBUG_API) console.log(`[API] Fetching: ${BASE_URL}${path}`);
     const res = await fetch(`${BASE_URL}${path}`, fetchOptions);
 
     // Handle non-JSON responses
@@ -667,7 +662,8 @@ class WebSocketManager {
       };
 
       this.ws.onerror = (error) => {
-        console.error('[WebSocket] Error:', error);
+        // Suppress WebSocket errors - non-critical for app functionality
+        // console.error('[WebSocket] Error:', error);
         this.isConnected = false;
         this.isConnecting = false;
         this.triggerHandler('error', error);

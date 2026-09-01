@@ -1,0 +1,60 @@
+// Pipeline stages configuration for the admin panel
+export const STAGES_CONFIG = [
+  // Candidate-facing Hiring flow
+  { id: 1, stage_name: "Applied", stage_category: "Hiring", stage_order: 1 },
+  { id: 2, stage_name: "Associated with Job", stage_category: "Hiring", stage_order: 2 },
+  { id: 3, stage_name: "Not Qualified - to close", stage_category: "Hiring", stage_order: 3 },
+  { id: 4, stage_name: "Qualified - Match", stage_category: "Hiring", stage_order: 4 },
+  { id: 5, stage_name: "Qualified Candidate Pool", stage_category: "Hiring", stage_order: 5 },
+  { id: 6, stage_name: "Transfer to ICP USRN School", stage_category: "Hiring", stage_order: 6 },
+  { id: 7, stage_name: "Select Prescreen Time", stage_category: "Hiring", stage_order: 7 },
+  { id: 8, stage_name: "Prescreen Scheduled", stage_category: "Hiring", stage_order: 8 },
+  { id: 9, stage_name: "Prescreen Completed", stage_category: "Hiring", stage_order: 9 },
+  { id: 10, stage_name: "Client Documents & Video Provided", stage_category: "Hiring", stage_order: 10 },
+  { id: 11, stage_name: "Pending Interview Selection", stage_category: "Hiring", stage_order: 11 },
+  { id: "11b", stage_name: "Mandatory Pre-Interview Coaching Call", stage_category: "Hiring", stage_order: 11.5 },
+  { id: 12, stage_name: "Interview Scheduled", stage_category: "Hiring", stage_order: 12 },
+  { id: 13, stage_name: "Interview Attended", stage_category: "Hiring", stage_order: 13 },
+  { id: 14, stage_name: "Offer Made", stage_category: "Hiring", stage_order: 14 },
+  { id: 15, stage_name: "Offer Accepted", stage_category: "Hiring", stage_order: 15 },
+  { id: 16, stage_name: "Offer Declined", stage_category: "Hiring", stage_order: 16 },
+  { id: 17, stage_name: "Employment Contract Sent", stage_category: "Hiring", stage_order: 17 },
+  { id: 18, stage_name: "Employment Contract Signed", stage_category: "Hiring", stage_order: 18 },
+  { id: 19, stage_name: "Documents Received", stage_category: "Hiring", stage_order: 19 },
+  { id: 20, stage_name: "Hired", stage_category: "Hiring", stage_order: 20 },
+
+  // Candidate-facing Immigration flow
+  { id: 21, stage_name: "Immigration forms submitted", stage_category: "Immigration", stage_order: 21 },
+  { id: 22, stage_name: "Foundations: Pillars", stage_category: "Immigration", stage_order: 22 },
+  { id: 23, stage_name: "Foundations: Endorsement Discovery", stage_category: "Immigration", stage_order: 23 },
+  { id: 24, stage_name: "Immigration approved", stage_category: "Immigration", stage_order: 24 },
+  { id: 25, stage_name: "Visa bill issued", stage_category: "Immigration", stage_order: 25 },
+  { id: 26, stage_name: "Visa bill paid", stage_category: "Immigration", stage_order: 26 },
+  { id: 27, stage_name: "DS-260 / Civil Document Submission", stage_category: "Immigration", stage_order: 27 },
+  { id: 28, stage_name: "Foundations: Cultural Readiness", stage_category: "Immigration", stage_order: 28 },
+  { id: 28.5, stage_name: "Documentarily Qualified", stage_category: "Immigration", stage_order: 28.5 },
+  { id: 29, stage_name: "Immigration to Deployment Transition Call", stage_category: "Immigration", stage_order: 29 },
+
+  // Candidate-facing Deployment flow
+  { id: 29.5, stage_name: "Introduction to Deployment Call", stage_category: "Deployment", stage_order: 29.5 },
+  { id: 30, stage_name: "Speciality Classes", stage_category: "Deployment", stage_order: 30 },
+  { id: 31, stage_name: "Final Self Assessment", stage_category: "Deployment", stage_order: 31 },
+  { id: 32, stage_name: "Speciality with Trainer Skills Check", stage_category: "Deployment", stage_order: 32 },
+  { id: 33, stage_name: "Housing / Transportation Call", stage_category: "Deployment", stage_order: 33 },
+  { id: 34, stage_name: "Deployment Pre-Arrival Call", stage_category: "Deployment", stage_order: 34 },
+  { id: 35, stage_name: "Pre-Arrival Banking Call", stage_category: "Deployment", stage_order: 35 },
+  { id: 36, stage_name: "Employer Pre-Arrival Call", stage_category: "Deployment", stage_order: 36 },
+  { id: 37, stage_name: "deployMate Ready", stage_category: "Deployment", stage_order: 37 },
+  { id: 38, stage_name: "Welcome Packet", stage_category: "Deployment", stage_order: 38 },
+  { id: 39, stage_name: "Receipt Submission", display_name: "Expense Report", stage_category: "Deployment", stage_order: 39 },
+  { id: 40, stage_name: "Arrived", stage_category: "Deployment", stage_order: 40 },
+
+  // Candidate-facing Aftercare flow
+  { id: 41, stage_name: "Welcome Call", stage_category: "Aftercare", stage_order: 41 },
+  { id: 42, stage_name: "Relocation Follow up", stage_category: "Aftercare", stage_order: 42 },
+  { id: 43, stage_name: "First week in US Check-in", stage_category: "Aftercare", stage_order: 43 },
+  { id: 44, stage_name: "Second week in US Check-in", stage_category: "Aftercare", stage_order: 44 },
+  { id: 45, stage_name: "US Integration Check-in", stage_category: "Aftercare", stage_order: 45 },
+  { id: 46, stage_name: "Placement Stability Check-in", stage_category: "Aftercare", stage_order: 46 },
+  { id: 47, stage_name: "Year One Anniversary Check-in", stage_category: "Aftercare", stage_order: 47 }
+];

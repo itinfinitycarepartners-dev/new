@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { lazy, Suspense, useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClientInstance } from "@/lib/query-client";
@@ -11,28 +11,37 @@ import PageNotFound from "./lib/PageNotFound";
 import { AuthProvider, useAuth } from "@/lib/AuthContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Layout from "./components/Layout";
-import Dashboard from "./pages/Dashboard";
-import Profile from "./pages/Profile";
-import Documents from "./pages/Documents";
-import Updates from "./pages/Updates";
-import WelcomePacket from "./pages/WelcomePacket";
-import RelocationHub from "./pages/RelocationHub";
-import Pipeline from "./pages/Pipeline";
-import Aftercare from "./pages/Aftercare";
-import Login from "./pages/Login";
-import Register from "./pages/Register";
-import ForgotPassword from "./pages/ForgotPassword";
-import ResetPassword from "./pages/ResetPassword";
-import Resource from "./pages/Resource";
-import RAndL from "./pages/RAndL";
-import Admin from "./pages/overal";
-import Forms from "./pages/Forms";
-import MakeRequest from "./pages/MakeRequest";
 import { isPipelineCategoryEnabled } from "@/config/releaseConfig";
 
+// ─── Lazy-loaded pages for code splitting ────────────────────────────────────
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Profile = lazy(() => import("./pages/Profile"));
+const Documents = lazy(() => import("./pages/Documents"));
+const Updates = lazy(() => import("./pages/Updates"));
+const WelcomePacket = lazy(() => import("./pages/WelcomePacket"));
+const RelocationHub = lazy(() => import("./pages/RelocationHub"));
+const Pipeline = lazy(() => import("./pages/Pipeline"));
+const Aftercare = lazy(() => import("./pages/Aftercare"));
+const Login = lazy(() => import("./pages/Login"));
+const Register = lazy(() => import("./pages/Register"));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
+const Resource = lazy(() => import("./pages/Resource"));
+const RAndL = lazy(() => import("./pages/RAndL"));
+const Admin = lazy(() => import("./pages/overal"));
+const Forms = lazy(() => import("./pages/Forms"));
+const MakeRequest = lazy(() => import("./pages/MakeRequest"));
+const Messages = lazy(() => import("./pages/Messages"));
+const MessageList = lazy(() => import("./components/messaging/MessageList"));
+
+// ─── Loading fallback ─────────────────────────────────────────────────────────
+const LoadingSpinner = () => (
+  <div className="fixed inset-0 flex items-center justify-center">
+    <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-slate-800" />
+  </div>
+);
+
 // ─── Messaging imports ────────────────────────────────────────────────────────
-import Messages from "./pages/Messages";
-import MessageList from "./components/messaging/MessageList";
 import {
   initMessaging,
   websocket,
@@ -89,15 +98,12 @@ const AuthenticatedApp = () => {
   } = useAuth();
 
   if (isLoadingAuth) {
-    return (
-      <div className="fixed inset-0 flex items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-slate-800" />
-      </div>
-    );
+    return <LoadingSpinner />;
   }
 
   return (
-    <Routes>
+    <Suspense fallback={<LoadingSpinner />}>
+      <Routes>
       {/* Public Routes */}
       <Route
         path="/login"
@@ -198,6 +204,7 @@ const AuthenticatedApp = () => {
         element={<PageNotFound />}
       />
     </Routes>
+    </Suspense>
   );
 };
 

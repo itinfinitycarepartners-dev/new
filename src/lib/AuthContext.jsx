@@ -1,7 +1,7 @@
 // @ts-nocheck
 // AuthContext.jsx - Complete Working Version with Fixed Token Handling
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
-import { auth, candidate, tokenStorage, initMessaging } from '@/api/icpClient';
+import { auth, candidate, tokenStorage } from '@/api/icpClient';
 
 const AuthContext = createContext(null);
 
@@ -100,8 +100,6 @@ export const AuthProvider = ({ children }) => {
         setIsAuthenticated(true);
         console.log('[Auth] Session valid, user authenticated:', storedEmail);
         
-        // Initialize WebSocket for messaging
-        initMessaging(token);
       } else {
         // No data returned - try session check as fallback
         console.log('[Auth] No candidate data, trying session check...');
@@ -169,7 +167,6 @@ export const AuthProvider = ({ children }) => {
           type: 'temporary_error',
           message: err.message || 'Some candidate information is temporarily unavailable'
         });
-        initMessaging(token);
       }
     } finally {
       setIsLoadingAuth(false);
@@ -215,9 +212,6 @@ export const AuthProvider = ({ children }) => {
       setAuthError(null);
       
       console.log('[Auth] loginSuccess - isAuthenticated set to true');
-      
-      // Initialize WebSocket for messaging
-      initMessaging(token);
       
       // Load candidate data - wait for it to complete
       try {

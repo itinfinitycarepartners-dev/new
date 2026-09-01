@@ -35,7 +35,7 @@ const API_BASE =
 // deterministic fallback for CRM Deals only, so Profile/Dashboard do not wait
 // for long candidate caches if a Zoho callback is delayed or missed.
 const GLOBAL_CRM_SYNC_INTERVAL_MS =
-  10 * 1000;
+  5 * 60 * 1000;
 
 const normalizeLeadStatus = value =>
   String(value || "")
@@ -128,14 +128,13 @@ export default function Layout() {
         try {
           const response =
             await fetch(
-              `${API_BASE}/api/zoho/source-map?refresh=true`,
+              `${API_BASE}/api/zoho/source-map?refresh=false`,
               {
                 headers: {
                   Authorization:
                     `Bearer ${authToken}`
                 },
-                cache:
-                  "no-store"
+                cache: "default"
               }
             );
 
@@ -225,17 +224,12 @@ export default function Layout() {
         try {
           const response =
             await fetch(
-              `${API_BASE}/api/pipeline/live-crm-state?_=${Date.now()}`,
+              `${API_BASE}/api/pipeline/live-crm-state`,
               {
-                cache:
-                  "no-store",
+                cache: "default",
                 headers: {
                   Authorization:
                     `Bearer ${authToken}`,
-                  "Cache-Control":
-                    "no-cache",
-                  Pragma:
-                    "no-cache"
                 }
               }
             );
@@ -367,16 +361,12 @@ export default function Layout() {
         const response = await fetch(
           `${API_BASE}/api/pipeline/get?email=${encodeURIComponent(
             user.email
-          )}&_=${Date.now()}`,
+          )}`,
           {
-            cache: "no-store",
+            cache: "default",
             headers: {
               Authorization:
                 `Bearer ${authToken}`,
-              "Cache-Control":
-                "no-cache",
-              Pragma:
-                "no-cache"
             }
           }
         );
@@ -599,7 +589,7 @@ export default function Layout() {
       loadUnreadCount();
     };
 
-    const interval = window.setInterval(loadUnreadCount, 30000);
+    const interval = window.setInterval(loadUnreadCount, 2 * 60 * 1000);
 
     websocket.on('new_message', handleNewMessage);
     window.addEventListener('messaging-read', refreshUnreadCount);
@@ -628,13 +618,11 @@ export default function Layout() {
         }
 
         const response = await fetch(
-          `${API_BASE}/api/updates?limit=20&_=${Date.now()}`,
+          `${API_BASE}/api/updates?limit=20`,
           {
-            cache: "no-store",
+            cache: "default",
             headers: {
               Authorization: `Bearer ${authToken}`,
-              "Cache-Control": "no-cache",
-              Pragma: "no-cache"
             }
           }
         );
@@ -705,7 +693,7 @@ export default function Layout() {
     };
 
     showUnreadNotificationPopups();
-    timer = window.setInterval(showUnreadNotificationPopups, 10000);
+    timer = window.setInterval(showUnreadNotificationPopups, 5 * 60 * 1000);
 
     websocket.on("pipeline-updated", refreshNotificationPopups);
     websocket.on("candidate-data-updated", refreshNotificationPopups);
@@ -746,9 +734,9 @@ export default function Layout() {
         if (!authToken) return;
 
         const response = await fetch(
-          `${API_BASE}/api/pipeline/field-status?refresh=false&_=${Date.now()}`,
+          `${API_BASE}/api/pipeline/field-status?refresh=false`,
           {
-            cache:"no-store",
+            cache:"default",
             headers:{
               Authorization:`Bearer ${authToken}`
             }
@@ -782,7 +770,7 @@ export default function Layout() {
     };
 
     enforceAccess();
-    timer = window.setInterval(enforceAccess, 30000);
+    timer = window.setInterval(enforceAccess, 5 * 60 * 1000);
 
     return () => {
       cancelled = true;

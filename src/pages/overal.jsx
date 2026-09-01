@@ -10,117 +10,11 @@ import {
   CheckCircle2, Circle, AlertCircle, Layers
 } from 'lucide-react';
 
+import { STAGES_CONFIG } from '@/constants/stagesConfig';
+import { ADMIN_NCLEX_PROGRAM_FLOW } from '@/constants/nclex';
+import { THEME, DOCUMENT_REJECTION_REASONS, PIPELINE_CATEGORIES, PIPELINE_STATUS } from '@/constants/theme';
+
 const API_BASE = 'https://fictional-carnival-3inv.onrender.com';
-
-const THEME = {
-  brand: '#81348d', brandDark: '#5e2568', brandLight: '#a855b5', brandGhost: '#f3e8f5',
-  teal: '#0d9488', tealLight: '#ccfbf1', amber: '#d97706', amberLight: '#fef3c7',
-  red: '#dc2626', redLight: '#fee2e2', green: '#16a34a', greenLight: '#dcfce7',
-  blue: '#2563eb', blueLight: '#dbeafe', bg: '#f8f7fb', card: '#ffffff',
-  border: '#ede9f0', text: '#1a1025', muted: '#7c6f85', subtle: '#c4b8cc',
-};
-
-const DOCUMENT_REJECTION_REASONS = [
-  {
-    value: "Expired",
-    label: "Expired",
-    description: "The document that you have provided has either expired or is set to expire outside of the processing window"
-  },
-  {
-    value: "Not applicable",
-    label: "Not applicable",
-    description: "The document that you have provided does not apply to the document requested"
-  },
-  {
-    value: "Inconclusive",
-    label: "Inconclusive",
-    description: "The document that you have provided does not provide sufficient evidence to determine the documents viability (signature, date, etc.)"
-  }
-];
-
-// ─── PIPELINE CONFIG ─────────────────────────────────────────────────────────
-const STAGES_CONFIG = [
-  // Candidate-facing Hiring flow
-  { id: 1, stage_name: "Applied", stage_category: "Hiring", stage_order: 1 },
-  { id: 2, stage_name: "Associated with Job", stage_category: "Hiring", stage_order: 2 },
-  { id: 3, stage_name: "Not Qualified - to close", stage_category: "Hiring", stage_order: 3 },
-  { id: 4, stage_name: "Qualified - Match", stage_category: "Hiring", stage_order: 4 },
-  { id: 5, stage_name: "Qualified Candidate Pool", stage_category: "Hiring", stage_order: 5 },
-  { id: 6, stage_name: "Transfer to ICP USRN School", stage_category: "Hiring", stage_order: 6 },
-  { id: 7, stage_name: "Select Prescreen Time", stage_category: "Hiring", stage_order: 7 },
-  { id: 8, stage_name: "Prescreen Scheduled", stage_category: "Hiring", stage_order: 8 },
-  { id: 9, stage_name: "Prescreen Completed", stage_category: "Hiring", stage_order: 9 },
-  { id: 10, stage_name: "Client Documents & Video Provided", stage_category: "Hiring", stage_order: 10 },
-  { id: 11, stage_name: "Pending Interview Selection", stage_category: "Hiring", stage_order: 11 },
-  { id: "11b", stage_name: "Mandatory Pre-Interview Coaching Call", stage_category: "Hiring", stage_order: 11.5 },
-  { id: 12, stage_name: "Interview Scheduled", stage_category: "Hiring", stage_order: 12 },
-  { id: 13, stage_name: "Interview Attended", stage_category: "Hiring", stage_order: 13 },
-  { id: 14, stage_name: "Offer Made", stage_category: "Hiring", stage_order: 14 },
-  { id: 15, stage_name: "Offer Accepted", stage_category: "Hiring", stage_order: 15 },
-  { id: 16, stage_name: "Offer Declined", stage_category: "Hiring", stage_order: 16 },
-  { id: 17, stage_name: "Employment Contract Sent", stage_category: "Hiring", stage_order: 17 },
-  { id: 18, stage_name: "Employment Contract Signed", stage_category: "Hiring", stage_order: 18 },
-  { id: 19, stage_name: "Documents Received", stage_category: "Hiring", stage_order: 19 },
-  { id: 20, stage_name: "Hired", stage_category: "Hiring", stage_order: 20 },
-
-  // Candidate-facing Immigration flow
-  { id: 21, stage_name: "Immigration forms submitted", stage_category: "Immigration", stage_order: 21 },
-  { id: 22, stage_name: "Foundations: Pillars", stage_category: "Immigration", stage_order: 22 },
-  { id: 23, stage_name: "Foundations: Endorsement Discovery", stage_category: "Immigration", stage_order: 23 },
-  { id: 24, stage_name: "Immigration approved", stage_category: "Immigration", stage_order: 24 },
-  { id: 25, stage_name: "Visa bill issued", stage_category: "Immigration", stage_order: 25 },
-  { id: 26, stage_name: "Visa bill paid", stage_category: "Immigration", stage_order: 26 },
-  { id: 27, stage_name: "DS-260 / Civil Document Submission", stage_category: "Immigration", stage_order: 27 },
-  { id: 28, stage_name: "Foundations: Cultural Readiness", stage_category: "Immigration", stage_order: 28 },
-  { id: 28.5, stage_name: "Documentarily Qualified", stage_category: "Immigration", stage_order: 28.5 },
-  { id: 29, stage_name: "Immigration to Deployment Transition Call", stage_category: "Immigration", stage_order: 29 },
-
-  // Candidate-facing Deployment flow
-  { id: 29.5, stage_name: "Introduction to Deployment Call", stage_category: "Deployment", stage_order: 29.5 },
-  { id: 30, stage_name: "Speciality Classes", stage_category: "Deployment", stage_order: 30 },
-  { id: 31, stage_name: "Final Self Assessment", stage_category: "Deployment", stage_order: 31 },
-  { id: 32, stage_name: "Speciality with Trainer Skills Check", stage_category: "Deployment", stage_order: 32 },
-  { id: 33, stage_name: "Housing / Transportation Call", stage_category: "Deployment", stage_order: 33 },
-  { id: 34, stage_name: "Deployment Pre-Arrival Call", stage_category: "Deployment", stage_order: 34 },
-  { id: 35, stage_name: "Pre-Arrival Banking Call", stage_category: "Deployment", stage_order: 35 },
-  { id: 36, stage_name: "Employer Pre-Arrival Call", stage_category: "Deployment", stage_order: 36 },
-  { id: 37, stage_name: "deployMate Ready", stage_category: "Deployment", stage_order: 37 },
-  { id: 38, stage_name: "Welcome Packet", stage_category: "Deployment", stage_order: 38 },
-  { id: 39, stage_name: "Receipt Submission", display_name: "Expense Report", stage_category: "Deployment", stage_order: 39 },
-  { id: 40, stage_name: "Arrived", stage_category: "Deployment", stage_order: 40 },
-
-  // Candidate-facing Aftercare flow
-  { id: 41, stage_name: "Welcome Call", stage_category: "Aftercare", stage_order: 41 },
-  { id: 42, stage_name: "Relocation Follow up", stage_category: "Aftercare", stage_order: 42 },
-  { id: 43, stage_name: "First week in US Check-in", stage_category: "Aftercare", stage_order: 43 },
-  { id: 44, stage_name: "Second week in US Check-in", stage_category: "Aftercare", stage_order: 44 },
-  { id: 45, stage_name: "US Integration Check-in", stage_category: "Aftercare", stage_order: 45 },
-  { id: 46, stage_name: "Placement Stability Check-in", stage_category: "Aftercare", stage_order: 46 },
-  { id: 47, stage_name: "Year One Anniversary Check-in", stage_category: "Aftercare", stage_order: 47 }
-];
-
-const ADMIN_NCLEX_PROGRAM_FLOW = [
-  // EXACT candidate My Pipeline NCLEX / ICP USRN subprocess order and rules.
-  { stage_name: "Complete Pre-assessment", stage_category: "NCLEX Program", stage_order: 6.01, days: 5, field: "NCLEX_Pre_Exam", type: "picklist", accepted: ["1st Attempt Pass", "2nd Attempt Pass"] },
-  { stage_name: "Program Prescreen", stage_category: "NCLEX Program", stage_order: 6.02, days: 10, field: "Prescreen_Status", type: "picklist", accepted: ["Attended"] },
-  { stage_name: "Document Review", stage_category: "NCLEX Program", stage_order: 6.03, days: 24, field: "Documents_Submitted", type: "present" },
-  { stage_name: "Educational Program Agreement", stage_category: "NCLEX Program", stage_order: 6.04, days: 24, field: "Sponsorship_Agreement", type: "boolean" },
-  { stage_name: "Program Approval", stage_category: "NCLEX Program", stage_order: 6.05, days: 24, field: "Program_Status", type: "picklist", accepted: ["Approved"] },
-  { stage_name: "Credential Evaluation Set-up", stage_category: "NCLEX Program", stage_order: 6.06, days: 27, field: "Credential_Service", type: "picklist", accepted: ["Paid by ICP", "Sponsored by ICP", "To be Sponsored by Infinity", "Paid by Infinity"] },
-  { stage_name: "Credential Evaluation Completed", stage_category: "NCLEX Program", stage_order: 6.07, days: 92, field: "Credential_Registration_Date", type: "present" },
-  { stage_name: "CES Report Issued", stage_category: "NCLEX Program", stage_order: 6.08, days: 102, field: "Date_Report_Issued", type: "present" },
-  { stage_name: "Performance Check 1", stage_category: "NCLEX Program", stage_order: 6.09, days: 77, type: "performance", performanceGate: { assessmentsRequired: 2, assignmentsRequired: 6, ratingRequired: true } },
-  { stage_name: "Board Registration", stage_category: "NCLEX Program", stage_order: 6.10, days: 120, field: "State_License_Board_of_Registration", type: "picklist", accepted: ["Paid by ICP", "Sponsored by ICP", "To be Sponsored by Infinity", "Paid by Infinity"] },
-  { stage_name: "Select Meeting Time", stage_category: "NCLEX Program", stage_order: 6.11, days: 120, type: "booking", non_counted_section: true },
-  { stage_name: "Performance Check 2", stage_category: "NCLEX Program", stage_order: 6.12, days: 102, type: "performance", performanceGate: { assessmentsRequired: 4, assignmentsRequired: 15, ratingRequired: true } },
-  { stage_name: "Board Approval", stage_category: "NCLEX Program", stage_order: 6.13, days: 127, field: "Board_Username", type: "present" },
-  { stage_name: "Pearson Vue Registration", stage_category: "NCLEX Program", stage_order: 6.14, days: 150, field: "Pearson_Vue_Status", type: "picklist", accepted: ["Complete"] },
-  { stage_name: "Performance Check 3", stage_category: "NCLEX Program", stage_order: 6.15, days: 127, type: "performance", performanceGate: { assessmentsRequired: 5, assignmentsRequired: 0, ratingRequired: true } },
-  { stage_name: "ATT Received", stage_category: "NCLEX Program", stage_order: 6.16, days: 150, field: "ATT_Received_Date", type: "present" },
-  { stage_name: "Performance Check 4", stage_category: "NCLEX Program", stage_order: 6.17, days: 150, type: "performance", performanceGate: { assessmentsRequired: 6, assignmentsRequired: 0, ratingRequired: true } },
-  { stage_name: "Exam Scheduled", stage_category: "NCLEX Program", stage_order: 6.18, days: 165, field: "NCLEX_Exam_Date", type: "present" },
-  { stage_name: "Exam Results", stage_category: "NCLEX Program", stage_order: 6.19, days: 195, field: "NCLEX_Status", type: "picklist", accepted: ["Passed"] }
-];
 
 const unwrapAdminNCLEXValue = value => {
   if (value === undefined || value === null) return value;
@@ -696,24 +590,6 @@ const StatusBadge = ({ status }) => (
     {status.charAt(0).toUpperCase() + status.slice(1)}
   </span>
 );
-
-// ─── PIPELINE RENDER CONSTANTS ───────────────────────────────────────────────
-const PIPELINE_CATEGORIES = {
-  Hiring: { bg: "bg-blue-50", text: "text-blue-700", border: "border-blue-200" },
-  Immigration: { bg: "bg-purple-50", text: "text-purple-700", border: "border-purple-200" },
-  Deployment: { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200" },
-  Aftercare: { bg: "bg-rose-50", text: "text-rose-700", border: "border-rose-200" },
-  "NCLEX Roadmap": { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200" },
-  "NCLEX Prescreen": { bg: "bg-orange-50", text: "text-orange-700", border: "border-orange-200" },
-  "NCLEX Program": { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200" },
-};
-
-const PIPELINE_STATUS = {
-  "Completed": { icon: CheckCircle2, color: "text-emerald-500", badge: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-  "In Progress": { icon: Clock, color: "text-blue-500", badge: "bg-blue-50 text-blue-700 border-blue-200" },
-  "Blocked": { icon: AlertCircle, color: "text-red-500", badge: "bg-red-50 text-red-700 border-red-200" },
-  "Not Started": { icon: Circle, color: "text-gray-400", badge: "bg-gray-100 text-gray-600 border-gray-200" },
-};
 
 const getAdminPipelineRisk = stage => {
   if (

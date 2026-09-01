@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { useAuth } from "@/lib/AuthContext";
 import { User, Phone, Mail, MapPin, Briefcase, Plane, Building2, UserCheck, Calendar, Award, FileText, FileCheck, Clock, Shield, CheckCircle, AlertCircle, Building, Loader2, Users, CalendarDays, ExternalLink, Camera, Globe2, BadgeCheck } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://fictional-carnival-3inv.onrender.com';
 
@@ -165,6 +165,7 @@ export default function Profile() {
   const [embassyEligibilityStatus, setEmbassyEligibilityStatus] = useState("");
   const [preferredLicensureAgentUrl, setPreferredLicensureAgentUrl] = useState("");
   const [showPreferredLicensureAgentOffer, setShowPreferredLicensureAgentOffer] = useState(false);
+<<<<<<< Updated upstream
   const [candidatePhotoUrl, setCandidatePhotoUrl] = useState(null);
 
   // Candidate photo is resolved by the backend from Zoho CRM Candidate_Photo
@@ -258,6 +259,10 @@ export default function Profile() {
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [user?.email]);
+=======
+  const profileRequestInFlight = useRef(false);
+  const canonicalRequestInFlight = useRef(false);
+>>>>>>> Stashed changes
 
   const [travelPlanning, setTravelPlanning] = useState({
     departureCity: "",
@@ -281,12 +286,14 @@ export default function Profile() {
   // Fetch profile data from Zoho API
   useEffect(() => {
     const fetchProfile = async () => {
+      if (profileRequestInFlight.current) return;
       if (!user?.email) {
         setLoading(false);
         return;
       }
 
       try {
+        profileRequestInFlight.current = true;
         const token = localStorage.getItem("icp_auth_token");
         if (!token) {
           setLoading(false);
@@ -297,14 +304,12 @@ export default function Profile() {
         console.log("[Profile] Fetching profile data for:", user.email);
 
         const response = await fetch(
-          `${API_BASE}/api/zoho/my-deals?refresh=false&_=${Date.now()}`,
+          `${API_BASE}/api/zoho/my-deals?refresh=false`,
           {
-            cache: "no-store",
+            cache: "default",
             headers: {
               Authorization: `Bearer ${token}`,
               'Content-Type': 'application/json',
-              "Cache-Control": "no-cache",
-              Pragma: "no-cache"
             }
           }
         );
@@ -329,6 +334,7 @@ export default function Profile() {
         console.error("[Profile] Error:", error);
         setError(error.message);
       } finally {
+        profileRequestInFlight.current = false;
         setLoading(false);
       }
     };
@@ -346,7 +352,7 @@ export default function Profile() {
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refreshOnVisibility);
 
-    const profileRefreshTimer = window.setInterval(fetchProfile, 30 * 1000);
+    const profileRefreshTimer = window.setInterval(fetchProfile, 5 * 60 * 1000);
 
     return () => {
       window.removeEventListener("candidate-data-updated", refresh);
@@ -363,12 +369,14 @@ export default function Profile() {
   // CRM Deals, Recruit Candidates, or Recruit Applications.
   useEffect(() => {
     const fetchRecruitData = async () => {
+      if (canonicalRequestInFlight.current) return;
       if (!user?.email) {
         setRecruitLoading(false);
         return;
       }
 
       try {
+        canonicalRequestInFlight.current = true;
         const token =
           localStorage.getItem(
             "icp_auth_token"
@@ -385,18 +393,14 @@ export default function Profile() {
 
         const response =
           await fetch(
-            `${API_BASE}/api/profile/source-data?refresh=false&_=${Date.now()}`,
+            `${API_BASE}/api/profile/source-data?refresh=false`,
             {
-              cache: "no-store",
+              cache: "default",
               headers: {
                 Authorization:
                   `Bearer ${token}`,
                 "Content-Type":
                   "application/json",
-                "Cache-Control":
-                  "no-cache",
-                Pragma:
-                  "no-cache"
               }
             }
           );
@@ -571,6 +575,7 @@ export default function Profile() {
           error
         );
       } finally {
+        canonicalRequestInFlight.current = false;
         setRecruitLoading(false);
       }
     };
@@ -606,7 +611,7 @@ export default function Profile() {
     const refreshTimer =
       window.setInterval(
         fetchRecruitData,
-        30 * 1000
+        5 * 60 * 1000
       );
 
     return () => {
@@ -717,9 +722,6 @@ export default function Profile() {
       if (!document.hidden) loadLiveCrmProfile();
     };
 
-    loadLiveCrmProfile();
-    timer = window.setInterval(loadLiveCrmProfile, 5000);
-
     window.addEventListener("candidate-data-updated", refresh);
     window.addEventListener("crm-recruit-updated", refresh);
     window.addEventListener("pipeline-updated", refresh);
@@ -747,13 +749,11 @@ export default function Profile() {
 
       try {
         const response = await fetch(
-          `${API_BASE}/api/requests?_=${Date.now()}`,
+          `${API_BASE}/api/requests`,
           {
-            cache: "no-store",
+            cache: "default",
             headers: {
-              Authorization: `Bearer ${token}`,
-              "Cache-Control": "no-cache",
-              Pragma: "no-cache"
+              Authorization: `Bearer ${token}`
             }
           }
         );
@@ -807,9 +807,9 @@ export default function Profile() {
 
       try {
         const response = await fetch(
-          `${API_BASE}/api/profile/extended?_=${Date.now()}`,
+          `${API_BASE}/api/profile/extended`,
           {
-            cache: "no-store",
+            cache: "default",
             headers: {
               Authorization: `Bearer ${token}`
             }
@@ -852,7 +852,7 @@ export default function Profile() {
     const interval =
       window.setInterval(
         loadExtendedProfile,
-        5000
+        5 * 60 * 1000
       );
 
     return () => {
