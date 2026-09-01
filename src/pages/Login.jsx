@@ -488,6 +488,17 @@ export default function Login() {
           )}
         </>
 
+        <div className="mt-6 text-center">
+          <a
+            href="https://mail.google.com/mail/?view=cm&fs=1&to=itassistant%40infinitycarepartners.com%2Ccogembo%40infinitycarepartners.com&su=Login%20support%20request"
+            target="_blank"
+            rel="noreferrer"
+            className="text-sm text-primary hover:underline"
+          >
+            Need help? Contact our support team
+          </a>
+        </div>
+
         {/* Separate admin login removed. Type "Admin" in the email field. */}
       </div>
     </div>
