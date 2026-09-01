@@ -565,6 +565,9 @@ export default function Layout() {
 
   // ─── Load unread count ──────────────────────────────────────────────────────
   useEffect(() => {
+    let idleCallbackId;
+    let fallbackTimerId;
+
     const loadUnreadCount = async () => {
       try {
         const token = tokenStorage.get();
@@ -579,7 +582,13 @@ export default function Layout() {
       }
     };
 
-    loadUnreadCount();
+    // The badge is useful but not required for the first Dashboard frame.
+    // Start its network request after the browser has had a chance to paint.
+    if ("requestIdleCallback" in window) {
+      idleCallbackId = window.requestIdleCallback(loadUnreadCount, { timeout: 2000 });
+    } else {
+      fallbackTimerId = window.setTimeout(loadUnreadCount, 250);
+    }
 
     const handleNewMessage = () => {
       setUnreadCount(prev => prev + 1);
@@ -595,6 +604,12 @@ export default function Layout() {
     window.addEventListener('messaging-read', refreshUnreadCount);
 
     return () => {
+      if (idleCallbackId !== undefined) {
+        window.cancelIdleCallback(idleCallbackId);
+      }
+      if (fallbackTimerId !== undefined) {
+        window.clearTimeout(fallbackTimerId);
+      }
       websocket.off('new_message', handleNewMessage);
       window.removeEventListener('messaging-read', refreshUnreadCount);
       window.clearInterval(interval);

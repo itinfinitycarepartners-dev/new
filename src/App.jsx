@@ -55,25 +55,39 @@ const MessagingInitializer = ({ children }) => {
   } = useAuth();
 
   useEffect(() => {
-    if (
-      !isLoadingAuth &&
-      isAuthenticated
-    ) {
-      const token =
-        tokenStorage.get();
+    let idleCallbackId;
+    let fallbackTimerId;
 
+    if (isLoadingAuth) {
+      return undefined;
+    }
+
+    if (!isAuthenticated) {
+      websocket.disconnect();
+      return undefined;
+    }
+
+    const startMessaging = () => {
+      const token = tokenStorage.get();
       if (token) {
-        console.log(
-          "[App] Initializing WebSocket connection"
-        );
-
         initMessaging(token);
       }
+    };
+
+    // Keep WebSocket negotiation off the critical render path. requestIdleCallback
+    // runs after the first frame; the timeout keeps older browsers supported.
+    if ("requestIdleCallback" in window) {
+      idleCallbackId = window.requestIdleCallback(startMessaging, { timeout: 2000 });
+    } else {
+      fallbackTimerId = window.setTimeout(startMessaging, 250);
     }
 
     return () => {
-      if (!isAuthenticated) {
-        websocket.disconnect();
+      if (idleCallbackId !== undefined) {
+        window.cancelIdleCallback(idleCallbackId);
+      }
+      if (fallbackTimerId !== undefined) {
+        window.clearTimeout(fallbackTimerId);
       }
     };
   }, [

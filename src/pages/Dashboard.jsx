@@ -59,7 +59,7 @@ import { toast } from "sonner";
 // ─── IMPORT FROM src/api/icpClient.js ──────────────────────────────────────
 import { messaging, websocket, tokenStorage } from "@/api/icpClient";
 import { getEnabledPipelineStages } from "@/config/releaseConfig";
-import nurseImage from "../components/nurse.png";
+import nurseImage from "../components/nurse.webp";
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://fictional-carnival-3inv.onrender.com';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -2135,7 +2135,16 @@ export default function Dashboard() {
         }
       };
 
-    loadMessages();
+    let idleCallbackId;
+    let fallbackTimerId;
+
+    // Conversations are supplemental Dashboard content. Let the primary
+    // Dashboard frame render before starting this request.
+    if ("requestIdleCallback" in window) {
+      idleCallbackId = window.requestIdleCallback(loadMessages, { timeout: 2000 });
+    } else {
+      fallbackTimerId = window.setTimeout(loadMessages, 250);
+    }
 
     const handleMessage =
       () =>
@@ -2154,6 +2163,13 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
 
+      if (idleCallbackId !== undefined) {
+        window.cancelIdleCallback(idleCallbackId);
+      }
+      if (fallbackTimerId !== undefined) {
+        window.clearTimeout(fallbackTimerId);
+      }
+
       websocket.off(
         "new_message",
         handleMessage
@@ -2165,8 +2181,7 @@ export default function Dashboard() {
       );
     };
   }, [
-    user?.email,
-    summary?.counts?.messages
+    user?.email
   ]);
 
   useEffect(() => {
@@ -2551,6 +2566,8 @@ export default function Dashboard() {
           <img
             src={nurseImage}
             alt="Healthcare professional"
+            fetchPriority="high"
+            decoding="async"
             className="pointer-events-none absolute inset-y-0 right-0 h-full w-auto max-w-[48%] object-contain object-right-bottom opacity-100 drop-shadow-[0_12px_18px_rgba(59,7,100,0.18)]"
           />
           <div className="pointer-events-none absolute inset-y-0 right-[32%] w-[18%] bg-gradient-to-r from-[#FDF2F8] via-[#FDF2F8]/70 to-transparent" />

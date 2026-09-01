@@ -1605,10 +1605,6 @@ export default function Profile() {
       .toUpperCase() ||
     "?";
 
-  // Log available fields for debugging
-  console.log("[Profile] Available fields:", Object.keys(profileData || {}));
-  console.log("[Profile] Recruit data:", recruitData);
-
   return (
     <div className="mx-auto w-full max-w-[1080px] pb-10">
       {/* Screenshot-matched profile summary */}
