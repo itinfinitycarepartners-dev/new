@@ -165,8 +165,9 @@ export default function Profile() {
   const [embassyEligibilityStatus, setEmbassyEligibilityStatus] = useState("");
   const [preferredLicensureAgentUrl, setPreferredLicensureAgentUrl] = useState("");
   const [showPreferredLicensureAgentOffer, setShowPreferredLicensureAgentOffer] = useState(false);
-<<<<<<< Updated upstream
   const [candidatePhotoUrl, setCandidatePhotoUrl] = useState(null);
+  const profileRequestInFlight = useRef(false);
+  const canonicalRequestInFlight = useRef(false);
 
   // Candidate photo is resolved by the backend from Zoho CRM Candidate_Photo
   // first, then Zoho Recruit Candidates/{id}/photo. Recruit does not expose the
@@ -259,11 +260,6 @@ export default function Profile() {
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [user?.email]);
-=======
-  const profileRequestInFlight = useRef(false);
-  const canonicalRequestInFlight = useRef(false);
->>>>>>> Stashed changes
-
   const [travelPlanning, setTravelPlanning] = useState({
     departureCity: "",
     wheelchair: "No",
