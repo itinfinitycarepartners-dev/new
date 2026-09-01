@@ -19,13 +19,10 @@ export default function Messages() {
   const sendBroadcast = async event => {
     event.preventDefault();
 
-    const message =
-      content.trim();
+    const message = content.trim();
 
     if (!message) {
-      setError(
-        "Enter a community message."
-      );
+      setError("Enter a community message.");
       return;
     }
 
@@ -36,15 +33,9 @@ export default function Messages() {
     setSuccess("");
 
     try {
-      const data =
-        await messaging.sendUserBroadcast(
-          message
-        );
+      const data = await messaging.sendUserBroadcast(message);
 
-      if (
-        !data ||
-        data.success !== true
-      ) {
+      if (!data || data.success !== true) {
         throw new Error(
           data?.error ||
           data?.message ||
@@ -54,24 +45,18 @@ export default function Messages() {
 
       setContent("");
       setShowBroadcast(false);
-      setSuccess(
-        "Community message posted."
-      );
+      setSuccess("Community message posted.");
 
       window.dispatchEvent(
-        new CustomEvent(
-          "messaging-updated",
-          {
-            detail: {
-              conversationId:
-                data.conversation?._id ||
-                data.conversation?.id ||
-                "community",
-              type:
-                "broadcast"
-            }
+        new CustomEvent("messaging-updated", {
+          detail: {
+            conversationId:
+              data.conversation?._id ||
+              data.conversation?.id ||
+              "community",
+            type: "broadcast"
           }
-        )
+        })
       );
     } catch (sendError) {
       setError(
@@ -181,7 +166,6 @@ export default function Messages() {
               </button>
               <button
                 type="submit"
-                onClick={sendBroadcast}
                 disabled={sending || !content.trim()}
                 className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
               >

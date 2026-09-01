@@ -1356,8 +1356,9 @@ export default function Dashboard() {
   const { user } =
     useAuth();
 
-  // Candidate photo is sourced from Zoho CRM -> Deals -> Candidate_Photo.
-  // The backend proxies the bytes so the browser never sees Zoho credentials.
+  // Candidate photo is sourced by the backend from Zoho CRM Deals
+  // Candidate_Photo first, then Zoho Recruit Candidates/{id}/photo.
+  // The browser never sees Zoho credentials.
   const [
     candidatePhotoUrl,
     setCandidatePhotoUrl
@@ -1387,7 +1388,7 @@ export default function Dashboard() {
 
       try {
         const response = await fetch(
-          `${API_BASE}/api/candidate/photo`,
+          `${API_BASE}/api/candidate/photo?_=${Date.now()}`,
           {
             headers: {
               Authorization: `Bearer ${token}`

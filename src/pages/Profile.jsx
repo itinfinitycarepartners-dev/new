@@ -165,6 +165,99 @@ export default function Profile() {
   const [embassyEligibilityStatus, setEmbassyEligibilityStatus] = useState("");
   const [preferredLicensureAgentUrl, setPreferredLicensureAgentUrl] = useState("");
   const [showPreferredLicensureAgentOffer, setShowPreferredLicensureAgentOffer] = useState(false);
+  const [candidatePhotoUrl, setCandidatePhotoUrl] = useState(null);
+
+  // Candidate photo is resolved by the backend from Zoho CRM Candidate_Photo
+  // first, then Zoho Recruit Candidates/{id}/photo. Recruit does not expose the
+  // photo as a normal Candidates field, so the browser must use this proxy.
+  useEffect(() => {
+    if (!user?.email) {
+      setCandidatePhotoUrl(null);
+      return;
+    }
+
+    let cancelled = false;
+    let objectUrl = null;
+
+    const loadCandidatePhoto = async () => {
+      const token = localStorage.getItem("icp_auth_token");
+
+      if (!token) {
+        if (!cancelled) setCandidatePhotoUrl(null);
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/candidate/photo?_=${Date.now()}`,
+          {
+            cache: "no-store",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Cache-Control": "no-cache",
+              Pragma: "no-cache"
+            }
+          }
+        );
+
+        if (!response.ok) {
+          if (!cancelled) setCandidatePhotoUrl(null);
+          return;
+        }
+
+        const blob = await response.blob();
+
+        if (!blob || blob.size === 0) {
+          if (!cancelled) setCandidatePhotoUrl(null);
+          return;
+        }
+
+        objectUrl = URL.createObjectURL(blob);
+
+        if (!cancelled) {
+          setCandidatePhotoUrl(objectUrl);
+        }
+      } catch (error) {
+        console.warn(
+          "[Profile] Candidate photo unavailable:",
+          error?.message || error
+        );
+
+        if (!cancelled) {
+          setCandidatePhotoUrl(null);
+        }
+      }
+    };
+
+    loadCandidatePhoto();
+
+    const refresh = () => loadCandidatePhoto();
+    const onVisibility = () => {
+      if (!document.hidden) loadCandidatePhoto();
+    };
+
+    window.addEventListener("candidate-data-updated", refresh);
+    window.addEventListener("crm-recruit-updated", refresh);
+    window.addEventListener("pipeline-updated", refresh);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    const timer = window.setInterval(
+      loadCandidatePhoto,
+      5 * 60 * 1000
+    );
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      window.clearInterval(timer);
+      window.removeEventListener("candidate-data-updated", refresh);
+      window.removeEventListener("crm-recruit-updated", refresh);
+      window.removeEventListener("pipeline-updated", refresh);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [user?.email]);
 
   const [travelPlanning, setTravelPlanning] = useState({
     departureCity: "",
@@ -1534,8 +1627,16 @@ export default function Profile() {
         <div className="relative z-10 flex min-h-[114px] items-center justify-between gap-5">
           <div className="flex min-w-0 items-center gap-[22px]">
             <div className="relative shrink-0">
-              <div className="flex h-[92px] w-[92px] items-center justify-center rounded-full bg-[#e6faf3] text-[36px] font-bold text-[#16a879]">
-                {profileInitial}
+              <div className="flex h-[92px] w-[92px] items-center justify-center overflow-hidden rounded-full bg-[#e6faf3] text-[36px] font-bold text-[#16a879] ring-2 ring-white shadow-[0_2px_8px_rgba(57,38,99,0.10)]">
+                {candidatePhotoUrl ? (
+                  <img
+                    src={candidatePhotoUrl}
+                    alt={`${displayName} profile`}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  profileInitial
+                )}
               </div>
               <button
                 type="button"

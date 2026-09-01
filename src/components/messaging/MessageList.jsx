@@ -123,7 +123,7 @@ export default function MessageList() {
       setLoading(true);
       const params = { limit: 50 };
       if (loadMore && messages.length > 0) {
-        params.before = messages[0]?.createdAt;
+        params.before = messages[0]?._id;
       }
 
       const response = await messaging.getMessages(
@@ -597,19 +597,42 @@ export default function MessageList() {
     return messages.filter(m => m.replyTo === messageId);
   };
 
-  const formatMessageTime = (date) => {
-    if (!date) return '';
+  // Always show an absolute timestamp. This intentionally does not use
+  // relative values such as "Just now", "5m", or "2h" so every message
+  // remains auditable after the conversation is revisited. Older messages that
+  // lack createdAt can still get a timestamp from their MongoDB ObjectId.
+  const getMessageDate = (value) => {
+    const raw = value && typeof value === 'object'
+      ? (value.createdAt || value.created_at || value.timestamp || value.sentAt || value.time)
+      : value;
+
+    if (raw) {
+      const parsed = new Date(raw);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+
+    const id = value && typeof value === 'object' ? value._id || value.id : value;
+    const idString = String(id || '');
+    if (/^[a-f0-9]{24}$/i.test(idString)) {
+      const seconds = Number.parseInt(idString.slice(0, 8), 16);
+      const parsed = new Date(seconds * 1000);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+
+    return null;
+  };
+
+  const formatMessageTime = (value) => {
+    const d = getMessageDate(value);
+    if (!d) return '';
     try {
-      const d = new Date(date);
-      const now = new Date();
-      const diff = now - d;
-      
-      if (diff < 60000) return 'Just now';
-      if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
-      if (diff < 86400000) return `${Math.floor(diff / 3600000)}h`;
-      if (diff < 604800000) return `${Math.floor(diff / 86400000)}d`;
-      
-      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return new Intl.DateTimeFormat(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit'
+      }).format(d);
     } catch {
       return '';
     }
@@ -694,7 +717,7 @@ export default function MessageList() {
                         )}
                   </span>
                   <span className="text-xs text-slate-400">·</span>
-                  <span className="text-xs text-slate-400">{formatMessageTime(message.createdAt)}</span>
+                  <span className="text-xs text-slate-400 whitespace-nowrap" title={String(message.createdAt || message.created_at || message.timestamp || message.sentAt || '')}>{formatMessageTime(message)}</span>
                 </div>
                 {message.messageType === 'image' ? (
                   <img 
@@ -747,7 +770,7 @@ export default function MessageList() {
                   <span className="text-xs text-slate-400">·</span>
                 </>
               )}
-              <span className="text-xs text-slate-400">{formatMessageTime(message.createdAt)}</span>
+              <span className="text-xs text-slate-400 whitespace-nowrap" title={String(message.createdAt || message.created_at || message.timestamp || message.sentAt || '')}>{formatMessageTime(message)}</span>
             </div>
             
             <div className={`mt-1 ${isSender ? 'text-left' : 'text-right'}`}>
@@ -767,8 +790,8 @@ export default function MessageList() {
                 ) : (
                   <>
                     <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
-                    <p className="mt-1 text-right text-[10px] text-slate-500">
-                      {message.createdAt ? formatMessageTime(message.createdAt) : ''}
+                    <p className="mt-1 text-right text-[10px] text-slate-500" title={String(message.createdAt || message.created_at || message.timestamp || message.sentAt || '')}>
+                      {formatMessageTime(message)}
                     </p>
                   </>
                 )}
@@ -885,7 +908,7 @@ export default function MessageList() {
                         {replyDisplayName}
                       </span>
                       <span className="text-xs text-slate-400">·</span>
-                      <span className="text-xs text-slate-400">{formatMessageTime(reply.createdAt)}</span>
+                      <span className="text-xs text-slate-400 whitespace-nowrap" title={String(reply.createdAt || reply.created_at || reply.timestamp || reply.sentAt || '')}>{formatMessageTime(reply)}</span>
                     </div>
                     <div className={`inline-block rounded-xl mt-0.5 ${
                       reply.messageType === 'image'

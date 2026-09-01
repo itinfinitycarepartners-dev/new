@@ -1,12 +1,8 @@
-
-
-
 // @ts-nocheck
 // src/components/messaging/ConversationList.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { messaging, websocket, tokenStorage } from '@/api/icpClient';
-import { formatDistanceToNow } from 'date-fns';
 import {
   FileText,
   HandHeart,
@@ -559,10 +555,44 @@ const sendMessage = useCallback(async () => {
     return content.length > 50 ? content.substring(0, 50) + '...' : content;
   };
 
-  const getTimeAgo = (date) => {
-    if (!date) return '';
-    try { return formatDistanceToNow(new Date(date), { addSuffix: true }); } 
-    catch { return ''; }
+  // Always show an absolute timestamp for messages and conversation previews.
+  // If an older record has no createdAt value, recover the timestamp from a
+  // MongoDB ObjectId when possible instead of showing a blank timestamp.
+  const getMessageDate = (value) => {
+    const raw = value && typeof value === 'object'
+      ? (value.createdAt || value.created_at || value.timestamp || value.sentAt || value.time)
+      : value;
+
+    if (raw) {
+      const parsed = new Date(raw);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+
+    const id = value && typeof value === 'object' ? value._id || value.id : value;
+    const idString = String(id || '');
+    if (/^[a-f0-9]{24}$/i.test(idString)) {
+      const seconds = Number.parseInt(idString.slice(0, 8), 16);
+      const parsed = new Date(seconds * 1000);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+
+    return null;
+  };
+
+  const formatMessageTimestamp = (value) => {
+    const parsed = getMessageDate(value);
+    if (!parsed) return '';
+    try {
+      return new Intl.DateTimeFormat(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit'
+      }).format(parsed);
+    } catch {
+      return '';
+    }
   };
 
   const renderMessageWithReplies = (message, isReply = false, depth = 0) => {
@@ -631,9 +661,7 @@ const sendMessage = useCallback(async () => {
                   ·
                 </span>
                 <span className="text-sm text-slate-500">
-                  {getTimeAgo(
-                    message.createdAt
-                  )}
+                  {formatMessageTimestamp(message)}
                 </span>
               </div>
 
@@ -671,7 +699,7 @@ const sendMessage = useCallback(async () => {
             <div className="flex items-center justify-between flex-wrap gap-1">
               <div className="flex items-center gap-2">
                 {isSender && <span className="font-medium text-sm text-slate-700">{displayName}</span>}
-                <span className="text-xs text-slate-400">{getTimeAgo(message.createdAt)}</span>
+                <span className="text-xs text-slate-400">{formatMessageTimestamp(message)}</span>
               </div>
             </div>
             
@@ -781,7 +809,7 @@ const sendMessage = useCallback(async () => {
                   ) : departmentConversations.map((conversation) => {
                 const name = getConversationName(conversation);
                 const preview = getLastMessagePreview(conversation);
-                const timeAgo = getTimeAgo(conversation.lastMessageAt);
+                const timeAgo = formatMessageTimestamp(conversation.lastMessage || conversation.lastMessageAt);
                 const isUnread = (conversation.unreadCount || 0) > 0;
                 const isBroadcast = isBroadcastConversation(conversation);
                 const isSelected = selectedId === conversation._id;
@@ -809,7 +837,7 @@ const sendMessage = useCallback(async () => {
                           {isBroadcast ? "Public Messages" : name}
                         </span>
                         <div className="flex shrink-0 items-center gap-2">
-                          <span className="text-xs text-slate-400">{timeAgo}</span>
+                          <span className="text-xs text-slate-400 whitespace-nowrap" title={String(conversation.lastMessageAt || conversation.lastMessage?.createdAt || '')}>{timeAgo}</span>
                           {isUnread && <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-emerald-600 px-1 py-0.5 text-[10px] font-bold leading-none text-white">{conversation.unreadCount}</span>}
                         </div>
                       </div>

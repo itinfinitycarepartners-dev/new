@@ -2131,6 +2131,46 @@ const MessagingPanel = ({ users, initialTarget }) => {
   useEffect(() => { if (initialTarget?.email) setSelected(initialTarget.email); }, [initialTarget]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
+  // Use a full, absolute timestamp for every message in the admin inbox.
+  // The browser's local timezone is used. Legacy MongoDB messages without a
+  // createdAt field fall back to the timestamp encoded in their ObjectId.
+  const getMessageDate = (value) => {
+    const raw = value && typeof value === 'object'
+      ? (value.createdAt || value.created_at || value.timestamp || value.sentAt || value.time)
+      : value;
+
+    if (raw) {
+      const parsed = new Date(raw);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+
+    const id = value && typeof value === 'object' ? value._id || value.id : value;
+    const idString = String(id || '');
+    if (/^[a-f0-9]{24}$/i.test(idString)) {
+      const seconds = Number.parseInt(idString.slice(0, 8), 16);
+      const parsed = new Date(seconds * 1000);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+
+    return null;
+  };
+
+  const formatMessageTimestamp = (value) => {
+    const date = getMessageDate(value);
+    if (!date) return '';
+    try {
+      return new Intl.DateTimeFormat(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit'
+      }).format(date);
+    } catch {
+      return '';
+    }
+  };
+
   const getAdminHeaders = () => {
     const { adminToken } = getTokens();
     return {
@@ -2505,6 +2545,14 @@ const MessagingPanel = ({ users, initialTarget }) => {
                             {getConversationName(conversation)}
                           </div>
                           <div className="truncate text-xs text-slate-500">{conversation.lastMessage?.content || email}</div>
+                          {conversation.lastMessage && (
+                            <div
+                              className="mt-0.5 truncate text-[10px] text-slate-400"
+                              title={String(conversation.lastMessage.createdAt || conversation.lastMessage.created_at || '')}
+                            >
+                              {formatMessageTimestamp(conversation.lastMessage)}
+                            </div>
+                          )}
                         </div>
                       </div>
                       {getConversationUnreadCount(conversation) > 0 && <span className="inline-flex min-w-4 shrink-0 items-center justify-center rounded-full bg-emerald-600 px-1 py-0.5 text-[10px] font-bold leading-none text-white">{getConversationUnreadCount(conversation)}</span>}
@@ -2616,8 +2664,16 @@ const MessagingPanel = ({ users, initialTarget }) => {
               ) : (
                 chat.map((msg) => (
                   <div key={msg._id || msg.id} className={`flex ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-sm shadow-sm ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'text-white rounded-br-sm' : 'border border-slate-200 bg-white text-slate-800 rounded-bl-sm'}`} style={{ background: msg.senderEmail === 'admin' || msg.from === 'admin' ? THEME.brand : '' }}>
-                      {msg.content || msg.text}
+                    <div className={`max-w-[75%] rounded-2xl text-sm shadow-sm ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'text-white rounded-br-sm' : 'border border-slate-200 bg-white text-slate-800 rounded-bl-sm'}`} style={{ background: msg.senderEmail === 'admin' || msg.from === 'admin' ? THEME.brand : '' }}>
+                      <div className="px-4 pt-2.5">
+                        {msg.content || msg.text}
+                      </div>
+                      <div
+                        className={`px-4 pb-2.5 pt-1 text-[10px] ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'text-white/70' : 'text-slate-400'}`}
+                        title={String(msg.createdAt || msg.created_at || msg.timestamp || msg.sentAt || '')}
+                      >
+                        {formatMessageTimestamp(msg)}
+                      </div>
                     </div>
                   </div>
                 ))
