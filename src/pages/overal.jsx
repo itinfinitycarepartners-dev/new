@@ -177,6 +177,10 @@ const buildAdminCandidatePipelineFlow = (
   savedStages = [],
   profile = {}
 ) => {
+  // The shared backend snapshot is the exact candidate-visible flow. Do not rebuild it on the admin side.
+  if (Array.isArray(savedStages) && savedStages.length && savedStages.every(stage => stage?._shared_snapshot === true)) {
+    return [...savedStages];
+  }
   const saved = Array.isArray(savedStages)
     ? savedStages
     : [];
@@ -683,7 +687,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
         // profile, MongoDB pipeline, submitted aftercare dates, and login history.
         const [
           adminRes,
-          documentsRes
+          documentsRes,
+          sharedPipelineRes
         ] = await Promise.allSettled([
           fetch(`${API_BASE}/api/admin/user/${email}`, {
             headers,
@@ -691,6 +696,11 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
             cache: 'no-store'
           }),
           fetch(`${API_BASE}/api/admin/documents/${email}`, {
+            headers,
+            credentials: 'include',
+            cache: 'no-store'
+          }),
+          fetch(`${API_BASE}/api/admin/candidate/${email}/pipeline`, {
             headers,
             credentials: 'include',
             cache: 'no-store'
@@ -757,11 +767,14 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
               null,
           });
 
-          setPipeline(
-            Array.isArray(detail.pipelineStages)
-              ? detail.pipelineStages
-              : []
-          );
+          // Prefer the exact same resolved snapshot used by My Pipeline.
+          // Fall back only if the shared endpoint is temporarily unavailable.
+          if (sharedPipelineRes.status === 'fulfilled' && sharedPipelineRes.value.ok) {
+            const sharedPayload = await sharedPipelineRes.value.json();
+            setPipeline(Array.isArray(sharedPayload?.stages) ? sharedPayload.stages : []);
+          } else {
+            setPipeline(Array.isArray(detail.pipelineStages) ? detail.pipelineStages : []);
+          }
         } else {
           const status = adminRes.status === 'fulfilled' ? adminRes.value.status : 'network';
           throw new Error(`Unable to load the complete admin record (${status}).`);
@@ -1987,6 +2000,9 @@ const UsersTable = ({ users, onSelectUser, onMessageUser, onBroadcast }) => {
 const MessagingPanel = ({ users, initialTarget }) => { 
   const [messages, setMessages] = useState({});
   const [selected, setSelected] = useState(initialTarget?.email || null);
+  // The email identifies the person, but the Mongo conversation _id identifies
+  // the exact thread. Keep both so two threads can never be confused.
+  const [selectedConversationId, setSelectedConversationId] = useState(null);
   const [department, setDepartment] = useState('admin');
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -2004,7 +2020,12 @@ const MessagingPanel = ({ users, initialTarget }) => {
   });
   const chatEndRef = useRef(null);
 
-  useEffect(() => { if (initialTarget?.email) setSelected(initialTarget.email); }, [initialTarget]);
+  useEffect(() => {
+    if (initialTarget?.email) {
+      setSelected(initialTarget.email);
+      setSelectedConversationId(null);
+    }
+  }, [initialTarget]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   // Use a full, absolute timestamp for every message in the admin inbox.
@@ -2077,17 +2098,29 @@ const MessagingPanel = ({ users, initialTarget }) => {
           headers: getAdminHeaders()
         });
         const conversationsData = await readResponse(conversationsResponse);
-        if (!cancelled) {
-          setDepartmentConversations(conversationsData.conversations || []);
+        const allConversations = conversationsData.conversations || [];
+        if (!cancelled) setDepartmentConversations(allConversations);
+
+        // Resolve an initial email selection once, but after that always use the
+        // exact conversation id chosen in the sidebar. Matching by participant
+        // email on every refresh was allowing the first matching row to win.
+        let conversation = selectedConversationId
+          ? allConversations.find(item => String(item._id) === String(selectedConversationId))
+          : null;
+
+        if (!conversation && selected) {
+          conversation = allConversations.find(item => {
+            const participantMatch = (item.participants || []).some(email =>
+              String(email).trim().toLowerCase() === String(selected).trim().toLowerCase()
+            );
+            return participantMatch &&
+              String(item.department || 'admin').trim().toLowerCase() === String(department || 'admin').trim().toLowerCase();
+          }) || null;
+          if (conversation && !cancelled) setSelectedConversationId(String(conversation._id));
         }
-        if (!selected) return;
-        const conversation = (conversationsData.conversations || []).find(item =>
-          (item.participants || []).some(email => String(email).toLowerCase() === String(selected).toLowerCase()) &&
-          (item.department || 'admin') === department
-        );
 
         if (!conversation) {
-          if (!cancelled) setMessages(prev => ({ ...prev, [selected]: [] }));
+          if (!cancelled) setMessages(prev => ({ ...prev, [selectedConversationId || selected || '__new__']: [] }));
           return;
         }
 
@@ -2097,9 +2130,9 @@ const MessagingPanel = ({ users, initialTarget }) => {
         );
         const historyData = await readResponse(historyResponse);
         if (!cancelled) {
-          setMessages(prev => ({ ...prev, [selected]: historyData.messages || [] }));
+          setMessages(prev => ({ ...prev, [String(conversation._id)]: historyData.messages || [] }));
           setDepartmentConversations(previous => previous.map(item =>
-            item._id === conversation._id
+            String(item._id) === String(conversation._id)
               ? { ...item, unreadCount: 0 }
               : item
           ));
@@ -2114,7 +2147,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
 
     loadHistory();
     return () => { cancelled = true; };
-  }, [selected, department]);
+  }, [selected, selectedConversationId, department]);
 
   const sendMessage = async () => {
     if (
@@ -2160,7 +2193,8 @@ const MessagingPanel = ({ users, initialTarget }) => {
           response
         );
 
-        setInput("");
+        if (data.conversation?._id) setSelectedConversationId(String(data.conversation._id));
+      setInput("");
         return;
       }
 
@@ -2203,11 +2237,18 @@ const MessagingPanel = ({ users, initialTarget }) => {
               .toISOString()
         };
 
+      const resolvedConversationId = String(
+        data.conversation?._id || selectedConversationId || selected
+      );
+      if (data.conversation?._id) {
+        setSelectedConversationId(String(data.conversation._id));
+      }
+
       setMessages(
         previous => ({
           ...previous,
-          [selected]: [
-            ...(previous[selected] || []),
+          [resolvedConversationId]: [
+            ...(previous[resolvedConversationId] || []),
             newMessage
           ]
         })
@@ -2289,6 +2330,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
 
     setDepartment(departmentId);
     setSelected(email);
+    setSelectedConversationId(String(conversation._id));
     // Clear the badge immediately on selection; the history endpoint also
     // persists the read state so it remains cleared after a refresh.
     setDepartmentConversations(previous => previous.map(item =>
@@ -2297,7 +2339,8 @@ const MessagingPanel = ({ users, initialTarget }) => {
         : item
     ));
   };
-  const chat = selected ? messages[selected] || [] : [];
+  const activeMessageKey = selectedConversationId || selected || '__new__';
+  const chat = messages[activeMessageKey] || [];
   const selectedName =
     threads.find(thread => thread.email === selected)?.name ||
     selected ||
