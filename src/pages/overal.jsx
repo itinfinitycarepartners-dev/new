@@ -3518,6 +3518,61 @@ const AdminReceiptsPanel = () => {
   );
 };
 
+const LoginApprovalsPanel = () => {
+  const [approvals, setApprovals] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const headers = useCallback(() => {
+    const { adminToken } = getTokens();
+    return {
+      "Content-Type": "application/json",
+      ...(adminToken ? { Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken } : {})
+    };
+  }, []);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/login-approvals?status=all`, { credentials: "include", headers: headers() });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.message || "Unable to load login approvals.");
+      setApprovals(data.approvals || []);
+    } catch (error) { setNotice(error.message); }
+    finally { setLoading(false); }
+  }, [headers]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const action = async (email, actionName) => {
+    setBusy(`${email}:${actionName}`); setNotice("");
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/login-approvals/${encodeURIComponent(email)}/${actionName}`, { method: "POST", credentials: "include", headers: headers() });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.message || "Action failed.");
+      setNotice(data.message); await load();
+    } catch (error) { setNotice(error.message); }
+    finally { setBusy(""); }
+  };
+
+  return <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+    <div className="p-5 border-b flex items-center justify-between gap-4">
+      <div><h3 className="font-bold text-gray-800">Login approvals</h3><p className="text-sm text-gray-500 mt-1">Requests created while Zoho could not verify a new candidate.</p></div>
+      <button onClick={load} className="rounded-lg border px-3 py-2 text-sm text-purple-700"><RefreshCw className={`w-4 h-4 inline mr-1 ${loading ? "animate-spin" : ""}`} />Refresh</button>
+    </div>
+    {notice && <div className="mx-5 mt-4 rounded-lg bg-purple-50 border border-purple-100 px-4 py-3 text-sm text-purple-800">{notice}</div>}
+    <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-50 text-left text-gray-500"><tr><th className="px-5 py-3">Email</th><th className="px-5 py-3">Requested</th><th className="px-5 py-3">Status</th><th className="px-5 py-3 text-right">Actions</th></tr></thead><tbody>
+      {approvals.map(item => <tr key={item._id || item.email} className="border-t"><td className="px-5 py-4 font-medium text-gray-800">{item.email}</td><td className="px-5 py-4 text-gray-500">{item.requested_at ? new Date(item.requested_at).toLocaleString() : "—"}</td><td className="px-5 py-4 capitalize">{item.status}</td><td className="px-5 py-4 text-right space-x-2">
+        {item.status === "pending" && <button disabled={busy.startsWith(`${item.email}:`)} onClick={() => action(item.email, "verify")} className="rounded-lg bg-purple-700 px-3 py-2 text-white disabled:opacity-50">Search CRM/Recruit</button>}
+        {item.status === "verified" && <button disabled={busy.startsWith(`${item.email}:`)} onClick={() => action(item.email, "approve")} className="rounded-lg bg-green-600 px-3 py-2 text-white disabled:opacity-50">Approve & email link</button>}
+        {item.status === "approved" && <button disabled={busy.startsWith(`${item.email}:`)} onClick={() => action(item.email, "resend-setup")} className="rounded-lg border px-3 py-2 text-purple-700 disabled:opacity-50">Resend link</button>}
+      </td></tr>)}
+      {!loading && approvals.length === 0 && <tr><td colSpan="4" className="px-5 py-10 text-center text-gray-500">No login approvals are waiting.</td></tr>}
+    </tbody></table></div>
+  </div>;
+};
+
 const AdminPanel = () => {
   const [tab, setTab] = useState('overview');
   const [users, setUsers] = useState([]);
@@ -3532,6 +3587,7 @@ const AdminPanel = () => {
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [receiptCount, setReceiptCount] = useState(0);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+  const [loginApprovalCount, setLoginApprovalCount] = useState(0);
 
   const openMessageThread = useCallback((user) => {
     setMsgTarget(user);
@@ -3686,7 +3742,7 @@ const AdminPanel = () => {
           } : {})
         };
 
-        const [requestsRes, receiptsRes] =
+        const [requestsRes, receiptsRes, loginApprovalsRes] =
           await Promise.all([
             fetch(`${API_BASE}/api/admin/requests?pendingOnly=true&_=${Date.now()}`, {
               cache:"no-store",
@@ -3697,13 +3753,15 @@ const AdminPanel = () => {
               cache:"no-store",
               credentials:"include",
               headers
-            })
+            }),
+            fetch(`${API_BASE}/api/admin/login-approvals?status=pending&_=${Date.now()}`, { cache:"no-store", credentials:"include", headers })
           ]);
 
         const requestsData =
           await requestsRes.json().catch(() => ({}));
         const receiptsData =
           await receiptsRes.json().catch(() => ({}));
+        const loginApprovalsData = await loginApprovalsRes.json().catch(() => ({}));
 
         if (!active) return;
 
@@ -3722,6 +3780,7 @@ const AdminPanel = () => {
               : 0
           );
         }
+        if (loginApprovalsRes.ok && loginApprovalsData.success === true) setLoginApprovalCount((loginApprovalsData.approvals || []).length);
       } catch {
       }
     };
@@ -3780,6 +3839,7 @@ const AdminPanel = () => {
     { id: 'analytics', icon: <BarChart3 className="w-4 h-4" />, label: 'Analytics' },
     { id: 'messages', icon: <MessageSquare className="w-4 h-4" />, label: 'Messages', badge: unreadMessageCount },
     { id: 'requests', icon: <ClipboardList className="w-4 h-4" />, label: 'Requests', badge: pendingRequestCount },
+    { id: 'login-approvals', icon: <UserCheck className="w-4 h-4" />, label: 'Login approvals', badge: loginApprovalCount },
     { id: 'receipts', icon: <Receipt className="w-4 h-4" />, label: 'Receipts', badge: receiptCount },
   ];
 
@@ -3877,6 +3937,7 @@ const AdminPanel = () => {
           {tab === 'analytics' && <AnalyticsPanel users={users} logs={logs} />}
           {tab === 'messages' && <MessagingPanel users={users} initialTarget={msgTarget} />}
           {tab === 'requests' && <AdminRequestsPanel onOpenUser={setSelectedUser} />}
+          {tab === 'login-approvals' && <LoginApprovalsPanel />}
           {tab === 'receipts' && <AdminReceiptsPanel />}
 
         </div>

@@ -29,6 +29,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
+  const [setupToken, setSetupToken] = useState("");
 
   // ─── If already authenticated, redirect ──────────────────────────────
   useEffect(() => {
@@ -45,6 +46,17 @@ export default function Login() {
       navigate("/login", { replace: true, state: {} });
     }
   }, [location.state, navigate]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const token = params.get("setupToken");
+    if (!token) return;
+    const approvedEmail = params.get("email")?.trim().toLowerCase();
+    if (approvedEmail) setEmail(approvedEmail);
+    setSetupToken(token);
+    setStep("setup-password");
+    setInfo("Your access has been approved. Create a password to sign in.");
+  }, [location.search]);
 
   // ─── User Login Handlers ──────────────────────────────────────────────
   const handleCheckEmail = async (e) => {
@@ -80,6 +92,10 @@ export default function Login() {
       console.log("[Login] Check email response:", data);
 
       if (data.success) {
+        if (data.awaitingApproval) {
+          setInfo(data.message);
+          return;
+        }
         // IMPORTANT: check needsPasswordSetup BEFORE hasPassword.
         // The backend intentionally bypasses OTP for confirmed-but-unset-up
         // candidates by returning { needsPasswordSetup: true, hasPassword: false }.
@@ -250,7 +266,7 @@ export default function Login() {
           "Content-Type": "application/json",
           "Accept": "application/json"
         },
-        body: JSON.stringify({ email, password: newPassword, confirmPassword }),
+        body: JSON.stringify({ email, password: newPassword, confirmPassword, setupToken }),
       });
 
       const data = await response.json();
