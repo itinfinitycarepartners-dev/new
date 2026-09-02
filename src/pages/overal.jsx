@@ -14,7 +14,11 @@ import { STAGES_CONFIG } from '@/constants/stagesConfig';
 import { ADMIN_NCLEX_PROGRAM_FLOW } from '@/constants/nclex';
 import { THEME, DOCUMENT_REJECTION_REASONS, PIPELINE_CATEGORIES, PIPELINE_STATUS } from '@/constants/theme';
 
-const API_BASE = 'https://fictional-carnival-3inv.onrender.com';
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ||
+  (import.meta.env.DEV
+    ? 'http://localhost:4000'
+    : 'https://fictional-carnival-3inv.onrender.com');
 
 const unwrapAdminNCLEXValue = value => {
   if (value === undefined || value === null) return value;

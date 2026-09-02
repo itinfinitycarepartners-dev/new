@@ -86,7 +86,9 @@ const photoVideoReleasePdf =
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
-  "https://fictional-carnival-3inv.onrender.com";
+  (import.meta.env.DEV
+    ? "http://localhost:4000"
+    : "https://fictional-carnival-3inv.onrender.com");
 
 const PRESCREEN_BOOKING_URL =
   "https://outlook.office.com/book/Prescreen@Infinitycarepartners.com/?ismsaljsauthenabled";
@@ -16234,19 +16236,28 @@ export default function Pipeline() {
           user.email
         )
       );
-      const hasRecruitCheckpoint =
-        Boolean(
-          recruitApplicationStatus &&
-          normalizeApplicationStatus(
-            recruitApplicationStatus
-          ) !== "new candidate"
-        );
+      const persistedStageNames = new Set(
+        saved
+          .filter(stage => stage?.is_deleted !== true)
+          .map(stage => stage?.stage_name)
+          .filter(Boolean)
+      );
+
+      // NCLEX rows are auxiliary subprocess stages and are persisted by their
+      // own CRM synchronization. The main configured flow is what Admin uses
+      // for its summary and what `/pipeline/initialize` writes.
+      const isFullPipelinePersisted = STAGES_CONFIG
+        .every(stage => persistedStageNames.has(stage.stage_name));
 
       if (
         savedPipelineLoadedSuccessfully &&
-        saved.length === 0 &&
-        !hasRecruitCheckpoint
+        !isFullPipelinePersisted
       ) {
+        // A Recruit/CRM checkpoint is precisely when a candidate needs the
+        // full pipeline persisted. A Recruit lookup can save only Applied or
+        // Associated with Job before this point, so checking merely for an
+        // empty collection still leaves an incomplete Admin summary. Persist
+        // every missing visible stage, preserving all CRM/Recruit completions.
         const initResponse = await fetch(`${API_BASE}/api/pipeline/initialize`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
