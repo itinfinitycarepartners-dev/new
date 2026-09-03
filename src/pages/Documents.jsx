@@ -1,9 +1,3 @@
-
-
-
-
-
-
 // @ts-nocheck
 import {
   useQuery,
@@ -731,6 +725,9 @@ export default function Documents() {
     setUploading
   ] = useState(false);
 
+  const [documentUploadTab, setDocumentUploadTab] =
+    useState("candidate-2x2-photo");
+
   const {
     data: documentData,
     isLoading,
@@ -1091,6 +1088,20 @@ export default function Documents() {
       );
     };
 
+  const selectDedicatedUploadTab = categoryKey => {
+    const category = categoryByKey.get(categoryKey);
+    if (!category) {
+      toast.error("This document type is not configured by the server.");
+      return;
+    }
+
+    setDocumentUploadTab(categoryKey);
+    setSelectedDepartment(category.section || "");
+    setSelectedCategory(category.key);
+    setSelectedReceiptType("");
+    setSelectedFile(null);
+  };
+
   const resetUpload =
     () => {
       setSelectedDepartment(
@@ -1145,11 +1156,25 @@ export default function Documents() {
           selectedCategory
         );
 
+      if (
+        selectedCategory === "candidate-2x2-photo" &&
+        !String(selectedFile.type || "").toLowerCase().startsWith("image/")
+      ) {
+        toast.error("The 2x2 Picture / Passport Size Photo must be an image file.");
+        return;
+      }
+
       const resolvedDestination =
-        selectedDepartment ===
-        "Recruiting"
+        category?.defaultDestination ===
+        "recruit"
           ? "recruit"
-          : "crm";
+          : category?.defaultDestination ===
+              "crm"
+            ? "crm"
+            : selectedDepartment ===
+                "Recruiting"
+              ? "recruit"
+              : "crm";
 
       const formData =
         new FormData();
@@ -1293,8 +1318,10 @@ export default function Documents() {
 
         toast.success(
           payload.pending_approval === true
-            ? `${category?.label || "Document"} submitted for approval. It will be attached to Zoho Recruit once approved.`
-            : `${category?.label || "Document"} uploaded successfully.`
+            ? `${category?.label || "Document"} submitted for approval. After approval it will be attached to Zoho Recruit Candidates.`
+            : resolvedDestination === "crm"
+              ? `${category?.label || "Document"} uploaded to CRM Deals attachments successfully.`
+              : `${category?.label || "Document"} uploaded to Zoho Recruit Candidates successfully.`
         );
 
         resetUpload();
@@ -1509,6 +1536,51 @@ export default function Documents() {
           }
           className="rounded-xl border border-primary/20 bg-primary/5 p-5"
         >
+          <div className="mb-5">
+            <div className="mb-2">
+              <h2 className="text-base font-semibold">Dedicated Document Upload Tabs</h2>
+              <p className="text-xs text-muted-foreground">
+                Upload these documents directly from their workflow tab. The 2x2 photo is sent to Recruit Candidates and CRM Deals; Prior Immigration Notices are sent to CRM Deals.
+              </p>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2" role="tablist" aria-label="Dedicated document uploads">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={documentUploadTab === "candidate-2x2-photo"}
+                onClick={() => selectDedicatedUploadTab("candidate-2x2-photo")}
+                className={`rounded-xl border p-4 text-left transition-colors ${
+                  documentUploadTab === "candidate-2x2-photo"
+                    ? "border-primary bg-background shadow-sm"
+                    : "border-border bg-background/60 hover:bg-background"
+                }`}
+              >
+                <div className="text-sm font-semibold">2x2 Picture / Passport Size Photo</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Recruiting • Recruit Candidates + CRM Deals attachments
+                </div>
+              </button>
+
+              <button
+                type="button"
+                role="tab"
+                aria-selected={documentUploadTab === "prior-immigration-notices"}
+                onClick={() => selectDedicatedUploadTab("prior-immigration-notices")}
+                className={`rounded-xl border p-4 text-left transition-colors ${
+                  documentUploadTab === "prior-immigration-notices"
+                    ? "border-primary bg-background shadow-sm"
+                    : "border-border bg-background/60 hover:bg-background"
+                }`}
+              >
+                <div className="text-sm font-semibold">Prior Immigration Notices</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Immigration • CRM Deals attachments
+                </div>
+              </button>
+            </div>
+          </div>
+
           <div className="grid gap-4 md:grid-cols-3">
             <div>
               <label className="text-sm font-medium">
@@ -1526,6 +1598,7 @@ export default function Documents() {
                     setSelectedCategory(
                       ""
                     );
+                    setDocumentUploadTab("");
                     setSelectedReceiptType(
                       ""
                     );
@@ -1572,6 +1645,11 @@ export default function Documents() {
                   event => {
                     setSelectedCategory(
                       event.target.value
+                    );
+                    setDocumentUploadTab(
+                      ["candidate-2x2-photo", "prior-immigration-notices"].includes(event.target.value)
+                        ? event.target.value
+                        : ""
                     );
                     setSelectedReceiptType(
                       ""
@@ -1643,6 +1721,12 @@ export default function Documents() {
               </label>
               <input
                 type="file"
+                accept={
+                  selectedCategory ===
+                  "candidate-2x2-photo"
+                    ? "image/jpeg,image/png,image/webp"
+                    : undefined
+                }
                 onChange={
                   event =>
                     setSelectedFile(
@@ -1654,6 +1738,16 @@ export default function Documents() {
                 className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
                 required
               />
+              {selectedCategory === "candidate-2x2-photo" && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Upload a JPG, PNG, or WebP passport-size / 2x2 photo. After administrator approval, it will be attached to Zoho Recruit Candidates and CRM Deals.
+                </p>
+              )}
+              {selectedCategory === "prior-immigration-notices" && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Upload prior immigration notices. This document is routed to the CRM Deal attachments.
+                </p>
+              )}
             </div>
           </div>
 

@@ -649,6 +649,9 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   const [documents, setDocuments] = useState([]);
   const [pipeline, setPipeline] = useState([]);
   const [adminDetails, setAdminDetails] = useState({});
+  const [auditEvents, setAuditEvents] = useState([]);
+  const [auditSummary, setAuditSummary] = useState({ total: 0, recruit: 0, crm: 0, fields: 0 });
+  const [auditLoading, setAuditLoading] = useState(false);
   const [docActionError, setDocActionError] = useState(null);
   const [viewingDocId, setViewingDocId] = useState(null);
   const [approvalBusyKey, setApprovalBusyKey] = useState(null);
@@ -665,6 +668,42 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
   useEffect(() => {
     if (!user) return;
+
+    const fetchAuditData = async () => {
+      setAuditLoading(true);
+      try {
+        const { adminToken, userToken } = getTokens();
+        const headers = {
+          'Accept': 'application/json',
+          ...(adminToken ? {
+            'Authorization': `AdminBearer ${adminToken}`,
+            'x-admin-token': adminToken
+          } : {}),
+          ...(!adminToken && userToken ? { 'Authorization': `Bearer ${userToken}` } : {})
+        };
+
+        const email = encodeURIComponent(user.email);
+        const response = await fetch(`${API_BASE}/api/admin/candidate/${email}/audit?limit=250`, {
+          headers,
+          credentials: 'include',
+          cache: 'no-store'
+        });
+
+        if (!response.ok) {
+          throw new Error(`Audit endpoint returned ${response.status}`);
+        }
+
+        const data = await response.json();
+        setAuditEvents(Array.isArray(data?.events) ? data.events : []);
+        setAuditSummary(data?.summary || { total: 0, recruit: 0, crm: 0, fields: 0 });
+      } catch (error) {
+        console.warn('Unable to load candidate field audit:', error);
+        setAuditEvents([]);
+        setAuditSummary({ total: 0, recruit: 0, crm: 0, fields: 0 });
+      } finally {
+        setAuditLoading(false);
+      }
+    };
 
     const fetchDetailedData = async (silent = false) => {
       if (!silent) {
@@ -844,6 +883,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     };
 
     fetchDetailedData(false);
+    fetchAuditData();
 
     const interval =
       window.setInterval(
@@ -853,13 +893,16 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
               "visible"
           ) {
             fetchDetailedData(true);
+            fetchAuditData();
           }
         },
         10 * 1000
       );
 
-    const onFocus = () =>
+    const onFocus = () => {
       fetchDetailedData(true);
+      fetchAuditData();
+    };
 
     window.addEventListener(
       "focus",
@@ -1113,6 +1156,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     { id: 'documents', label: 'Candidate Documents', badge: documents.length },
     { id: 'deployment', label: 'Travel & Extras' },
     { id: 'aftercare', label: 'Aftercare Dates' },
+    { id: 'audit', label: 'Field Audit', badge: auditSummary.total },
     { id: 'allData', label: 'All User Information' },
     { id: 'overview', label: 'System Overview' },
   ];
@@ -1720,7 +1764,78 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                 </div>
               )}
 
-              {/* TAB 6: ALL USER INFORMATION */}
+              {/* TAB 6: RECRUIT / CRM FIELD AUDIT */}
+              {activeTab === 'audit' && (
+                <div className="space-y-6">
+                  <Section title={<><Shield className="w-5 h-5 text-purple-600" /> Recruit / CRM Field Audit</>}>
+                    <p className="text-sm text-gray-500 mb-4">
+                      This audit records Zoho Recruit and Zoho CRM field changes received .
+                      The <strong>Field Name</strong> column is the exact Zoho field name that changed.
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                      <div className="rounded-xl border bg-purple-50 p-4" style={{ borderColor: THEME.border }}>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-purple-700">Total changes</p>
+                        <p className="text-2xl font-bold text-gray-900 mt-1">{auditSummary.total || 0}</p>
+                      </div>
+                      <div className="rounded-xl border bg-blue-50 p-4" style={{ borderColor: THEME.border }}>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Recruit changes</p>
+                        <p className="text-2xl font-bold text-gray-900 mt-1">{auditSummary.recruit || 0}</p>
+                      </div>
+                      <div className="rounded-xl border bg-emerald-50 p-4" style={{ borderColor: THEME.border }}>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">CRM changes</p>
+                        <p className="text-2xl font-bold text-gray-900 mt-1">{auditSummary.crm || 0}</p>
+                      </div>
+                    </div>
+
+                    {auditLoading ? (
+                      <div className="py-12 text-center text-gray-500">
+                        <Loader2 className="w-7 h-7 mx-auto mb-3 animate-spin" style={{ color: THEME.brand }} />
+                        Loading field audit…
+                      </div>
+                    ) : auditEvents.length === 0 ? (
+                      <div className="rounded-xl border border-dashed p-10 text-center bg-gray-50">
+                        <Shield className="w-10 h-10 mx-auto mb-3 text-gray-400" />
+                        <p className="font-semibold text-gray-700">No Recruit or CRM field changes recorded.</p>
+                        <p className="text-sm text-gray-500 mt-1">New webhook-confirmed field changes will appear here automatically.</p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto rounded-xl border border-gray-200">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-gray-500">Source</th>
+                              <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-gray-500">Module</th>
+                              <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-gray-500">Field Name</th>
+                              <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-gray-500">Previous Value</th>
+                              <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-gray-500">New Value</th>
+                              <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-gray-500">Modified</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {auditEvents.map(event => (
+                              <tr key={event.id} className="align-top hover:bg-gray-50">
+                                <td className="px-4 py-3">
+                                  <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-bold ${event.source === 'recruit' ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                                    {event.source === 'recruit' ? 'Recruit' : 'CRM'}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 font-medium text-gray-700 whitespace-nowrap">{event.module || '—'}</td>
+                                <td className="px-4 py-3 font-mono text-xs font-bold text-purple-700 whitespace-nowrap">{event.fieldName || 'Unknown field'}</td>
+                                <td className="px-4 py-3 text-gray-600 break-all min-w-[180px]">{event.previousValueAvailable ? extractString(event.oldValue) : <span className="italic text-gray-400">Not captured</span>}</td>
+                                <td className="px-4 py-3 text-gray-900 break-all min-w-[180px]">{extractString(event.newValue)}</td>
+                                <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{event.changedAt ? ET(event.changedAt) : '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </Section>
+                </div>
+              )}
+
+              {/* TAB 7: ALL USER INFORMATION */}
               {activeTab === 'allData' && (
                 <div className="space-y-6">
                   <Section title={<><Layers className="w-5 h-5 text-purple-600" /> Complete Candidate Record</>}>
@@ -1774,7 +1889,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                 </div>
               )}
 
-              {/* TAB 7: SYSTEM */}
+              {/* TAB 8: SYSTEM */}
               {activeTab === 'overview' && (
                 <div className="space-y-6">
                   <Section title={<><Shield className="w-5 h-5 text-gray-700" /> Identity & Security</>}>
