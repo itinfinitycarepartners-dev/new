@@ -2511,12 +2511,15 @@ export default function Dashboard() {
         "hover:border-[#8B5CF6] hover:bg-[#F5F3FF]"
     },
     {
+      // FIX: was "/pipeline?form=hub" which pointed at the wrong route
+      // (Pipeline doesn't handle that query param) and blanked the app.
+      // The real Forms page lives at /forms (see Layout.jsx nav items).
       path:
-        "/pipeline?form=hub",
+        "/forms",
       label:
         "Forms",
       sublabel:
-        "R&L, Housing, Behavioral",
+        " Housing, Behavioral",
       icon:
         ClipboardCheck,
       color:
