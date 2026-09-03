@@ -1293,8 +1293,8 @@ export default function Documents() {
         toast.success(
           payload.pending_approval === true
             ? resolvedDestination === "both"
-              ? `${category?.label || "Document"} submitted for approval. After approval it will be attached to both Recruit Candidates and CRM Deals.`
-              : `${category?.label || "Document"} submitted for approval. After approval it will be attached to Zoho Recruit Candidates.`
+              ? `${category?.label || "Document"} submitted for approval.`
+              : `${category?.label || "Document"} submitted for approval`
             : resolvedDestination === "both"
               ? `${category?.label || "Document"} uploaded to both Recruit Candidates and CRM Deals attachments successfully.`
               : resolvedDestination === "crm"
@@ -1667,12 +1667,12 @@ export default function Documents() {
               />
               {selectedCategory === "candidate-2x2-photo" && (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Upload a JPG, PNG, or WebP passport-size / 2x2 photo. After administrator approval, it will be attached to Zoho Recruit Candidates.
+                  Upload a JPG, PNG, or WebP passport-size / 2x2 photo.
                 </p>
               )}
               {selectedCategory === "prior-immigration-notices" && (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Upload prior immigration notices. This document is routed to the CRM Deal attachments.
+                  Upload prior immigration notices. 
                 </p>
               )}
             </div>
