@@ -2722,6 +2722,19 @@ const AdminRequestsPanel = ({ onOpenUser }) => {
                   >
                     {request.candidate_email}
                   </button>
+                  <div className="mt-1 space-y-0.5 text-sm text-gray-600">
+                    <p>
+                      <span className="font-medium text-gray-700">Username:</span>{" "}
+                      {request.candidate_username || "—"}
+                    </p>
+                    <p>
+                      <span className="font-medium text-gray-700">Current stage:</span>{" "}
+                      {request.current_stage || "Not available"}
+                      {request.current_stage_category
+                        ? ` (${request.current_stage_category})`
+                        : ""}
+                    </p>
+                  </div>
                   <p className="mt-1 text-sm font-semibold capitalize">
                     {request.request_type === "embassy_change"
                       ? "Embassy Transfer Request"
