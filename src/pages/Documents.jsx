@@ -385,55 +385,58 @@ function DocumentViewerModal({
           }
         );
 
-        const responseType = String(
-          response.headers.get("content-type") || ""
-        ).toLowerCase();
-
         if (!response.ok) {
-          let message = `Document request failed (${response.status}).`;
-          if (responseType.includes("application/json")) {
-            const payload = await response.json().catch(() => ({}));
-            message = payload?.error || payload?.message || message;
-          } else {
-            const text = await response.text().catch(() => "");
-            if (text.trim()) message = text.trim().slice(0, 400);
-          }
-          throw new Error(message);
+          const payload = await response
+            .clone()
+            .json()
+            .catch(() => ({}));
+
+          throw new Error(
+            payload.error ||
+            payload.message ||
+            `Document request failed (${response.status}).`
+          );
         }
+
+        const responseType =
+          response.headers.get(
+            "content-type"
+          ) || "";
 
         let blob;
 
-        if (responseType.includes("application/json")) {
-          const payload = await response.json().catch(() => ({}));
+        if (
+          responseType.includes(
+            "application/json"
+          )
+        ) {
+          const payload =
+            await response.json();
 
-          if (!payload?.base64) {
+          if (!payload.base64) {
             throw new Error(
-              payload?.error ||
-              payload?.message ||
               "The server did not return document content."
             );
           }
 
-          const binary = atob(payload.base64);
-          const bytes = new Uint8Array(binary.length);
-          for (let i = 0; i < binary.length; i += 1) {
-            bytes[i] = binary.charCodeAt(i);
-          }
+          const bytes = Uint8Array.from(
+            atob(payload.base64),
+            character =>
+              character.charCodeAt(0)
+          );
 
-          blob = new Blob([bytes], {
-            type:
-              payload.contentType ||
-              payload.content_type ||
-              payload.mimeType ||
-              doc.file_type ||
-              "application/octet-stream"
-          });
+          blob = new Blob(
+            [bytes],
+            {
+              type:
+                payload.contentType ||
+                payload.content_type ||
+                doc.file_type ||
+                "application/octet-stream"
+            }
+          );
         } else {
           blob = await response.blob();
-        }
-
-        if (!blob || !blob.size) {
-          throw new Error("The server returned an empty document.");
         }
 
         if (!active) return;
@@ -738,14 +741,12 @@ export default function Documents() {
         user?.email
       ),
     staleTime:
-      60 * 1000,
-    gcTime:
-      10 * 60 * 1000,
+      0,
     retry: 1,
     refetchOnMount:
-      true,
+      "always",
     refetchOnWindowFocus:
-      false,
+      true,
     queryFn:
       async () => {
         const token =
@@ -1303,7 +1304,10 @@ export default function Documents() {
 
         resetUpload();
 
-        await refetch();
+        // Upload is already confirmed by the API. Do not block the UI while
+        // Zoho's attachment lists are re-read; refresh the library in the
+        // background and let the new upload appear as soon as Zoho exposes it.
+        refetch().catch(() => {});
 
         queryClient.invalidateQueries({
           queryKey: [
@@ -1323,6 +1327,7 @@ export default function Documents() {
             "pipeline-updated"
           )
         );
+        window.dispatchEvent(new CustomEvent("admin-data-updated"));
       } catch (uploadError) {
         toast.error(
           uploadError.message ||

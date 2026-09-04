@@ -1,4 +1,3 @@
-
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/lib/AuthContext";
@@ -1934,7 +1933,10 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
     days: 120,
     field: "State_License_Board_of_Registration",
     type: "picklist",
-    accepted: ["Paid by ICP", "Sponsored by ICP", "To be Sponsored by Infinity", "Paid by Infinity"]
+    // CustomModule1 → Payment Resp, for BON.
+    // This stage completes ONLY for the two approved payment outcomes.
+    accepted: ["Paid and Completed by Candidate", "Paid by Infinity"],
+    module: "CustomModule1"
   },
   {
     name: "Select Meeting Time",
@@ -1952,8 +1954,12 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
   {
     name: "Board Approval",
     days: 127,
-    field: "Board_Username",
-    type: "present"
+    field: "Completed_BON_Requirements",
+    type: "picklist",
+    // CustomModule1 → Completed BON Requirements.
+    // This stage completes ONLY when BON Approval is selected.
+    accepted: ["BON Approval"],
+    module: "CustomModule1"
   },
   {
     name: "Pearson Vue Registration",
@@ -20300,6 +20306,27 @@ export default function Pipeline() {
                                         <div className="mt-1 text-purple-600">
                                           Current: {performance.assessmentsCompleted} assessments · {performance.assignmentsCompleted} classes · {performance.rating || "no rating"}
                                         </div>
+                                      </div>
+                                    )}
+
+                                    {item.name === "Board Approval" && (
+                                      <div className="mt-2 space-y-1">
+                                        <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                          Re-application Date
+                                        </p>
+                                        {hasCRMValue(icpUSRNCRMData?.Re_application_Date) ? (
+                                          <span className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
+                                            {String(
+                                              unwrapPipelineFieldValue(
+                                                icpUSRNCRMData?.Re_application_Date
+                                              ) ?? ""
+                                            )}
+                                          </span>
+                                        ) : (
+                                          <span className="text-xs text-gray-400">
+                                            Not provided
+                                          </span>
+                                        )}
                                       </div>
                                     )}
 

@@ -654,9 +654,19 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   const [auditLoading, setAuditLoading] = useState(false);
   const [docActionError, setDocActionError] = useState(null);
   const [viewingDocId, setViewingDocId] = useState(null);
+  const [viewingDocument, setViewingDocument] = useState(null);
+  const [documentObjectUrl, setDocumentObjectUrl] = useState(null);
   const [approvalBusyKey, setApprovalBusyKey] = useState(null);
   const [rejectingDocument, setRejectingDocument] = useState(null);
   const [rejectionReason, setRejectionReason] = useState("");
+
+  useEffect(() => {
+    return () => {
+      if (documentObjectUrl) {
+        try { URL.revokeObjectURL(documentObjectUrl); } catch (_) {}
+      }
+    };
+  }, [documentObjectUrl]);
 
   const userPendingRequests =
     Array.isArray(user?.pendingRequests)
@@ -668,6 +678,22 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
   useEffect(() => {
     if (!user) return;
+
+    // Paint the candidate immediately from the already-loaded admin list.
+    // Full Zoho/Mongo data hydrates in the background and never blocks the modal.
+    setAdminDetails(prev => ({
+      ...prev,
+      name: prev?.name || user?.name || user?.email || "",
+      email: prev?.email || user?.email || "",
+      status: prev?.status || user?.status || null,
+      lastLogin: prev?.lastLogin || user?.lastLogin || null
+    }));
+    setProfile(prev => ({
+      ...prev,
+      email: prev?.email || user?.email || "",
+      candidateName: prev?.candidateName || user?.name || ""
+    }));
+    setLoading(false);
 
     const fetchAuditData = async () => {
       setAuditLoading(true);
@@ -707,7 +733,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
     const fetchDetailedData = async (silent = false) => {
       if (!silent) {
-        setLoading(true);
+        setLoading(false);
         setDocActionError(null);
       }
 
@@ -728,34 +754,62 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
         // The admin endpoint is the source of truth for the candidate's full
         // profile, MongoDB pipeline, submitted aftercare dates, and login history.
-        const [
-          adminRes,
-          documentsRes,
-          sharedPipelineRes
-        ] = await Promise.allSettled([
-          fetch(`${API_BASE}/api/admin/user/${email}`, {
+        // Profile is the critical path. Fetch it first so candidate details
+        // appear as soon as the admin record is available. Documents and the
+        // shared pipeline are independent and hydrate afterward.
+        const adminResponse = await fetch(
+          `${API_BASE}/api/admin/user/${email}?fast=true`,
+          {
             headers,
             credentials: 'include',
             cache: 'no-store'
-          }),
-          fetch(`${API_BASE}/api/admin/documents/${email}`, {
-            headers,
-            credentials: 'include',
-            cache: 'no-store'
-          }),
-          fetch(`${API_BASE}/api/admin/candidate/${email}/pipeline`, {
-            headers,
-            credentials: 'include',
-            cache: 'no-store'
-          })
-        ]);
+          }
+        );
 
-        if (adminRes.status === 'fulfilled' && adminRes.value.ok) {
-          const adminPayload = await adminRes.value.json();
+        if (adminResponse.ok) {
+          const adminPayload = await adminResponse.json();
           const detail = adminPayload?.user || {};
           setAdminDetails(detail);
 
           const zoho = detail?.zohoData || {};
+
+          // If the fast endpoint is hydrating Zoho in the background, poll only
+          // the lightweight admin endpoint. Do not refetch documents/pipeline.
+          if (detail?.zohoLoading === true) {
+            const hydrateAdminProfile = async (attempt = 0) => {
+              if (attempt >= 3) return;
+              try {
+                const retryResponse = await fetch(
+                  `${API_BASE}/api/admin/user/${email}?fast=true`,
+                  { headers, credentials: 'include', cache: 'no-store' }
+                );
+                if (!retryResponse.ok) return;
+                const retryPayload = await retryResponse.json();
+                const retryUser = retryPayload?.user || {};
+                const retryZoho = retryUser?.zohoData || {};
+                if (!retryUser?.zohoLoading && Object.keys(retryZoho).length) {
+                  setAdminDetails(retryUser);
+                  setProfile(prev => ({
+                    ...prev,
+                    ...retryZoho,
+                    candidateName:
+                      retryZoho.candidateName ||
+                      retryUser.name ||
+                      prev.candidateName,
+                    email:
+                      retryZoho.email ||
+                      retryUser.email ||
+                      prev.email
+                  }));
+                  return;
+                }
+              } catch (retryError) {
+                console.warn('[Admin Fast] Profile hydration retry failed:', retryError);
+              }
+              window.setTimeout(() => hydrateAdminProfile(attempt + 1), 700 * (attempt + 1));
+            };
+            window.setTimeout(() => hydrateAdminProfile(0), 500);
+          }
           const latestDeal =
             zoho?.latestDeal ||
             zoho?.deal ||
@@ -810,17 +864,28 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
               null,
           });
 
-          // Prefer the exact same resolved snapshot used by My Pipeline.
-          // Fall back only if the shared endpoint is temporarily unavailable.
-          if (sharedPipelineRes.status === 'fulfilled' && sharedPipelineRes.value.ok) {
-            const sharedPayload = await sharedPipelineRes.value.json();
-            setPipeline(Array.isArray(sharedPayload?.stages) ? sharedPayload.stages : []);
-          } else {
-            setPipeline(Array.isArray(detail.pipelineStages) ? detail.pipelineStages : []);
-          }
         } else {
-          const status = adminRes.status === 'fulfilled' ? adminRes.value.status : 'network';
-          throw new Error(`Unable to load the complete admin record (${status}).`);
+          throw new Error(`Unable to load the complete admin record (${adminResponse.status}).`);
+        }
+
+        // Non-critical resources are intentionally fetched only after the
+        // profile has been painted. They can never delay the user details.
+        const [documentsRes, sharedPipelineRes] = await Promise.allSettled([
+          fetch(`${API_BASE}/api/admin/documents/${email}`, {
+            headers,
+            credentials: 'include',
+            cache: 'no-store'
+          }),
+          fetch(`${API_BASE}/api/admin/candidate/${email}/pipeline`, {
+            headers,
+            credentials: 'include',
+            cache: 'no-store'
+          })
+        ]);
+
+        if (sharedPipelineRes.status === 'fulfilled' && sharedPipelineRes.value.ok) {
+          const sharedPayload = await sharedPipelineRes.value.json();
+          setPipeline(Array.isArray(sharedPayload?.stages) ? sharedPayload.stages : []);
         }
 
         let allDocs = [];
@@ -904,78 +969,120 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
   const handleViewDocument = async (doc) => {
     const docId =
-      doc.attachment_id ||
-      doc.crm_attachment_id ||
-      doc.recruit_attachment_id ||
-      doc.document_id ||
-      doc.id;
+      doc?.attachment_id ||
+      doc?.crm_attachment_id ||
+      doc?.recruit_attachment_id ||
+      doc?.document_id ||
+      doc?.id;
 
     if (!docId) {
-      setDocActionError(
-        'This document has no downloadable ID.'
-      );
+      setDocActionError("This document has no downloadable ID.");
       return;
     }
+
+    const candidateEmail = String(user?.email || "").trim();
+    if (!candidateEmail) {
+      setDocActionError("The candidate email is unavailable, so the document cannot be opened.");
+      return;
+    }
+
+    const { adminToken, userToken } = getTokens();
+    if (!adminToken && !userToken) {
+      setDocActionError("Admin session is unavailable. Please sign in again.");
+      return;
+    }
+
+    // Open inside the admin app.  Do not create a popup/new browser tab.
+    // Revoke the previous blob before replacing it to avoid memory leaks.
+    if (documentObjectUrl) {
+      try { URL.revokeObjectURL(documentObjectUrl); } catch (_) {}
+      setDocumentObjectUrl(null);
+    }
+
     setDocActionError(null);
     setViewingDocId(docId);
+    setViewingDocument({
+      name: extractString(doc?.document_name || doc?.File_Name || doc?.file_name || "Document"),
+      type: String(doc?.file_type || "").toLowerCase(),
+      loading: true
+    });
+
     try {
-      const { adminToken } = getTokens();
-      const headers = { 'Authorization': `AdminBearer ${adminToken}` };
-      const emailParam = `?email=${encodeURIComponent(user.email)}`;
-      const sourceParam =
-        `&source=${encodeURIComponent(
-          doc.source || ""
-        )}`;
+      const source = String(doc?.source || "").trim().toLowerCase();
+      const isCrmDocument = source === "crm" || source.includes("crm");
+      const isPendingDocument = source === "pending";
+      const query = new URLSearchParams({
+        email: candidateEmail,
+        source,
+        download: "false",
+        name: String(doc?.document_name || doc?.File_Name || doc?.file_name || `document-${docId}`)
+      });
 
-      const fieldParam =
-        doc.crm_field_api_name
-          ? `&field=${encodeURIComponent(
-              doc.crm_field_api_name
-            )}`
-          : "";
+      if (doc?.crm_field_api_name) query.set("field", String(doc.crm_field_api_name));
+      if (doc?.crm_file_upload_field === true) query.set("fieldUpload", "true");
 
-      const recordParam =
-        doc.source === "crm"
-          ? `&crmRecordId=${encodeURIComponent(
-              doc.deal_id ||
-              doc.crm_record_id ||
-              doc.crm_deal_id ||
-              ""
-            )}`
-          : `&recruitRecordId=${encodeURIComponent(
-              doc.candidate_id ||
-              doc.recruit_record_id ||
-              ""
-            )}`;
-
-      const fieldUploadParam =
-        doc.crm_file_upload_field === true
-          ? "&fieldUpload=true"
-          : "";
-
-      const res = await fetch(
-        `${API_BASE}/api/admin/documents/download/${encodeURIComponent(
-          docId
-        )}${emailParam}${sourceParam}${fieldParam}${recordParam}${fieldUploadParam}`,
-        {
-          headers,
-          credentials: 'include'
-        }
-      );
-      if (!res.ok) {
-        throw new Error(`Server returned ${res.status}`);
+      if (isCrmDocument) {
+        const dealId = doc?.deal_id || doc?.crm_record_id || doc?.crm_deal_id || "";
+        if (dealId) query.set("crmRecordId", String(dealId));
+      } else if (!isPendingDocument) {
+        const candidateId = doc?.candidate_id || doc?.recruit_record_id || doc?.recruit_candidate_id || "";
+        if (candidateId) query.set("recruitRecordId", String(candidateId));
       }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank', 'noopener,noreferrer');
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-    } catch (e) {
-      console.error('Failed to open document:', e);
-      setDocActionError(`Couldn't open "${extractString(doc.document_name || doc.File_Name)}". ${e.message}`);
+
+      const headers = adminToken
+        ? { Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken }
+        : { Authorization: `Bearer ${userToken}` };
+
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 45000);
+
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/admin/documents/download/${encodeURIComponent(String(docId))}?${query.toString()}`,
+          { method: "GET", headers, credentials: "include", cache: "no-store", signal: controller.signal }
+        );
+
+        if (!response.ok) {
+          let detail = "";
+          try {
+            const payload = await response.clone().json();
+            detail = payload?.error ? `: ${payload.error}` : "";
+          } catch (_) {}
+          throw new Error(`Server returned ${response.status}${detail}`);
+        }
+
+        const blob = await response.blob();
+        if (!blob || blob.size === 0) throw new Error("The server returned an empty document.");
+
+        const objectUrl = URL.createObjectURL(blob);
+        setDocumentObjectUrl(objectUrl);
+        setViewingDocument({
+          name: extractString(doc?.document_name || doc?.File_Name || doc?.file_name || `Document ${docId}`),
+          type: String(blob.type || doc?.file_type || "application/octet-stream").toLowerCase(),
+          loading: false
+        });
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    } catch (error) {
+      console.error("[Admin Documents] Failed to open document in app:", error);
+      setViewingDocument(null);
+      setDocActionError(
+        `Couldn't open "${extractString(doc?.document_name || doc?.File_Name || doc?.file_name)}". ${error?.name === "AbortError" ? "The document server took too long to respond." : (error?.message || "Unable to load the document.")}`
+      );
     } finally {
       setViewingDocId(null);
     }
   };
+
+  const closeDocumentViewer = () => {
+    if (documentObjectUrl) {
+      try { URL.revokeObjectURL(documentObjectUrl); } catch (_) {}
+    }
+    setDocumentObjectUrl(null);
+    setViewingDocument(null);
+  };
+
 
 
   const updateDocumentApproval = async (
@@ -1840,6 +1947,38 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
           </>
         </div>
       </div>
+
+      {viewingDocument && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-3 sm:p-6" role="dialog" aria-modal="true" aria-label="Document viewer">
+          <div className="flex h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3 sm:px-5">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold text-gray-900">{viewingDocument.name}</p>
+                {!viewingDocument.loading && <p className="text-[11px] text-gray-500">Document preview</p>}
+              </div>
+              <button type="button" onClick={closeDocumentViewer} className="rounded-lg border px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">Close</button>
+            </div>
+            <div className="min-h-0 flex-1 bg-gray-100">
+              {viewingDocument.loading || !documentObjectUrl ? (
+                <div className="flex h-full items-center justify-center">
+                  <div className="text-center">
+                    <Loader2 className="mx-auto h-8 w-8 animate-spin text-purple-600" />
+                    <p className="mt-3 text-sm font-medium text-gray-700">Opening document…</p>
+                    <p className="mt-1 text-xs text-gray-500">Loading directly into the app</p>
+                  </div>
+                </div>
+              ) : (
+                <iframe
+                  src={documentObjectUrl}
+                  title={viewingDocument.name}
+                  className="h-full w-full border-0 bg-white"
+                  allow="fullscreen"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
