@@ -885,38 +885,20 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     fetchDetailedData(false);
     fetchAuditData();
 
-    const interval =
-      window.setInterval(
-        () => {
-          if (
-            document.visibilityState ===
-              "visible"
-          ) {
-            fetchDetailedData(true);
-            fetchAuditData();
-          }
-        },
-        10 * 1000
-      );
-
-    const onFocus = () => {
+    // Cross-page changes are pushed through lightweight browser events instead
+    // of repeatedly refetching the entire candidate from Zoho every 10 seconds.
+    const refreshCandidate = () => {
       fetchDetailedData(true);
       fetchAuditData();
     };
-
-    window.addEventListener(
-      "focus",
-      onFocus
-    );
+    window.addEventListener("documents-updated", refreshCandidate);
+    window.addEventListener("pipeline-updated", refreshCandidate);
+    window.addEventListener("admin-data-updated", refreshCandidate);
 
     return () => {
-      window.clearInterval(
-        interval
-      );
-      window.removeEventListener(
-        "focus",
-        onFocus
-      );
+      window.removeEventListener("documents-updated", refreshCandidate);
+      window.removeEventListener("pipeline-updated", refreshCandidate);
+      window.removeEventListener("admin-data-updated", refreshCandidate);
     };
   }, [user]);
 
@@ -1132,6 +1114,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       );
       setRejectingDocument(null);
       setRejectionReason("");
+      window.dispatchEvent(new CustomEvent("admin-data-updated"));
     } catch (error) {
       setDocActionError(
         error.message ||
@@ -1157,7 +1140,6 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     { id: 'deployment', label: 'Travel & Extras' },
     { id: 'aftercare', label: 'Aftercare Dates' },
     { id: 'audit', label: 'Field Audit', badge: auditSummary.total },
-    { id: 'allData', label: 'All User Information' },
     { id: 'overview', label: 'System Overview' },
   ];
 
@@ -1322,13 +1304,12 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
         {/* CONTENT AREA */}
         <div className="flex-1 overflow-y-auto p-3 sm:p-5 lg:p-8">
-          {loading ? (
-            <div className="flex flex-col items-center justify-center h-48 text-gray-400">
-              <Loader2 className="w-8 h-8 animate-spin mb-3 text-purple-600" />
-              <p>Fetching comprehensive candidate data via Admin Bypass...</p>
-            </div>
-          ) : (
-            <>
+          <>
+            {loading && (
+              <div className="mb-4 flex items-center gap-2 rounded-lg bg-purple-50 px-3 py-2 text-xs text-purple-700 border border-purple-100">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Updating candidate data…
+              </div>
+            )}
               {/* TAB 1: PROFILE */}
               {activeTab === 'profile' && (
                 <div className="grid lg:grid-cols-2 gap-6">
@@ -1835,60 +1816,6 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                 </div>
               )}
 
-              {/* TAB 7: ALL USER INFORMATION */}
-              {activeTab === 'allData' && (
-                <div className="space-y-6">
-                  <Section title={<><Layers className="w-5 h-5 text-purple-600" /> Complete Candidate Record</>}>
-                    <p className="text-sm text-gray-500 mb-4">
-                      This table shows every non-empty field returned by the backend from the candidate's
-                      Recruit, CRM, account, session, and MongoDB records.
-                    </p>
-                    <div className="overflow-x-auto rounded-xl border border-gray-200">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-gray-500">Field</th>
-                            <th className="text-left px-4 py-3 text-xs uppercase tracking-wide text-gray-500">Value</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {Object.entries({
-                            ...user,
-                            ...adminDetails,
-                            ...profile,
-                          })
-                            .filter(([key, value]) => {
-                              if ([
-                                'zohoData',
-                                'allDeals',
-                                'deals',
-                                'latestDeal',
-                                'pipelineStages',
-                                'loginHistory',
-                                'pipelineProgress',
-                                'submittedDates',
-                                'pipeline'
-                              ].includes(key)) return false;
-                              return value !== undefined && value !== null && value !== '' && extractString(value) !== '—';
-                            })
-                            .sort(([a], [b]) => a.localeCompare(b))
-                            .map(([key, value]) => (
-                              <tr key={key} className="align-top">
-                                <td className="px-4 py-3 font-semibold text-gray-700 whitespace-nowrap">
-                                  {key.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2')}
-                                </td>
-                                <td className="px-4 py-3 text-gray-700 break-all whitespace-pre-wrap">
-                                  {extractString(value)}
-                                </td>
-                              </tr>
-                            ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </Section>
-                </div>
-              )}
-
               {/* TAB 8: SYSTEM */}
               {activeTab === 'overview' && (
                 <div className="space-y-6">
@@ -1910,8 +1837,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                   </Section>
                 </div>
               )}
-            </>
-          )}
+          </>
         </div>
       </div>
     </div>
@@ -3853,7 +3779,7 @@ const AdminPanel = () => {
 
   useEffect(() => {
     fetchUsers(false);
-    const interval = setInterval(() => fetchUsers(false), 30000);
+    const interval = setInterval(() => fetchUsers(false), 10000);
     return () => clearInterval(interval);
   }, [fetchUsers]);
 
@@ -3900,6 +3826,17 @@ const AdminPanel = () => {
       alert('Failed to send broadcast due to a network error.');
     }
   };
+
+  useEffect(() => {
+    let active = true;
+    fetch(`${API_BASE}/api/zoho/status`, { headers:{Accept:'application/json'}, credentials:'include' })
+      .then(async response => {
+        const data = await response.json().catch(() => ({}));
+        if (active) setBackendHealth(previous => ({ ...previous, zoho:data?.connected === true }));
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;

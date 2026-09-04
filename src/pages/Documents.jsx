@@ -385,58 +385,55 @@ function DocumentViewerModal({
           }
         );
 
+        const responseType = String(
+          response.headers.get("content-type") || ""
+        ).toLowerCase();
+
         if (!response.ok) {
-          const payload = await response
-            .clone()
-            .json()
-            .catch(() => ({}));
-
-          throw new Error(
-            payload.error ||
-            payload.message ||
-            `Document request failed (${response.status}).`
-          );
+          let message = `Document request failed (${response.status}).`;
+          if (responseType.includes("application/json")) {
+            const payload = await response.json().catch(() => ({}));
+            message = payload?.error || payload?.message || message;
+          } else {
+            const text = await response.text().catch(() => "");
+            if (text.trim()) message = text.trim().slice(0, 400);
+          }
+          throw new Error(message);
         }
-
-        const responseType =
-          response.headers.get(
-            "content-type"
-          ) || "";
 
         let blob;
 
-        if (
-          responseType.includes(
-            "application/json"
-          )
-        ) {
-          const payload =
-            await response.json();
+        if (responseType.includes("application/json")) {
+          const payload = await response.json().catch(() => ({}));
 
-          if (!payload.base64) {
+          if (!payload?.base64) {
             throw new Error(
+              payload?.error ||
+              payload?.message ||
               "The server did not return document content."
             );
           }
 
-          const bytes = Uint8Array.from(
-            atob(payload.base64),
-            character =>
-              character.charCodeAt(0)
-          );
+          const binary = atob(payload.base64);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i += 1) {
+            bytes[i] = binary.charCodeAt(i);
+          }
 
-          blob = new Blob(
-            [bytes],
-            {
-              type:
-                payload.contentType ||
-                payload.content_type ||
-                doc.file_type ||
-                "application/octet-stream"
-            }
-          );
+          blob = new Blob([bytes], {
+            type:
+              payload.contentType ||
+              payload.content_type ||
+              payload.mimeType ||
+              doc.file_type ||
+              "application/octet-stream"
+          });
         } else {
           blob = await response.blob();
+        }
+
+        if (!blob || !blob.size) {
+          throw new Error("The server returned an empty document.");
         }
 
         if (!active) return;
@@ -741,12 +738,14 @@ export default function Documents() {
         user?.email
       ),
     staleTime:
-      0,
+      60 * 1000,
+    gcTime:
+      10 * 60 * 1000,
     retry: 1,
     refetchOnMount:
-      "always",
-    refetchOnWindowFocus:
       true,
+    refetchOnWindowFocus:
+      false,
     queryFn:
       async () => {
         const token =
