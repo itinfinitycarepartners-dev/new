@@ -3761,56 +3761,252 @@ const AdminReceiptsPanel = () => {
 const LoginApprovalsPanel = () => {
   const [approvals, setApprovals] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
+  const mountedRef = useRef(true);
+  const loadInFlightRef = useRef(false);
 
   const headers = useCallback(() => {
     const { adminToken } = getTokens();
     return {
       "Content-Type": "application/json",
-      ...(adminToken ? { Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken } : {})
+      ...(adminToken
+        ? {
+            Authorization: `AdminBearer ${adminToken}`,
+            "x-admin-token": adminToken
+          }
+        : {})
     };
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (loadInFlightRef.current) return;
+    loadInFlightRef.current = true;
+
+    if (silent) setRefreshing(true);
+    else setLoading(true);
+
     try {
-      const response = await fetch(`${API_BASE}/api/admin/login-approvals?status=all`, { credentials: "include", headers: headers() });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.message || "Unable to load login approvals.");
-      setApprovals(data.approvals || []);
-    } catch (error) { setNotice(error.message); }
-    finally { setLoading(false); }
+      const response = await fetch(
+        `${API_BASE}/api/admin/login-approvals?status=all&_=${Date.now()}`,
+        {
+          credentials: "include",
+          headers: headers(),
+          cache: "no-store"
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Unable to load login approvals.");
+      }
+
+      if (mountedRef.current) {
+        setApprovals(Array.isArray(data.approvals) ? data.approvals : []);
+      }
+    } catch (error) {
+      if (mountedRef.current && !silent) {
+        setNotice(error.message || "Unable to load login approvals.");
+      }
+    } finally {
+      loadInFlightRef.current = false;
+      if (mountedRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
   }, [headers]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    mountedRef.current = true;
+
+    load();
+
+    // Keep this panel live. The short poll is deliberately limited to the
+    // lightweight login-approval endpoint, not the expensive candidate/Zoho
+    // endpoints.
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        load({ silent: true });
+      }
+    }, 3000);
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") load({ silent: true });
+    };
+
+    const onAdminDataUpdated = () => load({ silent: true });
+    const onLoginApprovalUpdated = () => load({ silent: true });
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("admin-data-updated", onAdminDataUpdated);
+    window.addEventListener("login-approval-updated", onLoginApprovalUpdated);
+
+    return () => {
+      mountedRef.current = false;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("admin-data-updated", onAdminDataUpdated);
+      window.removeEventListener("login-approval-updated", onLoginApprovalUpdated);
+    };
+  }, [load]);
 
   const action = async (email, actionName) => {
-    setBusy(`${email}:${actionName}`); setNotice("");
+    const key = `${email}:${actionName}`;
+    setBusy(key);
+    setNotice("");
+
+    // Optimistic UI: remove completed approval actions immediately instead
+    // of waiting for a second GET request before the admin sees the change.
+    const previousApprovals = approvals;
+    if (actionName === "approve" || actionName === "reject") {
+      setApprovals(current =>
+        current.map(item =>
+          item.email === email
+            ? {
+                ...item,
+                status: actionName === "approve" ? "approved" : "rejected"
+              }
+            : item
+        )
+      );
+    }
+
     try {
-      const response = await fetch(`${API_BASE}/api/admin/login-approvals/${encodeURIComponent(email)}/${actionName}`, { method: "POST", credentials: "include", headers: headers() });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.message || "Action failed.");
-      setNotice(data.message); await load();
-    } catch (error) { setNotice(error.message); }
-    finally { setBusy(""); }
+      const response = await fetch(
+        `${API_BASE}/api/admin/login-approvals/${encodeURIComponent(email)}/${actionName}`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: headers(),
+          cache: "no-store"
+        }
+      );
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Action failed.");
+      }
+
+      setNotice(data.message || "Action completed successfully.");
+
+      // Immediately update the rest of the admin UI without a page refresh.
+      window.dispatchEvent(
+        new CustomEvent("login-approval-updated", {
+          detail: { email, action: actionName, data }
+        })
+      );
+      window.dispatchEvent(
+        new CustomEvent("admin-data-updated", {
+          detail: { type: "login-approval", email, action: actionName }
+        })
+      );
+
+      // Reconcile with the server in the background.
+      load({ silent: true });
+    } catch (error) {
+      // Roll back optimistic state if the server rejected the action.
+      setApprovals(previousApprovals);
+      setNotice(error.message || "Action failed.");
+    } finally {
+      setBusy("");
+    }
   };
 
-  return <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-    <div className="p-5 border-b flex items-center justify-between gap-4">
-      <div><h3 className="font-bold text-gray-800">Login approvals</h3><p className="text-sm text-gray-500 mt-1">Requests created while Zoho could not verify a new candidate.</p></div>
-      <button onClick={load} className="rounded-lg border px-3 py-2 text-sm text-purple-700"><RefreshCw className={`w-4 h-4 inline mr-1 ${loading ? "animate-spin" : ""}`} />Refresh</button>
+  return (
+    <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+      <div className="p-5 border-b flex items-center justify-between gap-4">
+        <div>
+          <h3 className="font-bold text-gray-800">Login approvals</h3>
+          <p className="text-sm text-gray-500 mt-1">
+            Requests created while Zoho could not verify a new candidate.
+          </p>
+        </div>
+        <button
+          onClick={() => load()}
+          disabled={loading || refreshing}
+          className="rounded-lg border px-3 py-2 text-sm text-purple-700 disabled:opacity-50"
+        >
+          <RefreshCw
+            className={`w-4 h-4 inline mr-1 ${
+              loading || refreshing ? "animate-spin" : ""
+            }`}
+          />
+          Refresh
+        </button>
+      </div>
+
+      {notice && (
+        <div className="mx-5 mt-4 rounded-lg bg-purple-50 border border-purple-100 px-4 py-3 text-sm text-purple-800">
+          {notice}
+        </div>
+      )}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 text-left text-gray-500">
+            <tr>
+              <th className="px-5 py-3">Email</th>
+              <th className="px-5 py-3">Requested</th>
+              <th className="px-5 py-3">Status</th>
+              <th className="px-5 py-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {approvals.map(item => (
+              <tr key={item._id || item.email} className="border-t">
+                <td className="px-5 py-4 font-medium text-gray-800">{item.email}</td>
+                <td className="px-5 py-4 text-gray-500">
+                  {item.requested_at
+                    ? new Date(item.requested_at).toLocaleString()
+                    : "—"}
+                </td>
+                <td className="px-5 py-4 capitalize">{item.status}</td>
+                <td className="px-5 py-4 text-right space-x-2">
+                  {item.status === "pending" && (
+                    <button
+                      disabled={busy.startsWith(`${item.email}:`)}
+                      onClick={() => action(item.email, "verify")}
+                      className="rounded-lg bg-purple-700 px-3 py-2 text-white disabled:opacity-50"
+                    >
+                      {busy === `${item.email}:verify` ? "Checking…" : "Search CRM/Recruit"}
+                    </button>
+                  )}
+                  {item.status === "verified" && (
+                    <button
+                      disabled={busy.startsWith(`${item.email}:`)}
+                      onClick={() => action(item.email, "approve")}
+                      className="rounded-lg bg-green-600 px-3 py-2 text-white disabled:opacity-50"
+                    >
+                      {busy === `${item.email}:approve` ? "Approving…" : "Approve & email link"}
+                    </button>
+                  )}
+                  {item.status === "approved" && (
+                    <button
+                      disabled={busy.startsWith(`${item.email}:`)}
+                      onClick={() => action(item.email, "resend-setup")}
+                      className="rounded-lg border px-3 py-2 text-purple-700 disabled:opacity-50"
+                    >
+                      {busy === `${item.email}:resend-setup` ? "Sending…" : "Resend link"}
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {!loading && approvals.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-5 py-10 text-center text-gray-400">
+                  No login approvals found.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
-    {notice && <div className="mx-5 mt-4 rounded-lg bg-purple-50 border border-purple-100 px-4 py-3 text-sm text-purple-800">{notice}</div>}
-    <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-gray-50 text-left text-gray-500"><tr><th className="px-5 py-3">Email</th><th className="px-5 py-3">Requested</th><th className="px-5 py-3">Status</th><th className="px-5 py-3 text-right">Actions</th></tr></thead><tbody>
-      {approvals.map(item => <tr key={item._id || item.email} className="border-t"><td className="px-5 py-4 font-medium text-gray-800">{item.email}</td><td className="px-5 py-4 text-gray-500">{item.requested_at ? new Date(item.requested_at).toLocaleString() : "—"}</td><td className="px-5 py-4 capitalize">{item.status}</td><td className="px-5 py-4 text-right space-x-2">
-        {item.status === "pending" && <button disabled={busy.startsWith(`${item.email}:`)} onClick={() => action(item.email, "verify")} className="rounded-lg bg-purple-700 px-3 py-2 text-white disabled:opacity-50">Search CRM/Recruit</button>}
-        {item.status === "verified" && <button disabled={busy.startsWith(`${item.email}:`)} onClick={() => action(item.email, "approve")} className="rounded-lg bg-green-600 px-3 py-2 text-white disabled:opacity-50">Approve & email link</button>}
-        {item.status === "approved" && <button disabled={busy.startsWith(`${item.email}:`)} onClick={() => action(item.email, "resend-setup")} className="rounded-lg border px-3 py-2 text-purple-700 disabled:opacity-50">Resend link</button>}
-      </td></tr>)}
-      {!loading && approvals.length === 0 && <tr><td colSpan="4" className="px-5 py-10 text-center text-gray-500">No login approvals are waiting.</td></tr>}
-    </tbody></table></div>
-  </div>;
+  );
 };
 
 const AdminPanel = () => {
@@ -3918,8 +4114,18 @@ const AdminPanel = () => {
 
   useEffect(() => {
     fetchUsers(false);
-    const interval = setInterval(() => fetchUsers(false), 10000);
-    return () => clearInterval(interval);
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') fetchUsers(false);
+    }, 5000);
+    const onAdminDataUpdated = () => fetchUsers(false);
+    const onFocus = () => fetchUsers(false);
+    window.addEventListener('admin-data-updated', onAdminDataUpdated);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('admin-data-updated', onAdminDataUpdated);
+      window.removeEventListener('focus', onFocus);
+    };
   }, [fetchUsers]);
 
   const handleBroadcast = async (message, target) => {
@@ -4037,11 +4243,23 @@ const AdminPanel = () => {
     };
 
     refreshAdminQueues();
-    const interval = setInterval(refreshAdminQueues, 10000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") refreshAdminQueues();
+    }, 3000);
+
+    const onAdminDataUpdated = () => refreshAdminQueues();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshAdminQueues();
+    };
+
+    window.addEventListener("admin-data-updated", onAdminDataUpdated);
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
       active = false;
       clearInterval(interval);
+      window.removeEventListener("admin-data-updated", onAdminDataUpdated);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
 
