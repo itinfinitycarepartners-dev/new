@@ -1,6 +1,7 @@
 // @ts-nocheck
 // src/pages/Forms.jsx
 import React, {
+  useEffect,
   useState
 } from "react";
 import { Link } from "react-router-dom";
@@ -10,15 +11,22 @@ import {
   ArrowLeft,
   Info,
   ClipboardList,
-  CircleHelp
+  CircleHelp,
+  FileText
 } from "lucide-react";
 import {
   useAuth
 } from "@/lib/AuthContext";
+import { tokenStorage } from "@/api/icpClient";
+import { toast } from "sonner";
 import {
   DeploymentDetails,
   HousingDetailsForm
 } from "./Pipeline";
+
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ||
+  (import.meta.env.DEV ? "http://localhost:4000" : "https://fictional-carnival-3inv.onrender.com");
 
 const FORMS = [
   {
@@ -37,6 +45,22 @@ const FORMS = [
       "Complete your housing and transportation information.",
     icon:
       Home
+  },
+  {
+    key: "travelHousingPolicies",
+    title: "2025 R&L Travel and Housing Policies",
+    description:
+      "Read this required policy document and acknowledge it below.",
+    icon: FileText,
+    documentUrl: "/documents/2025_RL_Travel_and_Housing_Policies.pdf"
+  },
+  {
+    key: "photoRelease",
+    title: "Photo Release",
+    description:
+      "Read this required release document and acknowledge it below.",
+    icon: FileText,
+    documentUrl: "/documents/Photo_Release.pdf"
   }
 ];
 
@@ -56,6 +80,65 @@ export default function Forms() {
     setLocalStages
   ] =
     useState([]);
+
+  const policyAcknowledgementKey = user?.email
+    ? `icp_policy_acknowledgements:${String(user.email).trim().toLowerCase()}`
+    : null;
+  const [policyAcknowledgements, setPolicyAcknowledgements] = useState({});
+  const [openedPolicyDocuments, setOpenedPolicyDocuments] = useState({});
+  const [loadingAcknowledgements, setLoadingAcknowledgements] = useState(true);
+  const [savingAcknowledgement, setSavingAcknowledgement] = useState(null);
+
+  useEffect(() => {
+    const loadAcknowledgements = async () => {
+      const token = tokenStorage.get();
+      if (!token) {
+        setLoadingAcknowledgements(false);
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE}/api/forms/policy-acknowledgements`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (!response.ok || data.success !== true) throw new Error(data.error || "Unable to load acknowledgements");
+        setPolicyAcknowledgements(data.acknowledgements || {});
+      } catch (error) {
+        toast.error(error.message || "Unable to load policy acknowledgements.");
+      } finally {
+        setLoadingAcknowledgements(false);
+      }
+    };
+
+    loadAcknowledgements();
+  }, [policyAcknowledgementKey]);
+
+  const setPolicyAcknowledgement = async (key, acknowledged) => {
+    const token = tokenStorage.get();
+    if (!token) return;
+
+    setSavingAcknowledgement(key);
+    try {
+      const response = await fetch(`${API_BASE}/api/forms/policy-acknowledgements`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ documentKey: key, acknowledged })
+      });
+      const data = await response.json();
+      if (!response.ok || data.success !== true) throw new Error(data.error || "Unable to save acknowledgement");
+
+      setPolicyAcknowledgements(previous => ({ ...previous, [key]: acknowledged }));
+      toast.success(acknowledged ? "Acknowledgement recorded." : "Acknowledgement removed.");
+    } catch (error) {
+      toast.error(error.message || "Unable to save policy acknowledgement.");
+    } finally {
+      setSavingAcknowledgement(null);
+    }
+  };
 
   if (activeForm) {
     return (
@@ -142,6 +225,36 @@ export default function Forms() {
         {FORMS.map(item => {
           const Icon =
             item.icon;
+
+          if (item.documentUrl) {
+            return (
+              <div key={item.key} className="rounded-xl border bg-card p-5 transition hover:border-primary/40 hover:shadow-md">
+                <a href={item.documentUrl} target="_blank" rel="noreferrer" onClick={() => setOpenedPolicyDocuments(previous => ({ ...previous, [item.key]: true }))} className="block">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-primary/10">
+                    <Icon className="h-8 w-8 text-primary" />
+                  </div>
+
+                  <h2 className="mt-4 text-lg font-bold">{item.title}</h2>
+                  <p className="mt-2 text-base text-muted-foreground">{item.description}</p>
+                  <div className="mt-5 text-sm font-semibold text-primary">Open PDF</div>
+                </a>
+
+                <label className="mt-5 flex items-start gap-3 border-t pt-4 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    checked={policyAcknowledgements[item.key] === true}
+                    onChange={event => setPolicyAcknowledgement(item.key, event.target.checked)}
+                    className="mt-0.5 h-4 w-4"
+                    disabled={loadingAcknowledgements || savingAcknowledgement === item.key || !openedPolicyDocuments[item.key]}
+                    required
+                  />
+                  {openedPolicyDocuments[item.key]
+                    ? "I have read and acknowledge this document."
+                    : "Open the PDF before acknowledging this document."}
+                </label>
+              </div>
+            );
+          }
 
           return (
             <button
