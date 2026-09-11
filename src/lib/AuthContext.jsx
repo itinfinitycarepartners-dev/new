@@ -1,9 +1,11 @@
 // @ts-nocheck
 // AuthContext.jsx - Complete Working Version with Fixed Token Handling
-import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { auth, candidate, tokenStorage } from '@/api/icpClient';
 
 const AuthContext = createContext(null);
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const LAST_ACTIVITY_KEY = 'icp_last_activity_at';
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -12,6 +14,7 @@ export const AuthProvider = ({ children }) => {
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [authError, setAuthError] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const lastActivityWriteRef = useRef(0);
 
   // ─── Load candidate data from API ──────────────────────────────────────
   const loadCandidateData = useCallback(async () => {
@@ -202,6 +205,7 @@ export const AuthProvider = ({ children }) => {
       // Store user data
       localStorage.setItem('icp_user_email', email);
       localStorage.setItem('icp_user_name', name || email.split('@')[0]);
+      localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
       
       // Update state
       setUser({ 
@@ -268,6 +272,7 @@ export const AuthProvider = ({ children }) => {
       tokenStorage.clear();
       localStorage.removeItem('icp_user_email');
       localStorage.removeItem('icp_user_name');
+      localStorage.removeItem(LAST_ACTIVITY_KEY);
       
       // Reset state
       setUser(null);
@@ -283,6 +288,48 @@ export const AuthProvider = ({ children }) => {
       }
     }
   }, []);
+
+  // Log out authenticated users after 30 minutes without interacting with the portal.
+  // The timestamp is stored so the timeout also applies after a refresh and across tabs.
+  useEffect(() => {
+    if (!isAuthenticated) return undefined;
+
+    let hasLoggedOut = false;
+
+    const recordActivity = () => {
+      const now = Date.now();
+      // Pointer movement can fire many times per second; one write per second is enough.
+      if (now - lastActivityWriteRef.current < 1000) return;
+      lastActivityWriteRef.current = now;
+      localStorage.setItem(LAST_ACTIVITY_KEY, String(now));
+    };
+
+    const logoutIfIdle = () => {
+      const lastActivity = Number(localStorage.getItem(LAST_ACTIVITY_KEY));
+      if (!lastActivity || Date.now() - lastActivity < IDLE_TIMEOUT_MS || hasLoggedOut) return;
+
+      hasLoggedOut = true;
+      logout();
+    };
+
+    // Keep an existing timestamp when the page is reloaded so reloading cannot extend a session.
+    if (!localStorage.getItem(LAST_ACTIVITY_KEY)) recordActivity();
+
+    const activityEvents = ['pointerdown', 'pointermove', 'keydown', 'scroll', 'touchstart'];
+    activityEvents.forEach((eventName) =>
+      window.addEventListener(eventName, recordActivity, { passive: true })
+    );
+
+    const checkInterval = window.setInterval(logoutIfIdle, 30 * 1000);
+    logoutIfIdle();
+
+    return () => {
+      activityEvents.forEach((eventName) =>
+        window.removeEventListener(eventName, recordActivity)
+      );
+      window.clearInterval(checkInterval);
+    };
+  }, [isAuthenticated, logout]);
 
   // ─── Navigate to login ─────────────────────────────────────────────────
   const navigateToLogin = useCallback(() => {

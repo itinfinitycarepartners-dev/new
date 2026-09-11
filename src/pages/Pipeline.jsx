@@ -332,6 +332,11 @@ const normalizePortalFullDateInput = value => {
   return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
 };
 
+const formatPortalFullDate = (date = new Date()) => {
+  const pad = value => String(value).padStart(2, "0");
+  return `${pad(date.getMonth() + 1)}/${pad(date.getDate())}/${date.getFullYear()}`;
+};
+
 const parsePortalFullDate = value => {
   const raw = String(value || "").trim();
   const match = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
@@ -8738,16 +8743,68 @@ export const DeploymentDetails = ({ onClose, user, setStages, behavioralOnly = f
   );
 };
 
+const INTERNATIONAL_DIALING_CODES = [
+  ["🇺🇸", "United States", "+1"], ["🇨🇦", "Canada", "+1"], ["🇰🇪", "Kenya", "+254"], ["🇺🇬", "Uganda", "+256"],
+  ["🇹🇿", "Tanzania", "+255"], ["🇷🇼", "Rwanda", "+250"], ["🇿🇦", "South Africa", "+27"], ["🇳🇬", "Nigeria", "+234"],
+  ["🇬🇭", "Ghana", "+233"], ["🇪🇹", "Ethiopia", "+251"], ["🇿🇲", "Zambia", "+260"], ["🇿🇼", "Zimbabwe", "+263"],
+  ["🇲🇼", "Malawi", "+265"], ["🇧🇼", "Botswana", "+267"], ["🇳🇦", "Namibia", "+264"], ["🇸🇿", "Eswatini", "+268"],
+  ["🇨🇲", "Cameroon", "+237"], ["🇨🇩", "DR Congo", "+243"], ["🇨🇬", "Republic of the Congo", "+242"], ["🇸🇱", "Sierra Leone", "+232"],
+  ["🇱🇷", "Liberia", "+231"], ["🇸🇳", "Senegal", "+221"], ["🇲🇦", "Morocco", "+212"], ["🇪🇬", "Egypt", "+20"],
+  ["🇬🇧", "United Kingdom", "+44"], ["🇮🇪", "Ireland", "+353"], ["🇫🇷", "France", "+33"], ["🇩🇪", "Germany", "+49"],
+  ["🇮🇹", "Italy", "+39"], ["🇪🇸", "Spain", "+34"], ["🇵🇹", "Portugal", "+351"], ["🇳🇱", "Netherlands", "+31"],
+  ["🇧🇪", "Belgium", "+32"], ["🇨🇭", "Switzerland", "+41"], ["🇸🇪", "Sweden", "+46"], ["🇳🇴", "Norway", "+47"],
+  ["🇩🇰", "Denmark", "+45"], ["🇫🇮", "Finland", "+358"], ["🇵🇱", "Poland", "+48"], ["🇷🇴", "Romania", "+40"],
+  ["🇬🇷", "Greece", "+30"], ["🇹🇷", "Türkiye", "+90"], ["🇺🇦", "Ukraine", "+380"], ["🇮🇳", "India", "+91"],
+  ["🇵🇭", "Philippines", "+63"], ["🇨🇳", "China", "+86"], ["🇯🇵", "Japan", "+81"], ["🇰🇷", "South Korea", "+82"],
+  ["🇹🇭", "Thailand", "+66"], ["🇻🇳", "Vietnam", "+84"], ["🇮🇩", "Indonesia", "+62"], ["🇲🇾", "Malaysia", "+60"],
+  ["🇸🇬", "Singapore", "+65"], ["🇦🇪", "United Arab Emirates", "+971"], ["🇸🇦", "Saudi Arabia", "+966"], ["🇶🇦", "Qatar", "+974"],
+  ["🇦🇺", "Australia", "+61"], ["🇳🇿", "New Zealand", "+64"], ["🇲🇽", "Mexico", "+52"], ["🇧🇷", "Brazil", "+55"],
+  ["🇨🇴", "Colombia", "+57"], ["🇯🇲", "Jamaica", "+1 876"], ["🇹🇹", "Trinidad and Tobago", "+1 868"]
+];
+
+const formatInternationalPhone = (countryCode, phoneNumber) =>
+  [countryCode, phoneNumber].filter(Boolean).join(" ").trim();
+
+const InternationalPhoneInput = ({ formData, setFormData, countryCodeName, phoneName, required = false }) => (
+  <div className="flex gap-2">
+    <select
+      name={countryCodeName}
+      value={formData[countryCodeName] || ""}
+      onChange={(event) => setFormData(previous => ({ ...previous, [countryCodeName]: event.target.value }))}
+      aria-label="Country calling code"
+      className="w-40 shrink-0 rounded-lg border border-border bg-background px-2 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+      required={required}
+    >
+      <option value="">Country code</option>
+      {INTERNATIONAL_DIALING_CODES.map(([, country, code]) => (
+        <option key={`${country}-${code}`} value={code}>{country} ({code})</option>
+      ))}
+    </select>
+    <input
+      type="tel"
+      inputMode="tel"
+      name={phoneName}
+      placeholder="Phone number"
+      value={formData[phoneName]}
+      onChange={(event) => setFormData(previous => ({ ...previous, [phoneName]: event.target.value }))}
+      className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+      required={required}
+    />
+  </div>
+);
+
 // Housing Details Form Component
 export const HousingDetailsForm = ({ onClose, user, setStages }) => {
   const [uploading, setUploading] = useState(false);
+  const today = formatPortalFullDate();
   const [formData, setFormData] = useState({
-    dateCompleted: "",
+    dateCompleted: today,
     firstName: "",
     middleName: "",
     lastName: "",
     dateOfBirth: "",
     email: user?.email || "",
+    currentPhoneCountryCode: "",
     currentPhone: "",
     currentAddress: "",
     city: "",
@@ -8784,18 +8841,21 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
     emergencyCountry: "",
     emergencyZip: "",
     emergencyEmail: "",
+    emergencyPhoneCountryCode: "",
     emergencyPhone: "",
     cosignerName: "",
     cosignerRelationship: "",
+    cosignerDateOfBirth: "",
     cosignerStreet: "",
     cosignerCity: "",
     cosignerState: "",
     cosignerCountry: "",
     cosignerZip: "",
     cosignerEmail: "",
+    cosignerPhoneCountryCode: "",
     cosignerPhone: "",
     consentFullName: user?.displayName || user?.name || "",
-    consentDate: "",
+    consentDate: today,
     consentSignature: "",
     waiverHousing: "",
     waiverConcierge: "",
@@ -8822,14 +8882,17 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
             saved.formData.email ||
             previous.email ||
             user?.email ||
-            ""
+            "",
+          // These dates are system-generated and must reflect the current day.
+          dateCompleted: today,
+          consentDate: today
         }));
       }
 
     } catch (error) {
       console.warn("[Housing] Could not restore form draft:", error?.message || error);
     }
-  }, [housingDraftKey]);
+  }, [housingDraftKey, today]);
 
   useEffect(() => {
     if (!housingDraftKey) return;
@@ -8886,15 +8949,27 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
       return;
     }
 
-    if (
-      formData.lengthAtAddress &&
-      !isValidPortalFullDate(
-        formData.lengthAtAddress
-      )
-    ) {
-      toast.error(
-        "Please enter the current-address date as MM/DD/YYYY."
-      );
+    const invalidDateField = [
+      ["dateCompleted", "date completed"],
+      ["dateOfBirth", "candidate date of birth"],
+      ["licenseExpiry", "driver's license expiry date"],
+      ["lengthAtAddress", "current-address date"],
+      ["consentDate", "electronic signature date"],
+      ...(formData.cosignerDateOfBirth
+        ? [["cosignerDateOfBirth", "cosigner date of birth"]]
+        : [])
+    ].find(([field]) => !isValidPortalFullDate(formData[field]));
+
+    if (invalidDateField) {
+      toast.error(`Please enter the ${invalidDateField[1]} as MM/DD/YYYY.`);
+      return;
+    }
+
+    const hasCosignerInformation = Object.keys(formData).some(
+      field => field.startsWith("cosigner") && field !== "cosignerDateOfBirth" && String(formData[field] || "").trim()
+    );
+    if (hasCosignerInformation && !formData.cosignerDateOfBirth) {
+      toast.error("Please enter the cosigner/guarantor date of birth.");
       return;
     }
 
@@ -8905,6 +8980,9 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
 
       const housingData = {
         ...formData,
+        currentPhone: formatInternationalPhone(formData.currentPhoneCountryCode, formData.currentPhone),
+        emergencyPhone: formatInternationalPhone(formData.emergencyPhoneCountryCode, formData.emergencyPhone),
+        cosignerPhone: formatInternationalPhone(formData.cosignerPhoneCountryCode, formData.cosignerPhone),
         submittedAt: new Date().toISOString(),
         candidateEmail: user?.email,
         formType: "housing"
@@ -8980,9 +9058,9 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
           inputMode="numeric"
           name="dateCompleted"
           value={formData.dateCompleted}
-          placeholder="MM/DD/YY"
-          onChange={(e) => setFormData(prev => ({ ...prev, dateCompleted: normalizePortalDateInput(e.target.value) }))}
-          className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+          readOnly
+          aria-readonly="true"
+          className="w-full px-3 py-2 rounded-lg border border-border bg-muted text-muted-foreground"
         />
       </div>
 
@@ -9008,7 +9086,7 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
           <div>
             <label className="text-sm font-medium block mb-1">Date of Birth</label>
-            <input type="text" inputMode="numeric" name="dateOfBirth" placeholder="MM/DD/YY" value={formData.dateOfBirth} onChange={(e) => setFormData(prev => ({ ...prev, dateOfBirth: normalizePortalDateInput(e.target.value) }))} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+            <input type="text" inputMode="numeric" name="dateOfBirth" placeholder="MM/DD/YYYY" pattern="[0-9]{2}/[0-9]{2}/[0-9]{4}" value={formData.dateOfBirth} onChange={(e) => setFormData(prev => ({ ...prev, dateOfBirth: normalizePortalFullDateInput(e.target.value) }))} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
           </div>
           <div>
             <label className="text-sm font-medium block mb-1">Email <span className="text-red-500">*</span></label>
@@ -9016,7 +9094,7 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
           </div>
           <div>
             <label className="text-sm font-medium block mb-1">Current Phone Number <span className="text-red-500">*</span></label>
-            <input type="tel" name="currentPhone" value={formData.currentPhone} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" required />
+            <InternationalPhoneInput formData={formData} setFormData={setFormData} countryCodeName="currentPhoneCountryCode" phoneName="currentPhone" required />
           </div>
         </div>
         <div className="mt-3">
@@ -9187,7 +9265,7 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
           <div>
             <label className="text-sm font-medium block mb-1">When does it expire?</label>
-            <input type="text" inputMode="numeric" name="licenseExpiry" placeholder="MM/DD/YY" value={formData.licenseExpiry} onChange={(e) => setFormData(prev => ({ ...prev, licenseExpiry: normalizePortalDateInput(e.target.value) }))} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+            <input type="text" inputMode="numeric" name="licenseExpiry" placeholder="MM/DD/YYYY" pattern="[0-9]{2}/[0-9]{2}/[0-9]{4}" value={formData.licenseExpiry} onChange={(e) => setFormData(prev => ({ ...prev, licenseExpiry: normalizePortalFullDateInput(e.target.value) }))} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
           </div>
           <div>
             <label className="text-sm font-medium block mb-1">Who will be driving? You, your spouse, or both?</label>
@@ -9225,44 +9303,44 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
         <p className="text-sm text-muted-foreground mb-3">Preferably someone already in the USA. This person may not be a dependent traveling with you. If you do not have one, please name your next of kin in your home country.</p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label className="text-sm font-medium block mb-1">Full Name of Emergency Contact</label>
-            <input type="text" name="emergencyName" value={formData.emergencyName} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+            <label className="text-sm font-medium block mb-1">Full Name of Emergency Contact <span className="text-red-500">*</span></label>
+            <input type="text" name="emergencyName" value={formData.emergencyName} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" required />
           </div>
           <div>
-            <label className="text-sm font-medium block mb-1">Relationship to you</label>
-            <input type="text" name="emergencyRelationship" value={formData.emergencyRelationship} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+            <label className="text-sm font-medium block mb-1">Relationship to you <span className="text-red-500">*</span></label>
+            <input type="text" name="emergencyRelationship" value={formData.emergencyRelationship} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" required />
           </div>
         </div>
         <div className="mt-3">
-          <label className="text-sm font-medium block mb-1">Street Address</label>
-          <input type="text" name="emergencyStreet" value={formData.emergencyStreet} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+          <label className="text-sm font-medium block mb-1">Street Address <span className="text-red-500">*</span></label>
+          <input type="text" name="emergencyStreet" value={formData.emergencyStreet} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" required />
         </div>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-3">
           <div>
-            <p className="text-xs text-muted-foreground mb-1">City</p>
-            <input type="text" name="emergencyCity" placeholder="City" value={formData.emergencyCity} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+            <p className="text-xs text-muted-foreground mb-1">City <span className="text-red-500">*</span></p>
+            <input type="text" name="emergencyCity" placeholder="City" value={formData.emergencyCity} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" required />
           </div>
           <div>
-            <p className="text-xs text-muted-foreground mb-1">State</p>
-            <input type="text" name="emergencyState" placeholder="State/Province" value={formData.emergencyState} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+            <p className="text-xs text-muted-foreground mb-1">State <span className="text-red-500">*</span></p>
+            <input type="text" name="emergencyState" placeholder="State/Province" value={formData.emergencyState} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" required />
           </div>
           <div>
-            <p className="text-xs text-muted-foreground mb-1">Country</p>
-            <input type="text" name="emergencyCountry" placeholder="Country" value={formData.emergencyCountry} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+            <p className="text-xs text-muted-foreground mb-1">Country <span className="text-red-500">*</span></p>
+            <input type="text" name="emergencyCountry" placeholder="Country" value={formData.emergencyCountry} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" required />
           </div>
           <div>
-            <p className="text-xs text-muted-foreground mb-1">Zip Code / Country Code (Postage)</p>
-            <input type="text" name="emergencyZip" placeholder="Zip Code" value={formData.emergencyZip} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+            <p className="text-xs text-muted-foreground mb-1">Zip Code / Country Code (Postage) <span className="text-red-500">*</span></p>
+            <input type="text" name="emergencyZip" placeholder="Zip Code" value={formData.emergencyZip} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" required />
           </div>
           <div>
-            <p className="text-xs text-muted-foreground mb-1">Phone</p>
-            <input type="text" name="emergencyPhone" placeholder="Phone" value={formData.emergencyPhone} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+            <p className="text-xs text-muted-foreground mb-1">Phone <span className="text-red-500">*</span></p>
+            <InternationalPhoneInput formData={formData} setFormData={setFormData} countryCodeName="emergencyPhoneCountryCode" phoneName="emergencyPhone" required />
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
           <div>
-            <label className="text-sm font-medium block mb-1">Email</label>
-            <input type="email" name="emergencyEmail" value={formData.emergencyEmail} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+            <label className="text-sm font-medium block mb-1">Email <span className="text-red-500">*</span></label>
+            <input type="email" name="emergencyEmail" value={formData.emergencyEmail} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" required />
           </div>
         </div>
       </div>
@@ -9283,6 +9361,10 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
           <div>
             <label className="text-sm font-medium block mb-1">Relationship</label>
             <input type="text" name="cosignerRelationship" value={formData.cosignerRelationship} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+          </div>
+          <div>
+            <label className="text-sm font-medium block mb-1">Date of Birth</label>
+            <input type="text" inputMode="numeric" name="cosignerDateOfBirth" placeholder="MM/DD/YYYY" pattern="[0-9]{2}/[0-9]{2}/[0-9]{4}" value={formData.cosignerDateOfBirth} onChange={(e) => setFormData(prev => ({ ...prev, cosignerDateOfBirth: normalizePortalFullDateInput(e.target.value) }))} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
           </div>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-3">
@@ -9314,7 +9396,7 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
           </div>
           <div>
             <label className="text-sm font-medium block mb-1">Phone</label>
-            <input type="tel" name="cosignerPhone" value={formData.cosignerPhone} onChange={handleChange} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+            <InternationalPhoneInput formData={formData} setFormData={setFormData} countryCodeName="cosignerPhoneCountryCode" phoneName="cosignerPhone" />
           </div>
         </div>
       </div>
@@ -9338,7 +9420,7 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
           </div>
           <div>
             <label className="text-sm font-medium block mb-1">Date</label>
-            <input type="text" inputMode="numeric" name="consentDate" placeholder="MM/DD/YY" value={formData.consentDate} onChange={(e) => setFormData(prev => ({ ...prev, consentDate: normalizePortalDateInput(e.target.value) }))} className="w-full px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary" />
+            <input type="text" name="consentDate" value={formData.consentDate} readOnly aria-readonly="true" className="w-full px-3 py-2 rounded-lg border border-border bg-muted text-muted-foreground" />
           </div>
         </div>
       </div>
