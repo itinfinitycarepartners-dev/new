@@ -6971,6 +6971,8 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
       );
 
       const data = await response.json().catch(() => ({}));
+      console.log("[Housing] Parsed server response", data);
+
       if (!response.ok || data.success !== true) {
         throw new Error(data.error || "Unable to acknowledge the Welcome Packet.");
       }
@@ -8407,48 +8409,6 @@ export const DeploymentDetails = ({ onClose, user, setStages, behavioralOnly = f
         submittedAt: new Date().toISOString()
       };
 
-      const statusResponse = await fetch(
-        `${API_BASE}/api/zoho/my-deals?_=${Date.now()}`,
-        {
-          cache: "no-store",
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        }
-      );
-
-      const statusPayload = await statusResponse
-        .json()
-        .catch(() => ({}));
-
-      const currentApplicationStatus =
-        statusPayload?.user?.Application_Status ||
-        statusPayload?.user?.applicationStatus ||
-        statusPayload?.data?.Application_Status ||
-        statusPayload?.data?.applicationStatus ||
-        "";
-
-      const normalizedApplicationStatus =
-        normalizeApplicationStatus(
-          currentApplicationStatus
-        );
-
-      const hiredOrBeyond = [
-        "hired",
-        "contract sent",
-        "employer offer sent",
-        "contract signed"
-      ].includes(
-        normalizedApplicationStatus
-      );
-
-      if (!hiredOrBeyond) {
-        toast.error(
-          "All files are saved in CRM, but this section completes only when Lead Management Status is Hired."
-        );
-        return;
-      }
-
       const response = await fetch(`${API_BASE}/api/deployment/requirements`, {
         method: "POST",
         headers: {
@@ -8673,7 +8633,7 @@ export const DeploymentDetails = ({ onClose, user, setStages, behavioralOnly = f
 
       <div className="bg-white rounded-lg p-3 border border-gray-200">
         <div className="flex justify-between text-xs text-muted-foreground mb-1">
-          <span>{progress.total} required items (15 documents + 1 assessment form)</span>
+          <span>{progress.total} required items (10 documents + 1 assessment form)</span>
           <span>{progress.completed} completed / {progress.total} total</span>
         </div>
         <div className="w-full bg-gray-200 rounded-full h-2">
@@ -8795,6 +8755,7 @@ const InternationalPhoneInput = ({ formData, setFormData, countryCodeName, phone
 
 // Housing Details Form Component
 export const HousingDetailsForm = ({ onClose, user, setStages }) => {
+  console.log(">>> HousingDetailsForm RENDERED"); 
   const [uploading, setUploading] = useState(false);
   const today = formatPortalFullDate();
   const [formData, setFormData] = useState({
@@ -8911,143 +8872,274 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
   };
 
   const handleSubmit = async (e) => {
+     console.log("[Housing] >>> SUBMIT BUTTON CLICKED", {
+      uploading,
+      email: user?.email || formData.email || "",
+      formFields: Object.keys(formData).length
+    });
     e.preventDefault();
-    
-    const conditionalPetFields = new Set([
-      "petType",
-      "petWeight",
-      "petAge",
-      "petColor",
-      "petBreed",
-      "petName",
-      "petSpayedNeutered"
-    ]);
 
-    const optionalFields = new Set([
-      "middleName",
-      "waiverHousing",
-      "waiverConcierge"
-    ]);
+    if (uploading) {
+      console.warn("[Housing] Submit ignored because a submission is already in progress.");
+      return;
+    }
 
-    const requiredFields = Object.keys(formData).filter(
-      field =>
-        !field.startsWith("cosigner") &&
-        !optionalFields.has(field) &&
-        !(
-          conditionalPetFields.has(field) &&
-          String(formData.hasPets || "").toLowerCase() !== "yes"
-        )
-    );
-    const missingFields = requiredFields.filter(
-      field => String(formData[field] ?? "").trim() === ""
-    );
+    try {
+      // Only validate fields that the Housing UI actually marks as required.
+      // The previous implementation treated every key in formData as required,
+      // which incorrectly blocked submission on optional housing/transport fields.
+      const requiredFields = [
+        "firstName",
+        "lastName",
+        "email",
+        "currentPhone",
+        "currentAddress",
+        "city",
+        "zipCode",
+        "state",
+        "country",
+        "emergencyName",
+        "emergencyRelationship",
+        "emergencyStreet",
+        "emergencyCity",
+        "emergencyState",
+        "emergencyCountry",
+        "emergencyZip",
+        "emergencyEmail",
+        "emergencyPhone"
+      ];
 
-    if (missingFields.length > 0) {
-      toast.error(
-        `Please complete every required Housing field: ${missingFields.join(", ")}`
+      const missingFields = requiredFields.filter(
+        field => String(formData[field] ?? "").trim() === ""
       );
+
+      console.log("[Housing] Required-field validation", {
+        missingFields,
+        hasDriversLicense: formData.hasDriversLicense,
+        hasPets: formData.hasPets
+      });
+
+      if (missingFields.length > 0) {
+        const firstMissing = document.querySelector(
+          `[name="${missingFields[0]}"]`
+        );
+        firstMissing?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+        firstMissing?.focus?.();
+        toast.error(
+          `Please complete every required Housing field: ${missingFields.join(", ")}`
+        );
+        return;
+      }
+
+      // dateCompleted and consentDate are generated by the application. Do not
+      // block submission on optional DOB/license/cosigner dates here.
+      if (!isValidPortalFullDate(formData.dateCompleted)) {
+        toast.error("The form date is invalid. Please reopen the Housing form and try again.");
+        return;
+      }
+
+      const hasCosignerInformation = Object.keys(formData).some(
+        field =>
+          field.startsWith("cosigner") &&
+          field !== "cosignerDateOfBirth" &&
+          field !== "cosignerPhoneCountryCode" &&
+          String(formData[field] || "").trim()
+      );
+
+      if (hasCosignerInformation && formData.cosignerDateOfBirth && !isValidPortalFullDate(formData.cosignerDateOfBirth)) {
+        toast.error("Please enter the cosigner/guarantor date of birth as MM/DD/YYYY.");
+        return;
+      }
+    } catch (validationError) {
+      console.error("[Housing] Validation crashed before network request:", validationError);
+      toast.error("The Housing form could not be validated. Please try again.");
       return;
     }
 
-    const invalidDateField = [
-      ["dateCompleted", "date completed"],
-      ["dateOfBirth", "candidate date of birth"],
-      ["licenseExpiry", "driver's license expiry date"],
-      ["lengthAtAddress", "current-address date"],
-      ["consentDate", "electronic signature date"],
-      ...(formData.cosignerDateOfBirth
-        ? [["cosignerDateOfBirth", "cosigner date of birth"]]
-        : [])
-    ].find(([field]) => !isValidPortalFullDate(formData[field]));
-
-    if (invalidDateField) {
-      toast.error(`Please enter the ${invalidDateField[1]} as MM/DD/YYYY.`);
+    const email = String(user?.email || formData.email || "").trim().toLowerCase();
+    if (!email) {
+      toast.error("Your candidate email could not be identified. Please sign in again.");
       return;
     }
 
-    const hasCosignerInformation = Object.keys(formData).some(
-      field => field.startsWith("cosigner") && field !== "cosignerDateOfBirth" && String(formData[field] || "").trim()
-    );
-    if (hasCosignerInformation && !formData.cosignerDateOfBirth) {
-      toast.error("Please enter the cosigner/guarantor date of birth.");
+    const token = localStorage.getItem("icp_auth_token");
+    if (!token) {
+      toast.error("Your session has expired. Please sign in again.");
       return;
     }
 
     setUploading(true);
-    try {
-      const token = localStorage.getItem("icp_auth_token");
-      if (!token) throw new Error("Not authenticated");
 
+    try {
       const housingData = {
         ...formData,
-        currentPhone: formatInternationalPhone(formData.currentPhoneCountryCode, formData.currentPhone),
-        emergencyPhone: formatInternationalPhone(formData.emergencyPhoneCountryCode, formData.emergencyPhone),
-        cosignerPhone: formatInternationalPhone(formData.cosignerPhoneCountryCode, formData.cosignerPhone),
+        currentPhone: formatInternationalPhone(
+          formData.currentPhoneCountryCode,
+          formData.currentPhone
+        ),
+        emergencyPhone: formatInternationalPhone(
+          formData.emergencyPhoneCountryCode,
+          formData.emergencyPhone
+        ),
+        cosignerPhone: formatInternationalPhone(
+          formData.cosignerPhoneCountryCode,
+          formData.cosignerPhone
+        ),
+        email,
+        candidateEmail: email,
         submittedAt: new Date().toISOString(),
-        candidateEmail: user?.email,
         formType: "housing"
       };
 
-      console.log("[Housing] Submitting housing form:", housingData);
+      /*
+       * IMPORTANT:
+       * Do not upload a client-generated file here. The backend generates the
+       * authoritative Housing PDF from this payload and attaches it to the
+       * authenticated candidate's exact CRM Deal.
+       */
+      console.log("[Housing] Sending POST /api/housing/submit", {
+        apiBase: API_BASE,
+        email,
+        payloadKeys: Object.keys(housingData)
+      });
 
-      const response = await fetch(`${API_BASE}/api/housing/submit`, {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 120000);
+
+      let response;
+      try {
+        response = await fetch(`${API_BASE}/api/housing/submit`, {
         method: "POST",
+        cache: "no-store",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
+          Accept: "application/json",
+          "Cache-Control": "no-cache"
         },
         body: JSON.stringify(housingData),
+        signal: controller.signal
+        });
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+
+      console.log("[Housing] Server response received", {
+        status: response.status,
+        ok: response.ok
       });
 
       const responseText = await response.text();
-      let data;
+      let data = {};
+
       try {
-        data = JSON.parse(responseText);
-      } catch (e) {
-        console.error("[Housing] Failed to parse response:", responseText);
-        throw new Error("Server returned an invalid response");
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch (parseError) {
+        console.error("[Housing] Invalid server response:", responseText);
+        throw new Error(
+          `The server returned an invalid response (${response.status}).`
+        );
       }
 
       if (!response.ok || data.success !== true) {
         const destinationDetails = [
-          data?.crm?.error || data?.attachments?.crm?.error,
-          data?.recruit?.error || data?.attachments?.recruit?.error
-        ].filter(Boolean).join(" | ");
+          data?.crm?.error,
+          data?.attachments?.crm?.error,
+          data?.error,
+          data?.message
+        ]
+          .filter(Boolean)
+          .join(" | ");
+
         throw new Error(
-          data.error || data.message || destinationDetails || `Failed with status ${response.status}`
+          destinationDetails ||
+          `Housing submission failed with status ${response.status}.`
         );
       }
 
-      console.log("[Housing] Submission successful:", data);
+      const crm = data?.attachments?.crm || data?.crm || {};
+      const crmVerified =
+        crm.success === true &&
+        (
+          crm.verified === true ||
+          crm.attachment_id ||
+          crm.attachmentId
+        );
+
+      if (!crmVerified) {
+        throw new Error(
+          "The Housing form was received, but CRM did not confirm the Deal attachment."
+        );
+      }
 
       const savedStage = data.stage;
-      if (savedStage) {
-        setStages(prev => prev.map(stage =>
-          stage.stage_name === "Submit Housing Form"
-            ? { ...stage, ...savedStage, status: "Completed" }
-            : stage
-        ));
-      } else {
-        await updateStageStatus(user?.email, "Submit Housing Form", setStages);
+
+      if (typeof setStages === "function") {
+        if (savedStage) {
+          setStages(previous =>
+            (Array.isArray(previous) ? previous : []).map(stage =>
+              stage.stage_name === "Submit Housing Form"
+                ? {
+                    ...stage,
+                    ...savedStage,
+                    status: "Completed",
+                    completed: true,
+                    is_completed: true
+                  }
+                : stage
+            )
+          );
+        } else {
+          try {
+            await updateStageStatus(
+              email,
+              "Submit Housing Form",
+              setStages
+            );
+          } catch (stageError) {
+            console.warn(
+              "[Housing] CRM upload succeeded but stage refresh failed:",
+              stageError?.message || stageError
+            );
+          }
+        }
       }
 
-      const crmSaved = data?.attachments?.crm?.success === true || data?.crm?.success === true;
-      if (!crmSaved) throw new Error("The housing form was not attached to CRM.");
       if (housingDraftKey) {
-        sessionStorage.removeItem(housingDraftKey);
+        try {
+          sessionStorage.removeItem(housingDraftKey);
+        } catch (_) {
+          // Submission already succeeded; draft cleanup is non-critical.
+        }
       }
-      toast.success("Housing form submitted and attached to CRM.");
-      onClose();
+
+      toast.success(
+        "Housing details submitted successfully and attached to your CRM Deal."
+      );
+
+      onClose?.();
     } catch (error) {
-      console.error("[Housing] Error:", error);
-      toast.error(error.message || "Failed to submit housing details. Please try again.");
+      console.error("[Housing] Submission error:", error);
+      if (error?.name === "AbortError") {
+        toast.error("Housing submission timed out after 2 minutes. The server or CRM connection did not respond.");
+        return;
+      }
+
+      toast.error(
+        error?.message ||
+        "Unable to submit Housing details. Please try again."
+      );
     } finally {
       setUploading(false);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6 max-h-[calc(90vh-80px)] overflow-y-auto pr-2">
+    <form
+      onSubmit={handleSubmit}
+      noValidate
+      className="space-y-6 max-h-[calc(90vh-80px)] overflow-y-auto pr-2"
+    >
       <div className="bg-muted/30 rounded-lg p-4 border border-border">
         <div className="flex items-center gap-2 mb-1">
           <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -9447,13 +9539,13 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
 
       <div className="flex gap-3 justify-end pt-4 border-t border-border">
         <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-        <Button type="submit" disabled={uploading} className="min-w-[120px]">
-          {uploading ? (
-            <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Submitting...</>
-          ) : (
-            'Submit Housing Details'
-          )}
-        </Button>
+       <Button type="submit" disabled={uploading} className="min-w-[120px]">
+  {uploading ? (
+    <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Submitting...</>
+  ) : (
+    'Submit Housing Details'
+  )}
+</Button>
       </div>
     </form>
   );

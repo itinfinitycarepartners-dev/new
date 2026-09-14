@@ -21,7 +21,8 @@ import { tokenStorage } from "@/api/icpClient";
 import { toast } from "sonner";
 import {
   DeploymentDetails,
-  HousingDetailsForm
+  HousingDetailsForm,
+  RLChecklistView
 } from "./Pipeline";
 
 const API_BASE =
@@ -45,6 +46,13 @@ const FORMS = [
       "Complete your housing and transportation information.",
     icon:
       Home
+  },
+  {
+    key: "rl",
+    title: "R&L Form",
+    description:
+      "Complete your Relocation & Logistics form and submit it to your CRM Deal.",
+    icon: ClipboardList
   },
   {
     key: "travelHousingPolicies",
@@ -140,6 +148,16 @@ export default function Forms() {
     }
   };
 
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-[#F3F4F6] p-6">
+        <div className="rounded-xl border bg-white p-6 text-sm text-muted-foreground">
+          Please sign in to access your forms.
+        </div>
+      </div>
+    );
+  }
+
   if (activeForm) {
     return (
       <div className="min-h-screen space-y-4 bg-[#F3F4F6] p-4 lg:p-6">
@@ -177,14 +195,17 @@ export default function Forms() {
             "housing" && (
             <HousingDetailsForm
               user={user}
-              setStages={
-                setLocalStages
-              }
-              onClose={() =>
-                setActiveForm(
-                  null
-                )
-              }
+              setStages={setLocalStages}
+              onClose={() => setActiveForm(null)}
+            />
+          )}
+
+          {activeForm ===
+            "rl" && (
+            <RLChecklistView
+              user={user}
+              setStages={setLocalStages}
+              onClose={() => setActiveForm(null)}
             />
           )}
         </div>
