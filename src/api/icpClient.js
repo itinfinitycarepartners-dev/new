@@ -22,7 +22,7 @@ export const tokenStorage = {
   set: (token) => {
     if (DEBUG_API) console.log('[TokenStorage] Setting token:', token ? 'exists' : 'none');
     localStorage.setItem(TOKEN_KEY, token);
-    
+
     // Verify the token was stored
     const stored = localStorage.getItem(TOKEN_KEY);
     if (DEBUG_API) console.log('[TokenStorage] Token stored successfully:', !!stored);
@@ -40,14 +40,23 @@ export const tokenStorage = {
 // ─── Core fetch wrapper with improved error handling ────────────────────────
 async function apiFetch(path, options = {}) {
   const token = tokenStorage.get();
-  
+
+  // Build headers per-request. Never mutate a shared object.
   const headers = {
-    'Content-Type': 'application/json',
     'x-client-type': 'Web',
     'x-app-version': '1.0.0',
-    ...options.headers,
+    ...(options.headers || {}),
   };
-  
+
+  const isFormData =
+    options.body instanceof FormData ||
+    options.isFormData === true;
+
+  // Only set JSON content-type when the body is NOT FormData.
+  if (!isFormData && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
+
   // Add Authorization header if token exists
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
@@ -61,37 +70,43 @@ async function apiFetch(path, options = {}) {
     headers,
   };
 
-  // Stringify body if it exists
-  if (options.body && !(options.body instanceof FormData)) {
+  // Handle body
+  if (options.body && !isFormData) {
     fetchOptions.body = JSON.stringify(options.body);
-  } else if (options.body instanceof FormData) {
-    // For FormData, remove Content-Type header so browser sets it with boundary
-    delete fetchOptions.headers['Content-Type'];
+  } else if (isFormData) {
     fetchOptions.body = options.body;
   }
+
+  // Remove our custom hint flag from fetch options
+  delete fetchOptions.isFormData;
 
   try {
     if (DEBUG_API) console.log(`[API] Fetching: ${BASE_URL}${path}`);
     const res = await fetch(`${BASE_URL}${path}`, fetchOptions);
 
-    // Handle non-JSON responses
-    const contentType = res.headers.get('content-type');
+    // Handle different response content types
+    const contentType = res.headers.get('content-type') || '';
     let data;
-    if (contentType && contentType.includes('application/json')) {
+
+    if (contentType.includes('application/json')) {
       data = await res.json().catch(() => ({}));
+    } else if (contentType.includes('text/')) {
+      const text = await res.text().catch(() => '');
+      data = { success: res.ok, status: res.status, message: text };
     } else {
-      // For non-JSON responses (like file downloads)
       data = { success: res.ok, status: res.status };
     }
 
-    console.log(`[API] Response from ${path}: ${res.status}`);
+    console.log(`[API] Response from ${path}: ${res.status}`, data);
 
     if (!res.ok) {
-      const err = new Error(data.message || data.error || `Request failed (${res.status})`);
+      const err = new Error(
+        data.message || data.error || `Request failed (${res.status})`
+      );
       err.status = res.status;
       err.data = data;
       err.sessionExpired = data.sessionExpired || false;
-      
+
       const explicitSessionExpiry =
         data.sessionExpired === true ||
         data.tokenExpired === true ||
@@ -105,7 +120,7 @@ async function apiFetch(path, options = {}) {
         localStorage.removeItem('icp_user_email');
         localStorage.removeItem('icp_user_name');
       }
-      
+
       throw err;
     }
 
@@ -130,17 +145,40 @@ export const auth = {
   verifyOTP: (email, otp, isNewApp = true) =>
     apiFetch('/api/auth/verify-otp', { method: 'POST', body: { email, otp, isNewApp } }),
 
-  /** Set password after first OTP */
-  setupPassword: (email, password, confirmPassword) =>
-    apiFetch('/api/auth/setup-password', { method: 'POST', body: { email, password, confirmPassword } }),
+  /** Set password after first OTP or after admin approval link */
+  setupPassword: (email, password, confirmPassword, setupToken) =>
+    apiFetch('/api/auth/setup-password', {
+      method: 'POST',
+      body: { email, password, confirmPassword, setupToken }
+    }),
 
   /** Login with password */
   loginWithPassword: (email, password) =>
     apiFetch('/api/auth/login-with-password', { method: 'POST', body: { email, password } }),
 
-  /** Request password reset OTP */
-  forgotPassword: (email) =>
-    apiFetch('/api/auth/forgot-password', { method: 'POST', body: { email } }),
+  /**
+   * Request password reset OTP.
+   *
+   * IMPORTANT: this now explicitly rejects the promise if the backend reports
+   * failure even when the HTTP status is 200. That way ForgotPassword.jsx can
+   * display a real error instead of silently pretending the email was sent.
+   */
+  forgotPassword: async (email) => {
+    const result = await apiFetch('/api/auth/forgot-password', {
+      method: 'POST',
+      body: { email }
+    });
+
+    // Defensive: some backends return 200 with { success: false }
+    if (result && result.success === false) {
+      const err = new Error(result.message || result.error || 'Failed to send reset code');
+      err.status = 200;
+      err.data = result;
+      throw err;
+    }
+
+    return result;
+  },
 
   /** Reset password with OTP */
   resetPassword: (emailOrPayload, otp, newPassword, confirmPassword) => {
@@ -167,12 +205,14 @@ export const auth = {
 
   /** Logout */
   logout: () =>
-    apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {}).finally(() => tokenStorage.clear()),
+    apiFetch('/api/auth/logout', { method: 'POST' })
+      .catch(() => {})
+      .finally(() => tokenStorage.clear()),
 
   /** Get full candidate data snapshot */
   snapshot: () => apiFetch('/api/auth/offline-snapshot'),
 
-  /** Save token and resolve user from snapshot */
+  /** Save token */
   setToken: (token) => {
     console.log('[Auth] Setting token via setToken');
     tokenStorage.set(token);
@@ -184,7 +224,7 @@ export const auth = {
     console.log('[Auth] isLoggedIn:', has);
     return has;
   },
-  
+
   /** Verify token validity */
   verifyToken: () => apiFetch('/api/auth/verify-token'),
 };
@@ -214,19 +254,18 @@ export const candidate = {
   getCredentialingStatus: () =>
     apiFetch("/api/recruit/credentialing-status"),
 
-
   /** Fetch all deals / placement info */
   getMyDeals: () => {
     console.log('[Candidate] Fetching my deals...');
     return apiFetch('/api/zoho/my-deals');
   },
-  
+
   /** Get Current_Employer from Zoho Recruit */
   getCurrentEmployer: () => apiFetch('/api/recruit/current-employer'),
-  
+
   /** Get full candidate details from Recruit */
   getCandidate: () => apiFetch('/api/recruit/candidate'),
-  
+
   /** Get Scheduled_for_Interview from Recruit */
   getScheduledInterview: () => apiFetch('/api/recruit/scheduled-interview'),
 };
@@ -243,37 +282,15 @@ export const documents = {
   /** Download blob — returns { base64, mimeType, fileName } */
   download: (documentId) =>
     apiFetch(`/api/documents/download/${documentId}`),
-  
+
   /** Upload document to Concierge Biography field */
-  uploadToConcierge: (formData) => {
-    const token = tokenStorage.get();
-    console.log('[Documents] Uploading to concierge with token:', !!token);
-    
-    return fetch(`${BASE_URL}/api/documents/upload-to-concierge`, {
+  uploadToConcierge: (formData) =>
+    apiFetch('/api/documents/upload-to-concierge', {
       method: 'POST',
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
       body: formData,
-    }).then(async (res) => {
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const err = new Error(data.message || data.error || `Upload failed (${res.status})`);
-        err.status = res.status;
-        err.data = data;
-        if (
-          data.sessionExpired === true ||
-          data.tokenExpired === true ||
-          data.invalidToken === true
-        ) {
-          tokenStorage.clear();
-        }
-        throw err;
-      }
-      return data;
-    });
-  },
-  
+      isFormData: true
+    }),
+
   /** Get user's uploaded documents */
   getMyDocuments: () => apiFetch('/api/documents/my-documents'),
 };
@@ -281,45 +298,23 @@ export const documents = {
 // ─── Recruit Documents ────────────────────────────────────────────────────────
 export const recruit = {
   /** Upload document to Zoho Recruit */
-  uploadDocument: (formData) => {
-    const token = tokenStorage.get();
-    console.log('[Recruit] Uploading document with token:', !!token);
-    
-    return fetch(`${BASE_URL}/api/recruit/upload-document`, {
+  uploadDocument: (formData) =>
+    apiFetch('/api/recruit/upload-document', {
       method: 'POST',
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
       body: formData,
-    }).then(async (res) => {
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const err = new Error(data.message || data.error || `Upload failed (${res.status})`);
-        err.status = res.status;
-        err.data = data;
-        if (
-          data.sessionExpired === true ||
-          data.tokenExpired === true ||
-          data.invalidToken === true
-        ) {
-          tokenStorage.clear();
-        }
-        throw err;
-      }
-      return data;
-    });
-  },
-  
+      isFormData: true
+    }),
+
   /** Get user's recruit documents */
   getDocuments: () => apiFetch('/api/recruit/documents'),
-  
+
   /** Download recruit document */
   download: (attachmentId) =>
     apiFetch(`/api/recruit/download/${attachmentId}`),
-  
+
   /** Get valid categories for Recruit */
   getValidCategories: () => apiFetch('/api/recruit/valid-categories'),
-  
+
   /** Discover categories from Recruit */
   discoverCategories: () => apiFetch('/api/recruit/discover-categories'),
 };
@@ -345,35 +340,13 @@ export const flights = {
 // ─── R&L (Relocation & Logistics) Forms ──────────────────────────────────────
 export const rlForms = {
   /** Submit R&L form with files */
-  submit: (formData) => {
-    const token = tokenStorage.get();
-    console.log('[RLForms] Submitting form with token:', !!token);
-    
-    return fetch(`${BASE_URL}/api/rl/submit`, {
+  submit: (formData) =>
+    apiFetch('/api/relocation-logistics/submit', {
       method: 'POST',
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
       body: formData,
-    }).then(async (res) => {
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const err = new Error(data.message || data.error || `Submission failed (${res.status})`);
-        err.status = res.status;
-        err.data = data;
-        if (
-          data.sessionExpired === true ||
-          data.tokenExpired === true ||
-          data.invalidToken === true
-        ) {
-          tokenStorage.clear();
-        }
-        throw err;
-      }
-      return data;
-    });
-  },
-  
+      isFormData: true
+    }),
+
   /** Get R&L submission history */
   getHistory: () => apiFetch('/api/rl/history'),
 };
@@ -382,8 +355,12 @@ export const rlForms = {
 export const housing = {
   /** Submit housing details */
   submit: (formData) =>
-    apiFetch('/api/housing/submit', { method: 'POST', body: formData }),
-  
+    apiFetch('/api/housing/submit', {
+      method: 'POST',
+      body: formData,
+      isFormData: true
+    }),
+
   /** Get housing submission history */
   getHistory: () => apiFetch('/api/housing/history'),
 };
@@ -400,9 +377,9 @@ export const MESSAGING_WS_URL = (() => {
 export const messaging = {
   /** Get or create a conversation */
   getOrCreateConversation: (participantEmail, type = 'direct', groupName = null, participantEmails = []) =>
-    apiFetch('/api/messaging/conversation', { 
-      method: 'POST', 
-      body: { participantEmail, type, groupName, participantEmails } 
+    apiFetch('/api/messaging/conversation', {
+      method: 'POST',
+      body: { participantEmail, type, groupName, participantEmails }
     }),
 
   /** Get user's conversations */
@@ -477,7 +454,7 @@ export const messaging = {
   getUnreadCount: () =>
     apiFetch('/api/messaging/unread-count'),
 
-  /** Candidate/user broadcast to all candidate users - REMOVED TITLE */
+  /** Candidate/user broadcast to all candidate users */
   sendUserBroadcast: (content) =>
     apiFetch("/api/messaging/user-broadcast", {
       method: "POST",
@@ -503,23 +480,23 @@ export const messaging = {
 
   /** Send typing indicator */
   sendTyping: (conversationId, isTyping) =>
-    apiFetch('/api/messaging/typing', { 
-      method: 'POST', 
-      body: { conversationId, isTyping } 
+    apiFetch('/api/messaging/typing', {
+      method: 'POST',
+      body: { conversationId, isTyping }
     }),
 
   /** Add user to group */
   addToGroup: (conversationId, emailToAdd) =>
-    apiFetch('/api/messaging/group/add', { 
-      method: 'POST', 
-      body: { conversationId, emailToAdd } 
+    apiFetch('/api/messaging/group/add', {
+      method: 'POST',
+      body: { conversationId, emailToAdd }
     }),
 
   /** Register push notification token */
   registerPushToken: (deviceToken, deviceType = 'web') =>
-    apiFetch('/api/messaging/register-push', { 
-      method: 'POST', 
-      body: { deviceToken, deviceType } 
+    apiFetch('/api/messaging/register-push', {
+      method: 'POST',
+      body: { deviceToken, deviceType }
     }),
 };
 
@@ -597,9 +574,9 @@ export const documentLibrary = {
 export const admin = {
   /** Send broadcast message to users */
   broadcast: (message, targetUsers = 'all', recipientEmails = null) =>
-    apiFetch('/api/admin/broadcast', { 
-      method: 'POST', 
-      body: { message, targetUsers, recipientEmails } 
+    apiFetch('/api/admin/broadcast', {
+      method: 'POST',
+      body: { message, targetUsers, recipientEmails }
     }),
 };
 
@@ -621,17 +598,17 @@ class WebSocketManager {
       console.log('[WebSocket] Already connected or connecting');
       return;
     }
-    
+
     this.token = token;
     this.isConnecting = true;
     console.log('[WebSocket] Connecting...');
-    
+
     try {
       const wsUrl = `${MESSAGING_WS_URL}?token=${token}`;
       console.log('[WebSocket] Connecting to:', wsUrl.replace(token, '****'));
-      
+
       this.ws = new WebSocket(wsUrl);
-      
+
       this.ws.onopen = () => {
         console.log('[WebSocket] Connected');
         this.isConnected = true;
@@ -663,7 +640,6 @@ class WebSocketManager {
 
       this.ws.onerror = (error) => {
         // Suppress WebSocket errors - non-critical for app functionality
-        // console.error('[WebSocket] Error:', error);
         this.isConnected = false;
         this.isConnecting = false;
         this.triggerHandler('error', error);
@@ -685,9 +661,9 @@ class WebSocketManager {
 
     this.reconnectAttempts++;
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
-    
+
     console.log(`[WebSocket] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
-    
+
     setTimeout(() => {
       if (this.token) {
         this.connect(this.token);

@@ -13,26 +13,50 @@ export default function ForgotPassword() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    
     const normalizedEmail = email.trim().toLowerCase();
+    
+    // Basic client-side validation
+    if (!normalizedEmail || !normalizedEmail.includes("@")) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+
     setLoading(true);
     setError("");
+    setSuccess("");
 
     try {
       const result = await auth.forgotPassword(normalizedEmail);
+      
       if (result?.success === false) {
         throw new Error(result.message || result.error || "Failed to send reset code");
       }
 
+      // Store email for the reset page
       sessionStorage.setItem("password_reset_email", normalizedEmail);
-      navigate("/reset-password", {
-        replace: true,
-        state: { email: normalizedEmail, codeSent: true }
-      });
+      
+      // Show success briefly before navigating
+      setSuccess("Reset code sent! Redirecting...");
+      
+      // Navigate to reset password page with state
+      setTimeout(() => {
+        navigate("/reset-password", {
+          replace: true,
+          state: { 
+            email: normalizedEmail, 
+            codeSent: true 
+          }
+        });
+      }, 800);
+      
     } catch (error) {
-      setError(error.message || "Failed to send reset code");
+      console.error("[ForgotPassword] Error:", error);
+      setError(error.message || "Failed to send reset code. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -57,6 +81,11 @@ export default function ForgotPassword() {
               {error}
             </p>
           )}
+          {success && (
+            <p className="text-sm text-emerald-700 bg-emerald-50 p-3 rounded-lg">
+              {success}
+            </p>
+          )}
           <div>
             <Label htmlFor="reset-email">Email</Label>
             <Input
@@ -67,10 +96,19 @@ export default function ForgotPassword() {
               required
               autoFocus
               className="mt-1"
+              disabled={loading}
+              placeholder="you@example.com"
             />
           </div>
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Send Reset Code"}
+            {loading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                Sending...
+              </>
+            ) : (
+              "Send Reset Code"
+            )}
           </Button>
           <p className="text-center text-sm">
             <Link to="/login" className="text-primary hover:underline">
@@ -78,6 +116,20 @@ export default function ForgotPassword() {
             </Link>
           </p>
         </form>
+
+        <div className="mt-6 text-center">
+          <p className="text-xs text-muted-foreground">
+            Didn't receive the code? Check your spam folder or{" "}
+            <button
+              type="button"
+              onClick={handleSubmit}
+              className="text-primary hover:underline"
+              disabled={loading || !email.trim()}
+            >
+              resend
+            </button>
+          </p>
+        </div>
       </div>
     </div>
   );
