@@ -52,7 +52,7 @@ export default function WelcomePacket() {
           return;
         }
 
-        const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://deploy-3or5.onrender.com';
+        const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
         const response = await fetch(`${BASE_URL}/api/zoho/my-deals`, {
           headers: {

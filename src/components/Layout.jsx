@@ -29,7 +29,7 @@ import userImage from "./user1.png";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
-  "https://fictional-carnival-3inv.onrender.com";
+  "http://localhost:4000";
 
 // Webhooks remain the primary instant path. This visible-tab heartbeat is the
 // deterministic fallback for CRM Deals only, so Profile/Dashboard do not wait

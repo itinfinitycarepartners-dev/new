@@ -20,7 +20,7 @@ import { toast } from "sonner";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
-  "https://fictional-carnival-3inv.onrender.com";
+  "http://localhost:4000";
 
 const AUTO_REFRESH_MS = 60000;
 

@@ -34,7 +34,7 @@ const DOCUMENT_FIELDS = [
   { key: "visaScreen", label: "Visa Screen" },
 ];
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://deploy-3or5.onrender.com';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
 function emptyDependant() {
   return {

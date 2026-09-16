@@ -6,7 +6,7 @@ const BASE_URL = (() => {
   if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL) {
     return import.meta.env.VITE_API_BASE_URL;
   }
-  return 'https://fictional-carnival-3inv.onrender.com';
+  return 'http://localhost:4000';
 })();
 
 const TOKEN_KEY = 'icp_auth_token';

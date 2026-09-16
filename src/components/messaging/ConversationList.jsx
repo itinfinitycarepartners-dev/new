@@ -293,7 +293,7 @@ const sendMessage = useCallback(async () => {
     try {
       const token = tokenStorage.get();
       const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL || "https://fictional-carnival-3inv.onrender.com"}/api/messaging/start-conversation`,
+        `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000'}/api/messaging/start-conversation`,
         {
           method: "POST",
           headers: {

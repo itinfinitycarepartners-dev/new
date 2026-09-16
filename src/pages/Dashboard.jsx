@@ -60,7 +60,7 @@ import { toast } from "sonner";
 import { messaging, websocket, tokenStorage } from "@/api/icpClient";
 import { getEnabledPipelineStages } from "@/config/releaseConfig";
 import nurseImage from "../components/nurse.webp";
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://fictional-carnival-3inv.onrender.com';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;

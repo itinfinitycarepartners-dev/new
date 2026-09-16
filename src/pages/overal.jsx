@@ -16,9 +16,7 @@ import { THEME, DOCUMENT_REJECTION_REASONS, PIPELINE_CATEGORIES, PIPELINE_STATUS
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
-  (import.meta.env.DEV
-    ? 'http://localhost:4000'
-    : 'https://fictional-carnival-3inv.onrender.com');
+  'http://localhost:4000';
 
 const unwrapAdminNCLEXValue = value => {
   if (value === undefined || value === null) return value;

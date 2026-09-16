@@ -11,7 +11,8 @@ import { Link } from "react-router-dom";
 import { Loader2, ArrowRight } from "lucide-react";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 
-const API_BASE = "https://fictional-carnival-3inv.onrender.com";
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
 export default function Login() {
   const { loginSuccess, isAuthenticated } = useAuth();

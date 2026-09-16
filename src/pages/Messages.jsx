@@ -7,7 +7,7 @@ import { Megaphone, Loader2, X, CheckCircle2 } from "lucide-react";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
-  "https://fictional-carnival-3inv.onrender.com";
+  "http://localhost:4000";
 
 export default function Messages() {
   const [showBroadcast, setShowBroadcast] = useState(false);
