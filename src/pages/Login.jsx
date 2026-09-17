@@ -14,6 +14,22 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
+// Reverse proxies can return an HTML error page (for example, a 499) instead
+// of JSON. Parsing that page with response.json() used to throw and turn the
+// real server error into the misleading "Connection failed" message.
+async function readApiResponse(response) {
+  const body = await response.text();
+
+  try {
+    return body ? JSON.parse(body) : {};
+  } catch {
+    return {
+      success: false,
+      message: `The portal service returned an unexpected response (${response.status}).`,
+    };
+  }
+}
+
 export default function Login() {
   const { loginSuccess, isAuthenticated } = useAuth();
   const navigate = useNavigate();
@@ -89,7 +105,7 @@ export default function Login() {
         body: JSON.stringify({ email: enteredEmail }),
       });
 
-      const data = await response.json();
+      const data = await readApiResponse(response);
       console.log("[Login] Check email response:", data);
 
       if (data.success) {
@@ -158,7 +174,7 @@ export default function Login() {
         }
       );
 
-      const data = await response.json();
+      const data = await readApiResponse(response);
       console.log("[Login] Password login response:", data);
 
       if (isAdmin) {
@@ -222,7 +238,7 @@ export default function Login() {
         body: JSON.stringify({ email, otp, isNewApp: true }),
       });
 
-      const data = await response.json();
+      const data = await readApiResponse(response);
       console.log("[Login] OTP verify response:", data);
 
       if (data.success && data.token) {
@@ -270,7 +286,7 @@ export default function Login() {
         body: JSON.stringify({ email, password: newPassword, confirmPassword, setupToken }),
       });
 
-      const data = await response.json();
+      const data = await readApiResponse(response);
       console.log("[Login] Setup password response:", data);
 
       if (data.success && data.token) {
