@@ -2148,14 +2148,14 @@ const UsersTable = ({ users, onSelectUser, onMessageUser, onBroadcast }) => {
                   </td>
                   <td className="px-5 py-3 min-w-[170px]">
                     <div className="flex items-center justify-between text-xs mb-1">
-                      <span className="font-semibold text-gray-700">{u.pipeline?.completed || 0}/{u.pipeline?.total || 0}</span>
-                      <span className="font-bold text-purple-700">{u.pipeline?.percentage || 0}%</span>
+                      <span className="font-semibold text-gray-700">{u.pipelineLoaded ? `${u.pipeline?.completed || 0}/${u.pipeline?.total || 0}` : '—'}</span>
+                      <span className="font-bold text-purple-700">{u.pipelineLoaded ? `${u.pipeline?.percentage || 0}%` : 'View profile'}</span>
                     </div>
                     <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
                       <div className="h-full bg-purple-600 rounded-full" style={{ width: `${Math.max(0, Math.min(100, u.pipeline?.percentage || 0))}%` }} />
                     </div>
                   </td>
-                  <td className="px-5 py-3 text-sm text-gray-700 min-w-[180px]">{u.pipeline?.currentStage || 'Not started'}</td>
+                  <td className="px-5 py-3 text-sm text-gray-700 min-w-[180px]">{u.pipelineLoaded ? (u.pipeline?.currentStage || 'Not started') : 'View profile'}</td>
                   <td className="px-5 py-3 text-sm text-gray-600 whitespace-nowrap">{formatDate(u.orientationStartDate)}</td>
                   <td className="px-5 py-3 text-sm text-gray-600 whitespace-nowrap">{formatDate(u.independentFloorStartDate)}</td>
                   <td className="px-5 py-3 text-sm text-gray-600 whitespace-nowrap">{ET(u.lastLogin)}</td>
@@ -4078,7 +4078,7 @@ const AdminPanel = () => {
         ...(adminToken ? { 'x-admin-token': adminToken } : {})
       };
 
-      const usersRequest = fetch(`${API_BASE}/api/admin/users`, { 
+      const usersRequest = fetch(`${API_BASE}/api/admin/users?includePipeline=false`, { 
         method: 'GET',
         credentials: 'include', 
         headers 
