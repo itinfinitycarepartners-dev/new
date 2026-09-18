@@ -4052,6 +4052,10 @@ const AdminPanel = () => {
       if (!response.ok || data.success !== true) throw new Error(data.message || 'Failed to load the admin overview.');
       setError(null);
       setCrossOriginBlock(false);
+      setBackendHealth(previous => ({
+        ...previous,
+        db: data.databaseConnected === true
+      }));
       setStats({ total: data.totalUsers || 0, active: data.activeUsers || 0, expired: data.expiredUsers || 0 });
       setLogs(data.logs || []);
     } catch (err) {
