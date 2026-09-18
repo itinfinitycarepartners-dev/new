@@ -1534,6 +1534,8 @@ export default function Dashboard() {
       false,
     refetchOnReconnect:
       false,
+    refetchOnMount:
+      false,
     queryFn:
       async () => {
         const token =
@@ -1550,7 +1552,9 @@ export default function Dashboard() {
             `${API_BASE}/api/candidate/dashboard-summary`,
             {
               headers: {
-                Authorization: `Bearer ${token}`
+                Authorization: `Bearer ${token}`,
+                Accept: "application/json",
+                "Cache-Control": "no-cache"
               }
             }
           );

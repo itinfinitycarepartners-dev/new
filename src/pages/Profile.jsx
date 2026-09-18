@@ -39,6 +39,25 @@ const writeProfileBrowserCache = (email, data) => {
   }
 };
 
+// Normalize eligibility values without making another network request.
+const formatEligibilityValue = (value) => {
+  if (value === null || value === undefined || value === "") return "";
+  if (Array.isArray(value)) {
+    return value.map(formatEligibilityValue).filter(Boolean).join(", ");
+  }
+  if (typeof value === "object") {
+    return formatEligibilityValue(
+      value.value ??
+      value.name ??
+      value.label ??
+      value.display_value ??
+      value.displayValue ??
+      ""
+    );
+  }
+  return String(value).trim();
+};
+
 
 const formatDate = (dateStr) => {
   if (!dateStr || dateStr === "—" || dateStr === "" || dateStr === null || dateStr === undefined) return null;
@@ -371,8 +390,8 @@ export default function Profile() {
 
     // Canonical source-data is the primary request. /my-deals is only a fallback
     // and starts after a short delay so it cannot compete with first paint.
-    window.setTimeout(() => {
-      if (!cancelled && !profileData && !readProfileBrowserCache(email)?.data) fetchProfile();
+    const fallbackTimer = window.setTimeout(() => {
+      if (!cancelled && !readProfileBrowserCache(email)?.data) fetchProfile();
     }, 1800);
 
     const refresh = () => fetchProfile();
@@ -388,6 +407,7 @@ export default function Profile() {
       window.removeEventListener("crm-recruit-updated", refresh);
       window.removeEventListener("pipeline-updated", refresh);
       window.clearInterval(profileRefreshTimer);
+      window.clearTimeout(fallbackTimer);
     };
   }, [user?.email]);
 
@@ -413,6 +433,16 @@ export default function Profile() {
         recruitCandidate: rawRecruitCandidate,
         recruitApplication: rawRecruitApplication
       };
+
+      // Reuse the canonical response for eligibility instead of issuing a second
+      // /api/profile/source-data request during page load.
+      const eligibilityRaw =
+        mapped.State_Licensure_Requirements ??
+        mapped.Deployment_Eligibility ??
+        rawCrm.State_Licensure_Requirements ??
+        "";
+      const eligibilityValue = formatEligibilityValue(eligibilityRaw);
+      if (eligibilityValue) setEmbassyEligibilityStatus(eligibilityValue);
 
       setCanonicalProfileSources({ mapped, crm: rawCrm, recruitCandidate: rawRecruitCandidate, recruitApplication: rawRecruitApplication });
       setProfileData(previous => {
@@ -710,90 +740,7 @@ export default function Profile() {
     };
   }, [user?.email]);
 
-  useEffect(() => {
-    const loadEligibility = async () => {
-      if (!user?.email) return;
-
-      const token =
-        localStorage.getItem(
-          "icp_auth_token"
-        );
-
-      if (!token) return;
-
-      try {
-        const response =
-          await fetch(
-            `${API_BASE}/api/profile/source-data?refresh=false`,
-            { cache:"default", headers:{ Authorization:`Bearer ${token}` } }
-          );
-
-        const data =
-          await response
-            .json()
-            .catch(() => ({}));
-
-        const raw =
-          data?.mapped?.State_Licensure_Requirements ??
-          data?.mapped?.Deployment_Eligibility ??
-          data?.modules?.CRM_Deals?.State_Licensure_Requirements ??
-          "";
-
-        const formatEligibility =
-          value => {
-            if (
-              value === null ||
-              value === undefined ||
-              value === ""
-            ) {
-              return "";
-            }
-
-            if (Array.isArray(value)) {
-              return value
-                .map(formatEligibility)
-                .filter(Boolean)
-                .join(", ");
-            }
-
-            if (
-              typeof value === "object"
-            ) {
-              return formatEligibility(
-                value.value ??
-                value.name ??
-                value.label ??
-                value.display_value ??
-                value.displayValue ??
-                ""
-              );
-            }
-
-            return String(value).trim();
-          };
-
-        const value =
-          formatEligibility(raw);
-
-        if (value) {
-          setEmbassyEligibilityStatus(
-            value
-          );
-        }
-      } catch (error) {
-        console.warn(
-          "[Profile] Embassy eligibility fallback unavailable:",
-          error?.message || error
-        );
-      }
-    };
-
-    const start = () => {
-      if ("requestIdleCallback" in window) window.requestIdleCallback(loadEligibility, { timeout: 6000 });
-      else window.setTimeout(loadEligibility, 3500);
-    };
-    start();
-  }, [user?.email]);
+  // Eligibility is populated from the canonical source-data response above.
 
   const saveTravelPlanning = async () => {
     setSavingTravelPlanning(true);
