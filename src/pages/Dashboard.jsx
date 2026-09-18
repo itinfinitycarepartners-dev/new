@@ -62,6 +62,61 @@ import { getEnabledPipelineStages } from "@/config/releaseConfig";
 import nurseImage from "../components/nurse.webp";
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
+// ─── PERFORMANCE: client-side dashboard snapshot ─────────────────────────────
+// Keep the last successful dashboard payload so a hard refresh can paint
+// immediately while React Query revalidates in the background.
+const DASHBOARD_BROWSER_CACHE_PREFIX = "icp_dashboard_snapshot_v2:";
+const DASHBOARD_BROWSER_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
+
+const getDashboardBrowserCacheKey = (email) =>
+  `${DASHBOARD_BROWSER_CACHE_PREFIX}${String(email || "").trim().toLowerCase()}`;
+
+const readDashboardBrowserCache = (email) => {
+  if (!email || typeof window === "undefined") return null;
+
+  try {
+    const raw = window.sessionStorage.getItem(
+      getDashboardBrowserCacheKey(email)
+    );
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    if (
+      !parsed ||
+      !parsed.data ||
+      !parsed.savedAt ||
+      Date.now() - Number(parsed.savedAt) > DASHBOARD_BROWSER_CACHE_MAX_AGE_MS
+    ) {
+      window.sessionStorage.removeItem(getDashboardBrowserCacheKey(email));
+      return null;
+    }
+
+    return {
+      data: parsed.data,
+      savedAt: Number(parsed.savedAt)
+    };
+  } catch {
+    return null;
+  }
+};
+
+const writeDashboardBrowserCache = (email, data) => {
+  if (!email || !data || typeof window === "undefined") return;
+
+  try {
+    window.sessionStorage.setItem(
+      getDashboardBrowserCacheKey(email),
+      JSON.stringify({
+        savedAt: Date.now(),
+        data
+      })
+    );
+  } catch {
+    // Storage can be unavailable/full. Network data remains the source of truth.
+  }
+};
+
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -1388,7 +1443,7 @@ export default function Dashboard() {
 
       try {
         const response = await fetch(
-          `${API_BASE}/api/candidate/photo?_=${Date.now()}`,
+          `${API_BASE}/api/candidate/photo`,
           {
             headers: {
               Authorization: `Bearer ${token}`
@@ -1425,9 +1480,21 @@ export default function Dashboard() {
       }
     };
 
-    loadCandidatePhoto();
+    // The photo is secondary content. Start it after the first paint so it can
+    // never compete with the dashboard summary for the initial connection.
+    let photoIdleId;
+    let photoTimerId;
+    if (typeof window.requestIdleCallback === "function") {
+      photoIdleId = window.requestIdleCallback(loadCandidatePhoto, { timeout: 1200 });
+    } else {
+      photoTimerId = window.setTimeout(loadCandidatePhoto, 150);
+    }
 
     return () => {
+      if (photoIdleId !== undefined && typeof window.cancelIdleCallback === "function") {
+        window.cancelIdleCallback(photoIdleId);
+      }
+      if (photoTimerId !== undefined) window.clearTimeout(photoTimerId);
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
@@ -1448,11 +1515,13 @@ export default function Dashboard() {
         user?.email
       ),
     staleTime:
-      20 * 1000,
+      60 * 1000,
     gcTime:
-      5 * 60 * 1000,
+      30 * 60 * 1000,
     refetchInterval:
       false,
+    initialData: () => readDashboardBrowserCache(user?.email)?.data,
+    initialDataUpdatedAt: () => readDashboardBrowserCache(user?.email)?.savedAt || undefined,
     refetchIntervalInBackground:
       false,
     refetchOnWindowFocus:
@@ -1495,6 +1564,7 @@ export default function Dashboard() {
           );
         }
 
+        writeDashboardBrowserCache(user?.email, payload);
         return payload;
       }
   });
@@ -1515,11 +1585,11 @@ export default function Dashboard() {
         user?.email
       ),
     staleTime:
-      30 * 1000,
-    gcTime:
-      5 * 60 * 1000,
-    refetchInterval:
       60 * 1000,
+    gcTime:
+      10 * 60 * 1000,
+    refetchInterval:
+      90 * 1000,
     refetchOnWindowFocus:
       false,
     queryFn:
@@ -1538,8 +1608,6 @@ export default function Dashboard() {
           await fetch(
             `${API_BASE}/api/updates?limit=20&_=${Date.now()}`,
             {
-              cache:
-                "no-store",
               headers: {
                 Authorization:
                   `Bearer ${token}`

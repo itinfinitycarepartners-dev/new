@@ -6,6 +6,40 @@ import { useState, useEffect, useRef } from "react";
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
 
+// Fast profile snapshot cache.  The cached payload is used only to paint the page
+// immediately; the backend remains the source of truth and refreshes in the background.
+const PROFILE_CACHE_PREFIX = "icp_profile_snapshot_v2:";
+const PROFILE_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
+
+const readProfileBrowserCache = (email) => {
+  if (!email) return null;
+  try {
+    const raw = sessionStorage.getItem(
+      `${PROFILE_CACHE_PREFIX}${String(email).trim().toLowerCase()}`
+    );
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.data || !parsed?.savedAt) return null;
+    if (Date.now() - Number(parsed.savedAt) > PROFILE_CACHE_MAX_AGE_MS) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const writeProfileBrowserCache = (email, data) => {
+  if (!email || !data) return;
+  try {
+    sessionStorage.setItem(
+      `${PROFILE_CACHE_PREFIX}${String(email).trim().toLowerCase()}`,
+      JSON.stringify({ data, savedAt: Date.now() })
+    );
+  } catch {
+    // Storage can be unavailable/full; the network path still works.
+  }
+};
+
+
 const formatDate = (dateStr) => {
   if (!dateStr || dateStr === "—" || dateStr === "" || dateStr === null || dateStr === undefined) return null;
   
@@ -191,14 +225,10 @@ export default function Profile() {
 
       try {
         const response = await fetch(
-          `${API_BASE}/api/candidate/photo?_=${Date.now()}`,
+          `${API_BASE}/api/candidate/photo`,
           {
-            cache: "no-store",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Cache-Control": "no-cache",
-              Pragma: "no-cache"
-            }
+            cache: "default",
+            headers: { Authorization: `Bearer ${token}` }
           }
         );
 
@@ -231,17 +261,24 @@ export default function Profile() {
       }
     };
 
-    loadCandidatePhoto();
+    const startPhotoLoad = () => {
+      if ("requestIdleCallback" in window) {
+        window.requestIdleCallback(() => loadCandidatePhoto(), { timeout: 1800 });
+      } else {
+        window.setTimeout(loadCandidatePhoto, 900);
+      }
+    };
 
-    const refresh = () => loadCandidatePhoto();
+    startPhotoLoad();
+
+    const refresh = () => startPhotoLoad();
     const onVisibility = () => {
-      if (!document.hidden) loadCandidatePhoto();
+      if (!document.hidden) startPhotoLoad();
     };
 
     window.addEventListener("candidate-data-updated", refresh);
     window.addEventListener("crm-recruit-updated", refresh);
     window.addEventListener("pipeline-updated", refresh);
-    window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", onVisibility);
 
     const timer = window.setInterval(
@@ -256,7 +293,6 @@ export default function Profile() {
       window.removeEventListener("candidate-data-updated", refresh);
       window.removeEventListener("crm-recruit-updated", refresh);
       window.removeEventListener("pipeline-updated", refresh);
-      window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [user?.email]);
@@ -279,362 +315,176 @@ export default function Profile() {
   const [savingTravelPlanning, setSavingTravelPlanning] = useState(false);
   const [travelPlanningMessage, setTravelPlanningMessage] = useState("");
 
-  // Fetch profile data from Zoho API
+  // Fast primary profile load.  A session snapshot paints instantly on refresh,
+  // while the canonical endpoint refreshes the data in the background.
   useEffect(() => {
+    if (!user?.email) {
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const email = String(user.email).trim().toLowerCase();
+    const cached = readProfileBrowserCache(email);
+
+    if (cached?.data) {
+      setProfileData(cached.data);
+      setError(null);
+      setLoading(false);
+    }
+
     const fetchProfile = async () => {
       if (profileRequestInFlight.current) return;
-      if (!user?.email) {
-        setLoading(false);
+      const token = localStorage.getItem("icp_auth_token");
+      if (!token) {
+        if (!cached?.data) {
+          setError("No authentication token found. Please log in again.");
+          setLoading(false);
+        }
         return;
       }
 
+      profileRequestInFlight.current = true;
       try {
-        profileRequestInFlight.current = true;
-        const token = localStorage.getItem("icp_auth_token");
-        if (!token) {
-          setLoading(false);
-          setError("No authentication token found. Please log in again.");
-          return;
-        }
-
-        console.log("[Profile] Fetching profile data for:", user.email);
-
         const response = await fetch(
           `${API_BASE}/api/zoho/my-deals?refresh=false`,
-          {
-            cache: "default",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            }
-          }
+          { cache: "default", headers: { Authorization: `Bearer ${token}` } }
         );
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-        console.log("[Profile] Response status:", response.status);
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error("[Profile] Error response:", errorText);
-          throw new Error(`HTTP ${response.status}: ${errorText || response.statusText}`);
+        if (!cancelled && data.success && data.data) {
+          setProfileData(previous => {
+            const merged = { ...(previous || {}), ...data.data };
+            writeProfileBrowserCache(email, merged);
+            return merged;
+          });
+          setError(null);
         }
-
-        const data = await response.json();
-        console.log("[Profile] Full API response:", data);
-
-        if (data.success && data.data) {
-          setProfileData(data.data);
-        } else {
-          setError("No profile data found");
-        }
-      } catch (error) {
-        console.error("[Profile] Error:", error);
-        setError(error.message);
+      } catch (err) {
+        if (!cancelled && !cached?.data) setError(err?.message || "Unable to load profile.");
       } finally {
         profileRequestInFlight.current = false;
-        setLoading(false);
+        if (!cancelled && !cached?.data) setLoading(false);
       }
     };
 
-    fetchProfile();
+    // Canonical source-data is the primary request. /my-deals is only a fallback
+    // and starts after a short delay so it cannot compete with first paint.
+    window.setTimeout(() => {
+      if (!cancelled && !profileData && !readProfileBrowserCache(email)?.data) fetchProfile();
+    }, 1800);
 
     const refresh = () => fetchProfile();
-    const refreshOnVisibility = () => {
-      if (!document.hidden) fetchProfile();
-    };
-
     window.addEventListener("candidate-data-updated", refresh);
     window.addEventListener("crm-recruit-updated", refresh);
     window.addEventListener("pipeline-updated", refresh);
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", refreshOnVisibility);
 
-    const profileRefreshTimer = window.setInterval(fetchProfile, 5 * 60 * 1000);
+    const profileRefreshTimer = window.setInterval(fetchProfile, 10 * 60 * 1000);
 
     return () => {
+      cancelled = true;
       window.removeEventListener("candidate-data-updated", refresh);
       window.removeEventListener("crm-recruit-updated", refresh);
       window.removeEventListener("pipeline-updated", refresh);
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", refreshOnVisibility);
       window.clearInterval(profileRefreshTimer);
     };
   }, [user?.email]);
 
-  // Fetch canonical Interview & Hiring data from the backend.
-  // /api/profile/source-data resolves the correct owner for each field:
-  // CRM Deals, Recruit Candidates, or Recruit Applications.
+  // Canonical source data is the preferred fast path for CRM/Recruit ownership.
   useEffect(() => {
+    if (!user?.email) {
+      setRecruitLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const email = String(user.email).trim().toLowerCase();
+    const cache = readProfileBrowserCache(email);
+
+    const applyCanonical = (data) => {
+      if (!data || data.success !== true || cancelled) return;
+      const mapped = data.mapped || {};
+      const rawCrm = data.modules?.CRM_Deals || {};
+      const rawRecruitCandidate = data.modules?.Recruit_Candidates || {};
+      const rawRecruitApplication = data.modules?.Recruit_Applications || {};
+      const sourcePayload = data.interviewHiringSources || {
+        crm: rawCrm,
+        recruitCandidate: rawRecruitCandidate,
+        recruitApplication: rawRecruitApplication
+      };
+
+      setCanonicalProfileSources({ mapped, crm: rawCrm, recruitCandidate: rawRecruitCandidate, recruitApplication: rawRecruitApplication });
+      setProfileData(previous => {
+        const next = { ...(previous || {}) };
+        const isBlank = value => value === undefined || value === null || (typeof value === "string" && ["", "—", "-", "null", "undefined"].includes(value.trim().toLowerCase()));
+        Object.entries(data.profileFallback || { ...rawRecruitCandidate, ...rawCrm, ...mapped }).forEach(([key, value]) => {
+          if (isBlank(next[key]) && !isBlank(value)) next[key] = value;
+        });
+        writeProfileBrowserCache(email, next);
+        return next;
+      });
+      setInterviewHiringSources({
+        crm: { ...rawCrm, ...(sourcePayload.crm || {}) },
+        recruitCandidate: { ...rawRecruitCandidate, ...(sourcePayload.recruitCandidate || {}) },
+        recruitApplication: { ...rawRecruitApplication, ...(sourcePayload.recruitApplication || {}) }
+      });
+      setCurrentEmployer(mapped.Current_Employer || "");
+      setScheduledForInterview(mapped.Scheduled_for_Interview === true);
+      setRecruitData({
+        hiredLocation: mapped.Hired_Location || "",
+        hiredDepartment: mapped.Hired_Department || "",
+        interviewLocation: mapped.Interview_Location || "",
+        interviewDate: mapped.Interview_Date || "",
+        interviewNotes: mapped.Interview_Notes || mapped.Notes_Interview || "",
+        rate: mapped.Rate || "",
+        applicationStatus: mapped.Application_Status || mapped.Lead_Management_Status || "",
+        candidateStatus: mapped.Candidate_Status || ""
+      });
+      setError(null);
+      setLoading(false);
+      setRecruitLoading(false);
+    };
+
     const fetchRecruitData = async () => {
       if (canonicalRequestInFlight.current) return;
-      if (!user?.email) {
+      const token = localStorage.getItem("icp_auth_token");
+      if (!token) {
         setRecruitLoading(false);
         return;
       }
-
+      canonicalRequestInFlight.current = true;
       try {
-        canonicalRequestInFlight.current = true;
-        const token =
-          localStorage.getItem(
-            "icp_auth_token"
-          );
-
-        if (!token) {
-          setRecruitLoading(false);
-          return;
-        }
-
-        console.log(
-          "[Profile] Fetching canonical Interview & Hiring source data..."
+        const response = await fetch(
+          `${API_BASE}/api/profile/source-data?refresh=false`,
+          { cache: "default", headers: { Authorization: `Bearer ${token}` } }
         );
-
-        const response =
-          await fetch(
-            `${API_BASE}/api/profile/source-data?refresh=false`,
-            {
-              cache: "default",
-              headers: {
-                Authorization:
-                  `Bearer ${token}`,
-                "Content-Type":
-                  "application/json",
-              }
-            }
-          );
-
-        console.log(
-          "[Profile] Canonical source response status:",
-          response.status
-        );
-
-        const data =
-          await response
-            .json()
-            .catch(() => ({}));
-
-        if (
-          !response.ok ||
-          data.success !== true
-        ) {
-          throw new Error(
-            data.error ||
-            data.message ||
-            `HTTP ${response.status}`
-          );
-        }
-
-        const mapped =
-          data.mapped ||
-          {};
-
-        const sourcePayload =
-          data.interviewHiringSources ||
-          {
-            crm:
-              data.modules?.CRM_Deals ||
-              {},
-            recruitCandidate:
-              data.modules?.Recruit_Candidates ||
-              {},
-            recruitApplication:
-              data.modules?.Recruit_Applications ||
-              {}
-          };
-
-        const rawCrm = data.modules?.CRM_Deals || {};
-        const rawRecruitCandidate = data.modules?.Recruit_Candidates || {};
-        const rawRecruitApplication = data.modules?.Recruit_Applications || {};
-
-        setCanonicalProfileSources({
-          mapped,
-          crm: rawCrm,
-          recruitCandidate: rawRecruitCandidate,
-          recruitApplication: rawRecruitApplication
-        });
-
-        // A sparse or temporarily failed /my-deals response must not blank the
-        // Profile. Build a field-by-field fallback from the exact canonical raw
-        // sources returned by the backend. CRM Deal wins over Recruit for CRM-owned
-        // fields, while mapped values fill portal aliases.
-        const canonicalFallbackProfile =
-          data.profileFallback || {
-            ...rawRecruitCandidate,
-            ...rawCrm,
-            ...mapped
-          };
-
-        setProfileData(previous => {
-          const next = {
-            ...(previous || {})
-          };
-
-          const isBlank = value => {
-            if (value === undefined || value === null) return true;
-            if (typeof value === "string") {
-              return ["", "—", "-", "null", "undefined"].includes(
-                value.trim().toLowerCase()
-              );
-            }
-            return false;
-          };
-
-          Object.entries(canonicalFallbackProfile || {}).forEach(([key, value]) => {
-            if (isBlank(next[key]) && !isBlank(value)) {
-              next[key] = value;
-            }
-          });
-
-          return next;
-        });
-
-        // Canonical source data is sufficient to render the Profile even if the
-        // broad comprehensive endpoint was temporarily unavailable.
-        setError(null);
-
-        setInterviewHiringSources({
-          crm: {
-            ...rawCrm,
-            ...(sourcePayload.crm || {})
-          },
-          recruitCandidate: {
-            ...rawRecruitCandidate,
-            ...(sourcePayload.recruitCandidate || {})
-          },
-          recruitApplication: {
-            ...rawRecruitApplication,
-            ...(sourcePayload.recruitApplication || {})
-          }
-        });
-
-        setCurrentEmployer(
-          mapped.Current_Employer ||
-          ""
-        );
-
-        setScheduledForInterview(
-          mapped.Scheduled_for_Interview ===
-          true
-        );
-
-        setRecruitData({
-          hiredLocation:
-            mapped.Hired_Location ||
-            "",
-          hiredDepartment:
-            mapped.Hired_Department ||
-            "",
-          interviewLocation:
-            mapped.Interview_Location ||
-            "",
-          interviewDate:
-            mapped.Interview_Date ||
-            "",
-          interviewNotes:
-            mapped.Interview_Notes ||
-            mapped.Notes_Interview ||
-            "",
-          rate:
-            mapped.Rate ||
-            "",
-          applicationStatus:
-            mapped.Application_Status ||
-            mapped.Lead_Management_Status ||
-            "",
-          candidateStatus:
-            mapped.Candidate_Status ||
-            ""
-        });
-
-        console.log(
-          "[Profile] Canonical Interview & Hiring data:",
-          {
-            interviewDate:
-              mapped.Interview_Date,
-            interviewLocation:
-              mapped.Interview_Location,
-            hiredLocation:
-              mapped.Hired_Location,
-            hiredDepartment:
-              mapped.Hired_Department,
-            currentEmployer:
-              mapped.Current_Employer,
-            scheduledForInterview:
-              mapped.Scheduled_for_Interview,
-            applicationStatus:
-              mapped.Application_Status,
-            candidateStatus:
-              mapped.Candidate_Status
-          }
-        );
-      } catch (error) {
-        console.error(
-          "[Profile] Canonical Interview & Hiring data error:",
-          error
-        );
+        const data = await response.json().catch(() => ({}));
+        if (response.ok && data.success === true) applyCanonical(data);
+      } catch (err) {
+        if (!cache?.data && !profileData) console.warn("[Profile] Canonical source unavailable:", err?.message || err);
       } finally {
         canonicalRequestInFlight.current = false;
-        setRecruitLoading(false);
+        if (!cancelled) setRecruitLoading(false);
       }
     };
 
+    // Canonical data is allowed to arrive after the initial paint.
     fetchRecruitData();
-
-    const refresh =
-      () =>
-        fetchRecruitData();
-
-    const refreshOnFocus =
-      () =>
-        fetchRecruitData();
-
-    window.addEventListener(
-      "candidate-data-updated",
-      refresh
-    );
-    window.addEventListener(
-      "crm-recruit-updated",
-      refresh
-    );
-    window.addEventListener(
-      "pipeline-updated",
-      refresh
-    );
-
-    window.addEventListener(
-      "focus",
-      refreshOnFocus
-    );
-
-    const refreshTimer =
-      window.setInterval(
-        fetchRecruitData,
-        5 * 60 * 1000
-      );
+    const refresh = () => fetchRecruitData();
+    window.addEventListener("candidate-data-updated", refresh);
+    window.addEventListener("crm-recruit-updated", refresh);
+    window.addEventListener("pipeline-updated", refresh);
+    const timer = window.setInterval(fetchRecruitData, 10 * 60 * 1000);
 
     return () => {
-      window.removeEventListener(
-        "candidate-data-updated",
-        refresh
-      );
-      window.removeEventListener(
-        "crm-recruit-updated",
-        refresh
-      );
-      window.removeEventListener(
-        "pipeline-updated",
-        refresh
-      );
-
-      window.removeEventListener(
-        "focus",
-        refreshOnFocus
-      );
-
-      window.clearInterval(
-        refreshTimer
-      );
+      cancelled = true;
+      window.removeEventListener("candidate-data-updated", refresh);
+      window.removeEventListener("crm-recruit-updated", refresh);
+      window.removeEventListener("pipeline-updated", refresh);
+      window.clearInterval(timer);
     };
   }, [user?.email]);
-
 
   // ─── Deterministic live CRM profile fallback ────────────────────────────────
   // The same endpoint that keeps Pipeline current also returns the tracked raw
@@ -644,7 +494,6 @@ export default function Profile() {
     if (!user?.email) return;
 
     let cancelled = false;
-    let timer = null;
     let inFlight = false;
 
     const loadLiveCrmProfile = async () => {
@@ -656,15 +505,8 @@ export default function Profile() {
       inFlight = true;
       try {
         const response = await fetch(
-          `${API_BASE}/api/pipeline/live-crm-state?_=${Date.now()}`,
-          {
-            cache: "no-store",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Cache-Control": "no-cache",
-              Pragma: "no-cache"
-            }
-          }
+          `${API_BASE}/api/pipeline/live-crm-state`,
+          { cache: "default", headers: { Authorization: `Bearer ${token}` } }
         );
 
         const data = await response.json().catch(() => ({}));
@@ -713,24 +555,24 @@ export default function Profile() {
       }
     };
 
-    const refresh = () => loadLiveCrmProfile();
-    const onVisibility = () => {
-      if (!document.hidden) loadLiveCrmProfile();
+    const start = () => {
+      if ("requestIdleCallback" in window) window.requestIdleCallback(loadLiveCrmProfile, { timeout: 5000 });
+      else window.setTimeout(loadLiveCrmProfile, 3000);
     };
+    start();
+    const refresh = () => start();
+    const onVisibility = () => { if (!document.hidden) start(); };
 
     window.addEventListener("candidate-data-updated", refresh);
     window.addEventListener("crm-recruit-updated", refresh);
     window.addEventListener("pipeline-updated", refresh);
-    window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
       cancelled = true;
-      if (timer) window.clearInterval(timer);
       window.removeEventListener("candidate-data-updated", refresh);
       window.removeEventListener("crm-recruit-updated", refresh);
       window.removeEventListener("pipeline-updated", refresh);
-      window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [user?.email]);
@@ -775,10 +617,13 @@ export default function Profile() {
       }
     };
 
-    loadPreferredLicensureAgentUrl();
+    const start = () => {
+      if ("requestIdleCallback" in window) window.requestIdleCallback(loadPreferredLicensureAgentUrl, { timeout: 5000 });
+      else window.setTimeout(loadPreferredLicensureAgentUrl, 2500);
+    };
+    start();
 
-    const refresh = () =>
-      loadPreferredLicensureAgentUrl();
+    const refresh = () => start();
 
     window.addEventListener(
       "candidate-data-updated",
@@ -835,10 +680,13 @@ export default function Profile() {
       }
     };
 
-    loadExtendedProfile();
+    const start = () => {
+      if ("requestIdleCallback" in window) window.requestIdleCallback(loadExtendedProfile, { timeout: 5000 });
+      else window.setTimeout(loadExtendedProfile, 2500);
+    };
+    start();
 
-    const refresh = () =>
-      loadExtendedProfile();
+    const refresh = () => start();
 
     window.addEventListener(
       "candidate-data-updated",
@@ -848,7 +696,7 @@ export default function Profile() {
     const interval =
       window.setInterval(
         loadExtendedProfile,
-        5 * 60 * 1000
+        10 * 60 * 1000
       );
 
     return () => {
@@ -876,13 +724,8 @@ export default function Profile() {
       try {
         const response =
           await fetch(
-            `${API_BASE}/api/profile/source-data?refresh=true&_=${Date.now()}`,
-            {
-              cache:"no-store",
-              headers:{
-                Authorization:`Bearer ${token}`
-              }
-            }
+            `${API_BASE}/api/profile/source-data?refresh=false`,
+            { cache:"default", headers:{ Authorization:`Bearer ${token}` } }
           );
 
         const data =
@@ -945,7 +788,11 @@ export default function Profile() {
       }
     };
 
-    loadEligibility();
+    const start = () => {
+      if ("requestIdleCallback" in window) window.requestIdleCallback(loadEligibility, { timeout: 6000 });
+      else window.setTimeout(loadEligibility, 3500);
+    };
+    start();
   }, [user?.email]);
 
   const saveTravelPlanning = async () => {
@@ -1041,7 +888,7 @@ export default function Profile() {
   );
 
   // Show loading state
-  if (loading || recruitLoading) {
+  if (loading) {
     return (
       <div className="flex justify-center items-center min-h-[400px]">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

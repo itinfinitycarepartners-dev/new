@@ -47,16 +47,10 @@ const FORMS = [
     icon:
       Home
   },
-  {
-    key: "rl",
-    title: "R&L Form",
-    description:
-      "Complete your Relocation & Logistics form and submit it to your CRM Deal.",
-    icon: ClipboardList
-  },
+
   {
     key: "travelHousingPolicies",
-    title: "2025 R&L Travel and Housing Policies",
+    title: "Travel and Housing Policies",
     description:
       "Read this required policy document and acknowledge it below.",
     icon: FileText,
