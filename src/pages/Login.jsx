@@ -168,7 +168,9 @@ export default function Login() {
           credentials: isAdmin ? "include" : "same-origin",
           body: JSON.stringify(
             isAdmin
-              ? { username: "Admin", password }
+              // Preserve the entered casing for legacy Firebase records. The
+              // backend normalizes credentials configured in Azure App Settings.
+              ? { username: email.trim(), password }
               : { email: email.trim(), password }
           ),
         }
