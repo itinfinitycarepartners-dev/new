@@ -4010,6 +4010,7 @@ const LoginApprovalsPanel = () => {
 const AdminPanel = () => {
   const [tab, setTab] = useState('overview');
   const [users, setUsers] = useState([]);
+  const [usersLoaded, setUsersLoaded] = useState(false);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -4036,7 +4037,29 @@ const AdminPanel = () => {
     window.location.href = '/#/login'; 
   }, []);
 
-  const fetchUsers = useCallback(async (isRetry = false) => {
+  const fetchOverview = useCallback(async () => {
+    try {
+      const { userToken, adminToken } = getTokens();
+      const response = await fetch(`${API_BASE}/api/admin/overview`, {
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+          ...(userToken ? { Authorization: `Bearer ${userToken}` } : {}),
+          ...(adminToken ? { 'x-admin-token': adminToken } : {})
+        }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) throw new Error(data.message || 'Failed to load the admin overview.');
+      setError(null);
+      setCrossOriginBlock(false);
+      setStats({ total: data.totalUsers || 0, active: data.activeUsers || 0, expired: data.expiredUsers || 0 });
+      setLogs(data.logs || []);
+    } catch (err) {
+      setError(err.message || 'Failed to connect to the backend server.');
+    }
+  }, []);
+
+  const fetchUsers = useCallback(async () => {
     setLoading(true);
     setError(null);
     setCrossOriginBlock(false);
@@ -4051,44 +4074,23 @@ const AdminPanel = () => {
         ...(adminToken ? { 'x-admin-token': adminToken } : {})
       };
 
-      let uRes = await fetch(`${API_BASE}/api/admin/users`, { 
+      const usersRequest = fetch(`${API_BASE}/api/admin/users`, { 
         method: 'GET',
         credentials: 'include', 
         headers 
       });
 
-      if (!uRes.ok && (uRes.status === 401 || uRes.status === 403) && !isRetry) {
-        try {
-          await fetch(`${API_BASE}/admin/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ username: 'admin', password: 'admin' }),
-            credentials: 'include'
-          });
-        } catch (autoLoginErr) {}
-        
-        return fetchUsers(true);
-      }
+      // History is needed only after the full Users data is requested; start it
+      // concurrently instead of making it block behind the large users query.
+      const historyRequest = fetch(`${API_BASE}/api/admin/login-history?limit=200`, {
+        method: 'GET', credentials: 'include', headers
+      }).catch(() => ({ ok: false }));
+
+      const [uRes, hRes] = await Promise.all([usersRequest, historyRequest]);
 
       if (!uRes.ok) {
-        if (isRetry) setCrossOriginBlock(true);
-        throw new Error(`Connection blocked. The browser is dropping the secure admin cookie.`);
-      }
-
-      const hRes = await fetch(`${API_BASE}/api/admin/login-history?limit=200`, { 
-        method: 'GET',
-        credentials: 'include', 
-        headers 
-      }).catch(() => ({ ok: false }));
-
-      const healthRes = await fetch(`${API_BASE}/api/zoho/status`, { 
-        method: 'GET',
-        headers: { 'Accept': 'application/json' } 
-      }).catch(() => ({ ok: false }));
-
-      if (healthRes.ok) {
-        const healthData = await healthRes.json().catch(() => ({}));
-        setBackendHealth({ zoho: healthData?.connected === true, db: true }); 
+        if (uRes.status === 401 || uRes.status === 403) setCrossOriginBlock(true);
+        throw new Error('Your admin session has expired. Please sign in again.');
       }
 
       const uData = await uRes.json();
@@ -4096,6 +4098,7 @@ const AdminPanel = () => {
 
       if (uData.success) {
         setUsers(uData.users || []);
+        setUsersLoaded(true);
         setStats({ total: uData.totalUsers || 0, active: uData.activeUsers || 0, expired: uData.expiredUsers || 0 });
       }
       
@@ -4111,12 +4114,15 @@ const AdminPanel = () => {
   }, []);
 
   useEffect(() => {
-    fetchUsers(false);
+    fetchOverview();
     const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') fetchUsers(false);
-    }, 5000);
-    const onAdminDataUpdated = () => fetchUsers(false);
-    const onFocus = () => fetchUsers(false);
+      if (document.visibilityState === 'visible') fetchOverview();
+    }, 60000);
+    const onAdminDataUpdated = () => {
+      fetchOverview();
+      if (usersLoaded) fetchUsers();
+    };
+    const onFocus = () => fetchOverview();
     window.addEventListener('admin-data-updated', onAdminDataUpdated);
     window.addEventListener('focus', onFocus);
     return () => {
@@ -4124,7 +4130,11 @@ const AdminPanel = () => {
       window.removeEventListener('admin-data-updated', onAdminDataUpdated);
       window.removeEventListener('focus', onFocus);
     };
-  }, [fetchUsers]);
+  }, [fetchOverview, fetchUsers, usersLoaded]);
+
+  useEffect(() => {
+    if (!usersLoaded && ['users', 'analytics', 'messages'].includes(tab)) fetchUsers();
+  }, [tab, usersLoaded, fetchUsers]);
 
   const handleBroadcast = async (message, target) => {
     const { adminToken, userToken } = getTokens();
@@ -4243,7 +4253,7 @@ const AdminPanel = () => {
     refreshAdminQueues();
     const interval = setInterval(() => {
       if (document.visibilityState === "visible") refreshAdminQueues();
-    }, 3000);
+    }, 60000);
 
     const onAdminDataUpdated = () => refreshAdminQueues();
     const onVisibilityChange = () => {
@@ -4338,7 +4348,7 @@ const AdminPanel = () => {
           <div className="flex items-center gap-5 text-xs text-gray-500 font-medium tracking-wide uppercase">
             <span className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full shadow-sm ${backendHealth.zoho ? 'bg-green-500' : 'bg-red-500'}`} /> Zoho API</span>
             <span className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full shadow-sm ${backendHealth.db ? 'bg-green-500' : 'bg-red-500'}`} /> Database</span>
-            <button onClick={() => fetchUsers(false)} disabled={loading} className="p-2 ml-2 rounded-lg hover:bg-gray-100 transition border border-transparent hover:border-gray-200 text-purple-700 shadow-sm">
+            <button onClick={() => { fetchOverview(); if (usersLoaded) fetchUsers(); }} disabled={loading} className="p-2 ml-2 rounded-lg hover:bg-gray-100 transition border border-transparent hover:border-gray-200 text-purple-700 shadow-sm">
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
           </div>
