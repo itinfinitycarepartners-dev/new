@@ -87,6 +87,8 @@ export default function Forms() {
     ? `icp_policy_acknowledgements:${String(user.email).trim().toLowerCase()}`
     : null;
   const [policyAcknowledgements, setPolicyAcknowledgements] = useState({});
+  const [policySignatures, setPolicySignatures] = useState({});
+  const [signatureInputs, setSignatureInputs] = useState({});
   const [openedPolicyDocuments, setOpenedPolicyDocuments] = useState({});
   const [loadingAcknowledgements, setLoadingAcknowledgements] = useState(true);
   const [savingAcknowledgement, setSavingAcknowledgement] = useState(null);
@@ -106,6 +108,7 @@ export default function Forms() {
         const data = await response.json();
         if (!response.ok || data.success !== true) throw new Error(data.error || "Unable to load acknowledgements");
         setPolicyAcknowledgements(data.acknowledgements || {});
+        setPolicySignatures(data.signatures || {});
       } catch (error) {
         toast.error(error.message || "Unable to load policy acknowledgements.");
       } finally {
@@ -116,9 +119,12 @@ export default function Forms() {
     loadAcknowledgements();
   }, [policyAcknowledgementKey]);
 
-  const setPolicyAcknowledgement = async (key, acknowledged) => {
+  const signPolicy = async (key) => {
     const token = tokenStorage.get();
     if (!token) return;
+    const signature = String(signatureInputs[key] || "").trim();
+    if (!openedPolicyDocuments[key]) return toast.error("Open and review the PDF before signing.");
+    if (!signature) return toast.error("Type your full legal name to sign.");
 
     setSavingAcknowledgement(key);
     try {
@@ -128,13 +134,15 @@ export default function Forms() {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ documentKey: key, acknowledged })
+        body: JSON.stringify({ documentKey: key, signature, consent: true })
       });
       const data = await response.json();
       if (!response.ok || data.success !== true) throw new Error(data.error || "Unable to save acknowledgement");
 
-      setPolicyAcknowledgements(previous => ({ ...previous, [key]: acknowledged }));
-      toast.success(acknowledged ? "Acknowledgement recorded." : "Acknowledgement removed.");
+      setPolicyAcknowledgements(previous => ({ ...previous, [key]: true }));
+      setPolicySignatures(previous => ({ ...previous, [key]: data.signature }));
+      setSignatureInputs(previous => ({ ...previous, [key]: "" }));
+      toast.success("Document electronically signed.");
     } catch (error) {
       toast.error(error.message || "Unable to save policy acknowledgement.");
     } finally {
@@ -254,19 +262,15 @@ export default function Forms() {
                   <div className="mt-5 text-sm font-semibold text-primary">Open PDF</div>
                 </a>
 
-                <label className="mt-5 flex items-start gap-3 border-t pt-4 text-sm font-medium">
-                  <input
-                    type="checkbox"
-                    checked={policyAcknowledgements[item.key] === true}
-                    onChange={event => setPolicyAcknowledgement(item.key, event.target.checked)}
-                    className="mt-0.5 h-4 w-4"
-                    disabled={loadingAcknowledgements || savingAcknowledgement === item.key || !openedPolicyDocuments[item.key]}
-                    required
-                  />
-                  {openedPolicyDocuments[item.key]
-                    ? "I have read and acknowledge this document."
-                    : "Open the PDF before acknowledging this document."}
-                </label>
+                <div className="mt-5 border-t pt-4">
+                  {policyAcknowledgements[item.key] ? (
+                    <p className="text-sm font-semibold text-emerald-700">Electronically signed by {policySignatures[item.key]?.signerName || "you"} on {policySignatures[item.key]?.signedAt ? new Date(policySignatures[item.key].signedAt).toLocaleDateString() : ""}.</p>
+                  ) : <>
+                    <p className="text-sm font-medium">By typing your full legal name below, you agree to use an electronic signature and confirm that you have read and agree to this document.</p>
+                    <input value={signatureInputs[item.key] || ""} onChange={event => setSignatureInputs(previous => ({ ...previous, [item.key]: event.target.value }))} disabled={loadingAcknowledgements || savingAcknowledgement === item.key || !openedPolicyDocuments[item.key]} placeholder="Type your full legal name" className="mt-3 w-full rounded-lg border px-3 py-2" />
+                    <button type="button" onClick={() => signPolicy(item.key)} disabled={loadingAcknowledgements || savingAcknowledgement === item.key || !openedPolicyDocuments[item.key]} className="mt-3 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">{savingAcknowledgement === item.key ? "Signing…" : "Sign electronically"}</button>
+                  </>}
+                </div>
               </div>
             );
           }

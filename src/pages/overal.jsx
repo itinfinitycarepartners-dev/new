@@ -4063,6 +4063,28 @@ const AdminPanel = () => {
     }
   }, []);
 
+  const downloadPolicySignatureReport = useCallback(async () => {
+    try {
+      const { adminToken, userToken } = getTokens();
+      const response = await fetch(`${API_BASE}/api/admin/policy-signatures?format=csv`, {
+        credentials: 'include',
+        headers: {
+          ...(adminToken ? { Authorization: `AdminBearer ${adminToken}`, 'x-admin-token': adminToken } : {}),
+          ...(!adminToken && userToken ? { Authorization: `Bearer ${userToken}` } : {})
+        }
+      });
+      if (!response.ok) throw new Error('Unable to generate the signature report.');
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'policy-signatures.csv';
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setError(error.message || 'Unable to generate the signature report.');
+    }
+  }, []);
+
   const fetchUsers = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -4352,6 +4374,7 @@ const AdminPanel = () => {
           <div className="flex items-center gap-5 text-xs text-gray-500 font-medium tracking-wide uppercase">
             <span className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full shadow-sm ${backendHealth.zoho ? 'bg-green-500' : 'bg-red-500'}`} /> Zoho API</span>
             <span className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full shadow-sm ${backendHealth.db ? 'bg-green-500' : 'bg-red-500'}`} /> Database</span>
+            <button onClick={downloadPolicySignatureReport} className="rounded-md border px-2 py-1 text-[10px] font-bold text-purple-700 hover:bg-purple-50">Signature report</button>
             <button onClick={() => { fetchOverview(); if (usersLoaded) fetchUsers(); }} disabled={loading} className="p-2 ml-2 rounded-lg hover:bg-gray-100 transition border border-transparent hover:border-gray-200 text-purple-700 shadow-sm">
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
