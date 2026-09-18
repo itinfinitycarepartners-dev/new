@@ -1520,8 +1520,14 @@ export default function Dashboard() {
       30 * 60 * 1000,
     refetchInterval:
       false,
-    initialData: () => readDashboardBrowserCache(user?.email)?.data,
-    initialDataUpdatedAt: () => readDashboardBrowserCache(user?.email)?.savedAt || undefined,
+    initialData: () => {
+      const cached = readDashboardBrowserCache(user?.email);
+      return cached?.data;
+    },
+    initialDataUpdatedAt: () => {
+      const cached = readDashboardBrowserCache(user?.email);
+      return cached?.savedAt || undefined;
+    },
     refetchIntervalInBackground:
       false,
     refetchOnWindowFocus:
@@ -1570,68 +1576,10 @@ export default function Dashboard() {
   });
 
 
-  const {
-    data:
-      dashboardUpdatesPayload,
-    refetch:
-      refetchDashboardUpdates
-  } = useQuery({
-    queryKey: [
-      "dashboard-updates",
-      user?.email
-    ],
-    enabled:
-      Boolean(
-        user?.email
-      ),
-    staleTime:
-      60 * 1000,
-    gcTime:
-      10 * 60 * 1000,
-    refetchInterval:
-      90 * 1000,
-    refetchOnWindowFocus:
-      false,
-    queryFn:
-      async () => {
-        const token =
-          tokenStorage.get();
+  // The summary endpoint already includes updates and unread counts.
+  // Avoid a second /api/updates request on initial dashboard load.
+  const dashboardUpdatesPayload = summary;
 
-        if (!token) {
-          return {
-            updates:
-              []
-          };
-        }
-
-        const response =
-          await fetch(
-            `${API_BASE}/api/updates?limit=20&_=${Date.now()}`,
-            {
-              headers: {
-                Authorization:
-                  `Bearer ${token}`
-              }
-            }
-          );
-
-        const payload =
-          await response
-            .json()
-            .catch(
-              () => ({})
-            );
-
-        if (!response.ok) {
-          throw new Error(
-            payload.error ||
-            "Unable to load updates."
-          );
-        }
-
-        return payload;
-      }
-  });
 
   const profile =
     summary?.candidate ||
@@ -2023,25 +1971,9 @@ export default function Dashboard() {
       ? summary.documents
       : [];
 
-  const DASHBOARD_UPDATE_TYPES =
-    new Set([
-      "urgent",
-      "rfe",
-      "expiry",
-      "expired",
-      "document-required",
-      "pipeline",
-      "stage",
-      "access"
-    ]);
-
   const allDashboardUpdates =
-    Array.isArray(
-      dashboardUpdatesPayload
-        ?.updates
-    )
-      ? dashboardUpdatesPayload
-          .updates
+    Array.isArray(summary?.updates)
+      ? summary.updates
       : [];
 
   const updates =
@@ -2253,11 +2185,16 @@ export default function Dashboard() {
   ]);
 
   useEffect(() => {
-    const refresh =
-      () => {
+    let refreshTimer = null;
+
+    const refresh = () => {
+      // Coalesce duplicate realtime broadcasts into one network request.
+      if (refreshTimer !== null) return;
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = null;
         refetch();
-        refetchDashboardUpdates();
-      };
+      }, 75);
+    };
 
     websocket.on("pipeline-updated", refresh);
     websocket.on("candidate-data-updated", refresh);
@@ -2289,6 +2226,11 @@ export default function Dashboard() {
     );
 
     return () => {
+      if (refreshTimer !== null) {
+        window.clearTimeout(refreshTimer);
+        refreshTimer = null;
+      }
+
       websocket.off("pipeline-updated", refresh);
       websocket.off("candidate-data-updated", refresh);
       websocket.off("crm-recruit-updated", refresh);
@@ -2319,8 +2261,7 @@ export default function Dashboard() {
       );
     };
   }, [
-    refetch,
-    refetchDashboardUpdates
+    refetch
   ]);
 
   const greeting =

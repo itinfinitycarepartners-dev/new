@@ -12,7 +12,9 @@ import {
   Info,
   ClipboardList,
   CircleHelp,
-  FileText
+  FileText,
+  CheckCircle2,
+  X
 } from "lucide-react";
 import {
   useAuth
@@ -21,8 +23,7 @@ import { tokenStorage } from "@/api/icpClient";
 import { toast } from "sonner";
 import {
   DeploymentDetails,
-  HousingDetailsForm,
-  RLChecklistView
+  HousingDetailsForm
 } from "./Pipeline";
 
 const API_BASE =
@@ -47,6 +48,7 @@ const FORMS = [
     icon:
       Home
   },
+  
 
   {
     key: "travelHousingPolicies",
@@ -92,6 +94,15 @@ export default function Forms() {
   const [openedPolicyDocuments, setOpenedPolicyDocuments] = useState({});
   const [loadingAcknowledgements, setLoadingAcknowledgements] = useState(true);
   const [savingAcknowledgement, setSavingAcknowledgement] = useState(null);
+  const [submissionSuccess, setSubmissionSuccess] = useState(null);
+
+  const showFormSubmissionSuccess = (formTitle) => {
+    setActiveForm(null);
+    setSubmissionSuccess({
+      title: formTitle,
+      message: `${formTitle} was submitted successfully.`,
+    });
+  };
 
   useEffect(() => {
     const loadAcknowledgements = async () => {
@@ -136,8 +147,20 @@ export default function Forms() {
         },
         body: JSON.stringify({ documentKey: key, signature, consent: true })
       });
-      const data = await response.json();
-      if (!response.ok || data.success !== true) throw new Error(data.error || "Unable to save acknowledgement");
+      const data = await response.json().catch(() => ({}));
+      if (
+        !response.ok ||
+        data.success !== true ||
+        data.acknowledged !== true ||
+        data.attachment?.success !== true ||
+        data.attachment?.verified !== true ||
+        !data.attachment?.attachment_id
+      ) {
+        throw new Error(
+          data.error ||
+          "The signed document was not verified in the candidate's CRM Deal attachments."
+        );
+      }
 
       setPolicyAcknowledgements(previous => ({ ...previous, [key]: true }));
       setPolicySignatures(previous => ({ ...previous, [key]: data.signature }));
@@ -185,11 +208,7 @@ export default function Forms() {
                 setLocalStages
               }
               behavioralOnly
-              onClose={() =>
-                setActiveForm(
-                  null
-                )
-              }
+              onClose={() => showFormSubmissionSuccess("Behavioral Assessment")}
             />
           )}
 
@@ -198,25 +217,62 @@ export default function Forms() {
             <HousingDetailsForm
               user={user}
               setStages={setLocalStages}
-              onClose={() => setActiveForm(null)}
+              onClose={() => showFormSubmissionSuccess("Housing & Transportation Form")}
             />
           )}
-
-          {activeForm ===
-            "rl" && (
-            <RLChecklistView
-              user={user}
-              setStages={setLocalStages}
-              onClose={() => setActiveForm(null)}
-            />
-          )}
-        </div>
+</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen space-y-6 bg-[#F3F4F6] p-4 lg:p-6">
+    <>
+      {submissionSuccess && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="submission-success-title"
+        >
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100">
+                  <CheckCircle2 className="h-7 w-7 text-emerald-600" />
+                </div>
+                <div>
+                  <h2 id="submission-success-title" className="text-xl font-bold text-gray-900">
+                    Submission successful
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-600">
+                    {submissionSuccess.message}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSubmissionSuccess(null)}
+                className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                aria-label="Close success message"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSubmissionSuccess(null)}
+                className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="min-h-screen space-y-6 bg-[#F3F4F6] p-4 lg:p-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">
           Forms
@@ -327,5 +383,6 @@ export default function Forms() {
         </Link>
       </div>
     </div>
+    </>
   );
 }

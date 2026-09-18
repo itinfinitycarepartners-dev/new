@@ -2110,7 +2110,7 @@ const isICPUSRNItemUnlocked = (item, index, data = {}) => {
     return true;
   }
 
-  
+
   const previousItem = ICP_USRN_SUBPROCESS_CONFIG[index - 1];
 
   if (
@@ -8334,13 +8334,22 @@ export const DeploymentDetails = ({ onClose, user, setStages, behavioralOnly = f
         body: formData
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Upload failed");
+      const data = await response.json().catch(() => ({}));
+
+      if (
+        !response.ok ||
+        data.success !== true ||
+        data.crm?.success !== true ||
+        data.crm?.verified !== true ||
+        !data.crm?.attachment_id
+      ) {
+        throw new Error(
+          data.error ||
+          data.crm?.error ||
+          "The document was not verified in the candidate's CRM Deal attachments."
+        );
       }
 
-      const data = await response.json();
-      
       setRequirements(prev => ({
         ...prev,
         [key]: {
@@ -8417,8 +8426,18 @@ export const DeploymentDetails = ({ onClose, user, setStages, behavioralOnly = f
       });
 
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.success !== true) {
-        throw new Error(data.error || data.message || "Failed to save deployment requirements");
+      if (
+        !response.ok ||
+        data.success !== true ||
+        data.crm?.success !== true ||
+        data.crm?.verified !== true ||
+        !data.crm?.attachment_id
+      ) {
+        throw new Error(
+          data.error ||
+          data.crm?.error ||
+          "The deployment requirements PDF was not verified in the candidate's CRM Deal attachments."
+        );
       }
 
       if (setStages && data.stage) {
@@ -8616,18 +8635,7 @@ export const DeploymentDetails = ({ onClose, user, setStages, behavioralOnly = f
 
   return (
     <div className="space-y-4 max-h-[calc(90vh-80px)] overflow-y-auto pr-2">
-      <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-        <div className="flex items-center gap-2 mb-3">
-          <Briefcase className="h-5 w-5 text-blue-600" />
-          <h3 className="font-semibold text-blue-800">Submit Updated Work Status, Civil Docs & Licensing Credentials</h3>
-        </div>
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3">
-          <p className="text-xs text-amber-700">
-            ⚠️ Please confirm and upload the following required documents. 
-            If your previously submitted forms/documents are older than 6 months, you will be required to resubmit updated versions.
-          </p>
-        </div>
-      </div>
+      
 
       <div className="bg-white rounded-lg p-3 border border-gray-200">
         <div className="flex justify-between text-xs text-muted-foreground mb-1">
@@ -11210,9 +11218,9 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
               on my behalf, prior to my arrival in the United States, for deployment expenses including, but not limited to, License certification, dependent(s)’ visa fees, housing, and relocation costs and any other advanced expenses as noted.
             </p>
 
-            
 
-            
+
+
           </div>
 
           <label className="flex items-start gap-3 text-sm text-purple-950">
