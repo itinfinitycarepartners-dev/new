@@ -874,7 +874,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
             credentials: 'include',
             cache: 'no-store'
           }),
-          fetch(`${API_BASE}/api/admin/candidate/${email}/pipeline`, {
+          fetch(`${API_BASE}/api/pipeline/get?email=${email}&_=${Date.now()}`, {
             headers,
             credentials: 'include',
             cache: 'no-store'
@@ -883,7 +883,35 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
         if (sharedPipelineRes.status === 'fulfilled' && sharedPipelineRes.value.ok) {
           const sharedPayload = await sharedPipelineRes.value.json();
-          setPipeline(Array.isArray(sharedPayload?.stages) ? sharedPayload.stages : []);
+          const exactStages = Array.isArray(sharedPayload?.stages)
+            ? sharedPayload.stages.map(stage => ({ ...stage, _shared_snapshot: true }))
+            : [];
+          setPipeline(exactStages);
+          const visibleStages = exactStages.filter(stage =>
+            stage?.is_gate !== true &&
+            stage?.non_counted_section !== true &&
+            stage?.hidden_from_main_flow !== true
+          );
+          const completedStages = visibleStages.filter(stage =>
+            String(stage?.status || '').trim().toLowerCase() === 'completed' ||
+            stage?.completed === true ||
+            stage?.is_completed === true ||
+            Boolean(stage?.completed_date || stage?.completed_at)
+          ).length;
+          const authoritativeCurrent = sharedPayload?.authoritativeCurrentStage || null;
+          const authoritativeNext = sharedPayload?.authoritativeNextStage || null;
+          setAdminDetails(previous => ({
+            ...(previous || {}),
+            pipelineProgress: {
+              completed: completedStages,
+              total: visibleStages.length,
+              percentage: visibleStages.length ? Math.round((completedStages / visibleStages.length) * 100) : 0,
+              currentStage: authoritativeCurrent?.stage_name || null,
+              nextStage: authoritativeNext?.stage_name || null
+            },
+            pipelineCurrentStage: authoritativeCurrent,
+            pipelineNextStage: authoritativeNext
+          }));
         }
 
         let allDocs = [];
@@ -896,18 +924,15 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
             await documentsRes.value.json();
 
           if (Array.isArray(data.documents)) {
-            allDocs = data.documents.filter(
-              document =>
-                document.source !==
-                  "recruit_field" &&
-                ![
-                  "Proof_of_NCLEX",
-                  "Birth_Certificate"
-                ].includes(
-                  document
-                    .recruit_field_api_name
-                )
-            );
+            allDocs = data.documents.filter(document => {
+              const source = String(document?.source || '').toLowerCase();
+              return source !== 'recruit_field' || Boolean(
+                document?.attachment_id ||
+                document?.recruit_attachment_id ||
+                document?.crm_attachment_id ||
+                document?.document_id
+              );
+            });
           }
         } else {
           const status =
@@ -1022,6 +1047,14 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       if (isCrmDocument) {
         const dealId = doc?.deal_id || doc?.crm_record_id || doc?.crm_deal_id || "";
         if (dealId) query.set("crmRecordId", String(dealId));
+      } else if (source === "custommodule1" || doc?.custom_module1_record_id || doc?.recruit_custom_module1_record_id) {
+        const customModule1Id =
+          doc?.custom_module1_record_id ||
+          doc?.recruit_custom_module1_record_id ||
+          doc?.candidate_id ||
+          doc?.recruit_record_id ||
+          "";
+        if (customModule1Id) query.set("customModule1RecordId", String(customModule1Id));
       } else if (!isPendingDocument) {
         const candidateId = doc?.candidate_id || doc?.recruit_record_id || doc?.recruit_candidate_id || "";
         if (candidateId) query.set("recruitRecordId", String(candidateId));
@@ -1232,11 +1265,12 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
   if (!user) return null;
 
-  const adminVisiblePipeline =
-    buildAdminCandidatePipelineFlow(
-      pipeline,
-      profile
-    );
+  // The candidate-visible /api/pipeline/get response is authoritative.
+  // Never rebuild the stage list from Admin-specific configuration because that
+  // can change the denominator, hidden branches, or current-stage selection.
+  const adminVisiblePipeline = Array.isArray(pipeline)
+    ? pipeline.filter(stage => stage?.is_deleted !== true)
+    : [];
 
   const tabs = [
     { id: 'profile', label: 'Candidate Profile' },
@@ -1252,7 +1286,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     adminVisiblePipeline.filter(
       stage =>
         stage.is_gate !== true &&
-        stage.non_counted_section !== true
+        stage.non_counted_section !== true &&
+        stage.hidden_from_main_flow !== true
     );
 
   const completedCount =
@@ -3143,92 +3178,62 @@ const AdminReceiptsPanel = () => {
   }, [load]);
 
   const viewReceipt = async receipt => {
-    const attachmentId =
-      receipt.crm_attachment_id ||
-      receipt.recruit_attachment_id ||
-      receipt.attachment_id ||
-      null;
-
-    if (!attachmentId) {
-      alert("This receipt does not have a downloadable attachment ID.");
+    const receiptId = String(receipt?.id || receipt?._id || '').trim();
+    if (!receiptId) {
+      alert("This receipt is missing its record ID.");
       return;
     }
 
     try {
-      const { adminToken } =
-        getTokens();
+      const { adminToken } = getTokens();
+      if (!adminToken) throw new Error("Admin session is unavailable. Please sign in again.");
 
-      const source =
-        receipt.crm_attachment_id
-          ? "crm"
-          : "recruit";
-
-      const response =
-        await fetch(
-          `${API_BASE}/api/admin/documents/download/${encodeURIComponent(
-            attachmentId
-          )}?email=${encodeURIComponent(
-            receipt.candidate_email
-          )}&source=${encodeURIComponent(
-            source
-          )}&crmRecordId=${encodeURIComponent(
-            receipt.crm_deal_id ||
-            ""
-          )}&recruitRecordId=${encodeURIComponent(
-            receipt.recruit_candidate_id ||
-            ""
-          )}`,
-          {
-            headers: {
-              Authorization:
-                `AdminBearer ${adminToken}`
-            },
-            credentials: "include"
-          }
-        );
-
-      if (!response.ok) {
-        throw new Error(
-          `Server returned ${response.status}`
-        );
-      }
-
-      const blob =
-        await response.blob();
-
-      const url =
-        URL.createObjectURL(
-          blob
-        );
-
-      setReceiptPreview(
-        previous => {
-          if (
-            previous?.url
-          ) {
-            URL.revokeObjectURL(
-              previous.url
-            );
-          }
-
-          return {
-            url,
-            type:
-              blob.type ||
-              receipt.file_type ||
-              "",
-            name:
-              receipt.original_name ||
-              receipt.document_name ||
-              "Receipt"
-          };
+      const response = await fetch(
+        `${API_BASE}/api/admin/receipts/${encodeURIComponent(receiptId)}/document?download=false`,
+        {
+          headers: { Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken },
+          credentials: "include",
+          cache: "no-store"
         }
       );
+
+      if (!response.ok) {
+        let detail = '';
+        try { const payload = await response.clone().json(); detail = payload?.error ? `: ${payload.error}` : ''; } catch (_) {}
+        throw new Error(`Server returned ${response.status}${detail}`);
+      }
+
+      const blob = await response.blob();
+      if (!blob || blob.size === 0) throw new Error("The receipt server returned an empty file.");
+
+      const url = URL.createObjectURL(blob);
+      setReceiptPreview(previous => {
+        if (previous?.url) URL.revokeObjectURL(previous.url);
+        return { url, type: blob.type || receipt.file_type || '', name: receipt.original_name || receipt.document_name || 'Receipt' };
+      });
+
+      if (!receipt.viewed_at) {
+        const viewedResponse = await fetch(
+          `${API_BASE}/api/admin/receipts/${encodeURIComponent(receiptId)}/view`,
+          {
+            method: 'POST',
+            headers: { Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken, "Content-Type": "application/json" },
+            credentials: 'include'
+          }
+        );
+        if (!viewedResponse.ok) {
+          console.warn('[Admin Receipts] Receipt opened but could not be marked viewed.');
+        } else {
+          setReceipts(previous => previous.map(item =>
+            String(item.id || item._id) === receiptId
+              ? { ...item, viewed: true, viewed_at: new Date().toISOString() }
+              : item
+          ));
+          window.dispatchEvent(new CustomEvent('receipt-viewed', { detail: { receiptId } }));
+        }
+      }
     } catch (error) {
-      alert(
-        error.message ||
-        "Unable to open receipt."
-      );
+      alert(error.message || "Unable to open receipt.");
     }
   };
 
@@ -4266,9 +4271,11 @@ const AdminPanel = () => {
 
         if (receiptsRes.ok && receiptsData.success === true) {
           setReceiptCount(
-            Array.isArray(receiptsData.receipts)
-              ? receiptsData.receipts.length
-              : 0
+            Number.isFinite(Number(receiptsData.unreadCount))
+              ? Number(receiptsData.unreadCount)
+              : (Array.isArray(receiptsData.receipts)
+                ? receiptsData.receipts.filter(receipt => !receipt?.viewed_at).length
+                : 0)
           );
         }
         if (loginApprovalsRes.ok && loginApprovalsData.success === true) setLoginApprovalCount((loginApprovalsData.approvals || []).length);
@@ -4282,17 +4289,23 @@ const AdminPanel = () => {
     }, 60000);
 
     const onAdminDataUpdated = () => refreshAdminQueues();
+    const onReceiptViewed = () => {
+      setReceiptCount(previous => Math.max(0, Number(previous || 0) - 1));
+      refreshAdminQueues();
+    };
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") refreshAdminQueues();
     };
 
     window.addEventListener("admin-data-updated", onAdminDataUpdated);
+    window.addEventListener("receipt-viewed", onReceiptViewed);
     document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
       active = false;
       clearInterval(interval);
       window.removeEventListener("admin-data-updated", onAdminDataUpdated);
+      window.removeEventListener("receipt-viewed", onReceiptViewed);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
