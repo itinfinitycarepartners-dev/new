@@ -166,7 +166,7 @@ export default function PipelineProgress() {
 
       try {
         const response = await fetch(
-          `${API_BASE}/api/candidate/photo`,
+          `${API_BASE}/api/candidate/photo?width=64`,
           {
             headers: {
               Authorization: `Bearer ${token}`,

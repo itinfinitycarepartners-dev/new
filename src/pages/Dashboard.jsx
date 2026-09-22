@@ -1411,13 +1411,9 @@ export default function Dashboard() {
   const { user } =
     useAuth();
 
-  // Candidate photo is sourced by the backend from Zoho CRM Deals
-  // Candidate_Photo first, then Zoho Recruit Candidates/{id}/photo.
-  // The browser never sees Zoho credentials.
-  const [
-    candidatePhotoUrl,
-    setCandidatePhotoUrl
-  ] = useState(null);
+  // The progress marker is only 40px wide. Do not download a multi-megabyte
+  // CRM photo for it; the lightweight fallback marker below is intentional.
+  const candidatePhotoUrl = null;
 
   const [
     unreadMessageCount,
@@ -1428,77 +1424,6 @@ export default function Dashboard() {
     recentMessages,
     setRecentMessages
   ] = useState([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    let objectUrl = null;
-
-    const loadCandidatePhoto = async () => {
-      const token = tokenStorage.get();
-
-      if (!token) {
-        if (!cancelled) setCandidatePhotoUrl(null);
-        return;
-      }
-
-      try {
-        const response = await fetch(
-          `${API_BASE}/api/candidate/photo`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`
-            }
-          }
-        );
-
-        if (!response.ok) {
-          if (!cancelled) setCandidatePhotoUrl(null);
-          return;
-        }
-
-        const blob = await response.blob();
-
-        if (!blob || blob.size === 0) {
-          if (!cancelled) setCandidatePhotoUrl(null);
-          return;
-        }
-
-        objectUrl = URL.createObjectURL(blob);
-
-        if (!cancelled) {
-          setCandidatePhotoUrl(objectUrl);
-        }
-      } catch (error) {
-        console.warn(
-          "[Dashboard] Candidate photo unavailable:",
-          error?.message || error
-        );
-
-        if (!cancelled) {
-          setCandidatePhotoUrl(null);
-        }
-      }
-    };
-
-    // The photo is secondary content. Start it after the first paint so it can
-    // never compete with the dashboard summary for the initial connection.
-    let photoIdleId;
-    let photoTimerId;
-    if (typeof window.requestIdleCallback === "function") {
-      photoIdleId = window.requestIdleCallback(loadCandidatePhoto, { timeout: 1200 });
-    } else {
-      photoTimerId = window.setTimeout(loadCandidatePhoto, 150);
-    }
-
-    return () => {
-      if (photoIdleId !== undefined && typeof window.cancelIdleCallback === "function") {
-        window.cancelIdleCallback(photoIdleId);
-      }
-      if (photoTimerId !== undefined) window.clearTimeout(photoTimerId);
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [user?.email]);
 
   const {
     data: summary,

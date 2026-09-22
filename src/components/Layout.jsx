@@ -359,9 +359,7 @@ export default function Layout() {
         if (!authToken) return;
 
         const response = await fetch(
-          `${API_BASE}/api/pipeline/get?email=${encodeURIComponent(
-            user.email
-          )}`,
+          `${API_BASE}/api/pipeline/current-stage`,
           {
             cache: "default",
             headers: {
@@ -384,38 +382,7 @@ export default function Layout() {
           return;
         }
 
-        const stages =
-          (Array.isArray(data.stages)
-            ? data.stages
-            : []
-          )
-            .filter(stage =>
-              stage &&
-              stage.is_deleted !== true
-            )
-            .sort(
-              (a, b) =>
-                Number(a.stage_order || 0) -
-                Number(b.stage_order || 0)
-            );
-
-        const currentStage =
-          stages.find(stage =>
-            stage.status ===
-              "In Progress" &&
-            stage.status !==
-              "Completed"
-          ) ||
-          stages.find(stage =>
-            !(
-              stage.status ===
-                "Completed" ||
-              stage.completed ===
-                true ||
-              stage.is_completed ===
-                true
-            )
-          );
+        const currentStage = data.stage || null;
 
         if (!currentStage) {
           stageRiskToastRef.current =
@@ -532,7 +499,7 @@ export default function Layout() {
     const interval =
       window.setInterval(
         checkCurrentStageRisk,
-        60 * 1000
+        5 * 60 * 1000
       );
 
     const refresh = () =>
@@ -624,8 +591,17 @@ export default function Layout() {
 
     let cancelled = false;
     let timer = null;
+    let idleCallbackId;
+    let fallbackTimerId;
+    let refreshTimer = null;
+    let inFlight = false;
 
     const showUnreadNotificationPopups = async () => {
+      if (cancelled || inFlight) {
+        return;
+      }
+
+      inFlight = true;
       try {
         const authToken = tokenStorage.get();
         if (!authToken || cancelled) {
@@ -700,14 +676,28 @@ export default function Layout() {
           "[Layout] Notification popup refresh failed:",
           error?.message || error
         );
+      } finally {
+        inFlight = false;
       }
     };
 
     const refreshNotificationPopups = () => {
-      showUnreadNotificationPopups();
+      // CRM changes broadcast several equivalent events. Collapse them into
+      // one optional updates read instead of one request per event.
+      if (refreshTimer !== null) return;
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = null;
+        showUnreadNotificationPopups();
+      }, 200);
     };
 
-    showUnreadNotificationPopups();
+    // The Dashboard summary already includes initial updates. Keep this
+    // toast-only request off the first-render path.
+    if ("requestIdleCallback" in window) {
+      idleCallbackId = window.requestIdleCallback(showUnreadNotificationPopups, { timeout: 2500 });
+    } else {
+      fallbackTimerId = window.setTimeout(showUnreadNotificationPopups, 1000);
+    }
     timer = window.setInterval(showUnreadNotificationPopups, 5 * 60 * 1000);
 
     websocket.on("pipeline-updated", refreshNotificationPopups);
@@ -723,6 +713,15 @@ export default function Layout() {
       cancelled = true;
       if (timer) {
         window.clearInterval(timer);
+      }
+      if (idleCallbackId !== undefined) {
+        window.cancelIdleCallback(idleCallbackId);
+      }
+      if (fallbackTimerId !== undefined) {
+        window.clearTimeout(fallbackTimerId);
+      }
+      if (refreshTimer !== null) {
+        window.clearTimeout(refreshTimer);
       }
 
       websocket.off("pipeline-updated", refreshNotificationPopups);

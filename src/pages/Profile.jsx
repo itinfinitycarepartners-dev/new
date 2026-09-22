@@ -244,7 +244,7 @@ export default function Profile() {
 
       try {
         const response = await fetch(
-          `${API_BASE}/api/candidate/photo`,
+          `${API_BASE}/api/candidate/photo?width=192`,
           {
             cache: "default",
             headers: { Authorization: `Bearer ${token}` }
