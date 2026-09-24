@@ -300,7 +300,8 @@ function DocumentViewerModal({
           doc.recruit_attachment_id ||
           doc.pending_upload_id ||
           doc.document_id ||
-          doc.id;
+          doc.id ||
+          doc._id;
 
         if (!documentId) {
           throw new Error(
@@ -348,6 +349,17 @@ function DocumentViewerModal({
         }
 
         if (
+          doc.custom_module1_record_id ||
+          doc.recruit_custom_module1_record_id
+        ) {
+          query.set(
+            "customModule1RecordId",
+            doc.custom_module1_record_id ||
+              doc.recruit_custom_module1_record_id
+          );
+        }
+
+        if (
           doc.crm_field_api_name
         ) {
           query.set(
@@ -366,18 +378,14 @@ function DocumentViewerModal({
           );
         }
 
-        query.set(
-          "_",
-          String(Date.now())
-        );
-
         const response = await fetch(
           `${API_BASE}/api/documents/view/${encodeURIComponent(
             documentId
           )}?${query.toString()}`,
           {
             method: "GET",
-            cache: "no-store",
+            cache: "default",
+            credentials: "same-origin",
             headers: {
               Authorization:
                 `Bearer ${token}`
@@ -741,12 +749,16 @@ export default function Documents() {
         user?.email
       ),
     staleTime:
-      0,
-    retry: 1,
+      30 * 1000,
+    gcTime:
+      5 * 60 * 1000,
+    retry: 2,
+    retryDelay:
+      attempt => Math.min(500 * 2 ** attempt, 2000),
     refetchOnMount:
-      "always",
+      false,
     refetchOnWindowFocus:
-      true,
+      false,
     queryFn:
       async () => {
         const token =
@@ -1058,7 +1070,14 @@ export default function Documents() {
   const openViewer =
     document => {
       if (
-        !document.attachment_id
+        !(
+          document.attachment_id ||
+          document.pending_upload_id ||
+          document.crm_attachment_id ||
+          document.recruit_attachment_id ||
+          document.id ||
+          document.document_id
+        )
       ) {
         toast.error(
           "This document has no attachment identifier."
