@@ -645,6 +645,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState({});
   const [documents, setDocuments] = useState([]);
+  const [documentsLoading, setDocumentsLoading] = useState(true);
   const [pipeline, setPipeline] = useState([]);
   const [adminDetails, setAdminDetails] = useState({});
   const [auditEvents, setAuditEvents] = useState([]);
@@ -749,6 +750,33 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
         const email = encodeURIComponent(user.email);
         const emailParam = `?email=${email}`;
+        const documentsLoadPromise = fetch(`${API_BASE}/api/admin/documents/${email}`, {
+          headers,
+          credentials: 'include',
+          cache: 'no-store'
+        })
+          .then(async response => {
+            if (!response.ok) throw new Error(`Document list returned ${response.status}`);
+            const data = await response.json();
+            const allDocs = Array.isArray(data.documents)
+              ? data.documents.filter(document => {
+                  const source = String(document?.source || '').toLowerCase();
+                  return source !== 'recruit_field' || Boolean(
+                    document?.attachment_id || document?.recruit_attachment_id ||
+                    document?.crm_attachment_id || document?.document_id
+                  );
+                })
+              : [];
+            allDocs.sort((a, b) =>
+              new Date(b.uploaded_at || b.Created_Time || 0) -
+              new Date(a.uploaded_at || a.Created_Time || 0)
+            );
+            setDocuments(allDocs);
+          })
+          .catch(error => {
+            console.warn('Unable to load candidate documents:', error);
+          })
+          .finally(() => setDocumentsLoading(false));
 
         // The admin endpoint is the source of truth for the candidate's full
         // profile, MongoDB pipeline, submitted aftercare dates, and login history.
@@ -866,14 +894,10 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
           throw new Error(`Unable to load the complete admin record (${adminResponse.status}).`);
         }
 
-        // Non-critical resources are intentionally fetched only after the
-        // profile has been painted. They can never delay the user details.
-        const [documentsRes, sharedPipelineRes] = await Promise.allSettled([
-          fetch(`${API_BASE}/api/admin/documents/${email}`, {
-            headers,
-            credentials: 'include',
-            cache: 'no-store'
-          }),
+        // Hydrate documents as soon as their request completes, independently
+        // of the pipeline request, so slow pipeline data cannot hold the list.
+        const [, sharedPipelineRes] = await Promise.allSettled([
+          documentsLoadPromise,
           fetch(`${API_BASE}/api/pipeline/get?email=${email}&_=${Date.now()}`, {
             headers,
             credentials: 'include',
@@ -914,53 +938,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
           }));
         }
 
-        let allDocs = [];
-
-        if (
-          documentsRes.status === 'fulfilled' &&
-          documentsRes.value.ok
-        ) {
-          const data =
-            await documentsRes.value.json();
-
-          if (Array.isArray(data.documents)) {
-            allDocs = data.documents.filter(document => {
-              const source = String(document?.source || '').toLowerCase();
-              return source !== 'recruit_field' || Boolean(
-                document?.attachment_id ||
-                document?.recruit_attachment_id ||
-                document?.crm_attachment_id ||
-                document?.document_id
-              );
-            });
-          }
-        } else {
-          const status =
-            documentsRes.status === 'fulfilled'
-              ? documentsRes.value.status
-              : 'network';
-
-          console.warn(
-            `Unable to load the complete document list (${status}).`
-          );
-        }
-
-        setDocuments(
-          allDocs.sort(
-            (a, b) =>
-              new Date(
-                b.uploaded_at ||
-                b.Created_Time ||
-                0
-              ) -
-              new Date(
-                a.uploaded_at ||
-                a.Created_Time ||
-                0
-              )
-          )
-        );
       } catch (error) {
+        setDocumentsLoading(false);
         console.error('Error fetching detailed candidate data:', error);
         setDocActionError(error.message || 'Unable to load the candidate details.');
       } finally {
@@ -991,12 +970,14 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   }, [user]);
 
   const handleViewDocument = async (doc) => {
-    const docId =
-      doc?.attachment_id ||
-      doc?.crm_attachment_id ||
-      doc?.recruit_attachment_id ||
-      doc?.document_id ||
-      doc?.id;
+    const source = String(doc?.source || '').trim().toLowerCase();
+    const docId = source.includes('crm')
+      ? (doc?.crm_attachment_id || doc?.attachment_id || doc?.document_id || doc?.id)
+      : source === 'custommodule1'
+        ? (doc?.recruit_custom_module1_attachment_id || doc?.attachment_id || doc?.document_id || doc?.id)
+        : source === 'pending'
+          ? (doc?.pending_upload_id || doc?.attachment_id || doc?.id)
+          : (doc?.recruit_attachment_id || doc?.attachment_id || doc?.document_id || doc?.id);
 
     if (!docId) {
       setDocActionError("This document has no downloadable ID.");
@@ -1031,7 +1012,6 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     });
 
     try {
-      const source = String(doc?.source || "").trim().toLowerCase();
       const isCrmDocument = source === "crm" || source.includes("crm");
       const isPendingDocument = source === "pending";
       const query = new URLSearchParams({
@@ -1660,7 +1640,11 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                       <AlertTriangle className="w-4 h-4 shrink-0" /> {docActionError}
                     </div>
                   )}
-                  {documents.length === 0 ? (
+                  {documentsLoading ? (
+                    <div className="flex items-center justify-center gap-3 rounded-xl border bg-white py-12 text-sm font-medium text-gray-600">
+                      <Loader2 className="h-5 w-5 animate-spin text-purple-600" /> Loading candidate documents…
+                    </div>
+                  ) : documents.length === 0 ? (
                     <div className="text-center py-12 bg-white rounded-xl border border-dashed border-gray-300">
                       <FolderOpen className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                       <p className="text-gray-600 font-medium text-lg">No documents found.</p>
@@ -1670,8 +1654,15 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {documents.map((doc, idx) => {
                         const { category, icon: DocIcon, color } = classifyDocument(doc.document_name || doc.File_Name);
-                        const docId = doc.attachment_id || doc.id || idx;
-                        const isViewing = viewingDocId === (doc.attachment_id || doc.id);
+                        const docSource = String(doc.source || '').toLowerCase();
+                        const docId = docSource.includes('crm')
+                          ? (doc.crm_attachment_id || doc.attachment_id || doc.id || idx)
+                          : docSource === 'custommodule1'
+                            ? (doc.recruit_custom_module1_attachment_id || doc.attachment_id || doc.id || idx)
+                            : docSource === 'pending'
+                              ? (doc.pending_upload_id || doc.attachment_id || doc.id || idx)
+                              : (doc.recruit_attachment_id || doc.attachment_id || doc.id || idx);
+                        const isViewing = viewingDocId === docId;
                         return (
                           <div key={docId} className="bg-white rounded-xl border p-5 flex items-center justify-between shadow-sm transition hover:shadow-md hover:border-purple-200">
                             <div className="flex items-center gap-4 min-w-0">
@@ -1684,8 +1675,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                 </p>
                                 <div className="flex gap-2 mt-1.5 items-center flex-wrap">
                                   <span className="text-[10px] uppercase font-bold tracking-wider bg-gray-100 text-gray-600 px-2 py-1 rounded-md">{category}</span>
-                                  <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-md ${doc.source === 'recruit' ? 'bg-blue-50 text-blue-700' : 'bg-green-50 text-green-700'}`}>
-                                    {doc.source === 'recruit' ? 'Recruit' : 'CRM'}
+                                  <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-md ${['recruit', 'pending', 'custommodule1'].includes(docSource) ? 'bg-blue-50 text-blue-700' : 'bg-green-50 text-green-700'}`}>
+                                    {['recruit', 'pending', 'custommodule1'].includes(docSource) ? 'Recruit' : 'CRM'}
                                   </span>
                                   <span
                                     className={`text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-md ${
