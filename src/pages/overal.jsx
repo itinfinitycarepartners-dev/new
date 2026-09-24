@@ -3101,8 +3101,11 @@ const AdminRequestsPanel = ({ onOpenUser }) => {
                                   details.evidence_attachment_id
                                 )}?email=${encodeURIComponent(
                                   request.candidate_email
-                                )}&source=${encodeURIComponent(
-                                  details.evidence_source || "crm"
+                                                                )}&source=${encodeURIComponent(
+                                  details.evidence_source ||
+                                  (details.evidence_attachment_id
+                                    ? "crm"
+                                    : "")
                                 )}&crmRecordId=${encodeURIComponent(
                                   details.evidence_deal_id || ""
                                 )}`,

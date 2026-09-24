@@ -92,6 +92,11 @@ export default function MakeRequest() {
     };
   };
 
+  /**
+   * Extract the CRM attachment metadata from a documentLibrary.upload() result.
+   * The backend returns the attachment under several possible key shapes, so
+   * normalize all of them into one consistent object.
+   */
   const getUploadMetadata = (
     uploadResult,
     file
@@ -100,44 +105,53 @@ export default function MakeRequest() {
       uploadResult?.document ||
       uploadResult?.data ||
       uploadResult?.file ||
+      uploadResult?.crm ||
       uploadResult ||
       {};
 
     return {
-      evidenceFileName:
+      fileName:
         file?.name ||
         payload.name ||
+        payload.file_name ||
         "",
-      evidenceUploaded: true,
-      evidenceSource:
+      uploaded: true,
+      source:
         String(
           payload.source ||
           uploadResult?.source ||
           "crm"
         ).trim(),
-      evidenceAttachmentId:
+      attachmentId:
         String(
           payload.attachmentId ||
           payload.attachment_id ||
           payload.crmAttachmentId ||
+          payload.crm_attachment_id ||
+          payload.id ||
           uploadResult?.attachmentId ||
           uploadResult?.attachment_id ||
           uploadResult?.crmAttachmentId ||
+          uploadResult?.crm_attachment_id ||
           ""
         ).trim(),
-      evidenceDealId:
+      dealId:
         String(
           payload.dealId ||
+          payload.deal_id ||
           payload.recordId ||
           payload.record_id ||
           payload.crmRecordId ||
+          payload.crm_record_id ||
           uploadResult?.dealId ||
+          uploadResult?.deal_id ||
           uploadResult?.recordId ||
           uploadResult?.record_id ||
           uploadResult?.crmRecordId ||
+          uploadResult?.crm_record_id ||
           ""
         ).trim(),
-      evidenceMimeType:
+      mimeType:
         String(
           file?.type ||
           payload.mimeType ||
@@ -346,7 +360,18 @@ export default function MakeRequest() {
           reason,
           evidenceType:
             embassyEvidenceType,
-          ...evidenceMetadata,
+          evidenceFileName:
+            evidenceMetadata.fileName,
+          evidenceUploaded:
+            evidenceMetadata.uploaded,
+          evidenceSource:
+            evidenceMetadata.source,
+          evidenceAttachmentId:
+            evidenceMetadata.attachmentId,
+          evidenceDealId:
+            evidenceMetadata.dealId,
+          evidenceMimeType:
+            evidenceMetadata.mimeType,
           requestedDate:
             new Date()
               .toISOString()
@@ -465,10 +490,17 @@ export default function MakeRequest() {
               evidenceType:
                 embassyEvidenceType,
               evidenceFileName:
-                embassyEvidenceFile?.name ||
-                "",
+                evidenceMetadata.fileName,
               evidenceUploaded:
-                true
+                true,
+              evidence_source:
+                evidenceMetadata.source,
+              evidence_attachment_id:
+                evidenceMetadata.attachmentId,
+              evidence_deal_id:
+                evidenceMetadata.dealId,
+              evidence_mime_type:
+                evidenceMetadata.mimeType
             },
             requested_at:
               new Date()
@@ -676,15 +708,10 @@ export default function MakeRequest() {
       } else {
         setNotice(
           data.message ||
-          "Your dependant request was submitted successfully and is awaiting admin approval."
-        );
-        setDependant(
-          emptyDependant()
+          "Your request was submitted successfully and is awaiting admin review."
         );
       }
 
-      // Refresh quietly. A slow Zoho read must never hold the submit button in
-      // the loading state after MongoDB has already accepted the request.
       load({
         background: true
       }).catch(() => null);
@@ -771,6 +798,12 @@ export default function MakeRequest() {
         );
       }
 
+      const passportMetadata =
+        getUploadMetadata(
+          uploadResult,
+          passportFile
+        );
+
       const response =
         await fetch(
           `${API_BASE}/api/requests`,
@@ -794,11 +827,19 @@ export default function MakeRequest() {
                   travelPlan:
                     arrivalPlan,
                   passport:
-                    passportFile.name,
+                    passportMetadata.fileName,
                   passportDocumentName:
-                    passportFile.name,
+                    passportMetadata.fileName,
                   passportUploaded:
-                    true
+                    true,
+                  passportSource:
+                    passportMetadata.source,
+                  passportAttachmentId:
+                    passportMetadata.attachmentId,
+                  passportDealId:
+                    passportMetadata.dealId,
+                  passportMimeType:
+                    passportMetadata.mimeType
                 }
               })
           }
@@ -885,12 +926,12 @@ export default function MakeRequest() {
 
     try {
       let evidenceMetadata = {
-        evidenceFileName: "",
-        evidenceUploaded: false,
-        evidenceSource: "",
-        evidenceAttachmentId: "",
-        evidenceDealId: "",
-        evidenceMimeType: ""
+        fileName: "",
+        uploaded: false,
+        source: "",
+        attachmentId: "",
+        dealId: "",
+        mimeType: ""
       };
 
       if (
@@ -956,7 +997,18 @@ export default function MakeRequest() {
                 details: {
                   inquiryType,
                   explanation,
-                  ...evidenceMetadata
+                  evidenceFileName:
+                    evidenceMetadata.fileName,
+                  evidenceUploaded:
+                    evidenceMetadata.uploaded,
+                  evidenceSource:
+                    evidenceMetadata.source,
+                  evidenceAttachmentId:
+                    evidenceMetadata.attachmentId,
+                  evidenceDealId:
+                    evidenceMetadata.dealId,
+                  evidenceMimeType:
+                    evidenceMetadata.mimeType
                 }
               })
           },

@@ -128,6 +128,68 @@ const normalizeDocument = (document, index) => {
   };
 };
 
+const HIDDEN_DOCUMENT_LIBRARY_CATEGORY_KEYS = new Set([
+  
+]);
+
+const isHiddenDocument = document => {
+  if (!document) return false;
+
+  const categoryKey = String(
+    document.document_category ||
+    document.library_category ||
+    document.category_key ||
+    document.requirement_key ||
+    ""
+  ).trim().toLowerCase();
+
+  if (HIDDEN_DOCUMENT_LIBRARY_CATEGORY_KEYS.has(categoryKey)) {
+    return true;
+  }
+
+  if (
+    document.survey_submission === true ||
+    document.form_submission === true ||
+    document.is_form_submission === true ||
+    document.is_form === true ||
+    String(document.form_type || "").trim()
+  ) {
+    return true;
+  }
+
+  const searchable = [
+    document.document_name,
+    document.document_type,
+    document.document_category,
+    document.category_label,
+    document.crm_field_api_name,
+    document.form_type,
+    document.original_name
+  ].filter(Boolean).join(" ").toLowerCase();
+
+  return [
+    "behavioral assessment",
+    "behavioural assessment",
+    "behavior assessment",
+    "housing & transportation form",
+    "housing and transportation form",
+    "housing transportation form",
+    "housing & transportation",
+    "housing and transportation",
+    "photo and video release",
+    "photo release form",
+    "video release form",
+    "immigration pathway acknowledgement",
+    "immigration pathway acknowledgment",
+    "relocation logistics form",
+    "relocation & logistics form",
+    "r&l form",
+    "debrief survey",
+    "survey submission",
+    "assessment form"
+  ].some(pattern => searchable.includes(pattern));
+};
+
 const getDocumentKey = document =>
   document.approval_key ||
   [
@@ -802,14 +864,25 @@ export default function Documents() {
           Array.isArray(
             payload.documents
           )
-            ? payload.documents.map(
-                normalizeDocument
+            ? payload.documents
+                .map(normalizeDocument)
+                .filter(document => !isHiddenDocument(document))
+            : [];
+
+        const visibleCategories =
+          Array.isArray(payload.categories)
+            ? payload.categories.filter(
+                category =>
+                  !HIDDEN_DOCUMENT_LIBRARY_CATEGORY_KEYS.has(
+                    String(category?.key || "").trim().toLowerCase()
+                  )
               )
             : [];
 
         return {
           ...payload,
-          documents
+          documents,
+          categories: visibleCategories
         };
       }
   });
@@ -861,7 +934,12 @@ export default function Documents() {
     Array.isArray(
       documentData?.categories
     )
-      ? documentData.categories
+      ? documentData.categories.filter(
+          category =>
+            !HIDDEN_DOCUMENT_LIBRARY_CATEGORY_KEYS.has(
+              String(category?.key || "").trim().toLowerCase()
+            )
+        )
       : [];
 
   const categoryByKey =
@@ -1416,6 +1494,12 @@ export default function Documents() {
                     ).toLocaleDateString()}
                   </span>
                 )}
+                {getFileExtension(document.document_name) && (
+                  <span className="rounded-full border px-2 py-0.5 uppercase">
+                    {getFileExtension(document.document_name)}
+                  </span>
+                )}
+
                 {document.approval_status === "pending" && (
                   <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-medium text-amber-700">
                     Awaiting Approval
