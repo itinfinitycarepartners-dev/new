@@ -92,11 +92,6 @@ export default function MakeRequest() {
     };
   };
 
-  /**
-   * Extract the CRM attachment metadata from a documentLibrary.upload() result.
-   * The backend returns the attachment under several possible key shapes, so
-   * normalize all of them into one consistent object.
-   */
   const getUploadMetadata = (
     uploadResult,
     file
@@ -105,53 +100,44 @@ export default function MakeRequest() {
       uploadResult?.document ||
       uploadResult?.data ||
       uploadResult?.file ||
-      uploadResult?.crm ||
       uploadResult ||
       {};
 
     return {
-      fileName:
+      evidenceFileName:
         file?.name ||
         payload.name ||
-        payload.file_name ||
         "",
-      uploaded: true,
-      source:
+      evidenceUploaded: true,
+      evidenceSource:
         String(
           payload.source ||
           uploadResult?.source ||
           "crm"
         ).trim(),
-      attachmentId:
+      evidenceAttachmentId:
         String(
           payload.attachmentId ||
           payload.attachment_id ||
           payload.crmAttachmentId ||
-          payload.crm_attachment_id ||
-          payload.id ||
           uploadResult?.attachmentId ||
           uploadResult?.attachment_id ||
           uploadResult?.crmAttachmentId ||
-          uploadResult?.crm_attachment_id ||
           ""
         ).trim(),
-      dealId:
+      evidenceDealId:
         String(
           payload.dealId ||
-          payload.deal_id ||
           payload.recordId ||
           payload.record_id ||
           payload.crmRecordId ||
-          payload.crm_record_id ||
           uploadResult?.dealId ||
-          uploadResult?.deal_id ||
           uploadResult?.recordId ||
           uploadResult?.record_id ||
           uploadResult?.crmRecordId ||
-          uploadResult?.crm_record_id ||
           ""
         ).trim(),
-      mimeType:
+      evidenceMimeType:
         String(
           file?.type ||
           payload.mimeType ||
@@ -360,18 +346,7 @@ export default function MakeRequest() {
           reason,
           evidenceType:
             embassyEvidenceType,
-          evidenceFileName:
-            evidenceMetadata.fileName,
-          evidenceUploaded:
-            evidenceMetadata.uploaded,
-          evidenceSource:
-            evidenceMetadata.source,
-          evidenceAttachmentId:
-            evidenceMetadata.attachmentId,
-          evidenceDealId:
-            evidenceMetadata.dealId,
-          evidenceMimeType:
-            evidenceMetadata.mimeType,
+          ...evidenceMetadata,
           requestedDate:
             new Date()
               .toISOString()
@@ -490,17 +465,10 @@ export default function MakeRequest() {
               evidenceType:
                 embassyEvidenceType,
               evidenceFileName:
-                evidenceMetadata.fileName,
+                embassyEvidenceFile?.name ||
+                "",
               evidenceUploaded:
-                true,
-              evidence_source:
-                evidenceMetadata.source,
-              evidence_attachment_id:
-                evidenceMetadata.attachmentId,
-              evidence_deal_id:
-                evidenceMetadata.dealId,
-              evidence_mime_type:
-                evidenceMetadata.mimeType
+                true
             },
             requested_at:
               new Date()
@@ -708,10 +676,15 @@ export default function MakeRequest() {
       } else {
         setNotice(
           data.message ||
-          "Your request was submitted successfully and is awaiting admin review."
+          "Your dependant request was submitted successfully and is awaiting admin approval."
+        );
+        setDependant(
+          emptyDependant()
         );
       }
 
+      // Refresh quietly. A slow Zoho read must never hold the submit button in
+      // the loading state after MongoDB has already accepted the request.
       load({
         background: true
       }).catch(() => null);
@@ -798,11 +771,10 @@ export default function MakeRequest() {
         );
       }
 
-      const passportMetadata =
-        getUploadMetadata(
-          uploadResult,
-          passportFile
-        );
+      const passportMetadata = getUploadMetadata(
+        uploadResult,
+        passportFile
+      );
 
       const response =
         await fetch(
@@ -810,14 +782,21 @@ export default function MakeRequest() {
           {
             method:
               "POST",
+            cache: "no-store",
+            credentials: "include",
             headers: {
               ...getHeaders(),
               "Content-Type":
-                "application/json"
+                "application/json",
+              Accept: "application/json",
+              "Cache-Control": "no-cache",
+              Pragma: "no-cache"
             },
             body:
               JSON.stringify({
                 requestType:
+                  "add_dependant",
+                request_type:
                   "add_dependant",
                 details: {
                   name,
@@ -827,19 +806,19 @@ export default function MakeRequest() {
                   travelPlan:
                     arrivalPlan,
                   passport:
-                    passportMetadata.fileName,
+                    passportFile.name,
                   passportDocumentName:
-                    passportMetadata.fileName,
+                    passportFile.name,
                   passportUploaded:
                     true,
                   passportSource:
-                    passportMetadata.source,
+                    passportMetadata.evidenceSource,
                   passportAttachmentId:
-                    passportMetadata.attachmentId,
+                    passportMetadata.evidenceAttachmentId,
                   passportDealId:
-                    passportMetadata.dealId,
+                    passportMetadata.evidenceDealId,
                   passportMimeType:
-                    passportMetadata.mimeType
+                    passportMetadata.evidenceMimeType
                 }
               })
           }
@@ -926,12 +905,12 @@ export default function MakeRequest() {
 
     try {
       let evidenceMetadata = {
-        fileName: "",
-        uploaded: false,
-        source: "",
-        attachmentId: "",
-        dealId: "",
-        mimeType: ""
+        evidenceFileName: "",
+        evidenceUploaded: false,
+        evidenceSource: "",
+        evidenceAttachmentId: "",
+        evidenceDealId: "",
+        evidenceMimeType: ""
       };
 
       if (
@@ -997,18 +976,7 @@ export default function MakeRequest() {
                 details: {
                   inquiryType,
                   explanation,
-                  evidenceFileName:
-                    evidenceMetadata.fileName,
-                  evidenceUploaded:
-                    evidenceMetadata.uploaded,
-                  evidenceSource:
-                    evidenceMetadata.source,
-                  evidenceAttachmentId:
-                    evidenceMetadata.attachmentId,
-                  evidenceDealId:
-                    evidenceMetadata.dealId,
-                  evidenceMimeType:
-                    evidenceMetadata.mimeType
+                  ...evidenceMetadata
                 }
               })
           },

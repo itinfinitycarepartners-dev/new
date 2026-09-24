@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
 import { Link } from "react-router-dom";
@@ -1425,6 +1425,8 @@ export default function Dashboard() {
     setRecentMessages
   ] = useState([]);
 
+  const queryClient = useQueryClient();
+
   const {
     data: summary,
     isLoading,
@@ -1440,9 +1442,9 @@ export default function Dashboard() {
         user?.email
       ),
     staleTime:
-      60 * 1000,
+      30 * 1000,
     gcTime:
-      30 * 60 * 1000,
+      60 * 60 * 1000,
     refetchInterval:
       false,
     initialData: () => {
@@ -1460,7 +1462,7 @@ export default function Dashboard() {
     refetchOnReconnect:
       false,
     refetchOnMount:
-      false,
+      true,
     queryFn:
       async () => {
         const token =
@@ -1474,13 +1476,14 @@ export default function Dashboard() {
 
         const response =
           await fetch(
-            `${API_BASE}/api/candidate/dashboard-summary`,
+            `${API_BASE}/api/candidate/dashboard-summary?fast=true`,
             {
               headers: {
                 Authorization: `Bearer ${token}`,
                 Accept: "application/json",
                 "Cache-Control": "no-cache"
-              }
+              },
+              credentials: "include"
             }
           );
 
@@ -1500,6 +1503,29 @@ export default function Dashboard() {
         }
 
         writeDashboardBrowserCache(user?.email, payload);
+
+        // Never make the first paint wait for Zoho. The fast snapshot above is
+        // rendered immediately, while the authoritative CRM/Recruit dashboard
+        // quietly replaces it in the React Query cache.
+        fetch(`${API_BASE}/api/candidate/dashboard-summary`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json",
+            "Cache-Control": "no-cache"
+          },
+          credentials: "include"
+        })
+          .then(async fullResponse => {
+            const fullPayload = await fullResponse.json().catch(() => ({}));
+            if (!fullResponse.ok || fullPayload?.success !== true) return;
+            writeDashboardBrowserCache(user?.email, fullPayload);
+            queryClient.setQueryData(
+              ["dashboard-summary", user?.email],
+              fullPayload
+            );
+          })
+          .catch(() => null);
+
         return payload;
       }
   });
