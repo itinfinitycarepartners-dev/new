@@ -1,6 +1,5 @@
 // @ts-nocheck
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { renderAsync as renderDocx } from 'docx-preview';
 import {
   Users, UserCheck, Search, Download, RefreshCw, Eye, 
   BarChart3, Shield, XCircle, Send, MessageSquare, LogOut, Home, 
@@ -656,8 +655,6 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   const [viewingDocId, setViewingDocId] = useState(null);
   const [viewingDocument, setViewingDocument] = useState(null);
   const [documentObjectUrl, setDocumentObjectUrl] = useState(null);
-  const [docxBlob, setDocxBlob] = useState(null);
-  const docxPreviewRef = useRef(null);
   const [approvalBusyKey, setApprovalBusyKey] = useState(null);
   const [rejectingDocument, setRejectingDocument] = useState(null);
   const [rejectionReason, setRejectionReason] = useState("");
@@ -669,34 +666,6 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       }
     };
   }, [documentObjectUrl]);
-
-  useEffect(() => {
-    const container = docxPreviewRef.current;
-    if (!viewingDocument?.isDocx || !docxBlob || !container) return undefined;
-
-    let active = true;
-    container.replaceChildren();
-    renderDocx(docxBlob, container, container, {
-      className: 'admin-docx-preview',
-      inWrapper: true,
-      useBase64URL: true
-    }).then(() => {
-      if (active) {
-        setViewingDocument(previous => previous?.isDocx
-          ? { ...previous, loading: false, error: null }
-          : previous);
-      }
-    }).catch(error => {
-      console.error('[Admin Documents] DOCX preview rendering failed:', error);
-      if (active) {
-        setViewingDocument(previous => previous?.isDocx
-          ? { ...previous, loading: false, error: 'This Word document could not be rendered.' }
-          : previous);
-      }
-    });
-
-    return () => { active = false; };
-  }, [viewingDocument?.isDocx, docxBlob]);
 
   const userPendingRequests =
     Array.isArray(user?.pendingRequests)
@@ -1033,7 +1002,6 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       try { URL.revokeObjectURL(documentObjectUrl); } catch (_) {}
       setDocumentObjectUrl(null);
     }
-    setDocxBlob(null);
 
     setDocActionError(null);
     setViewingDocId(docId);
@@ -1097,18 +1065,13 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
         const blob = await response.blob();
         if (!blob || blob.size === 0) throw new Error("The server returned an empty document.");
 
-        const documentName = extractString(doc?.document_name || doc?.File_Name || doc?.file_name || `Document ${docId}`);
-        const documentType = String(blob.type || doc?.file_type || "application/octet-stream").toLowerCase();
-        const isDocx = /\.docx$/i.test(documentName) || documentType.includes("wordprocessingml");
-
-        if (isDocx) {
-          setDocxBlob(blob);
-          setViewingDocument({ name: documentName, type: documentType, loading: true, isDocx: true });
-        } else {
-          const objectUrl = URL.createObjectURL(blob);
-          setDocumentObjectUrl(objectUrl);
-          setViewingDocument({ name: documentName, type: documentType, loading: false, isDocx: false });
-        }
+        const objectUrl = URL.createObjectURL(blob);
+        setDocumentObjectUrl(objectUrl);
+        setViewingDocument({
+          name: extractString(doc?.document_name || doc?.File_Name || doc?.file_name || `Document ${docId}`),
+          type: String(blob.type || doc?.file_type || "application/octet-stream").toLowerCase(),
+          loading: false
+        });
       } finally {
         window.clearTimeout(timeout);
       }
@@ -1128,7 +1091,6 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       try { URL.revokeObjectURL(documentObjectUrl); } catch (_) {}
     }
     setDocumentObjectUrl(null);
-    setDocxBlob(null);
     setViewingDocument(null);
   };
 
@@ -2021,26 +1983,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
               <button type="button" onClick={closeDocumentViewer} className="rounded-lg border px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">Close</button>
             </div>
             <div className="min-h-0 flex-1 bg-gray-100">
-              {viewingDocument.isDocx ? (
-                <div className="relative h-full w-full overflow-hidden">
-                  <div className="h-full w-full overflow-auto bg-gray-200 p-3 sm:p-6">
-                    <div ref={docxPreviewRef} className="mx-auto min-h-full w-full max-w-5xl" />
-                  </div>
-                  {viewingDocument.loading && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-gray-100/90">
-                      <div className="text-center">
-                        <Loader2 className="mx-auto h-8 w-8 animate-spin text-purple-600" />
-                        <p className="mt-3 text-sm font-medium text-gray-700">Preparing Word preview…</p>
-                      </div>
-                    </div>
-                  )}
-                  {viewingDocument.error && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-gray-100 p-8 text-center text-sm text-red-700">
-                      {viewingDocument.error}
-                    </div>
-                  )}
-                </div>
-              ) : viewingDocument.loading || !documentObjectUrl ? (
+              {viewingDocument.loading || !documentObjectUrl ? (
                 <div className="flex h-full items-center justify-center">
                   <div className="text-center">
                     <Loader2 className="mx-auto h-8 w-8 animate-spin text-purple-600" />
@@ -3101,11 +3044,8 @@ const AdminRequestsPanel = ({ onOpenUser }) => {
                                   details.evidence_attachment_id
                                 )}?email=${encodeURIComponent(
                                   request.candidate_email
-                                                                )}&source=${encodeURIComponent(
-                                  details.evidence_source ||
-                                  (details.evidence_attachment_id
-                                    ? "crm"
-                                    : "")
+                                )}&source=${encodeURIComponent(
+                                  details.evidence_source || "crm"
                                 )}&crmRecordId=${encodeURIComponent(
                                   details.evidence_deal_id || ""
                                 )}`,
