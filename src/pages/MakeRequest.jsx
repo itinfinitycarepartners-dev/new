@@ -913,11 +913,7 @@ export default function MakeRequest() {
         evidenceMimeType: ""
       };
 
-      if (
-        inquiryType ===
-          "Other" &&
-        additionalEvidenceFile
-      ) {
+      if (additionalEvidenceFile) {
         const uploadResult =
           await documentLibrary.upload({
             file:
@@ -1211,7 +1207,7 @@ export default function MakeRequest() {
             </div>
             <input
               type="file"
-              accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,.pdf"
               className="hidden"
               onChange={event => {
                 const file =
@@ -1401,18 +1397,16 @@ export default function MakeRequest() {
             }
           />
 
-          <input
+          <select
             className="rounded-lg border px-3 py-2 text-sm"
-            placeholder="Relationship to applicant"
             value={dependant.relationship}
-            onChange={event =>
-              setDependant(value => ({
-                ...value,
-                relationship:
-                  event.target.value
-              }))
-            }
-          />
+            onChange={event => setDependant(value => ({ ...value, relationship: event.target.value }))}
+          >
+            <option value="">Relationship to applicant</option>
+            <option value="Spouse / Partner">Spouse / Partner</option>
+            <option value="Son">Son</option>
+            <option value="Daughter">Daughter</option>
+          </select>
 
           <select
             className="rounded-lg border px-3 py-2 text-sm"
@@ -1621,7 +1615,7 @@ export default function MakeRequest() {
                 </p>
                 <p className="truncate text-xs text-slate-500">
                   {additionalEvidenceFile?.name ||
-                    "Optional supporting image"}
+                    "Optional supporting image or PDF"}
                 </p>
               </div>
               <input
@@ -1635,10 +1629,10 @@ export default function MakeRequest() {
 
                   if (!file) return;
 
-                  if (!file.type.startsWith("image/")) {
-                    setNotice(
-                      "Inquiry evidence must be uploaded as an image."
-                    );
+                  const isImage = String(file.type || "").toLowerCase().startsWith("image/");
+                  const isPdf = String(file.type || "").toLowerCase() === "application/pdf" || /\.pdf$/i.test(file.name || "");
+                  if (!isImage && !isPdf) {
+                    setNotice("Inquiry evidence must be an image or PDF.");
                     event.target.value = "";
                     return;
                   }

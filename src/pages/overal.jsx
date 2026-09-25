@@ -19,6 +19,11 @@ const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
   'http://localhost:4000';
 
+const ADMIN_DOCUMENT_REJECTION_REASONS = [
+  ...(Array.isArray(DOCUMENT_REJECTION_REASONS) ? DOCUMENT_REJECTION_REASONS : []),
+  { value: "right_channel", label: "Use the right email or message channel", description: "Use the right email or message channel to get in touch with the right department." }
+].filter((item,index,list) => list.findIndex(x => String(x?.value || "") === String(item?.value || "")) === index);
+
 const unwrapAdminNCLEXValue = value => {
   if (value === undefined || value === null) return value;
   if (Array.isArray(value)) {
@@ -1002,24 +1007,32 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
   const handleViewDocument = async (doc) => {
     const source = String(doc?.source || '').trim().toLowerCase();
-    const docId = source.includes('crm')
-      ? (doc?.crm_attachment_id || doc?.attachment_id || doc?.document_id || doc?.id)
-      : source === 'custommodule1'
-        ? (doc?.recruit_custom_module1_attachment_id || doc?.attachment_id || doc?.document_id || doc?.id)
-        : source === 'pending'
-          ? (doc?.pending_upload_id || doc?.attachment_id || doc?.id)
-          : (doc?.recruit_attachment_id || doc?.attachment_id || doc?.document_id || doc?.id);
+    const isCrmDocument = source === "crm" || source.includes("crm");
+    const isRecruitFieldDocument = source === "recruit_field" || doc?.recruit_field_upload === true;
+    const docId = isCrmDocument
+      ? (doc?.crm_file_id || doc?.crm_attachment_id || doc?.attachment_id || doc?.document_id || doc?.id)
+      : isRecruitFieldDocument
+        ? (doc?.recruit_file_id || doc?.recruit_attachment_id || doc?.attachment_id || doc?.document_id || doc?.id)
+        : source === 'custommodule1'
+          ? (doc?.recruit_custom_module1_attachment_id || doc?.attachment_id || doc?.document_id || doc?.id)
+          : source === 'pending'
+            ? (doc?.pending_upload_id || doc?.attachment_id || doc?.id)
+            : (doc?.recruit_attachment_id || doc?.attachment_id || doc?.document_id || doc?.id);
 
     if (!docId) {
       setDocActionError("This document has no downloadable ID.");
       return;
     }
 
-    const candidateEmail = String(user?.email || "").trim();
-    if (!candidateEmail) {
-      setDocActionError("The candidate email is unavailable, so the document cannot be opened.");
-      return;
-    }
+    // Admin document viewing is based on the document's Zoho record ID, not
+    // the logged-in candidate email. The admin may be viewing another user's
+    // document, so do not block opening just because the admin has no candidate email.
+    const candidateEmail = String(
+      doc?.candidate_email ||
+      doc?.email ||
+      user?.email ||
+      ""
+    ).trim();
 
     const { adminToken, userToken } = getTokens();
     if (!adminToken && !userToken) {
@@ -1027,38 +1040,41 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       return;
     }
 
-    // Open inside the admin app.  Do not create a popup/new browser tab.
-    // Revoke the previous blob before replacing it to avoid memory leaks.
     if (documentObjectUrl) {
       try { URL.revokeObjectURL(documentObjectUrl); } catch (_) {}
       setDocumentObjectUrl(null);
     }
     setDocxBlob(null);
-
     setDocActionError(null);
     setViewingDocId(docId);
+    const documentName = extractString(doc?.document_name || doc?.File_Name || doc?.file_name || "Document");
     setViewingDocument({
-      name: extractString(doc?.document_name || doc?.File_Name || doc?.file_name || "Document"),
+      name: documentName,
       type: String(doc?.file_type || "").toLowerCase(),
       loading: true
     });
 
     try {
-      const isCrmDocument = source === "crm" || source.includes("crm");
       const isPendingDocument = source === "pending";
       const query = new URLSearchParams({
-        email: candidateEmail,
         source,
         download: "false",
-        name: String(doc?.document_name || doc?.File_Name || doc?.file_name || `document-${docId}`)
+        name: documentName || `document-${docId}`
       });
-
-      if (doc?.crm_field_api_name) query.set("field", String(doc.crm_field_api_name));
-      if (doc?.crm_file_upload_field === true) query.set("fieldUpload", "true");
+      if (candidateEmail) query.set("email", candidateEmail);
 
       if (isCrmDocument) {
         const dealId = doc?.deal_id || doc?.crm_record_id || doc?.crm_deal_id || "";
         if (dealId) query.set("crmRecordId", String(dealId));
+        if (doc?.crm_field_api_name) query.set("field", String(doc.crm_field_api_name));
+        if (doc?.crm_file_upload_field === true || doc?.field_upload === true) query.set("fieldUpload", "true");
+        if (doc?.crm_file_download_url) query.set("fieldDownloadUrl", String(doc.crm_file_download_url));
+      } else if (isRecruitFieldDocument) {
+        const candidateId = doc?.candidate_id || doc?.recruit_record_id || doc?.recruit_candidate_id || "";
+        if (candidateId) query.set("recruitRecordId", String(candidateId));
+        if (doc?.recruit_field_api_name) query.set("recruitField", String(doc.recruit_field_api_name));
+        query.set("recruitFieldUpload", "true");
+        if (doc?.recruit_field_download_url) query.set("recruitFieldDownloadUrl", String(doc.recruit_field_download_url));
       } else if (source === "custommodule1" || doc?.custom_module1_record_id || doc?.recruit_custom_module1_record_id) {
         const customModule1Id =
           doc?.custom_module1_record_id ||
@@ -1076,52 +1092,127 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
         ? { Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken }
         : { Authorization: `Bearer ${userToken}` };
 
-      const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), 45000);
+      // FAST ADMIN PATH: when the library row already contains the exact Zoho
+      // record ID + file ID, go directly to the small admin Zoho proxy. This
+      // avoids the large /api/admin/documents/download route, candidate-email
+      // resolution, MongoDB library lookup, and Deal/Candidate discovery.
+      // It follows the same direct module/record/attachment pattern as the
+      // working backend supplied as reference.
+      const directProvider = isCrmDocument || isRecruitFieldDocument || source === "recruit" || source === "custommodule1"
+        ? (isCrmDocument ? "crm" : "recruit")
+        : "";
+      const directModule = isCrmDocument
+        ? "Deals"
+        : source === "custommodule1"
+          ? "CustomModule1"
+          : "Candidates";
+      const directRecordId = isCrmDocument
+        ? String(doc?.deal_id || doc?.crm_record_id || doc?.crm_deal_id || "").trim()
+        : String(doc?.candidate_id || doc?.recruit_record_id || doc?.recruit_candidate_id || doc?.custom_module1_record_id || doc?.recruit_custom_module1_record_id || "").trim();
+      const directFileId = String(docId || "").trim();
 
-      try {
-        const response = await fetch(
-          `${API_BASE}/api/admin/documents/download/${encodeURIComponent(String(docId))}?${query.toString()}`,
-          { method: "GET", headers, credentials: "include", cache: "no-store", signal: controller.signal }
-        );
+      if (adminToken && directProvider && directRecordId && directFileId) {
+        const directQuery = new URLSearchParams({
+          name: documentName || `document-${directFileId}`,
+          download: "false"
+        });
+        if (doc?.crm_field_api_name) directQuery.set("field", String(doc.crm_field_api_name));
+        if (doc?.crm_file_download_url) directQuery.set("fieldDownloadUrl", String(doc.crm_file_download_url));
+        if (doc?.recruit_field_download_url) directQuery.set("recruitFieldDownloadUrl", String(doc.recruit_field_download_url));
+        const directUrl = `${API_BASE}/api/admin/zoho/document/${directProvider}/${encodeURIComponent(directModule)}/${encodeURIComponent(directRecordId)}/${encodeURIComponent(directFileId)}?${directQuery.toString()}`;
 
-        if (!response.ok) {
+        try {
+          const directResponse = await fetch(directUrl, {
+            method: "GET",
+            headers,
+            credentials: "include",
+            cache: "no-store"
+          });
+
+          if (directResponse.ok) {
+            const directBlob = await directResponse.blob();
+            if (!directBlob.size) throw new Error("The direct Zoho document response was empty.");
+            const directType = String(directBlob.type || doc?.file_type || "application/octet-stream").toLowerCase();
+            const directDocx = /\.docx$/i.test(documentName) || directType.includes("wordprocessingml");
+            if (directDocx) {
+              setDocxBlob(directBlob);
+              setViewingDocument({ name: documentName, type: directType, loading: true, isDocx: true });
+            } else {
+              const directObjectUrl = URL.createObjectURL(directBlob);
+              setDocumentObjectUrl(directObjectUrl);
+              setViewingDocument({ name: documentName, type: directType, loading: false, isDocx: false });
+            }
+            return;
+          }
+
+          console.warn("[Admin Documents] Direct Zoho proxy returned", directResponse.status);
+        } catch (directError) {
+          console.warn("[Admin Documents] Direct Zoho proxy failed; falling back to legacy route:", directError?.message || directError);
+        }
+      }
+
+      // Field-upload files can be returned from a direct Zoho download URL.
+      // Give the backend enough time for larger documents, while retrying only
+      // transient gateway/upstream failures. The old 45s hard abort made a
+      // valid field document look like a permanent "server took too long" error.
+      let response = null;
+      let lastError = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 90000);
+        try {
+          response = await fetch(
+            `${API_BASE}/api/admin/documents/download/${encodeURIComponent(String(docId))}?${query.toString()}`,
+            { method: "GET", headers, credentials: "include", cache: "no-store", signal: controller.signal }
+          );
+          if (response.ok) break;
+
           let detail = "";
           try {
             const payload = await response.clone().json();
             detail = payload?.error ? `: ${payload.error}` : "";
           } catch (_) {}
-          throw new Error(`Server returned ${response.status}${detail}`);
+          lastError = new Error(`Server returned ${response.status}${detail}`);
+          if (![408, 429, 502, 503, 504].includes(response.status) || attempt === 1) break;
+          await new Promise(resolve => window.setTimeout(resolve, 750));
+        } catch (error) {
+          lastError = error;
+          if (error?.name !== "AbortError" || attempt === 1) break;
+          await new Promise(resolve => window.setTimeout(resolve, 750));
+        } finally {
+          window.clearTimeout(timeout);
         }
+      }
 
-        const blob = await response.blob();
-        if (!blob || blob.size === 0) throw new Error("The server returned an empty document.");
+      if (!response?.ok) {
+        throw lastError || new Error("Unable to load the document.");
+      }
 
-        const documentName = extractString(doc?.document_name || doc?.File_Name || doc?.file_name || `Document ${docId}`);
-        const documentType = String(blob.type || doc?.file_type || "application/octet-stream").toLowerCase();
-        const isDocx = /\.docx$/i.test(documentName) || documentType.includes("wordprocessingml");
+      const blob = await response.blob();
+      if (!blob || blob.size === 0) throw new Error("The server returned an empty document.");
 
-        if (isDocx) {
-          setDocxBlob(blob);
-          setViewingDocument({ name: documentName, type: documentType, loading: true, isDocx: true });
-        } else {
-          const objectUrl = URL.createObjectURL(blob);
-          setDocumentObjectUrl(objectUrl);
-          setViewingDocument({ name: documentName, type: documentType, loading: false, isDocx: false });
-        }
-      } finally {
-        window.clearTimeout(timeout);
+      const documentType = String(blob.type || doc?.file_type || "application/octet-stream").toLowerCase();
+      const isDocx = /\.docx$/i.test(documentName) || documentType.includes("wordprocessingml");
+
+      if (isDocx) {
+        setDocxBlob(blob);
+        setViewingDocument({ name: documentName, type: documentType, loading: true, isDocx: true });
+      } else {
+        const objectUrl = URL.createObjectURL(blob);
+        setDocumentObjectUrl(objectUrl);
+        setViewingDocument({ name: documentName, type: documentType, loading: false, isDocx: false });
       }
     } catch (error) {
       console.error("[Admin Documents] Failed to open document in app:", error);
       setViewingDocument(null);
       setDocActionError(
-        `Couldn't open "${extractString(doc?.document_name || doc?.File_Name || doc?.file_name)}". ${error?.name === "AbortError" ? "The document server took too long to respond." : (error?.message || "Unable to load the document.")}`
+        `Couldn't open "${documentName}". ${error?.name === "AbortError" ? "The document provider did not respond within 90 seconds." : (error?.message || "Unable to load the document.")}`
       );
     } finally {
       setViewingDocId(null);
     }
   };
+
 
   const closeDocumentViewer = () => {
     if (documentObjectUrl) {
@@ -1378,7 +1469,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
               className="mt-2 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900"
             >
               <option value="">Select a reason</option>
-              {DOCUMENT_REJECTION_REASONS.map(reason => (
+              {ADMIN_DOCUMENT_REJECTION_REASONS.map(reason => (
                 <option key={reason.value} value={`${reason.label} - ${reason.description}`}>
                   {reason.label} - {reason.description}
                 </option>
@@ -1700,9 +1791,14 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                             : docSource === 'pending'
                               ? (doc.pending_upload_id || doc.attachment_id || doc.id || idx)
                               : (doc.recruit_attachment_id || doc.attachment_id || doc.id || idx);
-                        const isViewing = viewingDocId === docId;
+                        const isViewing = String(viewingDocId || "") === String(docId || "");
+                        // A single Zoho file can legitimately appear in more than one
+                        // CRM field / source. React keys must identify the rendered row,
+                        // not just the attachment ID. Keep the file ID for opening it,
+                        // but make the UI key unique per source/field/row.
+                        const documentRowKey = `${docSource}:${String(doc?.crm_field_api_name || doc?.recruit_field_api_name || "")}:${String(docId)}:${idx}`;
                         return (
-                          <div key={docId} className="bg-white rounded-xl border p-5 flex items-center justify-between shadow-sm transition hover:shadow-md hover:border-purple-200">
+                          <div key={documentRowKey} className="bg-white rounded-xl border p-5 flex items-center justify-between shadow-sm transition hover:shadow-md hover:border-purple-200">
                             <div className="flex items-center gap-4 min-w-0">
                               <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${color}`}>
                                 <DocIcon className="w-6 h-6" />
@@ -2273,6 +2369,8 @@ const MessagingPanel = ({ users, initialTarget }) => {
   const [loading, setLoading] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [messageError, setMessageError] = useState('');
+  const [messageSearch, setMessageSearch] = useState("");
+  const [messageSearchResults, setMessageSearchResults] = useState([]);
   const [departmentConversations, setDepartmentConversations] = useState([]);
   const [expandedDepartments, setExpandedDepartments] = useState({
     admin: true,
@@ -2454,12 +2552,11 @@ const MessagingPanel = ({ users, initialTarget }) => {
             }
           );
 
-        await readResponse(
-          response
-        );
-
-        if (data.conversation?._id) setSelectedConversationId(String(data.conversation._id));
-      setInput("");
+        const data = await readResponse(response);
+        if (data.conversation?._id) {
+          setSelectedConversationId(String(data.conversation._id));
+        }
+        setInput("");
         return;
       }
 
@@ -2534,6 +2631,20 @@ const MessagingPanel = ({ users, initialTarget }) => {
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const runMessageSearch = async value => {
+    const query = String(value || "").trim();
+    setMessageSearch(query);
+    if (!query) { setMessageSearchResults([]); return; }
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/messaging/search?q=${encodeURIComponent(query)}`, { credentials: "include", headers: getAdminHeaders() });
+      const data = await readResponse(response);
+      setMessageSearchResults(Array.isArray(data.results) ? data.results : []);
+    } catch (error) {
+      setMessageSearchResults([]);
+      setMessageError(error.message || "Could not search messages.");
     }
   };
 
@@ -2621,6 +2732,28 @@ const MessagingPanel = ({ users, initialTarget }) => {
               <p className="text-xs text-slate-500">Candidate conversations by team</p>
             </div>
           </div>
+          <div className="mt-3 flex items-center gap-2 rounded-xl border bg-slate-50 px-3 py-2">
+            <Search className="h-4 w-4 shrink-0 text-slate-400" />
+            <input value={messageSearch} onChange={event => runMessageSearch(event.target.value)} placeholder="Search users or messages..." className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
+            {messageSearch && <button type="button" onClick={() => runMessageSearch("")} className="text-xs font-semibold text-slate-500">Clear</button>}
+          </div>
+          {messageSearch && messageSearchResults.length > 0 && (
+            <div className="mt-2 max-h-72 overflow-y-auto rounded-xl border bg-white shadow-sm">
+              {messageSearchResults.map(result => (
+                <button type="button" key={`${result.conversationId}-${result.department}`} onClick={() => {
+                  setDepartment(result.department || "admin");
+                  setSelected(result.email);
+                  setSelectedConversationId(String(result.conversationId));
+                  setMessageSearchResults([]);
+                }} className="w-full border-b px-3 py-3 text-left last:border-b-0 hover:bg-purple-50">
+                  <div className="truncate text-sm font-semibold text-slate-800">{result.name || result.email}</div>
+                  <div className="truncate text-xs text-slate-500">{result.email}</div>
+                  <div className="mt-1 line-clamp-2 text-xs text-slate-600">{result.snippet || "Conversation match"}</div>
+                </button>
+              ))}
+            </div>
+          )}
+          {messageSearch && messageSearchResults.length === 0 && <div className="mt-2 rounded-xl border bg-white px-3 py-3 text-xs text-slate-500">No matching users or messages.</div>}
         </div>
         {departments.map(item => {
           const departmentThreads =
@@ -2878,11 +3011,43 @@ const MessagingPanel = ({ users, initialTarget }) => {
 };
 
 
+const RequestAttachmentViewer = ({ document, onClose }) => {
+  const [loading, setLoading] = useState(true), [error, setError] = useState(""), [url, setUrl] = useState(""), [contentType, setContentType] = useState("");
+  useEffect(() => {
+    let active = true, objectUrl = "";
+    (async () => {
+      try {
+        const { adminToken } = getTokens();
+        const id = String(document?.attachment_id || document?.crm_attachment_id || document?.recruit_attachment_id || document?.pending_upload_id || document?.id || "").trim();
+        if (!adminToken || !id) throw new Error(!adminToken ? "Admin session is unavailable. Please sign in again." : "This inquiry attachment has no file ID.");
+        const query = new URLSearchParams({ email: String(document?.candidate_email || ""), source: String(document?.source || "crm"), name: String(document?.document_name || "Inquiry attachment") });
+        if (document?.crm_record_id || document?.deal_id) query.set("crmRecordId", String(document?.crm_record_id || document?.deal_id || ""));
+        if (document?.recruit_record_id || document?.recruit_candidate_id) query.set("recruitRecordId", String(document?.recruit_record_id || document?.recruit_candidate_id || ""));
+        if (document?.custom_module1_record_id || document?.recruit_custom_module1_record_id) query.set("customModule1RecordId", String(document?.custom_module1_record_id || document?.recruit_custom_module1_record_id || ""));
+        if (document?.field) query.set("field", String(document.field));
+        if (document?.field_upload === true || document?.fieldUpload === true) query.set("fieldUpload", "true");
+        const response = await fetch(`${API_BASE}/api/admin/documents/download/${encodeURIComponent(id)}?${query.toString()}`, {credentials:"include",cache:"no-store",headers:{Authorization:`AdminBearer ${adminToken}`,"x-admin-token":adminToken}});
+        if (!response.ok) { const payload = await response.clone().json().catch(()=>({})); throw new Error(payload.error || payload.message || `Server returned ${response.status}`); }
+        const blob = await response.blob(); if (!blob.size) throw new Error("The attachment is empty.");
+        if (!active) return; objectUrl=URL.createObjectURL(blob); setUrl(objectUrl); setContentType(blob.type || document?.file_type || "");
+      } catch(e) { if(active) setError(e.message || "Unable to open the inquiry attachment."); } finally { if(active) setLoading(false); }
+    })();
+    return () => { active=false; if(objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [document]);
+  if(!document) return null;
+  const pdf=contentType.includes("pdf") || /\.pdf$/i.test(document.document_name||"");
+  const image=contentType.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg|heic|heif)$/i.test(document.document_name||"");
+  return <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-3 sm:p-5"><div className="flex h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"><div className="flex items-center justify-between border-b px-4 py-3"><h3 className="truncate font-bold">{document.document_name || "Inquiry attachment"}</h3><button type="button" onClick={onClose} className="rounded-lg border px-3 py-2 text-sm font-semibold">Close</button></div><div className="min-h-0 flex-1 overflow-auto bg-gray-100 p-2">{loading&&<div className="flex h-full items-center justify-center text-sm text-gray-500">Loading attachment...</div>}{!loading&&error&&<div className="flex h-full items-center justify-center text-sm text-red-600">{error}</div>}{!loading&&!error&&pdf&&url&&<iframe src={`${url}#toolbar=1&navpanes=0`} title={document.document_name||"Inquiry attachment"} className="h-full min-h-[70vh] w-full rounded-lg bg-white"/>}{!loading&&!error&&image&&url&&<div className="flex min-h-full items-center justify-center rounded-lg bg-white p-4"><img src={url} alt={document.document_name||"Inquiry attachment"} className="max-h-full max-w-full object-contain"/></div>}{!loading&&!error&&!pdf&&!image&&url&&<div className="flex h-full items-center justify-center"><a href={url} download={document.document_name||"inquiry-attachment"} className="rounded-lg bg-purple-700 px-4 py-2 text-sm font-semibold text-white">Download attachment</a></div>}</div></div></div>;
+};
+
 const AdminRequestsPanel = ({ onOpenUser }) => {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
   const [selectedCandidate, setSelectedCandidate] = useState("");
+  const [requestAttachment, setRequestAttachment] = useState(null);
+  const [rejectingRequest, setRejectingRequest] = useState(null);
+  const [requestRejectionReason, setRequestRejectionReason] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -2921,7 +3086,7 @@ const AdminRequestsPanel = ({ onOpenUser }) => {
     return () => clearInterval(interval);
   }, [load]);
 
-  const decide = async (request, decision) => {
+  const decide = async (request, decision, reason = "") => {
     setBusyId(String(request._id));
     try {
       const { adminToken, userToken } = getTokens();
@@ -2940,7 +3105,7 @@ const AdminRequestsPanel = ({ onOpenUser }) => {
               Authorization:`Bearer ${userToken}`
             } : {})
           },
-          body:JSON.stringify({decision})
+          body:JSON.stringify({decision, reason})
         }
       );
       const data = await response.json().catch(() => ({}));
@@ -3030,57 +3195,15 @@ const AdminRequestsPanel = ({ onOpenUser }) => {
                       details.passport_attachment_id && (
                         <button
                           type="button"
-                          onClick={async () => {
-                            try {
-                              const { adminToken } = getTokens();
-                              const response = await fetch(
-                                `${API_BASE}/api/admin/documents/download/${encodeURIComponent(
-                                  details.passport_attachment_id
-                                )}?email=${encodeURIComponent(
-                                  request.candidate_email
-                                )}&source=crm&crmRecordId=${encodeURIComponent(
-                                  details.passport_deal_id || ""
-                                )}`,
-                                {
-                                  headers: {
-                                    Authorization:
-                                      `AdminBearer ${adminToken}`,
-                                    "x-admin-token":
-                                      adminToken
-                                  },
-                                  credentials:
-                                    "include"
-                                }
-                              );
-
-                              if (!response.ok) {
-                                throw new Error(
-                                  `Server returned ${response.status}`
-                                );
-                              }
-
-                              const blob =
-                                await response.blob();
-
-                              const url =
-                                URL.createObjectURL(blob);
-
-                              window.open(
-                                url,
-                                "_blank",
-                                "noopener,noreferrer"
-                              );
-
-                              setTimeout(
-                                () => URL.revokeObjectURL(url),
-                                60000
-                              );
-                            } catch (error) {
-                              alert(
-                                error.message ||
-                                "Unable to open passport image."
-                              );
-                            }
+                          onClick={() => {
+                            setRequestAttachment({
+                              attachment_id: details.passport_attachment_id,
+                              candidate_email: request.candidate_email,
+                              source: details.passport_source || "crm",
+                              crm_record_id: details.passport_deal_id || "",
+                              document_name: details.passport || details.passportDocumentName || "Passport",
+                              file_type: details.passport_mime_type || ""
+                            });
                           }}
                           className="mt-3 rounded-lg border border-purple-200 px-3 py-2 text-xs font-semibold text-purple-700"
                         >
@@ -3093,59 +3216,17 @@ const AdminRequestsPanel = ({ onOpenUser }) => {
                       details.evidence_attachment_id && (
                         <button
                           type="button"
-                          onClick={async () => {
-                            try {
-                              const { adminToken } = getTokens();
-                              const response = await fetch(
-                                `${API_BASE}/api/admin/documents/download/${encodeURIComponent(
-                                  details.evidence_attachment_id
-                                )}?email=${encodeURIComponent(
-                                  request.candidate_email
-                                )}&source=${encodeURIComponent(
-                                  details.evidence_source || "crm"
-                                )}&crmRecordId=${encodeURIComponent(
-                                  details.evidence_deal_id || ""
-                                )}`,
-                                {
-                                  headers: {
-                                    Authorization:
-                                      `AdminBearer ${adminToken}`,
-                                    "x-admin-token":
-                                      adminToken
-                                  },
-                                  credentials:
-                                    "include"
-                                }
-                              );
-
-                              if (!response.ok) {
-                                throw new Error(
-                                  `Server returned ${response.status}`
-                                );
-                              }
-
-                              const blob =
-                                await response.blob();
-
-                              const url =
-                                URL.createObjectURL(blob);
-
-                              window.open(
-                                url,
-                                "_blank",
-                                "noopener,noreferrer"
-                              );
-
-                              setTimeout(
-                                () => URL.revokeObjectURL(url),
-                                60000
-                              );
-                            } catch (error) {
-                              alert(
-                                error.message ||
-                                "Unable to open supporting evidence."
-                              );
-                            }
+                          onClick={() => {
+                            setRequestAttachment({
+                              attachment_id: details.evidence_attachment_id,
+                              candidate_email: request.candidate_email,
+                              source: details.evidence_source || "crm",
+                              crm_record_id: details.evidence_deal_id || "",
+                              recruit_record_id: details.evidence_recruit_record_id || details.recruit_record_id || "",
+                              custom_module1_record_id: details.evidence_custom_module1_record_id || "",
+                              document_name: details.evidenceFileName || details.evidence_file_name || "Supporting Evidence",
+                              file_type: details.evidence_mime_type || ""
+                            });
                           }}
                           className="mt-3 ml-2 rounded-lg border border-purple-200 px-3 py-2 text-xs font-semibold text-purple-700"
                         >
@@ -3163,7 +3244,7 @@ const AdminRequestsPanel = ({ onOpenUser }) => {
                     Approve
                   </button>
                   <button
-                    onClick={() => decide(request,"reject")}
+                    onClick={() => { setRejectingRequest(request); setRequestRejectionReason(""); }}
                     disabled={busyId === String(request._id)}
                     className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                   >
@@ -3174,6 +3255,42 @@ const AdminRequestsPanel = ({ onOpenUser }) => {
             </div>
           );
         })
+      )}
+      {requestAttachment && <RequestAttachmentViewer document={requestAttachment} onClose={() => setRequestAttachment(null)} />}
+      {rejectingRequest && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl">
+            <h3 className="text-lg font-bold text-gray-900">Reject request</h3>
+            <p className="mt-2 text-sm text-gray-600">Select the same rejection reason used for document approvals.</p>
+            <select
+              value={requestRejectionReason}
+              onChange={event => setRequestRejectionReason(event.target.value)}
+              className="mt-4 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm"
+            >
+              <option value="">Select a reason</option>
+              {ADMIN_DOCUMENT_REJECTION_REASONS.map(reason => (
+                <option key={reason.value} value={`${reason.label} - ${reason.description}`}>
+                  {reason.label} - {reason.description}
+                </option>
+              ))}
+            </select>
+            <div className="mt-5 flex justify-end gap-3">
+              <button type="button" onClick={() => { setRejectingRequest(null); setRequestRejectionReason(""); }} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button>
+              <button
+                type="button"
+                disabled={!requestRejectionReason || busyId === String(rejectingRequest._id)}
+                onClick={async () => {
+                  await decide(rejectingRequest, "reject", requestRejectionReason);
+                  setRejectingRequest(null);
+                  setRequestRejectionReason("");
+                }}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                Reject request
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -4071,7 +4188,7 @@ const AdminPanel = () => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [msgTarget, setMsgTarget] = useState(null);
   const [stats, setStats] = useState({ total: 0, active: 0, expired: 0 });
-  const [backendHealth, setBackendHealth] = useState({ zoho: false, db: false });
+  const [backendHealth, setBackendHealth] = useState({ zoho: false, zohoError: null, db: false });
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [receiptCount, setReceiptCount] = useState(0);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
@@ -4261,13 +4378,37 @@ const AdminPanel = () => {
 
   useEffect(() => {
     let active = true;
-    fetch(`${API_BASE}/api/zoho/status`, { headers:{Accept:'application/json'}, credentials:'include' })
-      .then(async response => {
+    let timer;
+
+    const checkZoho = async () => {
+      try {
+        const { adminToken, userToken } = getTokens();
+        const headers = {
+          Accept: 'application/json',
+          ...(adminToken ? { Authorization: `AdminBearer ${adminToken}`, 'x-admin-token': adminToken } : {}),
+          ...(!adminToken && userToken ? { Authorization: `Bearer ${userToken}` } : {})
+        };
+        const response = await fetch(`${API_BASE}/api/zoho/status`, { headers, credentials:'include' });
         const data = await response.json().catch(() => ({}));
-        if (active) setBackendHealth(previous => ({ ...previous, zoho:data?.connected === true }));
-      })
-      .catch(() => {});
-    return () => { active = false; };
+        if (active) {
+          setBackendHealth(previous => ({
+            ...previous,
+            zoho: data?.connected === true,
+            zohoError: data?.error || data?.crmError || null
+          }));
+        }
+      } catch (error) {
+        if (active) setBackendHealth(previous => ({
+          ...previous,
+          zoho: false,
+          zohoError: error?.message || 'Unable to check Zoho connection.'
+        }));
+      }
+    };
+
+    checkZoho();
+    timer = setInterval(checkZoho, 30000);
+    return () => { active = false; clearInterval(timer); };
   }, []);
 
   useEffect(() => {
@@ -4433,7 +4574,40 @@ const AdminPanel = () => {
         <div className="bg-white border-b px-8 py-4 flex items-center justify-between sticky top-0 z-10 shadow-sm">
           <h2 className="text-xl font-bold text-gray-800">{navItems.find(n => n.id === tab)?.label || 'Dashboard'}</h2>
           <div className="flex items-center gap-5 text-xs text-gray-500 font-medium tracking-wide uppercase">
-            <span className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full shadow-sm ${backendHealth.zoho ? 'bg-green-500' : 'bg-red-500'}`} /> Zoho API</span>
+            <span
+              title={backendHealth.zoho ? 'Zoho CRM connected' : (backendHealth.zohoError || 'Zoho CRM is not connected')}
+              className="flex items-center gap-1.5"
+            >
+              <span className={`w-2 h-2 rounded-full shadow-sm ${backendHealth.zoho ? 'bg-green-500' : 'bg-red-500'}`} /> Zoho API
+            </span>
+            {!backendHealth.zoho && (
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const { adminToken, userToken } = getTokens();
+                    const headers = {
+                      'Content-Type':'application/json',
+                      ...(adminToken ? { Authorization:`AdminBearer ${adminToken}`, 'x-admin-token':adminToken } : {}),
+                      ...(!adminToken && userToken ? { Authorization:`Bearer ${userToken}` } : {})
+                    };
+                    const response = await fetch(`${API_BASE}/api/zoho/reconnect`, { method:'POST', credentials:'include', headers });
+                    const data = await response.json().catch(() => ({}));
+                    if (!response.ok || data.connected !== true) throw new Error(data.message || data.error || 'Zoho reconnect failed.');
+                    setBackendHealth(previous => ({
+                      ...previous,
+                      zoho: true,
+                      zohoError: data.recruitError && data.recruitConnected !== true
+                        ? `CRM connected. Recruit: ${data.recruitError}`
+                        : null
+                    }));
+                  } catch (error) {
+                    setError(error.message || 'Unable to reconnect Zoho.');
+                  }
+                }}
+                className="ml-2 rounded border px-2 py-0.5 text-xs font-medium hover:bg-gray-50"
+              >Reconnect</button>
+            )}
             <span className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full shadow-sm ${backendHealth.db ? 'bg-green-500' : 'bg-red-500'}`} /> Database</span>
             <button onClick={downloadPolicySignatureReport} className="rounded-md border px-2 py-1 text-[10px] font-bold text-purple-700 hover:bg-purple-50">Signature report</button>
             <button onClick={() => { fetchOverview(); if (usersLoaded) fetchUsers(); }} disabled={loading} className="p-2 ml-2 rounded-lg hover:bg-gray-100 transition border border-transparent hover:border-gray-200 text-purple-700 shadow-sm">
