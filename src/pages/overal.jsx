@@ -21,7 +21,7 @@ const API_BASE =
 
 const ADMIN_DOCUMENT_REJECTION_REASONS = [
   ...(Array.isArray(DOCUMENT_REJECTION_REASONS) ? DOCUMENT_REJECTION_REASONS : []),
-  { value: "right_channel", label: "Use the right email or message channel", description: "Use the right email or message channel to get in touch with the right department." }
+  { value: "right_channel", label: "Use the right email or message channel", description: "This is not the right platform please send an email or message to the appropriate department. ONLY one message or email." }
 ].filter((item,index,list) => list.findIndex(x => String(x?.value || "") === String(item?.value || "")) === index);
 
 const unwrapAdminNCLEXValue = value => {
