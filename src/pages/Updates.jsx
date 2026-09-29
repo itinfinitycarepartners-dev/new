@@ -24,22 +24,39 @@ const getUpdateIcon = type => {
   if (normalized === "add") return <CheckCircle className="h-5 w-5 text-green-500" />;
   if (normalized === "edit") return <Edit className="h-5 w-5 text-amber-500" />;
   if (normalized === "rfe" || normalized === "stage") return <AlertTriangle className="h-5 w-5 text-orange-500" />;
+  if (normalized === "form-submission") return <CheckCircle className="h-5 w-5 text-green-500" />;
   return <Info className="h-5 w-5 text-gray-400" />;
 };
 
 const formatDate = value => {
-  if (!value) return "Just now";
+  if (!value) return "Date unavailable";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Just now";
+  if (Number.isNaN(date.getTime())) return "Date unavailable";
+
   const diffMs = Date.now() - date.getTime();
-  const mins = Math.floor(diffMs / 60000);
-  const hours = Math.floor(diffMs / 3600000);
-  const days = Math.floor(diffMs / 86400000);
-  if (mins < 1) return "Just now";
-  if (mins < 60) return `${mins} min ago`;
-  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
-  if (days < 7) return `${days} day${days === 1 ? "" : "s"} ago`;
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const mins = Math.floor(Math.max(diffMs, 0) / 60000);
+  const hours = Math.floor(Math.max(diffMs, 0) / 3600000);
+  const days = Math.floor(Math.max(diffMs, 0) / 86400000);
+
+  let relative = "Just now";
+  if (mins >= 1 && mins < 60) {
+    relative = `${mins} min ago`;
+  } else if (hours >= 1 && hours < 24) {
+    relative = `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  } else if (days >= 1) {
+    relative = `${days} day${days === 1 ? "" : "s"} ago`;
+  }
+
+  const absolute = date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+
+  return `${absolute} • ${relative}`;
 };
 
 export default function Updates() {
@@ -96,11 +113,54 @@ export default function Updates() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || payload.message || "Unable to load updates.");
-      const nextUpdates = Array.isArray(payload.updates) ? payload.updates : [];
+      const serverUpdates = Array.isArray(payload.updates) ? payload.updates : [];
+      let localUpdates = [];
+      try {
+        const stored = JSON.parse(window.localStorage.getItem("icp_local_form_notifications") || "[]");
+        const currentEmail = String(tokenStorage.getUser?.()?.email || "").trim().toLowerCase();
+        localUpdates = (Array.isArray(stored) ? stored : []).filter(item => {
+          if (!currentEmail) return true;
+          return !item?.candidate_email || String(item.candidate_email).trim().toLowerCase() === currentEmail;
+        });
+      } catch (_) {
+        localUpdates = [];
+      }
+      const byId = new Map();
+      [...localUpdates, ...serverUpdates].forEach(item => {
+        const id = String(item?.id || item?._id || `${item?.form_type || "update"}-${item?.submitted_at || item?.created_at || ""}`);
+        if (!byId.has(id)) byId.set(id, item);
+      });
+      const nextUpdates = Array.from(byId.values()).sort((a, b) => {
+        const aTime = new Date(a?.submitted_at || a?.submittedAt || a?.created_at || a?.created_date || 0).getTime();
+        const bTime = new Date(b?.submitted_at || b?.submittedAt || b?.created_at || b?.created_date || 0).getTime();
+        return bTime - aTime;
+      });
       const previousIds = knownIdsRef.current;
-      const newUnread = nextUpdates.filter(item => !item.is_read && !previousIds.has(String(item.id || item._id))).length;
+      const newUnread = nextUpdates.filter(
+        item =>
+          !item.is_read &&
+          !previousIds.has(String(item.id || item._id))
+      ).length;
+
       setUpdates(nextUpdates);
-      setUnread(Math.max(0, Number(payload.unread || 0)));
+
+      // The server count is authoritative for persisted notifications. Add any
+      // local-only form receipts that are not already represented by the server.
+      const serverIds = new Set(
+        serverUpdates.map(item => String(item?.id || item?._id || "")).filter(Boolean)
+      );
+      const localOnlyUnread = localUpdates.filter(
+        item =>
+          !item?.is_read &&
+          !serverIds.has(String(item?.id || item?._id || ""))
+      ).length;
+
+      setUnread(
+        Math.max(
+          0,
+          Number(payload.unread || 0) + localOnlyUnread
+        )
+      );
       knownIdsRef.current = new Set(nextUpdates.map(item => String(item.id || item._id || "")).filter(Boolean));
 
       if (!firstLoadRef.current && newUnread > 0) {
@@ -125,9 +185,24 @@ export default function Updates() {
   useEffect(() => {
     loadUpdates();
     const handleUpdate = () => loadUpdates({ silent: true });
+    const handleNotificationCreated = event => {
+      const notification = event?.detail;
+      if (!notification) return;
+      setUpdates(previous => {
+        const id = String(notification.id || `local-${Date.now()}`);
+        if (previous.some(item => String(item?.id || item?._id || "") === id)) return previous;
+        return [notification, ...previous].sort((a, b) => {
+          const aTime = new Date(a?.submitted_at || a?.created_at || a?.created_date || 0).getTime();
+          const bTime = new Date(b?.submitted_at || b?.created_at || b?.created_date || 0).getTime();
+          return bTime - aTime;
+        });
+      });
+      setUnread(previous => previous + (notification.is_read ? 0 : 1));
+    };
     const handleVisible = () => { if (document.visibilityState === "visible") loadUpdates({ silent: true }); };
     window.addEventListener("candidate-data-updated", handleUpdate);
     window.addEventListener("pipeline-updated", handleUpdate);
+    window.addEventListener("candidate-notification-created", handleNotificationCreated);
     window.addEventListener("crm-recruit-updated", handleUpdate);
     window.addEventListener("focus", handleVisible);
     document.addEventListener("visibilitychange", handleVisible);
@@ -141,6 +216,7 @@ export default function Updates() {
       window.clearInterval(interval);
       window.removeEventListener("candidate-data-updated", handleUpdate);
       window.removeEventListener("pipeline-updated", handleUpdate);
+      window.removeEventListener("candidate-notification-created", handleNotificationCreated);
       window.removeEventListener("crm-recruit-updated", handleUpdate);
       window.removeEventListener("focus", handleVisible);
       document.removeEventListener("visibilitychange", handleVisible);
@@ -235,9 +311,24 @@ export default function Updates() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-3">
                     <p className="font-medium">{update.title || "Candidate record updated"}</p>
-                    <span className="shrink-0 text-xs text-muted-foreground">{formatDate(update.created_date || update.created_at)}</span>
+                    <span className="shrink-0 text-right text-xs text-muted-foreground" title={formatDate(update.submitted_at || update.submittedAt || update.created_date || update.created_at)}>
+                        {formatDate(update.submitted_at || update.submittedAt || update.created_date || update.created_at)}
+                      </span>
                   </div>
-                  <p className="mt-1 text-sm text-muted-foreground">{update.message || update.text || "Your record was updated."}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                      {update.message || update.text || "Your record was updated."}
+                    </p>
+                    {(update.form_type === "behavioral" || update.form_title === "Behavioral Assessment") &&
+                      (update.submitted_at || update.submittedAt) && (
+                        <p className="mt-2 text-xs font-medium text-emerald-700">
+                          Submitted on: {new Date(
+                            update.submitted_at || update.submittedAt
+                          ).toLocaleString("en-US", {
+                            dateStyle: "medium",
+                            timeStyle: "short"
+                          })}
+                        </p>
+                      )}
                 </div>
               </div>
             </div>

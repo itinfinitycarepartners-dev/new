@@ -96,14 +96,16 @@ export default function Forms() {
   const [savingAcknowledgement, setSavingAcknowledgement] = useState(null);
   const [submissionSuccess, setSubmissionSuccess] = useState(null);
 
-  const showFormSubmissionSuccess = (formTitle) => {
-    setActiveForm(null);
-    setSubmissionSuccess({
-      title: formTitle,
-      message: `${formTitle} was submitted successfully.`,
-    });
-  };
-
+ const showFormSubmissionSuccess = (formTitle, submittedAt = null) => {
+  const timestamp = submittedAt || new Date().toISOString();
+  const formattedTimestamp = new Date(timestamp).toLocaleString("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  });
+  const message = `${formTitle} was submitted successfully on ${formattedTimestamp}.`;
+  toast.success(message);
+  setSubmissionSuccess({ title: formTitle, message });
+};
   useEffect(() => {
     const loadAcknowledgements = async () => {
       const token = tokenStorage.get();
@@ -200,26 +202,28 @@ export default function Forms() {
         </button>
 
         <div className="rounded-xl border bg-white p-4">
-          {activeForm ===
-            "behavioral" && (
-            <DeploymentDetails
-              user={user}
-              setStages={
-                setLocalStages
-              }
-              behavioralOnly
-              onClose={() => showFormSubmissionSuccess("Behavioral Assessment")}
-            />
-          )}
+         {activeForm === "behavioral" && (
+  <DeploymentDetails
+    user={user}
+    setStages={setLocalStages}
+    behavioralOnly
+    onClose={(result) => {
+      setActiveForm(null);
+      showFormSubmissionSuccess("Behavioral Assessment", result?.submittedAt || null);
+    }}
+  />
+)}
 
-          {activeForm ===
-            "housing" && (
-            <HousingDetailsForm
-              user={user}
-              setStages={setLocalStages}
-              onClose={() => showFormSubmissionSuccess("Housing & Transportation Form")}
-            />
-          )}
+          {activeForm === "housing" && (
+  <HousingDetailsForm
+    user={user}
+    setStages={setLocalStages}
+    onClose={() => {
+      setActiveForm(null);
+      showFormSubmissionSuccess("Housing & Transportation Form");
+    }}
+  />
+)}
 </div>
       </div>
     );

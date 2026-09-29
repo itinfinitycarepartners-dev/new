@@ -19,6 +19,25 @@ const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
   'http://localhost:4000';
 
+// Instant candidate-document snapshot. The list is metadata-only, so keeping it
+// in sessionStorage is safe and prevents a Zoho round-trip every time an admin
+// opens the same candidate during a work session.
+const ADMIN_DOC_CACHE_PREFIX = "icp_admin_candidate_docs_v3:";
+const ADMIN_DOC_CACHE_MAX_AGE_MS = 15 * 60 * 1000;
+const readAdminDocumentCache = email => {
+  try {
+    const raw = sessionStorage.getItem(`${ADMIN_DOC_CACHE_PREFIX}${String(email || "").trim().toLowerCase()}`);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed?.documents || Date.now() - Number(parsed.savedAt || 0) > ADMIN_DOC_CACHE_MAX_AGE_MS) return null;
+    return parsed.documents;
+  } catch (_) { return null; }
+};
+const writeAdminDocumentCache = (email, documents) => {
+  try {
+    sessionStorage.setItem(`${ADMIN_DOC_CACHE_PREFIX}${String(email || "").trim().toLowerCase()}`, JSON.stringify({ savedAt: Date.now(), documents }));
+  } catch (_) {}
+};
+
 const ADMIN_DOCUMENT_REJECTION_REASONS = [
   ...(Array.isArray(DOCUMENT_REJECTION_REASONS) ? DOCUMENT_REJECTION_REASONS : []),
   { value: "right_channel", label: "Use the right email or message channel", description: "This is not the right platform please send an email or message to the appropriate department. ONLY one message or email." }
@@ -728,6 +747,14 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       email: prev?.email || user?.email || "",
       candidateName: prev?.candidateName || user?.name || ""
     }));
+    // Paint cached document metadata at the exact moment the candidate modal opens.
+    // File bytes are still fetched only when a document is viewed.
+    const cachedDocuments = readAdminDocumentCache(user.email);
+    if (Array.isArray(cachedDocuments)) {
+      setDocuments(cachedDocuments);
+      setDocumentsLoading(false);
+    }
+
     setLoading(false);
 
     const fetchAuditData = async () => {
@@ -786,6 +813,13 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
         const email = encodeURIComponent(user.email);
         const emailParam = `?email=${email}`;
+        const warmDocs = readAdminDocumentCache(user.email);
+        if (Array.isArray(warmDocs)) {
+          setDocuments(warmDocs);
+          setDocumentsLoading(false);
+        } else {
+          setDocumentsLoading(true);
+        }
         const documentsLoadPromise = fetch(`${API_BASE}/api/admin/documents/${email}`, {
           headers,
           credentials: 'include',
@@ -808,6 +842,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
               new Date(a.uploaded_at || a.Created_Time || 0)
             );
             setDocuments(allDocs);
+            setDocumentsLoading(false);
+            writeAdminDocumentCache(user.email, allDocs);
           })
           .catch(error => {
             console.warn('Unable to load candidate documents:', error);
@@ -2014,10 +2050,39 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
               {activeTab === 'audit' && (
                 <div className="space-y-6">
                   <Section title={<><Shield className="w-5 h-5 text-purple-600" /> Recruit / CRM Field Audit</>}>
-                    <p className="text-sm text-gray-500 mb-4">
-                      This audit records Zoho Recruit and Zoho CRM field changes received .
-                      The <strong>Field Name</strong> column is the exact Zoho field name that changed.
-                    </p>
+                    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <p className="text-sm text-gray-500">
+                        This audit records field changes received from Zoho Recruit and Zoho CRM for this candidate.
+                        The <strong>Field Name</strong> column is the exact Zoho field name that changed.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!user?.email) return;
+                          const { adminToken, userToken } = getTokens();
+                          const headers = {
+                            'Accept': 'application/json',
+                            ...(adminToken ? { 'Authorization': `AdminBearer ${adminToken}`, 'x-admin-token': adminToken } : {}),
+                            ...(!adminToken && userToken ? { 'Authorization': `Bearer ${userToken}` } : {})
+                          };
+                          setAuditLoading(true);
+                          fetch(`${API_BASE}/api/admin/candidate/${encodeURIComponent(user.email)}/audit?limit=250&_=${Date.now()}`, {
+                            headers, credentials: 'include', cache: 'no-store'
+                          })
+                            .then(response => response.ok ? response.json() : Promise.reject(new Error(`Audit endpoint returned ${response.status}`)))
+                            .then(data => {
+                              setAuditEvents(Array.isArray(data?.events) ? data.events : []);
+                              setAuditSummary(data?.summary || { total: 0, recruit: 0, crm: 0, fields: 0 });
+                            })
+                            .catch(error => console.warn('Unable to refresh candidate field audit:', error))
+                            .finally(() => setAuditLoading(false));
+                        }}
+                        className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                        Refresh audit
+                      </button>
+                    </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
                       <div className="rounded-xl border bg-purple-50 p-4" style={{ borderColor: THEME.border }}>
@@ -3988,17 +4053,11 @@ const LoginApprovalsPanel = () => {
 
   useEffect(() => {
     mountedRef.current = true;
-
     load();
 
-    // Keep this panel live. The short poll is deliberately limited to the
-    // lightweight login-approval endpoint, not the expensive candidate/Zoho
-    // endpoints.
     const interval = window.setInterval(() => {
-      if (document.visibilityState === "visible") {
-        load({ silent: true });
-      }
-    }, 3000);
+      if (document.visibilityState === "visible") load({ silent: true });
+    }, 5000);
 
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") load({ silent: true });
@@ -4020,22 +4079,18 @@ const LoginApprovalsPanel = () => {
     };
   }, [load]);
 
-  const action = async (email, actionName) => {
+  const action = async (email, actionName, body = {}) => {
     const key = `${email}:${actionName}`;
     setBusy(key);
     setNotice("");
 
-    // Optimistic UI: remove completed approval actions immediately instead
-    // of waiting for a second GET request before the admin sees the change.
     const previousApprovals = approvals;
-    if (actionName === "approve" || actionName === "reject") {
+
+    if (actionName === "approve") {
       setApprovals(current =>
         current.map(item =>
           item.email === email
-            ? {
-                ...item,
-                status: actionName === "approve" ? "approved" : "rejected"
-              }
+            ? { ...item, status: "approved" }
             : item
         )
       );
@@ -4048,7 +4103,8 @@ const LoginApprovalsPanel = () => {
           method: "POST",
           credentials: "include",
           headers: headers(),
-          cache: "no-store"
+          cache: "no-store",
+          body: JSON.stringify(body)
         }
       );
 
@@ -4060,7 +4116,6 @@ const LoginApprovalsPanel = () => {
 
       setNotice(data.message || "Action completed successfully.");
 
-      // Immediately update the rest of the admin UI without a page refresh.
       window.dispatchEvent(
         new CustomEvent("login-approval-updated", {
           detail: { email, action: actionName, data }
@@ -4072,15 +4127,21 @@ const LoginApprovalsPanel = () => {
         })
       );
 
-      // Reconcile with the server in the background.
       load({ silent: true });
     } catch (error) {
-      // Roll back optimistic state if the server rejected the action.
       setApprovals(previousApprovals);
       setNotice(error.message || "Action failed.");
     } finally {
       setBusy("");
     }
+  };
+
+  const getSourceSummary = item => {
+    const lookup = item?.zoho_lookup || {};
+    const sources = [];
+    if (lookup.crm === true) sources.push("CRM");
+    if (lookup.recruit === true) sources.push("Recruit");
+    return sources.length ? sources.join(" + ") : "Not yet confirmed";
   };
 
   return (
@@ -4089,7 +4150,7 @@ const LoginApprovalsPanel = () => {
         <div>
           <h3 className="font-bold text-gray-800">Login approvals</h3>
           <p className="text-sm text-gray-500 mt-1">
-            Requests created while Zoho could not verify a new candidate.
+            Each request is checked against CRM and Recruit independently. A temporary Zoho outage never causes an automatic rejection.
           </p>
         </div>
         <button
@@ -4118,54 +4179,82 @@ const LoginApprovalsPanel = () => {
             <tr>
               <th className="px-5 py-3">Email</th>
               <th className="px-5 py-3">Requested</th>
+              <th className="px-5 py-3">Found in</th>
               <th className="px-5 py-3">Status</th>
               <th className="px-5 py-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {approvals.map(item => (
-              <tr key={item._id || item.email} className="border-t">
-                <td className="px-5 py-4 font-medium text-gray-800">{item.email}</td>
-                <td className="px-5 py-4 text-gray-500">
-                  {item.requested_at
-                    ? new Date(item.requested_at).toLocaleString()
-                    : "—"}
-                </td>
-                <td className="px-5 py-4 capitalize">{item.status}</td>
-                <td className="px-5 py-4 text-right space-x-2">
-                  {item.status === "pending" && (
-                    <button
-                      disabled={busy.startsWith(`${item.email}:`)}
-                      onClick={() => action(item.email, "verify")}
-                      className="rounded-lg bg-purple-700 px-3 py-2 text-white disabled:opacity-50"
-                    >
-                      {busy === `${item.email}:verify` ? "Checking…" : "Search CRM/Recruit"}
-                    </button>
-                  )}
-                  {item.status === "verified" && (
-                    <button
-                      disabled={busy.startsWith(`${item.email}:`)}
-                      onClick={() => action(item.email, "approve")}
-                      className="rounded-lg bg-green-600 px-3 py-2 text-white disabled:opacity-50"
-                    >
-                      {busy === `${item.email}:approve` ? "Approving…" : "Approve & email link"}
-                    </button>
-                  )}
-                  {item.status === "approved" && (
-                    <button
-                      disabled={busy.startsWith(`${item.email}:`)}
-                      onClick={() => action(item.email, "resend-setup")}
-                      className="rounded-lg border px-3 py-2 text-purple-700 disabled:opacity-50"
-                    >
-                      {busy === `${item.email}:resend-setup` ? "Sending…" : "Resend link"}
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {approvals.map(item => {
+              const keyBase = `${item.email}:`;
+              const lookup = item?.zoho_lookup || {};
+
+              return (
+                <tr key={item._id || item.email} className="border-t">
+                  <td className="px-5 py-4 font-medium text-gray-800">{item.email}</td>
+                  <td className="px-5 py-4 text-gray-500">
+                    {item.requested_at
+                      ? new Date(item.requested_at).toLocaleString()
+                      : "—"}
+                  </td>
+                  <td className="px-5 py-4">
+                    <div className="font-medium text-gray-700">{getSourceSummary(item)}</div>
+                    {lookup.recruitModules?.length > 0 && (
+                      <div className="text-xs text-gray-400 mt-1">
+                        {lookup.recruitModules.join(", ")}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-5 py-4 capitalize">{item.status}</td>
+                  <td className="px-5 py-4 text-right space-x-2">
+                    {item.status === "pending" && (
+                      <>
+                        <button
+                          disabled={busy.startsWith(keyBase)}
+                          onClick={() => action(item.email, "approve")}
+                          className="rounded-lg bg-purple-600 px-3 py-2 text-white hover:bg-purple-700 disabled:opacity-50"
+                        >
+                          {busy === `${item.email}:approve`
+                            ? "Checking…"
+                            : "Check & approve"}
+                        </button>
+                      </>
+                    )}
+
+                    {item.status === "verified" && (
+                      <>
+                        <button
+                          disabled={busy.startsWith(keyBase)}
+                          onClick={() => action(item.email, "approve")}
+                          className="rounded-lg bg-purple-600 px-3 py-2 text-white hover:bg-purple-700 disabled:opacity-50"
+                        >
+                          {busy === `${item.email}:approve`
+                            ? "Approving…"
+                            : "Approve & email link"}
+                        </button>
+                      </>
+                    )}
+
+                    {item.status === "approved" && (
+                      <button
+                        disabled={busy.startsWith(keyBase)}
+                        onClick={() => action(item.email, "resend-setup")}
+                        className="rounded-lg border px-3 py-2 text-purple-700 disabled:opacity-50"
+                      >
+                        {busy === `${item.email}:resend-setup`
+                          ? "Sending…"
+                          : "Resend link"}
+                      </button>
+                    )}
+
+                  </td>
+                </tr>
+              );
+            })}
+
             {!loading && approvals.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-5 py-10 text-center text-gray-400">
+                <td colSpan={5} className="px-5 py-10 text-center text-gray-400">
                   No login approvals found.
                 </td>
               </tr>
