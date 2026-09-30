@@ -6669,7 +6669,7 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
         const looksLikeUSLocation = value => {
           if (!hasLocation(value)) return false;
           const raw = String(value).trim();
-          return /\b(usa|u\.?s\.?a?|united states)\b/i.test(raw) ||
+          return /\b(usa|u.?s.?a?|united states)\b/i.test(raw) ||
             /,\s*(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\b/i.test(raw) ||
             /^[A-Z]{3}$/i.test(raw);
         };

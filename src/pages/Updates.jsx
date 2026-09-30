@@ -14,10 +14,8 @@ import {
 import { tokenStorage, websocket } from "@/api/icpClient";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 const AUTO_REFRESH_MS = 10000;
-
 const getUpdateIcon = type => {
   const normalized = String(type || "").toLowerCase();
   if (normalized === "arrival") return <PlaneLanding className="h-5 w-5 text-blue-500" />;
@@ -27,17 +25,14 @@ const getUpdateIcon = type => {
   if (normalized === "form-submission") return <CheckCircle className="h-5 w-5 text-green-500" />;
   return <Info className="h-5 w-5 text-gray-400" />;
 };
-
 const formatDate = value => {
   if (!value) return "Date unavailable";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Date unavailable";
-
   const diffMs = Date.now() - date.getTime();
   const mins = Math.floor(Math.max(diffMs, 0) / 60000);
   const hours = Math.floor(Math.max(diffMs, 0) / 3600000);
   const days = Math.floor(Math.max(diffMs, 0) / 86400000);
-
   let relative = "Just now";
   if (mins >= 1 && mins < 60) {
     relative = `${mins} min ago`;
@@ -46,7 +41,6 @@ const formatDate = value => {
   } else if (days >= 1) {
     relative = `${days} day${days === 1 ? "" : "s"} ago`;
   }
-
   const absolute = date.toLocaleString("en-US", {
     month: "short",
     day: "numeric",
@@ -55,10 +49,8 @@ const formatDate = value => {
     minute: "2-digit",
     second: "2-digit"
   });
-
   return `${absolute} • ${relative}`;
 };
-
 export default function Updates() {
   const [updates, setUpdates] = useState([]);
   const [unread, setUnread] = useState(0);
@@ -69,7 +61,6 @@ export default function Updates() {
   const firstLoadRef = useRef(true);
   const observerRef = useRef(null);
   const readInFlightRef = useRef(new Set());
-
   const markOneRead = useCallback(async update => {
     const id = String(update?.id || update?._id || "").trim();
     if (!id || update?.is_read === true || readInFlightRef.current.has(id)) return;
@@ -96,7 +87,6 @@ export default function Updates() {
       readInFlightRef.current.delete(id);
     }
   }, []);
-
   const loadUpdates = useCallback(async ({ refreshZoho = false, silent = false } = {}) => {
     const token = tokenStorage.get();
     if (!token) { setLoading(false); return; }
@@ -141,9 +131,7 @@ export default function Updates() {
           !item.is_read &&
           !previousIds.has(String(item.id || item._id))
       ).length;
-
       setUpdates(nextUpdates);
-
       // The server count is authoritative for persisted notifications. Add any
       // local-only form receipts that are not already represented by the server.
       const serverIds = new Set(
@@ -154,7 +142,6 @@ export default function Updates() {
           !item?.is_read &&
           !serverIds.has(String(item?.id || item?._id || ""))
       ).length;
-
       setUnread(
         Math.max(
           0,
@@ -162,7 +149,6 @@ export default function Updates() {
         )
       );
       knownIdsRef.current = new Set(nextUpdates.map(item => String(item.id || item._id || "")).filter(Boolean));
-
       if (!firstLoadRef.current && newUnread > 0) {
         const newest = nextUpdates.find(item => !item.is_read && !previousIds.has(String(item.id || item._id)));
         toast.info(newUnread === 1 ? (newest?.title || "New notification") : `${newUnread} new notifications`, {
@@ -181,7 +167,6 @@ export default function Updates() {
       inFlightRef.current = false;
     }
   }, []);
-
   useEffect(() => {
     loadUpdates();
     const handleUpdate = () => loadUpdates({ silent: true });
@@ -225,14 +210,12 @@ export default function Updates() {
       websocket?.off?.("crm-recruit-updated", handleUpdate);
     };
   }, [loadUpdates]);
-
   useEffect(() => {
     if (typeof Notification !== "undefined" && Notification.permission === "default") {
       // Ask only after the user has reached the notification page.
       Notification.requestPermission().catch(() => {});
     }
   }, []);
-
   useEffect(() => {
     observerRef.current?.disconnect?.();
     const observer = new IntersectionObserver(entries => {
@@ -244,14 +227,12 @@ export default function Updates() {
     document.querySelectorAll("[data-update-card]").forEach(node => observer.observe(node));
     return () => observer.disconnect();
   }, [updates, markOneRead]);
-
   const manualRefresh = async () => {
     setRefreshing(true);
     try { await loadUpdates({ refreshZoho: true }); toast.success("Updates refreshed."); }
     catch (error) { toast.error(error.message || "Unable to refresh updates."); }
     finally { setRefreshing(false); }
   };
-
   const markAllRead = async () => {
     const token = tokenStorage.get();
     if (!token) return;
@@ -266,9 +247,7 @@ export default function Updates() {
       window.dispatchEvent(new CustomEvent("updates-read", { detail: { unread: 0 } }));
     } catch (error) { toast.error(error.message || "Unable to mark updates as read."); }
   };
-
   if (loading) return <div className="flex min-h-[360px] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
-
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -283,14 +262,12 @@ export default function Updates() {
           </Button>
         </div>
       </div>
-
       <div className="rounded-xl border bg-card p-4">
         <div className="flex items-center gap-2">
           <Bell className="h-5 w-5 text-primary" />
           <p className="font-semibold">{unread} unread update{unread === 1 ? "" : "s"}</p>
         </div>
       </div>
-
       {updates.length === 0 ? (
         <div className="rounded-xl border bg-card p-12 text-center">
           <Bell className="mx-auto h-10 w-10 text-muted-foreground" />
