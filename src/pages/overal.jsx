@@ -3507,7 +3507,7 @@ const AdminReceiptsPanel = () => {
               ? { ...item, viewed: true, viewed_at: new Date().toISOString() }
               : item
           ));
-          window.dispatchEvent(new CustomEvent('receipt-viewed', { detail: { receiptId } }));
+          // Viewing alone does not clear the pending receipt count.
         }
       }
     } catch (error) {
@@ -3671,6 +3671,20 @@ const AdminReceiptsPanel = () => {
       setSaveMessage(
         `${amountType === "credit" ? "Credit" : "Deduction"} of $${amount.toFixed(2)} saved successfully.`
       );
+
+      setReceipts(previous => previous.map(item =>
+        String(item.id || item._id) === id
+          ? {
+              ...item,
+              admin_reviewed: true,
+              admin_reviewed_at: new Date().toISOString(),
+              admin_correct_amount: amount,
+              admin_correct_amount_usd: amount,
+              admin_amount_type: amountType
+            }
+          : item
+      ));
+      window.dispatchEvent(new CustomEvent("receipt-reviewed", { detail: { receiptId: id } }));
 
       if (data.report) {
         setReportPreview(
@@ -4624,11 +4638,13 @@ const AdminPanel = () => {
 
         if (receiptsRes.ok && receiptsData.success === true) {
           setReceiptCount(
-            Number.isFinite(Number(receiptsData.unreadCount))
-              ? Number(receiptsData.unreadCount)
-              : (Array.isArray(receiptsData.receipts)
-                ? receiptsData.receipts.filter(receipt => !receipt?.viewed_at).length
-                : 0)
+            Number.isFinite(Number(receiptsData.pendingReviewCount))
+              ? Number(receiptsData.pendingReviewCount)
+              : Number.isFinite(Number(receiptsData.unreadCount))
+                ? Number(receiptsData.unreadCount)
+                : (Array.isArray(receiptsData.receipts)
+                  ? receiptsData.receipts.filter(receipt => receipt?.admin_reviewed !== true).length
+                  : 0)
           );
         }
         if (loginApprovalsRes.ok && loginApprovalsData.success === true) setLoginApprovalCount((loginApprovalsData.approvals || []).length);
@@ -4642,7 +4658,7 @@ const AdminPanel = () => {
     }, 60000);
 
     const onAdminDataUpdated = () => refreshAdminQueues();
-    const onReceiptViewed = () => {
+    const onReceiptReviewed = () => {
       setReceiptCount(previous => Math.max(0, Number(previous || 0) - 1));
       refreshAdminQueues();
     };
@@ -4651,14 +4667,14 @@ const AdminPanel = () => {
     };
 
     window.addEventListener("admin-data-updated", onAdminDataUpdated);
-    window.addEventListener("receipt-viewed", onReceiptViewed);
+    window.addEventListener("receipt-reviewed", onReceiptReviewed);
     document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
       active = false;
       clearInterval(interval);
       window.removeEventListener("admin-data-updated", onAdminDataUpdated);
-      window.removeEventListener("receipt-viewed", onReceiptViewed);
+      window.removeEventListener("receipt-reviewed", onReceiptReviewed);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
