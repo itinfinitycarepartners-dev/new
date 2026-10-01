@@ -23,7 +23,7 @@ const API_BASE =
 // in sessionStorage is safe and prevents a Zoho round-trip every time an admin
 // opens the same candidate during a work session.
 const ADMIN_DOC_CACHE_PREFIX = "icp_admin_candidate_docs_v3:";
-const ADMIN_DOC_CACHE_MAX_AGE_MS = 15 * 60 * 1000;
+const ADMIN_DOC_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
 const readAdminDocumentCache = email => {
   try {
     const raw = sessionStorage.getItem(`${ADMIN_DOC_CACHE_PREFIX}${String(email || "").trim().toLowerCase()}`);
@@ -36,6 +36,43 @@ const writeAdminDocumentCache = (email, documents) => {
   try {
     sessionStorage.setItem(`${ADMIN_DOC_CACHE_PREFIX}${String(email || "").trim().toLowerCase()}`, JSON.stringify({ savedAt: Date.now(), documents }));
   } catch (_) {}
+};
+
+const adminDocumentPrefetchInflight = new Map();
+const prefetchAdminCandidateDocuments = user => {
+  const emailValue = String(user?.email || "").trim().toLowerCase();
+  if (!emailValue || readAdminDocumentCache(emailValue)) return;
+
+  if (adminDocumentPrefetchInflight.has(emailValue)) {
+    return adminDocumentPrefetchInflight.get(emailValue);
+  }
+
+  const { userToken, adminToken } = getTokens();
+  const headers = {
+    'Accept': 'application/json',
+    ...(adminToken ? {
+      'Authorization': `AdminBearer ${adminToken}`,
+      'x-admin-token': adminToken
+    } : {}),
+    ...(!adminToken && userToken ? { 'Authorization': `Bearer ${userToken}` } : {})
+  };
+
+  const request = fetch(`${API_BASE}/api/admin/documents/${encodeURIComponent(emailValue)}`, {
+    headers,
+    credentials: 'include'
+  })
+    .then(async response => {
+      if (!response.ok) return null;
+      const data = await response.json();
+      const documents = Array.isArray(data?.documents) ? data.documents : [];
+      writeAdminDocumentCache(emailValue, documents);
+      return documents;
+    })
+    .catch(() => null)
+    .finally(() => adminDocumentPrefetchInflight.delete(emailValue));
+
+  adminDocumentPrefetchInflight.set(emailValue, request);
+  return request;
 };
 
 const ADMIN_DOCUMENT_REJECTION_REASONS = [
@@ -737,7 +774,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     // Full Zoho/Mongo data hydrates in the background and never blocks the modal.
     setAdminDetails(prev => ({
       ...prev,
-      name: user?.name || prev?.name || user?.email || "",
+      name: prev?.name || user?.name || user?.email || "",
       email: prev?.email || user?.email || "",
       status: prev?.status || user?.status || null,
       lastLogin: prev?.lastLogin || user?.lastLogin || null
@@ -745,7 +782,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     setProfile(prev => ({
       ...prev,
       email: prev?.email || user?.email || "",
-      candidateName: user?.name || prev?.candidateName || ""
+      candidateName: prev?.candidateName || user?.name || ""
     }));
     // Paint cached document metadata at the exact moment the candidate modal opens.
     // File bytes are still fetched only when a document is viewed.
@@ -822,8 +859,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
         }
         const documentsLoadPromise = fetch(`${API_BASE}/api/admin/documents/${email}`, {
           headers,
-          credentials: 'include',
-          cache: 'no-store'
+          credentials: 'include'
         })
           .then(async response => {
             if (!response.ok) throw new Error(`Document list returned ${response.status}`);
@@ -831,23 +867,9 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
             const allDocs = Array.isArray(data.documents)
               ? data.documents.filter(document => {
                   const source = String(document?.source || '').toLowerCase();
-                  const isFieldUpload =
-                    source === 'recruit_field' ||
-                    document?.crm_file_upload_field === true ||
-                    document?.field_upload === true;
-
-                  if (!isFieldUpload) return true;
-
-                  return Boolean(
-                    document?.crm_file_id ||
-                    document?.crm_file_attachment_id ||
-                    document?.crm_file_download_url ||
-                    document?.recruit_file_id ||
-                    document?.recruit_attachment_id ||
-                    document?.recruit_field_download_url ||
-                    document?.attachment_id ||
-                    document?.document_id ||
-                    document?.id
+                  return source !== 'recruit_field' || Boolean(
+                    document?.attachment_id || document?.recruit_attachment_id ||
+                    document?.crm_attachment_id || document?.document_id
                   );
                 })
               : [];
@@ -1864,20 +1886,9 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                 </p>
                                 <div className="flex gap-2 mt-1.5 items-center flex-wrap">
                                   <span className="text-[10px] uppercase font-bold tracking-wider bg-gray-100 text-gray-600 px-2 py-1 rounded-md">{category}</span>
-                                  <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-md ${['recruit', 'recruit_field', 'pending', 'custommodule1'].includes(docSource) ? 'bg-blue-50 text-blue-700' : 'bg-green-50 text-green-700'}`}>
-                                    {['recruit', 'recruit_field', 'pending', 'custommodule1'].includes(docSource) ? 'Recruit' : 'CRM'}
+                                  <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-md ${['recruit', 'pending', 'custommodule1'].includes(docSource) ? 'bg-blue-50 text-blue-700' : 'bg-green-50 text-green-700'}`}>
+                                    {['recruit', 'pending', 'custommodule1'].includes(docSource) ? 'Recruit' : 'CRM'}
                                   </span>
-                                  {(doc.crm_field_api_name || doc.recruit_field_api_name) && (
-                                    <span
-                                      className="text-[10px] font-bold tracking-wide bg-purple-50 text-purple-700 border border-purple-100 px-2 py-1 rounded-md"
-                                      title={doc.crm_field_api_name || doc.recruit_field_api_name}
-                                    >
-                                      Field: {doc.crm_field_label || doc.recruit_field_label || doc.crm_field_api_name || doc.recruit_field_api_name}
-                                      {(doc.crm_field_label || doc.recruit_field_label) && (
-                                        <span className="font-medium text-purple-400"> ({doc.crm_field_api_name || doc.recruit_field_api_name})</span>
-                                      )}
-                                    </span>
-                                  )}
                                   <span
                                     className={`text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-md ${
                                       doc.approval_status === "approved"
@@ -2410,7 +2421,14 @@ const UsersTable = ({ users, onSelectUser, onMessageUser, onBroadcast }) => {
             </thead>
             <tbody className="divide-y border-t" style={{ borderColor: THEME.border }}>
               {filtered.map((u) => (
-                <tr key={u.email} className="hover:bg-purple-50/50 transition cursor-pointer" onClick={() => onSelectUser(u)}>
+                <tr
+                  key={u.email}
+                  className="hover:bg-purple-50/50 transition cursor-pointer"
+                  onMouseEnter={() => prefetchAdminCandidateDocuments(u)}
+                  onPointerDown={() => prefetchAdminCandidateDocuments(u)}
+                  onFocus={() => prefetchAdminCandidateDocuments(u)}
+                  onClick={() => onSelectUser(u)}
+                >
                   <td className="px-5 py-3 flex items-center gap-3">
                     <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs shadow-sm" style={{ background: THEME.brand }}>
                       {initials(u.name)}
@@ -4066,45 +4084,7 @@ const LoginApprovalsPanel = () => {
       }
 
       if (mountedRef.current) {
-        const rows = Array.isArray(data.approvals) ? data.approvals : [];
-        setApprovals(rows);
-
-        const emails = [...new Set(
-          rows
-            .map(item => String(item?.email || '').trim().toLowerCase())
-            .filter(Boolean)
-        )];
-
-        if (emails.length) {
-          fetch(`${API_BASE}/api/admin/user-names?emails=${encodeURIComponent(emails.join(','))}`, {
-            credentials: "include",
-            headers: headers(),
-            cache: "no-store"
-          })
-            .then(response => response.ok ? response.json() : null)
-            .then(nameData => {
-              if (!mountedRef.current || !nameData?.success || !nameData.names) return;
-
-              setApprovals(current => current.map(item => {
-                const emailKey = String(item?.email || '').trim().toLowerCase();
-                const resolved = nameData.names[emailKey];
-
-                return {
-                  ...item,
-                  displayName:
-                    resolved?.name ||
-                    item.displayName ||
-                    item.candidateName ||
-                    item.name ||
-                    item.email,
-                  nameSource: resolved?.source || item.nameSource || null
-                };
-              }));
-            })
-            .catch(error =>
-              console.warn("[Login Approvals] Zoho name resolution failed:", error)
-            );
-        }
+        setApprovals(Array.isArray(data.approvals) ? data.approvals : []);
       }
     } catch (error) {
       if (mountedRef.current && !silent) {
@@ -4245,7 +4225,7 @@ const LoginApprovalsPanel = () => {
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-left text-gray-500">
             <tr>
-              <th className="px-5 py-3">Candidate</th>
+              <th className="px-5 py-3">Email</th>
               <th className="px-5 py-3">Requested</th>
               <th className="px-5 py-3">Found in</th>
               <th className="px-5 py-3">Status</th>
@@ -4259,17 +4239,7 @@ const LoginApprovalsPanel = () => {
 
               return (
                 <tr key={item._id || item.email} className="border-t">
-                  <td className="px-5 py-4">
-                    <div className="font-semibold text-gray-800">
-                      {item.displayName || item.candidateName || item.name || item.email}
-                    </div>
-                    <div className="text-xs text-gray-500 mt-1">{item.email}</div>
-                    {item.nameSource && (
-                      <div className="text-[11px] text-purple-600 mt-1">
-                        Name from {item.nameSource}
-                      </div>
-                    )}
-                  </td>
+                  <td className="px-5 py-4 font-medium text-gray-800">{item.email}</td>
                   <td className="px-5 py-4 text-gray-500">
                     {item.requested_at
                       ? new Date(item.requested_at).toLocaleString()
@@ -4289,20 +4259,10 @@ const LoginApprovalsPanel = () => {
                       <>
                         <button
                           disabled={busy.startsWith(keyBase)}
-                          onClick={() => action(item.email, "approve")}
-                          className="rounded-lg bg-purple-600 px-3 py-2 text-white hover:bg-purple-700 disabled:opacity-50"
-                          title="Checks CRM and Recruit, approves the request, then emails the setup link."
-                        >
-                          {busy === `${item.email}:approve`
-                            ? "Checking & approving…"
-                            : "Approve & email link"}
-                        </button>
-                        <button
-                          disabled={busy.startsWith(keyBase)}
                           onClick={() => action(item.email, "verify")}
-                          className="rounded-lg border px-3 py-2 text-purple-700 disabled:opacity-50"
+                          className="rounded-lg bg-purple-600 px-3 py-2 text-white hover:bg-purple-700 disabled:opacity-50"
                         >
-                          {busy === `${item.email}:verify` ? "Checking…" : "Check only"}
+                          {busy === `${item.email}:verify` ? "Checking…" : "Check Zoho"}
                         </button>
                       </>
                     )}
@@ -4485,8 +4445,10 @@ const AdminPanel = () => {
               if (!nameData?.success || !nameData.names) return;
               setUsers(current => current.map(user => {
                 const resolved = nameData.names[String(user.email || '').trim().toLowerCase()];
-                if (!resolved?.name) return { ...user, zohoNamePending: false };
-                return { ...user, name: resolved.name, nameSource: resolved.source || null, zohoNamePending: false };
+                if (!resolved?.name || !["CRM", "Recruit"].includes(resolved?.source)) {
+                  return { ...user, zohoNamePending: false };
+                }
+                return { ...user, name: resolved.name, nameSource: resolved.source, zohoNamePending: false };
               }));
             })
             .catch(error => {
@@ -4591,15 +4553,19 @@ const AdminPanel = () => {
         if (active) {
           setBackendHealth(previous => ({
             ...previous,
-            zoho: data?.connected === true,
-            zohoError: data?.error || data?.crmError || null
+            zoho: data?.oauthReady === true || data?.connected === true,
+            zohoError: (data?.oauthReady === true || data?.connected === true)
+              ? null
+              : (data?.error || data?.crmError || 'Zoho OAuth is not ready.')
           }));
         }
       } catch (error) {
+        // A failed health-check request means the status could not be checked;
+        // it does NOT prove that Zoho OAuth disconnected. Preserve last state.
         if (active) setBackendHealth(previous => ({
           ...previous,
-          zoho: false,
-          zohoError: error?.message || 'Unable to check Zoho connection.'
+          zoho: previous.zoho,
+          zohoError: error?.message || 'Unable to check Zoho status right now.'
         }));
       }
     };
