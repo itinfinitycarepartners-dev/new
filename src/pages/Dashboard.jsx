@@ -66,7 +66,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 // Keep the last successful dashboard payload so a hard refresh can paint
 // immediately while React Query revalidates in the background.
 const DASHBOARD_BROWSER_CACHE_PREFIX = "icp_dashboard_snapshot_v2:";
-const DASHBOARD_BROWSER_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
+const DASHBOARD_BROWSER_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 const getDashboardBrowserCacheKey = (email) =>
   `${DASHBOARD_BROWSER_CACHE_PREFIX}${String(email || "").trim().toLowerCase()}`;
@@ -75,7 +75,9 @@ const readDashboardBrowserCache = (email) => {
   if (!email || typeof window === "undefined") return null;
 
   try {
-    const raw = window.sessionStorage.getItem(
+    const raw = window.localStorage.getItem(
+      getDashboardBrowserCacheKey(email)
+    ) || window.sessionStorage.getItem(
       getDashboardBrowserCacheKey(email)
     );
     if (!raw) return null;
@@ -87,6 +89,7 @@ const readDashboardBrowserCache = (email) => {
       !parsed.savedAt ||
       Date.now() - Number(parsed.savedAt) > DASHBOARD_BROWSER_CACHE_MAX_AGE_MS
     ) {
+      window.localStorage.removeItem(getDashboardBrowserCacheKey(email));
       window.sessionStorage.removeItem(getDashboardBrowserCacheKey(email));
       return null;
     }
@@ -104,7 +107,7 @@ const writeDashboardBrowserCache = (email, data) => {
   if (!email || !data || typeof window === "undefined") return;
 
   try {
-    window.sessionStorage.setItem(
+    window.localStorage.setItem(
       getDashboardBrowserCacheKey(email),
       JSON.stringify({
         savedAt: Date.now(),
@@ -1461,8 +1464,7 @@ export default function Dashboard() {
       false,
     refetchOnReconnect:
       false,
-    refetchOnMount:
-      true,
+    refetchOnMount: true,
     queryFn:
       async () => {
         const token =
@@ -1530,6 +1532,18 @@ export default function Dashboard() {
       }
   });
 
+
+  // A cached dashboard should remain usable while the browser is switching tabs.
+  // Revalidate only when the page becomes visible again and the snapshot is old.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible" || !user?.email) return;
+      const cached = readDashboardBrowserCache(user.email);
+      if (!cached?.savedAt || Date.now() - cached.savedAt > 2 * 60 * 1000) refetch();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [user?.email, refetch]);
 
   // The summary endpoint already includes updates and unread counts.
   // Avoid a second /api/updates request on initial dashboard load.
@@ -2495,10 +2509,48 @@ export default function Dashboard() {
 
 
 
-  if (isLoading) {
+  // Never blank the dashboard while the first network request is running.
+  // React Query may already have stale browser data; when it does, that data is
+  // rendered immediately and refreshed in the background. On a first-ever
+  // visit, render the authenticated user's shell immediately instead of making
+  // the whole page wait for CRM/Recruit.
+  const dashboardHasData = Boolean(summary);
+
+  if (isLoading && !dashboardHasData) {
+    const immediateName = String(
+      user?.full_name ||
+      user?.name ||
+      user?.firstName ||
+      user?.email ||
+      "there"
+    ).trim().split(/\s+/)[0];
+
     return (
-      <div className="flex min-h-[420px] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="space-y-6">
+        <div className="relative flex min-h-[220px] flex-col justify-center overflow-hidden rounded-2xl border border-[#E8E1F2] bg-[#FDF2F8] p-6 lg:p-8">
+          <div className="relative z-10 max-w-xl">
+            <p className="text-sm font-medium text-primary">Welcome back</p>
+            <h1 className="mt-1 text-4xl font-bold leading-tight tracking-tight text-[#111827] lg:text-5xl">
+              {greeting()}, {immediateName} 👋
+            </h1>
+            <p className="mt-3 text-lg leading-7 text-[#111827]">
+              Your dashboard is opening now. Your latest pipeline and account information is being refreshed in the background.
+            </p>
+            <div className="mt-5 flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading your latest information…
+            </div>
+          </div>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {["My Pipeline", "Documents", "Messages", "Forms"].map(label => (
+            <div key={label} className="min-h-[96px] rounded-xl border bg-white p-5 shadow-sm">
+              <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+              <div className="mt-4 h-3 w-32 animate-pulse rounded bg-muted/70" />
+              <p className="mt-3 text-xs text-muted-foreground">Opening…</p>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

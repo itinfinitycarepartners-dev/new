@@ -811,7 +811,7 @@ export default function Documents() {
         user?.email
       ),
     staleTime:
-      30 * 1000,
+      2 * 60 * 1000,
     gcTime:
       5 * 60 * 1000,
     retry: 2,
@@ -888,42 +888,9 @@ export default function Documents() {
   });
 
   useEffect(() => {
-    const handleDocumentsUpdated =
-      () => {
-        refetch();
-      };
-
-    const handleVisibilityChange =
-      () => {
-        if (
-          document.visibilityState ===
-          "visible"
-        ) {
-          refetch();
-        }
-      };
-
-    window.addEventListener(
-      "documents-updated",
-      handleDocumentsUpdated
-    );
-
-    document.addEventListener(
-      "visibilitychange",
-      handleVisibilityChange
-    );
-
-    return () => {
-      window.removeEventListener(
-        "documents-updated",
-        handleDocumentsUpdated
-      );
-
-      document.removeEventListener(
-        "visibilitychange",
-        handleVisibilityChange
-      );
-    };
+    const handleDocumentsUpdated = () => refetch();
+    window.addEventListener("documents-updated", handleDocumentsUpdated);
+    return () => window.removeEventListener("documents-updated", handleDocumentsUpdated);
   }, [refetch]);
 
   const allDocs =

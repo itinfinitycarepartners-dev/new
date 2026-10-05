@@ -390,9 +390,11 @@ export default function Profile() {
 
     // Canonical source-data is the primary request. /my-deals is only a fallback
     // and starts after a short delay so it cannot compete with first paint.
+    // Cached profile is already usable; refresh quietly after the first paint.
+    // Cold loads still start immediately instead of waiting 1.8s.
     const fallbackTimer = window.setTimeout(() => {
-      if (!cancelled && !readProfileBrowserCache(email)?.data) fetchProfile();
-    }, 1800);
+      if (!cancelled) fetchProfile();
+    }, cached?.data ? 350 : 0);
 
     const refresh = () => fetchProfile();
     window.addEventListener("candidate-data-updated", refresh);
