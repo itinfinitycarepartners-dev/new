@@ -22,11 +22,9 @@ import {
   tokenStorage,
   documentLibrary
 } from "@/api/icpClient";
-
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
   "http://localhost:4000";
-
 const emptyDependant = () => ({
   name: "",
   age: "",
@@ -36,7 +34,6 @@ const emptyDependant = () => ({
   passportFile: null,
   passportPreview: ""
 });
-
 export default function MakeRequest() {
   const [loading, setLoading] =
     useState(true);
@@ -72,26 +69,21 @@ export default function MakeRequest() {
     useState(null);
   const [additionalEvidencePreview, setAdditionalEvidencePreview] =
     useState("");
-
   const requestDate =
     new Date().toLocaleDateString();
-
   const getHeaders = () => {
     const token =
       tokenStorage.get();
-
     if (!token) {
       throw new Error(
         "Your session has expired. Please sign in again."
       );
     }
-
     return {
       Authorization:
         `Bearer ${token}`
     };
   };
-
   const getUploadMetadata = (
     uploadResult,
     file
@@ -102,7 +94,6 @@ export default function MakeRequest() {
       uploadResult?.file ||
       uploadResult ||
       {};
-
     return {
       evidenceFileName:
         file?.name ||
@@ -146,14 +137,12 @@ export default function MakeRequest() {
         ).trim()
     };
   };
-
   const load = async ({
     background = false
   } = {}) => {
     if (!background) {
       setLoading(true);
     }
-
     try {
       const response =
         await fetch(
@@ -165,12 +154,10 @@ export default function MakeRequest() {
               "no-store"
           }
         );
-
       const data =
         await response
           .json()
           .catch(() => ({}));
-
       if (
         !response.ok ||
         data.success !== true
@@ -180,7 +167,6 @@ export default function MakeRequest() {
           "Unable to load requests."
         );
       }
-
       setLicenseUrl(
         String(
           data.licenseEndorsementUrl ||
@@ -215,11 +201,9 @@ export default function MakeRequest() {
       }
     }
   };
-
   useEffect(() => {
     load();
   }, []);
-
   useEffect(() => {
     return () => {
       if (embassyEvidencePreview) {
@@ -227,7 +211,6 @@ export default function MakeRequest() {
           embassyEvidencePreview
         );
       }
-
       if (additionalEvidencePreview) {
         URL.revokeObjectURL(
           additionalEvidencePreview
@@ -238,7 +221,6 @@ export default function MakeRequest() {
     embassyEvidencePreview,
     additionalEvidencePreview
   ]);
-
   const fetchWithTimeout = async (
     url,
     options = {},
@@ -246,13 +228,11 @@ export default function MakeRequest() {
   ) => {
     const controller =
       new AbortController();
-
     const timeout =
       window.setTimeout(
         () => controller.abort(),
         timeoutMs
       );
-
     try {
       return await fetch(
         url,
@@ -268,7 +248,6 @@ export default function MakeRequest() {
       );
     }
   };
-
   const submitEmbassyChange =
     async () => {
       if (
@@ -277,15 +256,12 @@ export default function MakeRequest() {
       ) {
         return;
       }
-
       const nextLocation =
         requestedEmbassyLocation
           .trim();
-
       const reason =
         embassyReason
           .trim();
-
       if (
         !nextLocation ||
         !reason ||
@@ -297,13 +273,10 @@ export default function MakeRequest() {
         );
         return;
       }
-
       setSubmitting(
         "embassy_change"
       );
-
       setNotice("");
-
       try {
         const uploadResult =
           await documentLibrary.upload({
@@ -320,7 +293,6 @@ export default function MakeRequest() {
             requirementKey:
               "embassy-transfer-evidence"
           });
-
         if (
           !uploadResult ||
           uploadResult.success !== true
@@ -331,13 +303,11 @@ export default function MakeRequest() {
             "The embassy transfer evidence could not be uploaded."
           );
         }
-
         const evidenceMetadata =
           getUploadMetadata(
             uploadResult,
             embassyEvidenceFile
           );
-
         const body = {
           embassyLocation:
             nextLocation,
@@ -351,7 +321,6 @@ export default function MakeRequest() {
             new Date()
               .toISOString()
         };
-
         let response =
           await fetchWithTimeout(
             `${API_BASE}/api/requests/embassy-change`,
@@ -380,7 +349,6 @@ export default function MakeRequest() {
             },
             15000
           );
-
         // Compatibility fallback during deployment if an older backend instance
         // is still serving traffic.
         if (
@@ -423,14 +391,12 @@ export default function MakeRequest() {
               15000
             );
         }
-
         const data =
           await response
             .json()
             .catch(
               () => ({})
             );
-
         if (
           !response.ok ||
           data.success !==
@@ -444,7 +410,6 @@ export default function MakeRequest() {
             "The embassy change request could not be submitted for approval."
           );
         }
-
         const savedRequest =
           data.request ||
           {
@@ -474,7 +439,6 @@ export default function MakeRequest() {
               new Date()
                 .toISOString()
           };
-
         setRequests(
           previous => {
             const requestId =
@@ -483,7 +447,6 @@ export default function MakeRequest() {
                 data.requestId ||
                 ""
               );
-
             const remaining =
               previous.filter(
                 item =>
@@ -502,28 +465,23 @@ export default function MakeRequest() {
                     )
                   )
               );
-
             return [
               savedRequest,
               ...remaining
             ];
           }
         );
-
         setRequestedEmbassyLocation(
           ""
         );
-
         setEmbassyReason(
           ""
         );
-
         if (embassyEvidencePreview) {
           URL.revokeObjectURL(
             embassyEvidencePreview
           );
         }
-
         setEmbassyEvidenceType(
           ""
         );
@@ -533,12 +491,10 @@ export default function MakeRequest() {
         setEmbassyEvidencePreview(
           ""
         );
-
         setNotice(
           data.message ||
           "Embassy change request submitted successfully and is awaiting admin approval."
         );
-
         window.dispatchEvent(
           new CustomEvent(
             "candidate-data-updated",
@@ -561,7 +517,6 @@ export default function MakeRequest() {
           "[MakeRequest] Embassy change submission failed:",
           error
         );
-
         setNotice(
           error?.name ===
             "AbortError"
@@ -577,18 +532,15 @@ export default function MakeRequest() {
         );
       }
     };
-
   const submit = async (
     requestType,
     details
   ) => {
     if (submitting) return;
-
     setSubmitting(
       requestType
     );
     setNotice("");
-
     try {
       const response =
         await fetchWithTimeout(
@@ -615,12 +567,10 @@ export default function MakeRequest() {
           },
           15000
         );
-
       const data =
         await response
           .json()
           .catch(() => ({}));
-
       if (
         !response.ok ||
         data.success !== true
@@ -630,7 +580,6 @@ export default function MakeRequest() {
           "The request could not be submitted."
         );
       }
-
       if (
         requestType ===
         "embassy_change"
@@ -639,15 +588,12 @@ export default function MakeRequest() {
           data.message ||
           "Embassy change request submitted for admin approval. CRM will update only after approval."
         );
-
         setRequestedEmbassyLocation(
           ""
         );
-
         setEmbassyReason(
           ""
         );
-
         if (data.request) {
           setRequests(previous => {
             const requestId =
@@ -656,7 +602,6 @@ export default function MakeRequest() {
                 data.requestId ||
                 ""
               );
-
             const withoutSame =
               previous.filter(
                 item =>
@@ -666,7 +611,6 @@ export default function MakeRequest() {
                   ) !==
                   requestId
               );
-
             return [
               data.request,
               ...withoutSame
@@ -682,13 +626,11 @@ export default function MakeRequest() {
           emptyDependant()
         );
       }
-
       // Refresh quietly. A slow Zoho read must never hold the submit button in
       // the loading state after MongoDB has already accepted the request.
       load({
         background: true
       }).catch(() => null);
-
       window.dispatchEvent(
         new CustomEvent(
           "candidate-data-updated"
@@ -708,10 +650,8 @@ export default function MakeRequest() {
       setSubmitting("");
     }
   };
-
   const submitDependant = async () => {
     if (submitting) return;
-
     const name =
       dependant.name.trim();
     const age =
@@ -724,7 +664,6 @@ export default function MakeRequest() {
       dependant.arrivalPlan.trim();
     const passportFile =
       dependant.passportFile;
-
     if (
       !name ||
       !age ||
@@ -737,12 +676,10 @@ export default function MakeRequest() {
       );
       return;
     }
-
     setSubmitting(
       "add_dependant"
     );
     setNotice("");
-
     try {
       const uploadResult =
         await documentLibrary.upload({
@@ -759,7 +696,6 @@ export default function MakeRequest() {
           requirementKey:
             "dependant-passport"
         });
-
       if (
         !uploadResult ||
         uploadResult.success !== true
@@ -770,12 +706,10 @@ export default function MakeRequest() {
           "The passport image could not be uploaded."
         );
       }
-
       const passportMetadata = getUploadMetadata(
         uploadResult,
         passportFile
       );
-
       const response =
         await fetch(
           `${API_BASE}/api/requests`,
@@ -823,12 +757,10 @@ export default function MakeRequest() {
               })
           }
         );
-
       const data =
         await response
           .json()
           .catch(() => ({}));
-
       if (
         !response.ok ||
         data.success !== true
@@ -839,7 +771,6 @@ export default function MakeRequest() {
           "The dependant approval request could not be submitted."
         );
       }
-
       if (
         dependant.passportPreview
       ) {
@@ -847,16 +778,13 @@ export default function MakeRequest() {
           dependant.passportPreview
         );
       }
-
       setDependant(
         emptyDependant()
       );
       setNotice(
         "Your dependant request and passport image were submitted successfully and are awaiting admin approval."
       );
-
       await load();
-
       window.dispatchEvent(
         new CustomEvent(
           "candidate-data-updated"
@@ -871,22 +799,18 @@ export default function MakeRequest() {
       setSubmitting("");
     }
   };
-
   const submitAdditionalInquiry = async () => {
     if (submitting) return;
-
     const inquiryType =
       additionalInquiryType.trim();
     const explanation =
       additionalInquiryExplanation.trim();
-
     if (!inquiryType) {
       setNotice(
         "Please select Job, Location or Other."
       );
       return;
     }
-
     if (
       inquiryType ===
         "Other" &&
@@ -897,12 +821,10 @@ export default function MakeRequest() {
       );
       return;
     }
-
     setSubmitting(
       "additional_inquiry"
     );
     setNotice("");
-
     try {
       let evidenceMetadata = {
         evidenceFileName: "",
@@ -912,7 +834,6 @@ export default function MakeRequest() {
         evidenceDealId: "",
         evidenceMimeType: ""
       };
-
       if (additionalEvidenceFile) {
         const uploadResult =
           await documentLibrary.upload({
@@ -929,7 +850,6 @@ export default function MakeRequest() {
             requirementKey:
               "additional-inquiry-evidence"
           });
-
         if (
           !uploadResult ||
           uploadResult.success !== true
@@ -940,14 +860,12 @@ export default function MakeRequest() {
             "The inquiry evidence could not be uploaded."
           );
         }
-
         evidenceMetadata =
           getUploadMetadata(
             uploadResult,
             additionalEvidenceFile
           );
       }
-
       const response =
         await fetchWithTimeout(
           `${API_BASE}/api/requests`,
@@ -978,12 +896,10 @@ export default function MakeRequest() {
           },
           15000
         );
-
       const data =
         await response
           .json()
           .catch(() => ({}));
-
       if (
         !response.ok ||
         data.success !== true
@@ -994,13 +910,11 @@ export default function MakeRequest() {
           "The inquiry could not be submitted."
         );
       }
-
       if (additionalEvidencePreview) {
         URL.revokeObjectURL(
           additionalEvidencePreview
         );
       }
-
       setAdditionalInquiryType(
         ""
       );
@@ -1013,16 +927,13 @@ export default function MakeRequest() {
       setAdditionalEvidencePreview(
         ""
       );
-
       setNotice(
         data.message ||
         "Your inquiry was submitted successfully for admin review."
       );
-
       await load({
         background: true
       });
-
       window.dispatchEvent(
         new CustomEvent(
           "candidate-data-updated",
@@ -1051,7 +962,6 @@ export default function MakeRequest() {
       setSubmitting("");
     }
   };
-
   if (loading) {
     return (
       <div className="flex min-h-[360px] items-center justify-center">
@@ -1059,7 +969,6 @@ export default function MakeRequest() {
       </div>
     );
   }
-
   const pendingEmbassy =
     requests.find(
       item =>
@@ -1068,7 +977,6 @@ export default function MakeRequest() {
         item.status ===
           "Pending Approval"
     );
-
   return (
     <div className="space-y-6">
       <div>
@@ -1079,14 +987,12 @@ export default function MakeRequest() {
           Submit transfer requests, dependant updates and additional inquiries to ICP.
         </p>
       </div>
-
       {notice && (
         <div className="flex items-center gap-2 rounded-lg border bg-white p-3 text-sm">
           <CheckCircle2 className="h-4 w-4 text-emerald-600" />
           {notice}
         </div>
       )}
-
       {/* Hidden until LICENSE_ENDORSEMENT_ASSISTANCE_URL is configured. */}
       {licenseUrl && (
         <section className="rounded-xl border bg-white p-5">
@@ -1101,7 +1007,6 @@ export default function MakeRequest() {
               </p>
             </div>
           </div>
-
           <a
             href={licenseUrl}
             target="_blank"
@@ -1113,7 +1018,6 @@ export default function MakeRequest() {
           </a>
         </section>
       )}
-
       <section className="rounded-xl border bg-white p-5">
         <div className="flex items-center gap-3">
           <Building2 className="h-5 w-5 text-purple-600" />
@@ -1126,12 +1030,10 @@ export default function MakeRequest() {
             </p>
           </div>
         </div>
-
         <div className="mt-4 flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
           <Calendar className="h-4 w-4" />
           Date of request: {requestDate}
         </div>
-
         <div className="mt-4 rounded-lg border bg-slate-50 px-3 py-3">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
             Current Embassy Location
@@ -1141,7 +1043,6 @@ export default function MakeRequest() {
               "Not currently available"}
           </p>
         </div>
-
         <label className="mt-4 block text-sm font-medium text-slate-700">
           New Embassy Location
         </label>
@@ -1157,7 +1058,6 @@ export default function MakeRequest() {
           autoComplete="off"
           className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
         />
-
         <label className="mt-4 block text-sm font-medium text-slate-700">
           Reason for Request
         </label>
@@ -1172,7 +1072,6 @@ export default function MakeRequest() {
           placeholder="Explain why you are requesting an embassy change."
           className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
         />
-
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <div>
             <label className="block text-sm font-medium text-slate-700">
@@ -1193,7 +1092,6 @@ export default function MakeRequest() {
               <option value="Passport">Passport</option>
             </select>
           </div>
-
           <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-dashed px-3 py-3 text-sm md:self-end">
             <Upload className="h-4 w-4 text-purple-600" />
             <div className="min-w-0 flex-1">
@@ -1213,9 +1111,7 @@ export default function MakeRequest() {
                 const file =
                   event.target.files?.[0] ||
                   null;
-
                 if (!file) return;
-
                 if (!file.type.startsWith("image/")) {
                   setNotice(
                     "Embassy transfer evidence must be uploaded as an image."
@@ -1223,7 +1119,6 @@ export default function MakeRequest() {
                   event.target.value = "";
                   return;
                 }
-
                 if (
                   file.size >
                   15 * 1024 * 1024
@@ -1234,13 +1129,11 @@ export default function MakeRequest() {
                   event.target.value = "";
                   return;
                 }
-
                 if (embassyEvidencePreview) {
                   URL.revokeObjectURL(
                     embassyEvidencePreview
                   );
                 }
-
                 setNotice("");
                 setEmbassyEvidenceFile(
                   file
@@ -1253,7 +1146,6 @@ export default function MakeRequest() {
               }}
             />
           </label>
-
           {embassyEvidencePreview && (
             <div className="md:col-span-2 rounded-lg border bg-slate-50 p-3">
               <div className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-700">
@@ -1268,7 +1160,6 @@ export default function MakeRequest() {
             </div>
           )}
         </div>
-
         {pendingEmbassy && (
           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
             <p className="font-medium">
@@ -1286,7 +1177,6 @@ export default function MakeRequest() {
             )}
           </div>
         )}
-
         <button
           type="button"
           disabled={
@@ -1316,7 +1206,6 @@ export default function MakeRequest() {
           )}
         </button>
       </section>
-
       <section className="rounded-xl border bg-white p-5">
         <div className="flex items-center gap-3">
           <UserPlus className="h-5 w-5 text-purple-600" />
@@ -1329,7 +1218,6 @@ export default function MakeRequest() {
             </p>
           </div>
         </div>
-
         {dependants.length > 0 && (
           <div className="mt-4 space-y-2">
             {dependants.map(
@@ -1366,7 +1254,6 @@ export default function MakeRequest() {
             )}
           </div>
         )}
-
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <input
             className="rounded-lg border px-3 py-2 text-sm"
@@ -1380,7 +1267,6 @@ export default function MakeRequest() {
               }))
             }
           />
-
           <input
             className="rounded-lg border px-3 py-2 text-sm"
             type="number"
@@ -1396,7 +1282,6 @@ export default function MakeRequest() {
               }))
             }
           />
-
           <select
             className="rounded-lg border px-3 py-2 text-sm"
             value={dependant.relationship}
@@ -1407,7 +1292,6 @@ export default function MakeRequest() {
             <option value="Son">Son</option>
             <option value="Daughter">Daughter</option>
           </select>
-
           <select
             className="rounded-lg border px-3 py-2 text-sm"
             value={dependant.arrivalPlan}
@@ -1424,7 +1308,6 @@ export default function MakeRequest() {
             <option value="Coming With You">Coming With You</option>
             <option value="Coming Later">Coming Later</option>
           </select>
-
           <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-dashed px-3 py-3 text-sm md:col-span-2">
             <Upload className="h-4 w-4 text-purple-600" />
             <div className="min-w-0 flex-1">
@@ -1444,9 +1327,7 @@ export default function MakeRequest() {
                 const file =
                   event.target.files?.[0] ||
                   null;
-
                 if (!file) return;
-
                 if (
                   !file.type.startsWith("image/")
                 ) {
@@ -1456,7 +1337,6 @@ export default function MakeRequest() {
                   event.target.value = "";
                   return;
                 }
-
                 if (
                   file.size >
                   15 * 1024 * 1024
@@ -1467,9 +1347,7 @@ export default function MakeRequest() {
                   event.target.value = "";
                   return;
                 }
-
                 setNotice("");
-
                 setDependant(value => {
                   if (
                     value.passportPreview
@@ -1478,7 +1356,6 @@ export default function MakeRequest() {
                       value.passportPreview
                     );
                   }
-
                   return {
                     ...value,
                     passportFile:
@@ -1494,7 +1371,6 @@ export default function MakeRequest() {
               }}
             />
           </label>
-
           {dependant.passportPreview && (
             <div className="md:col-span-2 rounded-lg border bg-slate-50 p-3">
               <div className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-700">
@@ -1509,7 +1385,6 @@ export default function MakeRequest() {
             </div>
           )}
         </div>
-
         <button
           type="button"
           disabled={
@@ -1535,7 +1410,6 @@ export default function MakeRequest() {
           Submit Dependant for Approval
         </button>
       </section>
-
       <section className="rounded-xl border bg-white p-5">
         <div className="flex items-center gap-3">
           <MessageSquareText className="h-5 w-5 text-purple-600" />
@@ -1548,7 +1422,6 @@ export default function MakeRequest() {
             </p>
           </div>
         </div>
-
         <label className="mt-4 block text-sm font-medium text-slate-700">
           Inquiry Type
         </label>
@@ -1557,22 +1430,18 @@ export default function MakeRequest() {
           onChange={event => {
             const value =
               event.target.value;
-
             setAdditionalInquiryType(
               value
             );
-
             if (value !== "Other") {
               setAdditionalInquiryExplanation(
                 ""
               );
-
               if (additionalEvidencePreview) {
                 URL.revokeObjectURL(
                   additionalEvidencePreview
                 );
               }
-
               setAdditionalEvidenceFile(
                 null
               );
@@ -1588,7 +1457,6 @@ export default function MakeRequest() {
           <option value="Location">Location</option>
           <option value="Other">Other</option>
         </select>
-
         {additionalInquiryType ===
           "Other" && (
           <>
@@ -1606,7 +1474,6 @@ export default function MakeRequest() {
               placeholder="Describe your inquiry so ICP can direct it to the right person."
               className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
             />
-
             <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-lg border border-dashed px-3 py-3 text-sm">
               <Upload className="h-4 w-4 text-purple-600" />
               <div className="min-w-0 flex-1">
@@ -1626,17 +1493,14 @@ export default function MakeRequest() {
                   const file =
                     event.target.files?.[0] ||
                     null;
-
                   if (!file) return;
-
                   const isImage = String(file.type || "").toLowerCase().startsWith("image/");
-                  const isPdf = String(file.type || "").toLowerCase() === "application/pdf" || /\.pdf$/i.test(file.name || "");
+                  const isPdf = String(file.type || "").toLowerCase() === "application/pdf" || /\\.pdf$/i.test(file.name || "");
                   if (!isImage && !isPdf) {
                     setNotice("Inquiry evidence must be an image or PDF.");
                     event.target.value = "";
                     return;
                   }
-
                   if (
                     file.size >
                     15 * 1024 * 1024
@@ -1647,13 +1511,11 @@ export default function MakeRequest() {
                     event.target.value = "";
                     return;
                   }
-
                   if (additionalEvidencePreview) {
                     URL.revokeObjectURL(
                       additionalEvidencePreview
                     );
                   }
-
                   setNotice("");
                   setAdditionalEvidenceFile(
                     file
@@ -1666,7 +1528,6 @@ export default function MakeRequest() {
                 }}
               />
             </label>
-
             {additionalEvidencePreview && (
               <div className="mt-3 rounded-lg border bg-slate-50 p-3">
                 <div className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-700">
@@ -1682,7 +1543,6 @@ export default function MakeRequest() {
             )}
           </>
         )}
-
         <button
           type="button"
           disabled={

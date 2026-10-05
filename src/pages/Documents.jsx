@@ -24,6 +24,7 @@ import {
   ChevronDown,
   ChevronUp,
   ClipboardPenLine,
+  CheckCircle,
   Plane,
   Building2
 } from "lucide-react";
@@ -34,7 +35,6 @@ import {
   useMemo,
   useState
 } from "react";
-
 const API_BASE = (() => {
   try {
     if (
@@ -45,21 +45,16 @@ const API_BASE = (() => {
       return import.meta.env.VITE_API_BASE_URL;
     }
   } catch {
-
   }
-
   return "http://localhost:4000";
 })();
-
 const WORKFLOW_SECTION_ICONS = {
   Recruiting: ClipboardPenLine,
   Immigration: FileText,
   Deployment: Plane
 };
-
 const getAuthToken = () =>
   localStorage.getItem("icp_auth_token") || "";
-
 const DEPLOYMENT_RECEIPT_TYPES = [
   { id:"visa_screen", label:"VISA Screen" },
   { id:"nclex_exam", label:"NCLEX Exam and Scheduling Fee" },
@@ -79,15 +74,12 @@ const DEPLOYMENT_RECEIPT_TYPES = [
   { id:"insurance", label:"Insurance" },
   { id:"other", label:"Other" }
 ];
-
 const REQUIRED_PROFILE_DOCUMENT_TYPES = [
   { key: "candidate-passport-picture", label: "Candidate Passport Picture", section: "Profile", order: 1, defaultDestination: "crm" },
   { key: "dependent-passport", label: "Dependent Passport", section: "Dependants", order: 2, defaultDestination: "crm" },
   { key: "dependent-resume", label: "Dependent Resume", section: "Dependants", order: 3, defaultDestination: "crm" },
   { key: "dependent-work-experience", label: "Dependent Work Experience (if applicable)", section: "Dependants", order: 4, defaultDestination: "crm" }
 ];
-
-
 const normalizeDocument = (document, index) => {
   const attachmentId =
     document.attachment_id ||
@@ -97,7 +89,6 @@ const normalizeDocument = (document, index) => {
     document.document_id ||
     document._id ||
     "";
-
   return {
     ...document,
     attachment_id: String(attachmentId),
@@ -127,14 +118,10 @@ const normalizeDocument = (document, index) => {
       document.approval_status || "approved"
   };
 };
-
 const HIDDEN_DOCUMENT_LIBRARY_CATEGORY_KEYS = new Set([
-  
 ]);
-
 const isHiddenDocument = document => {
   if (!document) return false;
-
   const categoryKey = String(
     document.document_category ||
     document.library_category ||
@@ -142,11 +129,9 @@ const isHiddenDocument = document => {
     document.requirement_key ||
     ""
   ).trim().toLowerCase();
-
   if (HIDDEN_DOCUMENT_LIBRARY_CATEGORY_KEYS.has(categoryKey)) {
     return true;
   }
-
   if (
     document.survey_submission === true ||
     document.form_submission === true ||
@@ -156,7 +141,6 @@ const isHiddenDocument = document => {
   ) {
     return true;
   }
-
   const searchable = [
     document.document_name,
     document.document_type,
@@ -166,7 +150,6 @@ const isHiddenDocument = document => {
     document.form_type,
     document.original_name
   ].filter(Boolean).join(" ").toLowerCase();
-
   return [
     "behavioral assessment",
     "behavioural assessment",
@@ -189,7 +172,6 @@ const isHiddenDocument = document => {
     "assessment form"
   ].some(pattern => searchable.includes(pattern));
 };
-
 const getDocumentKey = document =>
   document.approval_key ||
   [
@@ -202,33 +184,27 @@ const getDocumentKey = document =>
       document.document_id ||
       document.document_name
   ].join(":");
-
 const getFileExtension = documentName => {
   const name = String(documentName || "");
   const index = name.lastIndexOf(".");
-
   return index >= 0
     ? name.slice(index + 1).toLowerCase()
     : "";
 };
-
 const inferContentCategory = (
   contentType,
   documentName
 ) => {
   const type = String(contentType || "")
     .toLowerCase();
-
   const extension =
     getFileExtension(documentName);
-
   if (
     type.includes("application/pdf") ||
     extension === "pdf"
   ) {
     return "pdf";
   }
-
   if (
     type.startsWith("image/") ||
     [
@@ -243,7 +219,6 @@ const inferContentCategory = (
   ) {
     return "image";
   }
-
   if (
     type.includes("text/") ||
     [
@@ -256,16 +231,13 @@ const inferContentCategory = (
   ) {
     return "text";
   }
-
   return "other";
 };
-
 const getDocumentIcon = document => {
   const extension =
     getFileExtension(
       document.document_name
     );
-
   if (
     [
       "png",
@@ -279,7 +251,6 @@ const getDocumentIcon = document => {
   ) {
     return ImageIcon;
   }
-
   if (
     [
       "xls",
@@ -289,7 +260,6 @@ const getDocumentIcon = document => {
   ) {
     return FileSpreadsheet;
   }
-
   if (
     [
       "zip",
@@ -299,7 +269,6 @@ const getDocumentIcon = document => {
   ) {
     return FileArchive;
   }
-
   if (
     [
       "doc",
@@ -309,10 +278,8 @@ const getDocumentIcon = document => {
   ) {
     return FileType2;
   }
-
   return FileText;
 };
-
 function DocumentViewerModal({
   doc,
   isOpen,
@@ -330,15 +297,12 @@ function DocumentViewerModal({
     useState("");
   const [error, setError] =
     useState("");
-
   useEffect(() => {
     if (!isOpen || !doc) {
       return undefined;
     }
-
     let active = true;
     let createdUrl = "";
-
     const fetchDocument = async () => {
       setLoading(true);
       setError("");
@@ -346,16 +310,13 @@ function DocumentViewerModal({
       setTextContent("");
       setContentType("");
       setCategory("");
-
       try {
         const token = getAuthToken();
-
         if (!token) {
           throw new Error(
             "Your session has expired. Please sign in again."
           );
         }
-
         const documentId =
           doc.attachment_id ||
           doc.crm_attachment_id ||
@@ -364,28 +325,23 @@ function DocumentViewerModal({
           doc.document_id ||
           doc.id ||
           doc._id;
-
         if (!documentId) {
           throw new Error(
             "This document does not have a downloadable attachment ID."
           );
         }
-
         const query =
           new URLSearchParams();
-
         query.set(
           "source",
           doc.source ||
           ""
         );
-
         query.set(
           "name",
           doc.document_name ||
           ""
         );
-
         if (
           doc.candidate_id ||
           doc.recruit_record_id
@@ -396,7 +352,6 @@ function DocumentViewerModal({
             doc.recruit_record_id
           );
         }
-
         if (
           doc.deal_id ||
           doc.crm_record_id ||
@@ -409,7 +364,6 @@ function DocumentViewerModal({
             doc.crm_deal_id
           );
         }
-
         if (
           doc.custom_module1_record_id ||
           doc.recruit_custom_module1_record_id
@@ -420,7 +374,6 @@ function DocumentViewerModal({
               doc.recruit_custom_module1_record_id
           );
         }
-
         if (
           doc.crm_field_api_name
         ) {
@@ -429,7 +382,6 @@ function DocumentViewerModal({
             doc.crm_field_api_name
           );
         }
-
         if (
           doc.crm_file_upload_field ===
           true
@@ -439,7 +391,6 @@ function DocumentViewerModal({
             "true"
           );
         }
-
         const response = await fetch(
           `${API_BASE}/api/documents/view/${encodeURIComponent(
             documentId
@@ -454,27 +405,22 @@ function DocumentViewerModal({
             }
           }
         );
-
         if (!response.ok) {
           const payload = await response
             .clone()
             .json()
             .catch(() => ({}));
-
           throw new Error(
             payload.error ||
             payload.message ||
             `Document request failed (${response.status}).`
           );
         }
-
         const responseType =
           response.headers.get(
             "content-type"
           ) || "";
-
         let blob;
-
         if (
           responseType.includes(
             "application/json"
@@ -482,19 +428,16 @@ function DocumentViewerModal({
         ) {
           const payload =
             await response.json();
-
           if (!payload.base64) {
             throw new Error(
               "The server did not return document content."
             );
           }
-
           const bytes = Uint8Array.from(
             atob(payload.base64),
             character =>
               character.charCodeAt(0)
           );
-
           blob = new Blob(
             [bytes],
             {
@@ -508,25 +451,20 @@ function DocumentViewerModal({
         } else {
           blob = await response.blob();
         }
-
         if (!active) return;
-
         const resolvedType =
           blob.type ||
           responseType ||
           doc.file_type ||
           doc.document_type ||
           "application/octet-stream";
-
         const resolvedCategory =
           inferContentCategory(
             resolvedType,
             doc.document_name
           );
-
         setContentType(resolvedType);
         setCategory(resolvedCategory);
-
         if (
           resolvedCategory === "text"
         ) {
@@ -543,7 +481,6 @@ function DocumentViewerModal({
           "[Documents] Viewer error:",
           requestError
         );
-
         if (active) {
           setError(
             requestError.message ||
@@ -556,12 +493,9 @@ function DocumentViewerModal({
         }
       }
     };
-
     fetchDocument();
-
     return () => {
       active = false;
-
       if (createdUrl) {
         URL.revokeObjectURL(
           createdUrl
@@ -574,14 +508,11 @@ function DocumentViewerModal({
     doc?.source,
     doc?.crm_field_api_name
   ]);
-
   if (!isOpen || !doc) {
     return null;
   }
-
   const DocumentIcon =
     getDocumentIcon(doc);
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-3 md:p-5">
       <div className="flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
@@ -597,7 +528,6 @@ function DocumentViewerModal({
                 Back to Documents
               </span>
             </button>
-
             <div className="flex min-w-0 items-center gap-2">
               <DocumentIcon className="h-5 w-5 shrink-0 text-primary" />
               <h3 className="truncate font-semibold">
@@ -605,7 +535,6 @@ function DocumentViewerModal({
               </h3>
             </div>
           </div>
-
           <button
             type="button"
             onClick={onClose}
@@ -615,25 +544,21 @@ function DocumentViewerModal({
             <X className="h-5 w-5" />
           </button>
         </div>
-
         <div className="flex flex-wrap items-center gap-3 border-b bg-gray-50 px-4 py-2 text-xs text-gray-500">
           <span className="font-medium text-gray-700">
             {doc.document_type ||
               "Document"}
           </span>
-
           {doc.source && (
             <span className="rounded-full border bg-white px-2 py-1 uppercase">
               {doc.source}
             </span>
           )}
-
           {doc.crm_field_api_name && (
             <span className="rounded-full border bg-white px-2 py-1">
               {doc.crm_field_api_name}
             </span>
           )}
-
           {doc.uploaded_at && (
             <span className="ml-auto">
               {new Date(
@@ -642,7 +567,6 @@ function DocumentViewerModal({
             </span>
           )}
         </div>
-
         <div className="min-h-[520px] flex-1 overflow-auto bg-gray-100 p-2">
           {loading && (
             <div className="flex min-h-[520px] flex-col items-center justify-center">
@@ -652,7 +576,6 @@ function DocumentViewerModal({
               </p>
             </div>
           )}
-
           {!loading && error && (
             <div className="flex min-h-[520px] flex-col items-center justify-center px-6 text-center">
               <AlertCircle className="h-12 w-12 text-red-500" />
@@ -664,7 +587,6 @@ function DocumentViewerModal({
               </p>
             </div>
           )}
-
           {!loading &&
             !error &&
             category === "pdf" &&
@@ -675,7 +597,6 @@ function DocumentViewerModal({
                 className="min-h-[70vh] w-full rounded-lg border-0 bg-white"
               />
             )}
-
           {!loading &&
             !error &&
             category === "image" &&
@@ -688,7 +609,6 @@ function DocumentViewerModal({
                 />
               </div>
             )}
-
           {!loading &&
             !error &&
             category === "text" && (
@@ -696,7 +616,6 @@ function DocumentViewerModal({
                 {textContent}
               </pre>
             )}
-
           {!loading &&
             !error &&
             category === "other" &&
@@ -719,7 +638,6 @@ function DocumentViewerModal({
               </div>
             )}
         </div>
-
         <div className="flex justify-end border-t bg-gray-50 p-3">
           <Button
             type="button"
@@ -733,68 +651,56 @@ function DocumentViewerModal({
     </div>
   );
 }
-
 export default function Documents() {
   const { user } =
     useAuth();
-
   const queryClient =
     useQueryClient();
-
   const [
     showViewer,
     setShowViewer
   ] = useState(false);
-
   const [
     selectedDoc,
     setSelectedDoc
   ] = useState(null);
-
   const [
     searchTerm,
     setSearchTerm
   ] = useState("");
-
   const [
     sortBy,
     setSortBy
   ] = useState(
     "workflow"
   );
-
   const [
     showUpload,
     setShowUpload
   ] = useState(false);
-
   const [
     selectedDepartment,
     setSelectedDepartment
   ] = useState("");
-
   const [expandedSections, setExpandedSections] = useState({});
-
   const [
     selectedCategory,
     setSelectedCategory
   ] = useState("");
-
   const [
     selectedFile,
     setSelectedFile
   ] = useState(null);
-
   const [
     selectedReceiptType,
     setSelectedReceiptType
   ] = useState("");
-
   const [
     uploading,
     setUploading
   ] = useState(false);
-
+  const [optimisticPendingCount, setOptimisticPendingCount] = useState(0);
+  const [submissionPopup, setSubmissionPopup] = useState(null);
   const {
     data: documentData,
     isLoading,
@@ -825,13 +731,11 @@ export default function Documents() {
       async () => {
         const token =
           getAuthToken();
-
         if (!token) {
           throw new Error(
             "Authentication token not found."
           );
         }
-
         const response =
           await fetch(
             `${API_BASE}/api/documents/library`,
@@ -844,14 +748,12 @@ export default function Documents() {
               }
             }
           );
-
         const payload =
           await response
             .json()
             .catch(
               () => ({})
             );
-
         if (!response.ok) {
           throw new Error(
             payload.error ||
@@ -859,7 +761,6 @@ export default function Documents() {
             `Unable to load documents (${response.status}).`
           );
         }
-
         const documents =
           Array.isArray(
             payload.documents
@@ -868,7 +769,6 @@ export default function Documents() {
                 .map(normalizeDocument)
                 .filter(document => !isHiddenDocument(document))
             : [];
-
         const visibleCategories =
           Array.isArray(payload.categories)
             ? payload.categories.filter(
@@ -878,7 +778,6 @@ export default function Documents() {
                   )
               )
             : [];
-
         return {
           ...payload,
           documents,
@@ -886,17 +785,17 @@ export default function Documents() {
         };
       }
   });
-
   useEffect(() => {
-    const handleDocumentsUpdated = () => refetch();
+    const handleDocumentsUpdated = event => {
+      if (event?.detail?.source === "documents-upload") return;
+      refetch().catch(() => {});
+    };
     window.addEventListener("documents-updated", handleDocumentsUpdated);
     return () => window.removeEventListener("documents-updated", handleDocumentsUpdated);
   }, [refetch]);
-
   const allDocs =
     documentData?.documents ||
     [];
-
   const categories =
     Array.isArray(
       documentData?.categories
@@ -908,7 +807,6 @@ export default function Documents() {
             )
         )
       : [];
-
   const categoryByKey =
     useMemo(
       () =>
@@ -922,24 +820,20 @@ export default function Documents() {
         ),
       [categories]
     );
-
   const activeCategory =
     categoryByKey.get(
       selectedCategory
     ) ||
     null;
-
   const WORKFLOW_SECTION_ORDER = [
     "Recruiting",
     "Immigration",
     "Deployment",
   ];
-
   const departments = useMemo(
     () => WORKFLOW_SECTION_ORDER.filter(section => categories.some(category => category.section === section)),
     [categories]
   );
-
   const departmentCategories =
     useMemo(
       () =>
@@ -953,14 +847,12 @@ export default function Documents() {
         selectedDepartment
       ]
     );
-
   const filteredDocs =
     useMemo(() => {
       const term =
         searchTerm
           .trim()
           .toLowerCase();
-
       const docs =
         term
           ? allDocs.filter(
@@ -985,7 +877,6 @@ export default function Documents() {
           : [
               ...allDocs
             ];
-
       switch (sortBy) {
         case "date_desc":
           return docs.sort(
@@ -999,7 +890,6 @@ export default function Documents() {
                 0
               )
           );
-
         case "date_asc":
           return docs.sort(
             (a, b) =>
@@ -1012,7 +902,6 @@ export default function Documents() {
                 0
               )
           );
-
         case "name_asc":
           return docs.sort(
             (a, b) =>
@@ -1026,7 +915,6 @@ export default function Documents() {
                 )
               )
           );
-
         case "workflow":
         default:
           return docs.sort(
@@ -1062,17 +950,14 @@ export default function Documents() {
       searchTerm,
       sortBy
     ]);
-
   const workflowSections = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
     const documentsByCategory = new Map();
-
     for (const document of filteredDocs) {
       const key = document.document_category || "";
       if (!documentsByCategory.has(key)) documentsByCategory.set(key, []);
       documentsByCategory.get(key).push(document);
     }
-
     return WORKFLOW_SECTION_ORDER.map((section, sectionIndex) => {
       const sectionCategories = categories
         .filter(category => category.section === section)
@@ -1084,12 +969,10 @@ export default function Documents() {
           const docsMatch = (documentsByCategory.get(category.key) || []).length > 0;
           return categoryMatches || docsMatch;
         });
-
       const slots = sectionCategories.map(category => ({
         category,
         documents: (documentsByCategory.get(category.key) || []).sort((a, b) => new Date(b.uploaded_at || 0) - new Date(a.uploaded_at || 0))
       }));
-
       return {
         section, sectionIndex, slots,
         documentCount: slots.reduce((total, slot) => total + slot.documents.length, 0),
@@ -1097,21 +980,17 @@ export default function Documents() {
       };
     });
   }, [categories, filteredDocs, searchTerm]);
-
   const visibleWorkflowSections = useMemo(
     () => searchTerm.trim() ? workflowSections.filter(group => group.slots.length > 0) : workflowSections,
     [workflowSections, searchTerm]
   );
-
   const totalDocumentTypes = workflowSections.reduce((total, group) => total + group.slots.length, 0);
-
   const toggleSection = section => {
     setExpandedSections(previous => ({
       ...previous,
       [section]: !previous[section]
     }));
   };
-
   const openViewer =
     document => {
       if (
@@ -1129,16 +1008,13 @@ export default function Documents() {
         );
         return;
       }
-
       setSelectedDoc(
         document
       );
-
       setShowViewer(
         true
       );
     };
-
   const closeViewer =
     () => {
       setShowViewer(
@@ -1148,7 +1024,6 @@ export default function Documents() {
         null
       );
     };
-
   const resetUpload =
     () => {
       setSelectedDepartment(
@@ -1167,11 +1042,9 @@ export default function Documents() {
         false
       );
     };
-
   const uploadDocument =
     async event => {
       event.preventDefault();
-
       if (
         !selectedDepartment ||
         !selectedCategory ||
@@ -1187,22 +1060,18 @@ export default function Documents() {
         );
         return;
       }
-
       const token =
         getAuthToken();
-
       if (!token) {
         toast.error(
           "Your session has expired."
         );
         return;
       }
-
       const category =
         categoryByKey.get(
           selectedCategory
         );
-
       const resolvedDestination =
         category?.defaultDestination === "both"
           ? "both"
@@ -1213,52 +1082,42 @@ export default function Documents() {
               : selectedDepartment === "Recruiting"
                 ? "recruit"
                 : "crm";
-
       const formData =
         new FormData();
-
       formData.append(
         "file",
         selectedFile
       );
-
       formData.append(
         "candidate_email",
         user?.email ||
         ""
       );
-
       formData.append(
         "document_category",
         selectedCategory
       );
-
       formData.append(
         "document_type",
         category?.label ||
         selectedCategory
       );
-
       formData.append(
         "document_name",
         selectedFile.name
       );
-
       formData.append(
         "destination",
         resolvedDestination
       );
-
       formData.append(
         "document_library_upload",
         "true"
       );
-
       formData.append(
         "document_department",
         selectedDepartment
       );
-
       formData.append(
         "pipeline_section",
         selectedDepartment ===
@@ -1266,7 +1125,6 @@ export default function Documents() {
           ? "hiring"
           : selectedDepartment
       );
-
       if (
         category
           ?.requirementKey
@@ -1276,7 +1134,6 @@ export default function Documents() {
           category.requirementKey
         );
       }
-
       if (
         category
           ?.crmFieldApiName
@@ -1286,7 +1143,6 @@ export default function Documents() {
           category.crmFieldApiName
         );
       }
-
       if (
         selectedDepartment === "Deployment" &&
         selectedCategory === "expense-report"
@@ -1296,7 +1152,6 @@ export default function Documents() {
             item =>
               item.id === selectedReceiptType
           );
-
         formData.append(
           "receipt_category",
           selectedReceiptType
@@ -1315,11 +1170,9 @@ export default function Documents() {
           "documents"
         );
       }
-
       setUploading(
         true
       );
-
       try {
         const response =
           await fetch(
@@ -1335,14 +1188,12 @@ export default function Documents() {
                 formData
             }
           );
-
         const payload =
           await response
             .json()
             .catch(
               () => ({})
             );
-
         if (
           !response.ok ||
           payload.success !==
@@ -1353,39 +1204,46 @@ export default function Documents() {
             "Document upload failed."
           );
         }
-
-        toast.success(
+        const successMessage =
           payload.pending_approval === true
-            ? resolvedDestination === "both"
-              ? `${category?.label || "Document"} submitted for approval.`
-              : `${category?.label || "Document"} submitted for approval`
+            ? `${category?.label || "Document"} submitted successfully and is awaiting administrator approval.`
             : resolvedDestination === "both"
               ? `${category?.label || "Document"} uploaded to both Recruit Candidates and CRM Deals attachments successfully.`
               : resolvedDestination === "crm"
                 ? `${category?.label || "Document"} uploaded to CRM Deals attachments successfully.`
-                : `${category?.label || "Document"} uploaded to Zoho Recruit Candidates successfully.`
-        );
-
+                : `${category?.label || "Document"} uploaded to Zoho Recruit Candidates successfully.`;
+        toast.success(successMessage);
+        setSubmissionPopup({
+          title: "Submission Successful",
+          message: successMessage,
+          fileName: selectedFile?.name || category?.label || "Document",
+        });
+        if (payload.pending_approval === true) {
+          setOptimisticPendingCount((previous) =>
+            Math.max(previous, Number(documentData?.pending_count || 0)) + 1
+          );
+        }
+        // Close/reset the upload form only after the success state has been queued.
+        // The popup remains mounted even if the background library refresh reports loading.
         resetUpload();
-
         // Upload is already confirmed by the API. Do not block the UI while
         // Zoho's attachment lists are re-read; refresh the library in the
         // background and let the new upload appear as soon as Zoho exposes it.
-        refetch().catch(() => {});
-
+        window.setTimeout(() => {
+          refetch().catch(() => {});
+        }, 0);
         queryClient.invalidateQueries({
           queryKey: [
             "dashboard-summary",
             user?.email
           ]
         });
-
         window.dispatchEvent(
           new CustomEvent(
-            "documents-updated"
+            "documents-updated",
+            { detail: { source: "documents-upload" } }
           )
         );
-
         window.dispatchEvent(
           new CustomEvent(
             "pipeline-updated"
@@ -1403,13 +1261,11 @@ export default function Documents() {
         );
       }
     };
-
   const handleRefresh =
     async () => {
       try {
         const result =
           await refetch();
-
         toast.success(
           `${result.data?.documents?.length || 0} document(s) available.`
         );
@@ -1419,14 +1275,12 @@ export default function Documents() {
         );
       }
     };
-
   const renderDocumentItem =
     document => {
       const DocumentIcon =
         getDocumentIcon(
           document
         );
-
       return (
         <div
           key={
@@ -1440,19 +1294,16 @@ export default function Documents() {
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-50">
               <DocumentIcon className="h-5 w-5 text-gray-600" />
             </div>
-
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">
                 {document.document_name}
               </p>
-
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <span className="rounded-full border px-2 py-0.5">
                   {document.category_label ||
                     document.document_type ||
                     "Document"}
                 </span>
-
                 {document.uploaded_at && (
                   <span className="flex items-center gap-1">
                     <Calendar className="h-3 w-3" />
@@ -1466,20 +1317,17 @@ export default function Documents() {
                     {getFileExtension(document.document_name)}
                   </span>
                 )}
-
                 {document.approval_status === "pending" && (
                   <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-medium text-amber-700">
                     Awaiting Approval
                   </span>
                 )}
-
                 {document.approval_status === "rejected" && (
                   <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 font-medium text-red-700">
                     Rejected
                   </span>
                 )}
               </div>
-
               {document.approval_status === "rejected" && document.rejection_reason && (
                 <p className="mt-2 text-xs text-red-700">
                   Reason: {document.rejection_reason}
@@ -1487,7 +1335,6 @@ export default function Documents() {
               )}
             </div>
           </div>
-
           <Button
             type="button"
             variant="outline"
@@ -1508,11 +1355,11 @@ export default function Documents() {
         </div>
       );
     };
-
   if (
     isLoading &&
     allDocs.length ===
-      0
+      0 &&
+    !submissionPopup
   ) {
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-20">
@@ -1523,7 +1370,6 @@ export default function Documents() {
       </div>
     );
   }
-
   return (
     <div className="space-y-6">
       <DocumentViewerModal
@@ -1533,16 +1379,27 @@ export default function Documents() {
           closeViewer
         }
       />
-
+      {submissionPopup && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
+              <CheckCircle className="h-7 w-7 text-green-600" />
+            </div>
+            <h3 className="mt-4 text-lg font-bold text-gray-900">{submissionPopup.title}</h3>
+            <p className="mt-2 text-sm text-gray-600">{submissionPopup.message}</p>
+            <p className="mt-2 truncate rounded-lg bg-gray-50 px-3 py-2 text-xs font-medium text-gray-700">{submissionPopup.fileName}</p>
+            <div className="mt-5 flex justify-end">
+              <Button type="button" onClick={() => setSubmissionPopup(null)}>OK</Button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">
             Document Library
           </h1>
-
-
         </div>
-
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
@@ -1557,7 +1414,6 @@ export default function Documents() {
             <FileText className="h-4 w-4" />
             Upload Document
           </Button>
-
           <Button
             type="button"
             variant="outline"
@@ -1580,7 +1436,6 @@ export default function Documents() {
           </Button>
         </div>
       </div>
-
       {showUpload && (
         <form
           onSubmit={
@@ -1631,14 +1486,12 @@ export default function Documents() {
                   )
                 )}
               </select>
-
               {selectedDepartment && (
                 <p className="mt-1 text-xs text-muted-foreground">
                   null
                 </p>
               )}
             </div>
-
             <div>
               <label className="text-sm font-medium">
                 Document Type
@@ -1682,7 +1535,6 @@ export default function Documents() {
                 )}
               </select>
             </div>
-
             {selectedDepartment === "Deployment" &&
               selectedCategory === "expense-report" && (
                 <div>
@@ -1715,7 +1567,6 @@ export default function Documents() {
                   </select>
                 </div>
               )}
-
             <div>
               <label className="text-sm font-medium">
                 File
@@ -1746,12 +1597,11 @@ export default function Documents() {
               )}
               {selectedCategory === "prior-immigration-notices" && (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Upload prior immigration notices. 
+                  Upload prior immigration notices.&#x20;
                 </p>
               )}
             </div>
           </div>
-
           <div className="mt-4 flex flex-wrap justify-end gap-2">
             <Button
               type="button"
@@ -1765,7 +1615,6 @@ export default function Documents() {
             >
               Cancel
             </Button>
-
             <Button
               type="submit"
               disabled={
@@ -1781,7 +1630,6 @@ export default function Documents() {
               ) : (
                 <FileText className="h-4 w-4" />
               )}
-
               {uploading
                 ? "Uploading..."
                 : "Upload"}
@@ -1789,7 +1637,6 @@ export default function Documents() {
           </div>
         </form>
       )}
-
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="flex min-h-[150px] items-center rounded-xl border bg-card p-5">
           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#F5F0FF]">
@@ -1807,7 +1654,6 @@ export default function Documents() {
             </p>
           </div>
         </div>
-
         <div className="flex min-h-[150px] items-center rounded-xl border bg-card p-5">
           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#FEF3C7]">
             <Clock className="h-8 w-8 text-yellow-500" />
@@ -1817,14 +1663,13 @@ export default function Documents() {
               Awaiting Approval
             </p>
             <p className="mt-1 text-2xl font-bold">
-              {Number(documentData?.pending_count || 0)}
+              {Math.max(Number(documentData?.pending_count || 0), optimisticPendingCount)}
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
               Waiting for review
             </p>
           </div>
         </div>
-
         <div className="flex min-h-[150px] items-center rounded-xl border bg-card p-5">
           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#DCFCE7]">
             <Folder className="h-8 w-8 text-green-600" />
@@ -1842,7 +1687,6 @@ export default function Documents() {
           </div>
         </div>
       </div>
-
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4">
           <div className="flex items-start gap-3">
@@ -1859,26 +1703,19 @@ export default function Documents() {
           </div>
         </div>
       )}
-
-      {Number(
-        documentData?.pending_count ||
-        0
-      ) > 0 && (
+      {Math.max(Number(documentData?.pending_count || 0), optimisticPendingCount) > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          {Number(documentData.pending_count)} document{Number(documentData.pending_count) === 1 ? " is" : "s are"} awaiting administrator approval.
+          {Math.max(Number(documentData?.pending_count || 0), optimisticPendingCount)} document{Math.max(Number(documentData?.pending_count || 0), optimisticPendingCount) === 1 ? " is" : "s are"} awaiting administrator approval.
         </div>
       )}
-
       {Number(documentData?.rejected_count || 0) > 0 && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
           {Number(documentData.rejected_count)} document{Number(documentData.rejected_count) === 1 ? " has" : "s have"} been rejected. Review the reason below and upload a replacement.
         </div>
       )}
-
       <div className="flex flex-col gap-3 md:flex-row">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-
           <input
             type="text"
             value={
@@ -1893,7 +1730,6 @@ export default function Documents() {
             placeholder="Search document library..."
             className="w-full rounded-lg border border-border bg-background py-2 pl-10 pr-10 focus:outline-none focus:ring-2 focus:ring-primary"
           />
-
           {searchTerm && (
             <button
               type="button"
@@ -1908,7 +1744,6 @@ export default function Documents() {
             </button>
           )}
         </div>
-
         <select
           value={
             sortBy
@@ -1935,7 +1770,6 @@ export default function Documents() {
           </option>
         </select>
       </div>
-
       {visibleWorkflowSections.length === 0 ? (
         <div className="rounded-xl border border-border bg-card p-12 text-center">
           <FolderOpen className="mx-auto mb-3 h-12 w-12 text-muted-foreground" />
@@ -1950,7 +1784,6 @@ export default function Documents() {
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#3B0764] text-sm font-bold text-white">
                   {group.sectionIndex + 1}
                 </span>
-
                 {(() => {
                   const SectionIcon = WORKFLOW_SECTION_ICONS[group.section];
                   return SectionIcon ? (
@@ -1959,7 +1792,6 @@ export default function Documents() {
                     </div>
                   ) : null;
                 })()}
-
                 <div className="min-w-0 flex-1">
                   <h2 className="text-lg font-bold text-[#111827]">{group.section}</h2>
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -2003,7 +1835,6 @@ export default function Documents() {
                   )}
                 </button>
               </div>
-
               {expandedSections[group.section] && (
                 <div className="divide-y">
                   {group.slots.map((slot, slotIndex) => {
@@ -2025,7 +1856,6 @@ export default function Documents() {
                             {hasDocuments ? `${slot.documents.length} on file` : "Not submitted"}
                           </span>
                         </div>
-
                         {hasDocuments ? (
                           <div className="space-y-3 pl-10">{slot.documents.map(renderDocumentItem)}</div>
                         ) : (

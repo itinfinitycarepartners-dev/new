@@ -16904,128 +16904,9 @@ export default function Pipeline() {
           openModal("Expense Report", <ReimbursementUpload onClose={closeModal} user={user} setStages={setStages} />);
           break;
         case "reimbursementExpenses": {
-          if (
-            stage.stage_name ===
-              "Receipt Submission" &&
-            !isPipelineStageComplete(
-              stage
-            )
-          ) {
-            try {
-              const token =
-                localStorage.getItem(
-                  "icp_auth_token"
-                );
-
-              if (token) {
-                const response =
-                  await fetch(
-                    `${API_BASE}/api/reimbursement/acknowledge-expense-report`,
-                    {
-                      method:
-                        "POST",
-                      cache:
-                        "no-store",
-                      headers: {
-                        Authorization:
-                          `Bearer ${token}`,
-                        "Content-Type":
-                          "application/json"
-                      },
-                      body:
-                        JSON.stringify({
-                          acknowledged:
-                            true,
-                          trigger:
-                            "expense-report-section-click"
-                        })
-                    }
-                  );
-
-                const data =
-                  await response
-                    .json()
-                    .catch(
-                      () => ({})
-                    );
-
-                if (
-                  response.ok &&
-                  data.success ===
-                    true
-                ) {
-                  setStages(
-                    previous =>
-                      applyOrderedLocksWithDeepEntry(
-                        previous.map(
-                          item =>
-                            item.stage_name ===
-                              "Receipt Submission"
-                              ? {
-                                  ...item,
-                                  status:
-                                    "Completed",
-                                  completed:
-                                    true,
-                                  is_completed:
-                                    true,
-                                  completed_date:
-                                    data.acknowledgedAt ||
-                                    new Date()
-                                      .toISOString(),
-                                  completion_source:
-                                    "candidate_expense_report_total_click",
-                                  source_trigger_unlocked:
-                                    true,
-                                  trigger_unlocked:
-                                    true,
-                                  crm_unlocked:
-                                    true
-                                }
-                              : item
-                        )
-                      )
-                  );
-
-                  window.dispatchEvent(
-                    new CustomEvent(
-                      "pipeline-updated",
-                      {
-                        detail: {
-                          email:
-                            user?.email,
-                          stage_name:
-                            "Receipt Submission",
-                          status:
-                            "Completed",
-                          completed:
-                            true,
-                          source:
-                            "candidate_expense_report_total_click"
-                        }
-                      }
-                    )
-                  );
-                } else if (
-                  response.status !==
-                  400
-                ) {
-                  console.warn(
-                    "[Expense Report] Section-click completion failed:",
-                    data.error ||
-                    response.status
-                  );
-                }
-              }
-            } catch (error) {
-              console.warn(
-                "[Expense Report] Section-click completion failed:",
-                error?.message ||
-                error
-              );
-            }
-          }
-
+          // Open the Expense Report immediately. The old implementation waited
+          // for the acknowledgement API before mounting the modal; a slow API
+          // therefore looked like a blank section.
           openModal(
             "Reimbursement/Expenses",
             <ReimbursementExpensesView
@@ -17034,6 +16915,82 @@ export default function Pipeline() {
               setStages={setStages}
             />
           );
+
+          // Acknowledgement is deliberately background/non-blocking.
+          if (
+            stage.stage_name === "Receipt Submission" &&
+            !isPipelineStageComplete(stage)
+          ) {
+            (async () => {
+              try {
+                const token = localStorage.getItem("icp_auth_token");
+                if (!token) return;
+
+                const response = await fetch(
+                  `${API_BASE}/api/reimbursement/acknowledge-expense-report`,
+                  {
+                    method: "POST",
+                    cache: "no-store",
+                    headers: {
+                      Authorization: `Bearer ${token}`,
+                      "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                      acknowledged: true,
+                      trigger: "expense-report-section-click"
+                    })
+                  }
+                );
+
+                const data = await response.json().catch(() => ({}));
+                if (response.ok && data.success === true) {
+                  setStages(previous =>
+                    applyOrderedLocksWithDeepEntry(
+                      previous.map(item =>
+                        item.stage_name === "Receipt Submission"
+                          ? {
+                              ...item,
+                              status: "Completed",
+                              completed: true,
+                              is_completed: true,
+                              completed_date:
+                                data.acknowledgedAt || new Date().toISOString(),
+                              completion_source:
+                                "candidate_expense_report_total_click",
+                              source_trigger_unlocked: true,
+                              trigger_unlocked: true,
+                              crm_unlocked: true
+                            }
+                          : item
+                      )
+                    )
+                  );
+
+                  window.dispatchEvent(
+                    new CustomEvent("pipeline-updated", {
+                      detail: {
+                        email: user?.email,
+                        stage_name: "Receipt Submission",
+                        status: "Completed",
+                        completed: true,
+                        source: "candidate_expense_report_total_click"
+                      }
+                    })
+                  );
+                } else if (response.status !== 400) {
+                  console.warn(
+                    "[Expense Report] Section-click completion failed:",
+                    data.error || response.status
+                  );
+                }
+              } catch (error) {
+                console.warn(
+                  "[Expense Report] Section-click completion failed:",
+                  error?.message || error
+                );
+              }
+            })();
+          }
           break;
         }
         case "supportGroup":
