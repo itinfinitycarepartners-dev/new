@@ -4341,7 +4341,6 @@ const AdminPanel = () => {
   const [msgTarget, setMsgTarget] = useState(null);
   const [stats, setStats] = useState({ total: 0, active: 0, expired: 0, recruiting: 0, immigration: 0, deployment: 0, aftercare: 0 });
   const [userDepartmentFilter, setUserDepartmentFilter] = useState('');
-  const [departmentsReady, setDepartmentsReady] = useState(false);
   const departmentUsersCacheRef = useRef({ all: null, recruiting: null, immigration: null, deployment: null, aftercare: null });
   const departmentRequestRef = useRef(0);
 
@@ -4493,59 +4492,11 @@ const AdminPanel = () => {
           total: Number(uData.totalUsers || allUsers.length || 0),
           active: Number(uData.activeUsers || 0),
           expired: Number(uData.inactiveUsers || 0),
-          recruiting: 0,
-          immigration: 0,
-          deployment: 0,
-          aftercare: 0
+          recruiting: Number(uData.departmentStats?.recruiting ?? nextCache.recruiting.length),
+          immigration: Number(uData.departmentStats?.immigration ?? nextCache.immigration.length),
+          deployment: Number(uData.departmentStats?.deployment ?? nextCache.deployment.length),
+          aftercare: Number(uData.departmentStats?.aftercare ?? nextCache.aftercare.length)
         });
-        setDepartmentsReady(false);
-        const emails = allUsers.map(user => user?.email).filter(Boolean);
-        fetch(`${API_BASE}/api/admin/user-departments`, {
-          method:'POST',
-          credentials:'include',
-          headers,
-          cache:'no-store',
-          body:JSON.stringify({ emails })
-        })
-          .then(response => response.ok ? response.json() : Promise.reject(new Error(`Department resolver returned ${response.status}`)))
-          .then(departmentData => {
-            if(!departmentData?.success)return;
-            const enriched=allUsers.map(user=>{
-              const resolved=departmentData.users?.[String(user.email||'').trim().toLowerCase()];
-              if(!resolved)return user;
-              return {
-                ...user,
-                name:resolved.name||user.name||String(user.email||'').split('@')[0],
-                nameSource:resolved.nameSource||null,
-                department:resolved.department||'Unknown',
-                departmentCurrentStage:resolved.currentStage||user.departmentCurrentStage||null,
-                crmFound:resolved.crmFound===true,
-                recruitFound:resolved.recruitFound===true
-              };
-            });
-            const accurateCache={
-              all:enriched,
-              recruiting:enriched.filter(user=>String(user.department||'').toLowerCase()==='recruiting'),
-              immigration:enriched.filter(user=>String(user.department||'').toLowerCase()==='immigration'),
-              deployment:enriched.filter(user=>String(user.department||'').toLowerCase()==='deployment'),
-              aftercare:enriched.filter(user=>String(user.department||'').toLowerCase()==='aftercare')
-            };
-            departmentUsersCacheRef.current=accurateCache;
-            const selectedKey=userDepartmentFilter||'all';
-            setUsers(accurateCache[selectedKey]||accurateCache.all);
-            setStats(previous=>({
-              ...previous,
-              recruiting:Number(departmentData.stats?.recruiting||0),
-              immigration:Number(departmentData.stats?.immigration||0),
-              deployment:Number(departmentData.stats?.deployment||0),
-              aftercare:Number(departmentData.stats?.aftercare||0)
-            }));
-            setDepartmentsReady(true);
-          })
-          .catch(error=>{
-            console.warn('[Admin Users] Accurate department resolution failed:',error);
-            setDepartmentsReady(false);
-          });
       }
       if (hData.success) setLogs(hData.logs || []);
     } catch (err) {
@@ -4910,10 +4861,10 @@ const AdminPanel = () => {
           {tab === 'users' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-8">
               <StatCard icon={<Users className="w-6 h-6 text-purple-700" />} label="Portal Users" value={stats.total} subtitle="Click to show all candidates" active={!userDepartmentFilter} onClick={() => setUserDepartmentFilter('')} />
-              <StatCard icon={<Briefcase className="w-6 h-6 text-blue-700" />} label="Recruiting" value={stats.recruiting} subtitle={departmentsReady ? "Click to view candidates" : "Preparing accurate list…"} active={userDepartmentFilter === 'recruiting'} onClick={() => departmentsReady && setUserDepartmentFilter('recruiting')} />
-              <StatCard icon={<Award className="w-6 h-6 text-purple-700" />} label="Immigration" value={stats.immigration} subtitle={departmentsReady ? "Click to view candidates" : "Preparing accurate list…"} active={userDepartmentFilter === 'immigration'} onClick={() => departmentsReady && setUserDepartmentFilter('immigration')} />
-              <StatCard icon={<Plane className="w-6 h-6 text-emerald-700" />} label="Deployment" value={stats.deployment} subtitle={departmentsReady ? "Click to view candidates" : "Preparing accurate list…"} active={userDepartmentFilter === 'deployment'} onClick={() => departmentsReady && setUserDepartmentFilter('deployment')} />
-              <StatCard icon={<HeartPulse className="w-6 h-6 text-rose-700" />} label="Aftercare" value={stats.aftercare} subtitle={departmentsReady ? "Click to view candidates" : "Preparing accurate list…"} active={userDepartmentFilter === 'aftercare'} onClick={() => departmentsReady && setUserDepartmentFilter('aftercare')} />
+              <StatCard icon={<Briefcase className="w-6 h-6 text-blue-700" />} label="Recruiting" value={stats.recruiting} subtitle="Click to view candidates" active={userDepartmentFilter === 'recruiting'} onClick={() => setUserDepartmentFilter('recruiting')} />
+              <StatCard icon={<Award className="w-6 h-6 text-purple-700" />} label="Immigration" value={stats.immigration} subtitle="Click to view candidates" active={userDepartmentFilter === 'immigration'} onClick={() => setUserDepartmentFilter('immigration')} />
+              <StatCard icon={<Plane className="w-6 h-6 text-emerald-700" />} label="Deployment" value={stats.deployment} subtitle="Click to view candidates" active={userDepartmentFilter === 'deployment'} onClick={() => setUserDepartmentFilter('deployment')} />
+              <StatCard icon={<HeartPulse className="w-6 h-6 text-rose-700" />} label="Aftercare" value={stats.aftercare} subtitle="Click to view candidates" active={userDepartmentFilter === 'aftercare'} onClick={() => setUserDepartmentFilter('aftercare')} />
             </div>
           )}
           {tab === 'users' && (
@@ -4921,8 +4872,7 @@ const AdminPanel = () => {
               <button
                 type="button"
                 onClick={() => downloadUsersCsv(userDepartmentFilter)}
-                disabled={Boolean(userDepartmentFilter) && !departmentsReady}
-                className="rounded-lg border px-4 py-2 text-sm font-semibold text-purple-700 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-lg border px-4 py-2 text-sm font-semibold text-purple-700 hover:bg-purple-50"
               >
                 Download {userDepartmentFilter ? `${userDepartmentFilter.charAt(0).toUpperCase()}${userDepartmentFilter.slice(1)} ` : ''}CSV
               </button>
