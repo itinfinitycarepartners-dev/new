@@ -23,7 +23,7 @@ const API_BASE =
 // in sessionStorage is safe and prevents a Zoho round-trip every time an admin
 // opens the same candidate during a work session.
 const ADMIN_DOC_CACHE_PREFIX = "icp_admin_candidate_docs_v3:";
-const ADMIN_DOC_CACHE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
+const ADMIN_DOC_CACHE_MAX_AGE_MS = 15 * 60 * 1000;
 const readAdminDocumentCache = email => {
   try {
     const raw = sessionStorage.getItem(`${ADMIN_DOC_CACHE_PREFIX}${String(email || "").trim().toLowerCase()}`);
@@ -36,43 +36,6 @@ const writeAdminDocumentCache = (email, documents) => {
   try {
     sessionStorage.setItem(`${ADMIN_DOC_CACHE_PREFIX}${String(email || "").trim().toLowerCase()}`, JSON.stringify({ savedAt: Date.now(), documents }));
   } catch (_) {}
-};
-
-const adminDocumentPrefetchInflight = new Map();
-const prefetchAdminCandidateDocuments = user => {
-  const emailValue = String(user?.email || "").trim().toLowerCase();
-  if (!emailValue || readAdminDocumentCache(emailValue)) return;
-
-  if (adminDocumentPrefetchInflight.has(emailValue)) {
-    return adminDocumentPrefetchInflight.get(emailValue);
-  }
-
-  const { userToken, adminToken } = getTokens();
-  const headers = {
-    'Accept': 'application/json',
-    ...(adminToken ? {
-      'Authorization': `AdminBearer ${adminToken}`,
-      'x-admin-token': adminToken
-    } : {}),
-    ...(!adminToken && userToken ? { 'Authorization': `Bearer ${userToken}` } : {})
-  };
-
-  const request = fetch(`${API_BASE}/api/admin/documents/${encodeURIComponent(emailValue)}`, {
-    headers,
-    credentials: 'include'
-  })
-    .then(async response => {
-      if (!response.ok) return null;
-      const data = await response.json();
-      const documents = Array.isArray(data?.documents) ? data.documents : [];
-      writeAdminDocumentCache(emailValue, documents);
-      return documents;
-    })
-    .catch(() => null)
-    .finally(() => adminDocumentPrefetchInflight.delete(emailValue));
-
-  adminDocumentPrefetchInflight.set(emailValue, request);
-  return request;
 };
 
 const ADMIN_DOCUMENT_REJECTION_REASONS = [
@@ -642,16 +605,36 @@ const InfoRow = ({ label, value, icon: Icon, isDate = false, isTime = false }) =
   );
 };
 
-const StatCard = ({ icon, label, value, subtitle, color }) => (
-  <div className="bg-white rounded-xl border p-5 transition-all hover:shadow-md" style={{ borderColor: THEME.border }}>
-    <div className="flex items-center justify-between mb-2">
-      <span className="text-sm font-medium" style={{ color: THEME.muted }}>{label}</span>
-      <div className="p-2 rounded-lg" style={{ background: color || THEME.brandGhost }}>{icon}</div>
+const StatCard = ({ icon, label, value, subtitle, color, onClick, active = false }) => {
+  const content = (
+    <>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-sm font-medium" style={{ color: THEME.muted }}>{label}</span>
+        <div className="p-2 rounded-lg" style={{ background: color || THEME.brandGhost }}>{icon}</div>
+      </div>
+      <div className="text-3xl font-bold" style={{ color: THEME.text }}>{value}</div>
+      {subtitle && <div className="text-xs mt-1" style={{ color: THEME.muted }}>{subtitle}</div>}
+    </>
+  );
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`w-full text-left bg-white rounded-xl border p-5 transition-all hover:shadow-md hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-purple-300 ${active ? 'ring-2 ring-purple-500 shadow-md' : ''}`}
+        style={{ borderColor: active ? THEME.brand : THEME.border }}
+        aria-pressed={active}
+      >
+        {content}
+      </button>
+    );
+  }
+  return (
+    <div className="bg-white rounded-xl border p-5 transition-all hover:shadow-md" style={{ borderColor: THEME.border }}>
+      {content}
     </div>
-    <div className="text-3xl font-bold" style={{ color: THEME.text }}>{value}</div>
-    {subtitle && <div className="text-xs mt-1" style={{ color: THEME.muted }}>{subtitle}</div>}
-  </div>
-);
+  );
+};
 
 const StatusBadge = ({ status }) => (
   <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${getStatusColor(status)}`}>
@@ -859,7 +842,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
         }
         const documentsLoadPromise = fetch(`${API_BASE}/api/admin/documents/${email}`, {
           headers,
-          credentials: 'include'
+          credentials: 'include',
+          cache: 'no-store'
         })
           .then(async response => {
             if (!response.ok) throw new Error(`Document list returned ${response.status}`);
@@ -1889,6 +1873,16 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                   <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-md ${['recruit', 'pending', 'custommodule1'].includes(docSource) ? 'bg-blue-50 text-blue-700' : 'bg-green-50 text-green-700'}`}>
                                     {['recruit', 'pending', 'custommodule1'].includes(docSource) ? 'Recruit' : 'CRM'}
                                   </span>
+                                  {(doc?.crm_file_upload_field === true || doc?.field_upload === true) && docSource.includes('crm') && (doc?.crm_field_api_name || doc?.crm_field_label || doc?.field_name) && (
+                                    <span className="text-[10px] font-semibold bg-emerald-50 text-emerald-800 px-2 py-1 rounded-md" title="Zoho CRM attachment/file-upload field">
+                                      Field: {String(doc?.crm_field_label || doc?.field_label || doc?.crm_field_api_name || doc?.field_name || '').replace(/_/g, ' ')}
+                                    </span>
+                                  )}
+                                  {(doc?.crm_file_upload_field === true || doc?.field_upload === true) && docSource.includes('crm') && (doc?.crm_field_api_name || doc?.crm_field_label || doc?.field_name) && (
+                                    <span className="w-full text-xs normal-case font-medium text-gray-500">
+                                      Zoho CRM field: {String(doc?.crm_field_label || doc?.field_label || doc?.crm_field_api_name || doc?.field_name || '').replace(/_/g, ' ')}
+                                    </span>
+                                  )}
                                   <span
                                     className={`text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-md ${
                                       doc.approval_status === "approved"
@@ -2374,7 +2368,15 @@ const BroadcastModal = ({ isOpen, onClose, onSend }) => {
   );
 };
 
-const UsersTable = ({ users, onSelectUser, onMessageUser, onBroadcast }) => {
+const adminDisplayName = (user) => {
+  const stored = String(user?.name || "").trim();
+  if (stored) return stored;
+  const email = String(user?.email || "").trim();
+  const local = email.includes("@") ? email.split("@")[0] : email;
+  return local || "Candidate";
+};
+
+const UsersTable = ({ users, onSelectUser, onMessageUser, onBroadcast, departmentFilter, onDepartmentFilterChange }) => {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [showBroadcast, setShowBroadcast] = useState(false);
@@ -2400,6 +2402,13 @@ const UsersTable = ({ users, onSelectUser, onMessageUser, onBroadcast }) => {
           <option value="active">Active</option>
           <option value="expired">Expired</option>
         </select>
+        <select value={departmentFilter} onChange={(e) => onDepartmentFilterChange(e.target.value)} className="px-4 py-2 rounded-lg border focus:outline-none shadow-sm">
+          <option value="">All Departments</option>
+          <option value="recruiting">Recruiting</option>
+          <option value="immigration">Immigration</option>
+          <option value="deployment">Deployment</option>
+          <option value="aftercare">Aftercare</option>
+        </select>
         <button onClick={() => setShowBroadcast(true)} className="flex items-center gap-2 px-5 py-2 rounded-lg text-white font-semibold shadow-sm transition hover:opacity-90" style={{ background: THEME.brand }}>
           <Send className="w-4 h-4" /> Broadcast
         </button>
@@ -2412,6 +2421,7 @@ const UsersTable = ({ users, onSelectUser, onMessageUser, onBroadcast }) => {
               <tr>
                 <th className="px-5 py-3 text-left text-xs font-bold uppercase text-gray-500">User Details</th>
                 <th className="px-5 py-3 text-left text-xs font-bold uppercase text-gray-500">Pipeline Progress</th>
+                <th className="px-5 py-3 text-left text-xs font-bold uppercase text-gray-500">Department</th>
                 <th className="px-5 py-3 text-left text-xs font-bold uppercase text-gray-500">Current Stage</th>
                 <th className="px-5 py-3 text-left text-xs font-bold uppercase text-gray-500">Orientation Start</th>
                 <th className="px-5 py-3 text-left text-xs font-bold uppercase text-gray-500">Independent Floor Date</th>
@@ -2421,20 +2431,13 @@ const UsersTable = ({ users, onSelectUser, onMessageUser, onBroadcast }) => {
             </thead>
             <tbody className="divide-y border-t" style={{ borderColor: THEME.border }}>
               {filtered.map((u) => (
-                <tr
-                  key={u.email}
-                  className="hover:bg-purple-50/50 transition cursor-pointer"
-                  onMouseEnter={() => prefetchAdminCandidateDocuments(u)}
-                  onPointerDown={() => prefetchAdminCandidateDocuments(u)}
-                  onFocus={() => prefetchAdminCandidateDocuments(u)}
-                  onClick={() => onSelectUser(u)}
-                >
+                <tr key={u.email} className="hover:bg-purple-50/50 transition cursor-pointer" onClick={() => onSelectUser(u)}>
                   <td className="px-5 py-3 flex items-center gap-3">
                     <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs shadow-sm" style={{ background: THEME.brand }}>
-                      {initials(u.name)}
+                      {initials(adminDisplayName(u))}
                     </div>
                     <div>
-                      <div className="font-semibold text-sm text-gray-900">{u.zohoNamePending ? 'Loading Zoho name…' : (u.name || '—')}</div>
+                      <div className="font-semibold text-sm text-gray-900">{adminDisplayName(u)}</div>
                       <div className="text-xs text-gray-500">{u.email}</div>
                     </div>
                   </td>
@@ -2447,7 +2450,8 @@ const UsersTable = ({ users, onSelectUser, onMessageUser, onBroadcast }) => {
                       <div className="h-full bg-purple-600 rounded-full" style={{ width: `${Math.max(0, Math.min(100, u.pipeline?.percentage || 0))}%` }} />
                     </div>
                   </td>
-                  <td className="px-5 py-3 text-sm text-gray-700 min-w-[180px]">{u.pipelineLoaded ? (u.pipeline?.currentStage || 'Not started') : 'View profile'}</td>
+                  <td className="px-5 py-3 text-sm font-semibold text-gray-700 whitespace-nowrap">{u.department || '—'}</td>
+                  <td className="px-5 py-3 text-sm text-gray-700 min-w-[180px]">{u.departmentCurrentStage || (u.pipelineLoaded ? (u.pipeline?.currentStage || 'Not started') : 'View profile')}</td>
                   <td className="px-5 py-3 text-sm text-gray-600 whitespace-nowrap">{formatDate(u.orientationStartDate)}</td>
                   <td className="px-5 py-3 text-sm text-gray-600 whitespace-nowrap">{formatDate(u.independentFloorStartDate)}</td>
                   <td className="px-5 py-3 text-sm text-gray-600 whitespace-nowrap">{ET(u.lastLogin)}</td>
@@ -3507,7 +3511,7 @@ const AdminReceiptsPanel = () => {
               ? { ...item, viewed: true, viewed_at: new Date().toISOString() }
               : item
           ));
-          // Viewing alone does not clear the pending receipt count.
+          // Viewed is retained for audit; the pending badge clears after verified amount submission.
         }
       }
     } catch (error) {
@@ -3671,13 +3675,12 @@ const AdminReceiptsPanel = () => {
       setSaveMessage(
         `${amountType === "credit" ? "Credit" : "Deduction"} of $${amount.toFixed(2)} saved successfully.`
       );
-
       setReceipts(previous => previous.map(item =>
         String(item.id || item._id) === id
           ? {
               ...item,
               admin_reviewed: true,
-              admin_reviewed_at: new Date().toISOString(),
+              admin_reviewed_at: data.reviewedAt || new Date().toISOString(),
               admin_correct_amount: amount,
               admin_correct_amount_usd: amount,
               admin_amount_type: amountType
@@ -4336,7 +4339,12 @@ const AdminPanel = () => {
   const [crossOriginBlock, setCrossOriginBlock] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
   const [msgTarget, setMsgTarget] = useState(null);
-  const [stats, setStats] = useState({ total: 0, active: 0, expired: 0 });
+  const [stats, setStats] = useState({ total: 0, active: 0, expired: 0, recruiting: 0, immigration: 0, deployment: 0, aftercare: 0 });
+  const [userDepartmentFilter, setUserDepartmentFilter] = useState('');
+  const [departmentsReady, setDepartmentsReady] = useState(false);
+  const departmentUsersCacheRef = useRef({ all: null, recruiting: null, immigration: null, deployment: null, aftercare: null });
+  const departmentRequestRef = useRef(0);
+
   const [backendHealth, setBackendHealth] = useState({ zoho: false, zohoError: null, db: false });
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [receiptCount, setReceiptCount] = useState(0);
@@ -4375,7 +4383,7 @@ const AdminPanel = () => {
         ...previous,
         db: data.databaseConnected === true
       }));
-      setStats({ total: data.totalUsers || 0, active: data.activeUsers || 0, expired: data.expiredUsers || 0 });
+      setStats(previous => ({ ...previous, total: data.totalUsers || 0, active: data.activeUsers || 0, expired: data.expiredUsers || 0 }));
       setLogs(data.logs || []);
     } catch (err) {
       setError(err.message || 'Failed to connect to the backend server.');
@@ -4404,84 +4412,148 @@ const AdminPanel = () => {
     }
   }, []);
 
-  const fetchUsers = useCallback(async () => {
+  const downloadUsersCsv = useCallback(async (department = '') => {
+    try {
+      const { adminToken, userToken } = getTokens();
+      const params = new URLSearchParams({ format: 'csv' });
+      if (department) params.set('department', department);
+      const response = await fetch(`${API_BASE}/api/admin/report?${params.toString()}`, {
+        credentials: 'include',
+        headers: {
+          ...(adminToken ? { Authorization: `AdminBearer ${adminToken}`, 'x-admin-token': adminToken } : {}),
+          ...(!adminToken && userToken ? { Authorization: `Bearer ${userToken}` } : {})
+        }
+      });
+      if (!response.ok) throw new Error('Unable to generate the users CSV report.');
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${department || 'all'}-candidates.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setError(error.message || 'Unable to generate the users CSV report.');
+    }
+  }, []);
+
+  const fetchUsers = useCallback(async (department = '', options = {}) => {
+    const key = department || 'all';
+    const force = options.force === true;
+    const cached = departmentUsersCacheRef.current[key];
+    if (!force && Array.isArray(cached)) {
+      setUsers(cached);
+      setUsersLoaded(true);
+      return;
+    }
+    const requestId = ++departmentRequestRef.current;
     setLoading(true);
     setError(null);
     setCrossOriginBlock(false);
-    
     try {
       const { userToken, adminToken } = getTokens();
-      
-      const headers = { 
+      const headers = {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
         ...(userToken ? { 'Authorization': `Bearer ${userToken}` } : {}),
         ...(adminToken ? { 'x-admin-token': adminToken } : {})
       };
-
-      const usersRequest = fetch(`${API_BASE}/api/admin/users?includePipeline=false`, { 
-        method: 'GET',
-        credentials: 'include', 
-        headers 
+      const usersRequest = fetch(`${API_BASE}/api/admin/users?includePipeline=false`, {
+        method: 'GET', credentials: 'include', headers, cache: 'no-store'
       });
-
-      // History is needed only after the full Users data is requested; start it
-      // concurrently instead of making it block behind the large users query.
       const historyRequest = fetch(`${API_BASE}/api/admin/login-history?limit=200`, {
         method: 'GET', credentials: 'include', headers
       }).catch(() => ({ ok: false }));
-
       const [uRes, hRes] = await Promise.all([usersRequest, historyRequest]);
-
       if (!uRes.ok) {
         if (uRes.status === 401 || uRes.status === 403) setCrossOriginBlock(true);
         throw new Error('Your admin session has expired. Please sign in again.');
       }
-
       const uData = await uRes.json();
       const hData = hRes.ok ? await hRes.json().catch(() => ({})) : {};
-
       if (uData.success) {
-        const baseUsers = (uData.users || []).map(user => ({ ...user, zohoNamePending: true }));
-        setUsers(baseUsers);
-        setUsersLoaded(true);
-        setStats({ total: uData.totalUsers || 0, active: uData.activeUsers || 0, expired: uData.expiredUsers || 0 });
-
-        // Resolve the exact portal email against Zoho. CRM is checked first and
-        // wins whenever a CRM name exists; Recruit is used only as fallback.
-        const emails = baseUsers.map(user => user?.email).filter(Boolean);
-        if (emails.length) {
-          fetch(`${API_BASE}/api/admin/user-names?emails=${encodeURIComponent(emails.join(','))}`, {
-            credentials: 'include', headers, cache: 'no-store'
-          })
-            .then(response => response.ok ? response.json() : null)
-            .then(nameData => {
-              if (!nameData?.success || !nameData.names) return;
-              setUsers(current => current.map(user => {
-                const resolved = nameData.names[String(user.email || '').trim().toLowerCase()];
-                if (!resolved?.name || !["CRM", "Recruit"].includes(resolved?.source)) {
-                  return { ...user, zohoNamePending: false };
-                }
-                return { ...user, name: resolved.name, nameSource: resolved.source, zohoNamePending: false };
-              }));
-            })
-            .catch(error => {
-              console.warn('[Admin Users] Zoho name resolution failed:', error);
-              setUsers(current => current.map(user => ({ ...user, zohoNamePending: false })));
-            });
+        const allUsers = (uData.users || []).map(user => ({
+          ...user,
+          name: String(user?.name || "").trim() || String(user?.email || "").split("@")[0] || "Candidate",
+          zohoNamePending:false
+        }));
+        const nextCache = {
+          all: allUsers,
+          recruiting: allUsers.filter(user => String(user.department || '').toLowerCase() === 'recruiting'),
+          immigration: allUsers.filter(user => String(user.department || '').toLowerCase() === 'immigration'),
+          deployment: allUsers.filter(user => String(user.department || '').toLowerCase() === 'deployment'),
+          aftercare: allUsers.filter(user => String(user.department || '').toLowerCase() === 'aftercare')
+        };
+        departmentUsersCacheRef.current = nextCache;
+        if (requestId === departmentRequestRef.current) {
+          const selectedKey = userDepartmentFilter || key || 'all';
+          setUsers(nextCache[selectedKey] || nextCache.all);
         }
+        setUsersLoaded(true);
+        setStats({
+          total: Number(uData.totalUsers || allUsers.length || 0),
+          active: Number(uData.activeUsers || 0),
+          expired: Number(uData.inactiveUsers || 0),
+          recruiting: 0,
+          immigration: 0,
+          deployment: 0,
+          aftercare: 0
+        });
+        setDepartmentsReady(false);
+        const emails = allUsers.map(user => user?.email).filter(Boolean);
+        fetch(`${API_BASE}/api/admin/user-departments`, {
+          method:'POST',
+          credentials:'include',
+          headers,
+          cache:'no-store',
+          body:JSON.stringify({ emails })
+        })
+          .then(response => response.ok ? response.json() : Promise.reject(new Error(`Department resolver returned ${response.status}`)))
+          .then(departmentData => {
+            if(!departmentData?.success)return;
+            const enriched=allUsers.map(user=>{
+              const resolved=departmentData.users?.[String(user.email||'').trim().toLowerCase()];
+              if(!resolved)return user;
+              return {
+                ...user,
+                name:resolved.name||user.name||String(user.email||'').split('@')[0],
+                nameSource:resolved.nameSource||null,
+                department:resolved.department||'Unknown',
+                departmentCurrentStage:resolved.currentStage||user.departmentCurrentStage||null,
+                crmFound:resolved.crmFound===true,
+                recruitFound:resolved.recruitFound===true
+              };
+            });
+            const accurateCache={
+              all:enriched,
+              recruiting:enriched.filter(user=>String(user.department||'').toLowerCase()==='recruiting'),
+              immigration:enriched.filter(user=>String(user.department||'').toLowerCase()==='immigration'),
+              deployment:enriched.filter(user=>String(user.department||'').toLowerCase()==='deployment'),
+              aftercare:enriched.filter(user=>String(user.department||'').toLowerCase()==='aftercare')
+            };
+            departmentUsersCacheRef.current=accurateCache;
+            const selectedKey=userDepartmentFilter||'all';
+            setUsers(accurateCache[selectedKey]||accurateCache.all);
+            setStats(previous=>({
+              ...previous,
+              recruiting:Number(departmentData.stats?.recruiting||0),
+              immigration:Number(departmentData.stats?.immigration||0),
+              deployment:Number(departmentData.stats?.deployment||0),
+              aftercare:Number(departmentData.stats?.aftercare||0)
+            }));
+            setDepartmentsReady(true);
+          })
+          .catch(error=>{
+            console.warn('[Admin Users] Accurate department resolution failed:',error);
+            setDepartmentsReady(false);
+          });
       }
-      
-      if (hData.success) {
-        setLogs(hData.logs || []);
-      }
-
+      if (hData.success) setLogs(hData.logs || []);
     } catch (err) {
       setError(err.message || 'Failed to connect to the backend server.');
     } finally {
-      setLoading(false);
+      if (requestId === departmentRequestRef.current) setLoading(false);
     }
-  }, []);
+  }, [userDepartmentFilter]);
 
   useEffect(() => {
     fetchOverview();
@@ -4490,7 +4562,7 @@ const AdminPanel = () => {
     }, 60000);
     const onAdminDataUpdated = () => {
       fetchOverview();
-      if (usersLoaded) fetchUsers();
+      if (usersLoaded) { departmentUsersCacheRef.current = { all:null, recruiting:null, immigration:null, deployment:null, aftercare:null }; fetchUsers('', { force:true }); }
     };
     const onFocus = () => fetchOverview();
     window.addEventListener('admin-data-updated', onAdminDataUpdated);
@@ -4503,8 +4575,15 @@ const AdminPanel = () => {
   }, [fetchOverview, fetchUsers, usersLoaded]);
 
   useEffect(() => {
-    if (!usersLoaded && ['users', 'analytics', 'messages'].includes(tab)) fetchUsers();
+    if (!usersLoaded && ['users', 'analytics', 'messages'].includes(tab)) fetchUsers('');
   }, [tab, usersLoaded, fetchUsers]);
+
+  useEffect(() => {
+    if (tab !== 'users' || !usersLoaded) return;
+    const key = userDepartmentFilter || 'all';
+    const cached = departmentUsersCacheRef.current[key];
+    if (Array.isArray(cached)) setUsers(cached);
+  }, [tab, userDepartmentFilter, usersLoaded]);
 
   const handleBroadcast = async (message, target) => {
     const { adminToken, userToken } = getTokens();
@@ -4822,10 +4901,31 @@ const AdminPanel = () => {
             </div>
           )}
 
-          {(tab === 'overview' || tab === 'users' || tab === 'analytics') && (
+          {(tab === 'overview' || tab === 'analytics') && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
               <StatCard icon={<Users className="w-6 h-6 text-purple-700" />} label="Total Users" value={stats.total} />
               <StatCard icon={<UserCheck className="w-6 h-6 text-green-600" />} label="Active Sessions" value={stats.active} color={THEME.greenLight} />
+            </div>
+          )}
+          {tab === 'users' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-8">
+              <StatCard icon={<Users className="w-6 h-6 text-purple-700" />} label="Portal Users" value={stats.total} subtitle="Click to show all candidates" active={!userDepartmentFilter} onClick={() => setUserDepartmentFilter('')} />
+              <StatCard icon={<Briefcase className="w-6 h-6 text-blue-700" />} label="Recruiting" value={stats.recruiting} subtitle={departmentsReady ? "Click to view candidates" : "Preparing accurate list…"} active={userDepartmentFilter === 'recruiting'} onClick={() => departmentsReady && setUserDepartmentFilter('recruiting')} />
+              <StatCard icon={<Award className="w-6 h-6 text-purple-700" />} label="Immigration" value={stats.immigration} subtitle={departmentsReady ? "Click to view candidates" : "Preparing accurate list…"} active={userDepartmentFilter === 'immigration'} onClick={() => departmentsReady && setUserDepartmentFilter('immigration')} />
+              <StatCard icon={<Plane className="w-6 h-6 text-emerald-700" />} label="Deployment" value={stats.deployment} subtitle={departmentsReady ? "Click to view candidates" : "Preparing accurate list…"} active={userDepartmentFilter === 'deployment'} onClick={() => departmentsReady && setUserDepartmentFilter('deployment')} />
+              <StatCard icon={<HeartPulse className="w-6 h-6 text-rose-700" />} label="Aftercare" value={stats.aftercare} subtitle={departmentsReady ? "Click to view candidates" : "Preparing accurate list…"} active={userDepartmentFilter === 'aftercare'} onClick={() => departmentsReady && setUserDepartmentFilter('aftercare')} />
+            </div>
+          )}
+          {tab === 'users' && (
+            <div className="mb-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => downloadUsersCsv(userDepartmentFilter)}
+                disabled={Boolean(userDepartmentFilter) && !departmentsReady}
+                className="rounded-lg border px-4 py-2 text-sm font-semibold text-purple-700 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Download {userDepartmentFilter ? `${userDepartmentFilter.charAt(0).toUpperCase()}${userDepartmentFilter.slice(1)} ` : ''}CSV
+              </button>
             </div>
           )}
 
@@ -4852,7 +4952,7 @@ const AdminPanel = () => {
             </div>
           )}
 
-          {tab === 'users' && <UsersTable users={users} onSelectUser={setSelectedUser} onMessageUser={openMessageThread} onBroadcast={handleBroadcast} />}
+          {tab === 'users' && <UsersTable users={users} onSelectUser={setSelectedUser} onMessageUser={openMessageThread} onBroadcast={handleBroadcast} departmentFilter={userDepartmentFilter} onDepartmentFilterChange={setUserDepartmentFilter} />}
           {tab === 'analytics' && <AnalyticsPanel users={users} logs={logs} />}
           {tab === 'messages' && <MessagingPanel users={users} initialTarget={msgTarget} />}
           {tab === 'requests' && <AdminRequestsPanel onOpenUser={setSelectedUser} />}
