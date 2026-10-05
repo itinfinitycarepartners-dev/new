@@ -15,7 +15,9 @@ const API_BASE = (() => {
   } catch (e) {
     // Fall through to default
   }
-  return 'https://deploy-3or5.onrender.com';
+  return import.meta.env?.PROD
+    ? 'https://icpcandidateportal-bve7d5bpdnftfbbc.centralus-01.azurewebsites.net'
+    : 'http://localhost:4000';
 })();
 
 // Build a base44-shaped object so existing import patterns work
