@@ -1,4 +1,4 @@
- // @ts-nocheck
+  // @ts-nocheck
     import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
     import { renderAsync as renderDocx } from 'docx-preview';
     import {
@@ -20,12 +20,17 @@
     // in sessionStorage is safe and prevents a Zoho round-trip every time an admin
     // opens the same candidate during a work session.
     const ADMIN_DOC_CACHE_PREFIX = "icp_admin_candidate_docs_v4:";
+    const adminDocumentMemoryCache = new Map();
     const ADMIN_DOC_CACHE_MAX_AGE_MS = 15 * 60 * 1000;
     const readAdminDocumentCache = email => {
+      const normalized=String(email || "").trim().toLowerCase();
+      const memory=adminDocumentMemoryCache.get(normalized);
+      if (memory && Date.now()-Number(memory.savedAt||0)<=ADMIN_DOC_CACHE_MAX_AGE_MS) return memory.documents;
       try {
-        const raw = sessionStorage.getItem(`${ADMIN_DOC_CACHE_PREFIX}${String(email || "").trim().toLowerCase()}`);
+        const raw = sessionStorage.getItem(`${ADMIN_DOC_CACHE_PREFIX}${normalized}`);
         const parsed = raw ? JSON.parse(raw) : null;
         if (!parsed?.documents || Date.now() - Number(parsed.savedAt || 0) > ADMIN_DOC_CACHE_MAX_AGE_MS) return null;
+        adminDocumentMemoryCache.set(normalized,{savedAt:Number(parsed.savedAt||Date.now()),documents:parsed.documents});
         return parsed.documents;
       } catch (_) { return null; }
     };
@@ -37,6 +42,7 @@
         const existing = existingRaw ? JSON.parse(existingRaw) : null;
         const existingDocs = Array.isArray(existing?.documents) ? existing.documents : [];
         if (existingDocs.length > incoming.length) return;
+        adminDocumentMemoryCache.set(String(email || "").trim().toLowerCase(), { savedAt: Date.now(), documents: incoming });
         sessionStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), documents: incoming }));
       } catch (_) {}
     };
@@ -3822,7 +3828,7 @@
             throw new Error(data.message || "Unable to load login approvals.");
           }
           if (mountedRef.current) {
-            setApprovals(Array.isArray(data.approvals) ? data.approvals : []);
+            setApprovals((Array.isArray(data.approvals) ? data.approvals : []).filter(item => item?.status === "pending" || item?.status === "verified"));
           }
         } catch (error) {
           if (mountedRef.current && !silent) {
@@ -3873,20 +3879,29 @@
           );
         }
         try {
-          const response = await fetch(
-            `${API_BASE}/api/admin/login-approvals/${encodeURIComponent(email)}/${actionName}`,
-            {
-              method: "POST",
-              credentials: "include",
-              headers: headers(),
-              cache: "no-store",
-              body: JSON.stringify(body)
-            }
-          );
+          const controller = new AbortController();
+          const timeout = window.setTimeout(() => controller.abort(), 25000);
+          let response;
+          try {
+            response = await fetch(
+              `${API_BASE}/api/admin/login-approvals/${encodeURIComponent(email)}/${actionName}`,
+              {
+                method: "POST",
+                credentials: "include",
+                headers: headers(),
+                cache: "no-store",
+                body: JSON.stringify(body),
+                signal: controller.signal
+              }
+            );
+          } finally {
+            window.clearTimeout(timeout);
+          }
           const data = await response.json().catch(() => ({}));
           if (!response.ok || !data.success) {
             throw new Error(data.message || "Action failed.");
           }
+          if (actionName === "approve") setApprovals(current => current.filter(item => item.email !== email));
           setNotice(data.message || "Action completed successfully.");
           window.dispatchEvent(
             new CustomEvent("login-approval-updated", {
@@ -3901,7 +3916,11 @@
           load({ silent: true });
         } catch (error) {
           setApprovals(previousApprovals);
-          setNotice(error.message || "Action failed.");
+          setNotice(
+            error?.name === "AbortError"
+              ? "Zoho verification took too long. The request was stopped after 25 seconds; please try again."
+              : (error.message || "Action failed.")
+          );
         } finally {
           setBusy("");
         }
@@ -4206,7 +4225,7 @@
               name: String(user?.name || "").trim() || String(user?.email || "").split("@")[0] || "Candidate",
               zohoNamePending:false
             }));
-            const nextCache = {
+const nextCache = {
               all: allUsers,
               recruiting: allUsers.filter(user => String(user.department || '').toLowerCase() === 'recruiting'),
               immigration: allUsers.filter(user => String(user.department || '').toLowerCase() === 'immigration'),
