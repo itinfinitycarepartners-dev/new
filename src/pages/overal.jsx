@@ -1,4 +1,4 @@
-// @ts-nocheck
+ // @ts-nocheck
     import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
     import { renderAsync as renderDocx } from 'docx-preview';
     import {
@@ -3789,6 +3789,38 @@
         </div>
       );
     };
+    const getLoginApprovalEmailValidation = item => {
+      const backendValidation = item?.email_validation;
+      if (backendValidation && typeof backendValidation.valid === "boolean") {
+        return backendValidation;
+      }
+      const email = String(item?.email || "").trim().toLowerCase();
+      const reasons = [];
+      if (!email) reasons.push("Email is empty.");
+      if (/\s/.test(email)) reasons.push("Email contains spaces.");
+      const atCount = (email.match(/@/g) || []).length;
+      if (atCount !== 1) reasons.push("Email must contain exactly one @ symbol.");
+      const [local = "", domain = ""] = email.split("@");
+      if (!local) reasons.push("Email is missing the part before @.");
+      if (!domain) reasons.push("Email is missing the domain after @.");
+      if (domain && !domain.includes(".")) reasons.push("Email domain is incomplete and has no dot.");
+      const obviousDomainTypos = {
+        "gmail.co": "gmail.com",
+        "gmail.com.o": "gmail.com",
+        "gmail.con": "gmail.com",
+        "gmail.cmo": "gmail.com",
+        "gamil.com": "gmail.com",
+        "gmial.com": "gmail.com",
+        "yahoo.co": "yahoo.com",
+        "yahoo.con": "yahoo.com",
+        "outlook.co": "outlook.com",
+        "hotmail.co": "hotmail.com"
+      };
+      if (domain && obviousDomainTypos[domain]) {
+        reasons.push(`Email domain looks mistyped. Did they mean ${obviousDomainTypos[domain]}?`);
+      }
+      return { valid: reasons.length === 0, email, reasons, reason: reasons[0] || null };
+    };
     const LoginApprovalsPanel = () => {
       const [approvals, setApprovals] = useState([]);
       const [loading, setLoading] = useState(true);
@@ -3828,7 +3860,11 @@
             throw new Error(data.message || "Unable to load login approvals.");
           }
           if (mountedRef.current) {
-            setApprovals((Array.isArray(data.approvals) ? data.approvals : []).filter(item => item?.status === "pending" || item?.status === "verified"));
+            setApprovals((Array.isArray(data.approvals) ? data.approvals : []).filter(item =>
+              item?.status === "pending" ||
+              item?.status === "verified" ||
+              (item?.status === "approved" && !item?.corrected_link_resent_at)
+            ));
           }
         } catch (error) {
           if (mountedRef.current && !silent) {
@@ -3901,7 +3937,20 @@
           if (!response.ok || !data.success) {
             throw new Error(data.message || "Action failed.");
           }
-          if (actionName === "approve") setApprovals(current => current.filter(item => item.email !== email));
+          if (
+            actionName === "approve" ||
+            actionName === "resend-setup" ||
+            actionName === "reject-invalid" ||
+            data?.removeFromList === true ||
+            data?.status === "not_found_notified"
+          ) {
+            setApprovals(current =>
+              current.filter(item =>
+                String(item?.email || "").trim().toLowerCase() !==
+                String(email || "").trim().toLowerCase()
+              )
+            );
+          }
           setNotice(data.message || "Action completed successfully.");
           window.dispatchEvent(
             new CustomEvent("login-approval-updated", {
@@ -3974,9 +4023,23 @@
                 {approvals.map(item => {
                   const keyBase = `${item.email}:`;
                   const lookup = item?.zoho_lookup || {};
+                  const emailValidation = getLoginApprovalEmailValidation(item);
+                  const invalidEmail = emailValidation.valid === false;
                   return (
                     <tr key={item._id || item.email} className="border-t">
-                      <td className="px-5 py-4 font-medium text-gray-800">{item.email}</td>
+                      <td className="px-5 py-4">
+                        <div className="font-medium text-gray-800">{item.email}</div>
+                        {invalidEmail && (
+                          <div className="mt-1">
+                            <span className="inline-flex rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">
+                              Invalid email
+                            </span>
+                            <div className="mt-1 max-w-sm text-xs text-red-600">
+                              {emailValidation.reasons?.join(" ") || "Email does not pass validation."}
+                            </div>
+                          </div>
+                        )}
+                      </td>
                       <td className="px-5 py-4 text-gray-500">
                         {item.requested_at
                           ? new Date(item.requested_at).toLocaleString()
@@ -3992,40 +4055,50 @@
                       </td>
                       <td className="px-5 py-4 capitalize">{item.status}</td>
                       <td className="px-5 py-4 text-right space-x-2">
-                        {item.status === "pending" && (
-                          <>
-                            <button
-                              disabled={busy.startsWith(keyBase)}
-                              onClick={() => action(item.email, "verify")}
-                              className="rounded-lg bg-purple-600 px-3 py-2 text-white hover:bg-purple-700 disabled:opacity-50"
-                            >
-                              {busy === `${item.email}:verify` ? "Checking…" : "Check Zoho"}
-                            </button>
-                          </>
-                        )}
-                        {item.status === "verified" && (
-                          <>
-                            <button
-                              disabled={busy.startsWith(keyBase)}
-                              onClick={() => action(item.email, "approve")}
-                              className="rounded-lg bg-purple-600 px-3 py-2 text-white hover:bg-purple-700 disabled:opacity-50"
-                            >
-                              {busy === `${item.email}:approve`
-                                ? "Approving…"
-                                : "Approve & email link"}
-                            </button>
-                          </>
-                        )}
-                        {item.status === "approved" && (
+                        {invalidEmail ? (
                           <button
                             disabled={busy.startsWith(keyBase)}
-                            onClick={() => action(item.email, "resend-setup")}
-                            className="rounded-lg border px-3 py-2 text-purple-700 disabled:opacity-50"
+                            onClick={() => action(item.email, "reject-invalid")}
+                            className="rounded-lg bg-red-600 px-3 py-2 text-white hover:bg-red-700 disabled:opacity-50"
                           >
-                            {busy === `${item.email}:resend-setup`
-                              ? "Sending…"
-                              : "Resend link"}
+                            {busy === `${item.email}:reject-invalid`
+                              ? "Rejecting…"
+                              : "Reject invalid email"}
                           </button>
+                        ) : (
+                          <>
+                            {item.status === "pending" && (
+                              <button
+                                disabled={busy.startsWith(keyBase)}
+                                onClick={() => action(item.email, "verify")}
+                                className="rounded-lg bg-purple-600 px-3 py-2 text-white hover:bg-purple-700 disabled:opacity-50"
+                              >
+                                {busy === `${item.email}:verify` ? "Checking…" : "Check Zoho"}
+                              </button>
+                            )}
+                            {item.status === "verified" && (
+                              <button
+                                disabled={busy.startsWith(keyBase)}
+                                onClick={() => action(item.email, "approve")}
+                                className="rounded-lg bg-purple-600 px-3 py-2 text-white hover:bg-purple-700 disabled:opacity-50"
+                              >
+                                {busy === `${item.email}:approve`
+                                  ? "Approving…"
+                                  : "Approve & email link"}
+                              </button>
+                            )}
+                            {item.status === "approved" && (
+                              <button
+                                disabled={busy.startsWith(keyBase)}
+                                onClick={() => action(item.email, "resend-setup")}
+                                className="rounded-lg border px-3 py-2 text-purple-700 disabled:opacity-50"
+                              >
+                                {busy === `${item.email}:resend-setup`
+                                  ? "Sending…"
+                                  : "Resend link"}
+                              </button>
+                            )}
+                          </>
                         )}
                       </td>
                     </tr>
