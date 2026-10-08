@@ -8,7 +8,7 @@ import {
   Building2, Calendar, Award, FileText, CheckCircle, Building, 
   Loader2, CalendarDays, FolderOpen, Folder, Clock, User, 
   Plane, HeartPulse, FileCheck, DollarSign, Activity, GitBranch, Receipt, ClipboardList,
-  CheckCircle2, Circle, AlertCircle, Layers
+  CheckCircle2, Circle, AlertCircle, Layers, Bell
 } from 'lucide-react';
 
 import { STAGES_CONFIG } from '@/constants/stagesConfig';
@@ -4337,7 +4337,132 @@ const LoginApprovalsPanel = () => {
   );
 };
 
+
+// Admin submission notifications use the existing persistent backend read state.
+const adminNotificationHeaders = () => {
+  const { adminToken, userToken } = getTokens();
+  return {
+    Accept: 'application/json',
+    ...(adminToken ? { Authorization: `AdminBearer ${adminToken}`, 'x-admin-token': adminToken } : {}),
+    ...(!adminToken && userToken ? { Authorization: `Bearer ${userToken}` } : {})
+  };
+};
+
+const useAdminNotifications = () => {
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState('');
+  const mounted = useRef(false);
+  const requestVersion = useRef(0);
+  const refresh = useCallback(async () => {
+    const version = ++requestVersion.current;
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/notifications`, {
+        credentials: 'include', cache: 'no-store', headers: adminNotificationHeaders()
+      });
+      const data = await response.json();
+      if (!response.ok || data.success !== true) throw new Error(data.error || 'Unable to load notifications.');
+      if (mounted.current && version === requestVersion.current) {
+        setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
+        setError('');
+      }
+    } catch (err) {
+      if (mounted.current && version === requestVersion.current) setError(err.message || 'Unable to load notifications.');
+    } finally {
+      if (mounted.current && version === requestVersion.current) setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    mounted.current = true;
+    refresh();
+    const onUpdate = () => { if (document.visibilityState === 'visible') refresh(); };
+    const timer = window.setInterval(onUpdate, 30000);
+    window.addEventListener('admin-data-updated', onUpdate);
+    document.addEventListener('visibilitychange', onUpdate);
+    return () => {
+      mounted.current = false;
+      ++requestVersion.current;
+      window.clearInterval(timer);
+      window.removeEventListener('admin-data-updated', onUpdate);
+      document.removeEventListener('visibilitychange', onUpdate);
+    };
+  }, [refresh]);
+  const markRead = useCallback(async item => {
+    if (item.read) return true;
+    setBusy(item.id);
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/notifications/read`, {
+        method: 'POST', credentials: 'include',
+        headers: { ...adminNotificationHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notificationId: item.id })
+      });
+      const data = await response.json();
+      if (!response.ok || data.success !== true) throw new Error(data.error || 'Unable to mark notification as read.');
+      if (mounted.current) {
+        ++requestVersion.current;
+        setLoading(false);
+        setNotifications(previous => previous.map(row => row.id === item.id ? { ...row, read: true, readAt: data.readAt } : row));
+        setError('');
+        await refresh();
+      }
+      return true;
+    } catch (err) {
+      if (mounted.current) setError(err.message || 'Unable to mark notification as read.');
+      return false;
+    } finally {
+      if (mounted.current) setBusy('');
+    }
+  }, [refresh]);
+  return { notifications, loading, error, busy, refresh, markRead,
+    unreadTotal: notifications.filter(item => !item.read).length };
+};
+
+const AdminNotificationsPanel = ({ state, onOpenUser, onOpenRequests }) => {
+  const [filter, setFilter] = useState('all');
+  const { notifications, loading, error, busy, refresh, markRead } = state;
+  const visible = notifications.filter(item => filter === 'all' || (filter === 'unread' ? !item.read : item.type === filter));
+  return (
+    <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+      <div className="p-5 border-b flex flex-wrap items-center justify-between gap-4">
+        <div><h3 className="font-bold text-gray-800">Notifications</h3>
+          <p className="text-sm text-gray-500 mt-1">New candidate documents and requests awaiting review.</p></div>
+        <button type="button" onClick={refresh} disabled={loading} className="rounded-lg border px-3 py-2 text-sm text-purple-700 disabled:opacity-50">Refresh</button>
+      </div>
+      <div className="p-5 flex flex-wrap gap-2">
+        {[['all', 'All'], ['unread', 'Unread'], ['document', 'Documents'], ['request', 'Requests']].map(([id, label]) => (
+          <button type="button" key={id} onClick={() => setFilter(id)} className={`rounded-lg border px-3 py-2 text-sm ${filter === id ? 'bg-purple-100 text-purple-800 border-purple-200' : 'text-gray-600'}`}>{label}</button>
+        ))}
+      </div>
+      {error && <p role="alert" className="mx-5 mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      {loading && <p className="px-5 pb-5 text-sm text-gray-500">Loading notifications...</p>}
+      {!loading && !error && visible.length === 0 && <p className="px-5 pb-5 text-sm text-gray-500">No notifications to show.</p>}
+      <div className="divide-y">
+        {visible.map(item => (
+          <div key={item.id} className={`p-5 flex flex-wrap items-start justify-between gap-4 ${item.read ? '' : 'bg-purple-50'}`}>
+            <div className="min-w-0">
+              <p className="font-semibold text-gray-800">{item.title} {!item.read && <span className="ml-2 text-xs text-purple-700">Unread</span>}</p>
+              <p className="text-sm text-gray-700 mt-1">{item.itemName}</p>
+              <p className="text-sm text-gray-500 break-all">{item.candidateEmail}</p>
+              <p className="text-xs text-gray-500 mt-2">{item.department ? `${item.department} · ` : ''}{item.createdAt ? new Date(item.createdAt).toLocaleString() : ''}</p>
+            </div>
+            <div className="flex gap-2">
+              {!item.read && <button type="button" disabled={Boolean(busy)} onClick={() => markRead(item)} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50">{busy === item.id ? 'Saving...' : 'Mark as read'}</button>}
+              <button type="button" disabled={Boolean(busy)} onClick={async () => {
+                if (!await markRead(item)) return;
+                if (item.type === 'request') onOpenRequests();
+                else onOpenUser({ email: item.candidateEmail });
+              }} className="rounded-lg bg-purple-700 text-white px-3 py-2 text-sm disabled:opacity-50">{item.type === 'request' ? 'View requests' : 'View candidate'}</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const AdminPanel = () => {
+  const notificationState = useAdminNotifications();
   const [tab, setTab] = useState('overview');
   const [users, setUsers] = useState([]);
   const [usersLoaded, setUsersLoaded] = useState(false);
@@ -4843,6 +4968,7 @@ const AdminPanel = () => {
     { id: 'users', icon: <Users className="w-4 h-4" />, label: 'Users', badge: stats.total },
     { id: 'analytics', icon: <BarChart3 className="w-4 h-4" />, label: 'Analytics' },
     { id: 'messages', icon: <MessageSquare className="w-4 h-4" />, label: 'Messages', badge: unreadMessageCount },
+    { id: 'notifications', icon: <Bell className="w-4 h-4" />, label: 'Notifications', badge: notificationState.unreadTotal },
     { id: 'requests', icon: <ClipboardList className="w-4 h-4" />, label: 'Requests', badge: pendingRequestCount },
     { id: 'login-approvals', icon: <UserCheck className="w-4 h-4" />, label: 'Login approvals', badge: loginApprovalCount },
     { id: 'receipts', icon: <Receipt className="w-4 h-4" />, label: 'Receipts', badge: receiptCount },
@@ -4997,6 +5123,7 @@ const AdminPanel = () => {
           {tab === 'users' && <UsersTable users={users} onSelectUser={setSelectedUser} onMessageUser={openMessageThread} onBroadcast={handleBroadcast} departmentFilter={userDepartmentFilter} onDepartmentFilterChange={setUserDepartmentFilter} />}
           {tab === 'analytics' && <AnalyticsPanel users={users} logs={logs} />}
           {tab === 'messages' && <MessagingPanel users={users} initialTarget={msgTarget} />}
+          {tab === 'notifications' && <AdminNotificationsPanel state={notificationState} onOpenUser={setSelectedUser} onOpenRequests={() => setTab('requests')} />}
           {tab === 'requests' && <AdminRequestsPanel onOpenUser={setSelectedUser} />}
           {tab === 'login-approvals' && <LoginApprovalsPanel />}
           {tab === 'receipts' && <AdminReceiptsPanel />}
