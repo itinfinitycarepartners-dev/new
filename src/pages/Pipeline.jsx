@@ -414,6 +414,7 @@ const getLocalDateKey = (
 
 const isArrivalCalendarDateTodayOrPast =
   value => {
+    value = unwrapPipelineFieldValue(value);
     if (!value) {
       return false;
     }
@@ -3770,9 +3771,9 @@ const ContractView = ({ onClose, user, setStages }) => {
         throw new Error("Not authenticated");
       }
 
-      const response = await fetch(`${API_BASE}/api/zoho/my-deals?_=${Date.now()}`, {
+      const response = await fetch(`${API_BASE}/api/zoho/my-deals`, {
         method: "GET",
-        cache: "no-store",
+        cache: "default",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json"
@@ -4164,10 +4165,10 @@ const ImmigrationCRMChecklistView = ({ stageName, onClose, user, setStages, stag
       const response = await fetch(
         `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(
           user?.email || ""
-        )}&refresh=false&_=${Date.now()}`,
+        )}&refresh=false`,
         {
           method: "GET",
-          cache: "no-store",
+          cache: "default",
           headers: {
             Authorization: `Bearer ${token}`,
             "Cache-Control": "no-cache",
@@ -4918,7 +4919,7 @@ const SurveyView = ({
       try {
         const response =
           await fetchWithTimeout(
-            `${API_BASE}/api/pipeline/aftercare-survey-status?stage_name=${encodeURIComponent(stageName)}&_=${Date.now()}`,
+            `${API_BASE}/api/pipeline/aftercare-survey-status?stage_name=${encodeURIComponent(stageName)}`,
             {
               method:
                 "GET",
@@ -6147,9 +6148,9 @@ const DeploymentCRMStatusView = ({
         const response = await fetch(
           `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(
             user?.email || ""
-          )}&refresh=false&_=${Date.now()}`,
+          )}&refresh=false`,
           {
-            cache: "no-store",
+            cache: "default",
             headers: {
               Authorization: `Bearer ${token}`,
               "Cache-Control": "no-cache",
@@ -6496,10 +6497,10 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
     try {
       const token = localStorage.getItem("icp_auth_token");
       const response = await fetch(
-        `${API_BASE}/api/welcome-packet/location-services?destination=${encodeURIComponent(destination)}&_=${Date.now()}`,
+        `${API_BASE}/api/welcome-packet/location-services?destination=${encodeURIComponent(destination)}`,
         {
           method: "GET",
-          cache: "no-store",
+          cache: "default",
           headers: {
             Authorization: `Bearer ${token}`
           }
@@ -6538,10 +6539,10 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
         }
 
         const response = await fetch(
-          `${API_BASE}/api/welcome-packet/data?_=${Date.now()}`,
+          `${API_BASE}/api/welcome-packet/data`,
           {
             method: "GET",
-            cache: "no-store",
+            cache: "default",
             headers: {
               Authorization: `Bearer ${token}`,
               "Content-Type": "application/json"
@@ -9082,7 +9083,7 @@ export const HousingDetailsForm = ({ onClose, user, setStages }) => {
       try {
         response = await fetch(`${API_BASE}/api/housing/submit`, {
         method: "POST",
-        cache: "no-store",
+        cache: "default",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
@@ -9770,10 +9771,10 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
 
       const response =
         await fetch(
-          `${API_BASE}/api/reimbursement/expense-report?_=${Date.now()}`,
+          `${API_BASE}/api/reimbursement/expense-report`,
           {
             cache:
-              "no-store",
+              "default",
             headers: {
               Authorization:
                 `Bearer ${token}`
@@ -10174,7 +10175,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
       const submitRequest = async (body) => {
         const response = await fetch(`${API_BASE}/api/crm/update-bank-details`, {
           method: "POST",
-          cache: "no-store",
+          cache: "default",
           credentials: "include",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -10993,10 +10994,10 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
 
       const response =
         await fetch(
-          `${API_BASE}/api/reimbursement/expense-report?_=${Date.now()}`,
+          `${API_BASE}/api/reimbursement/expense-report`,
           {
             cache:
-              "no-store",
+              "default",
             headers: {
               Authorization:
                 `Bearer ${token}`
@@ -12414,10 +12415,10 @@ export default function Pipeline() {
         try {
           const response =
             await fetch(
-              `${API_BASE}/api/pipeline/live-crm-state?_=${Date.now()}`,
+              `${API_BASE}/api/pipeline/live-crm-state`,
               {
                 method: "GET",
-                cache: "no-store",
+                cache: "default",
                 headers: {
                   Authorization:
                     `Bearer ${authToken}`,
@@ -12732,10 +12733,10 @@ export default function Pipeline() {
         if (!token) return;
 
         const response = await fetch(
-          `${API_BASE}/api/candidate/dashboard-summary?_=${Date.now()}`,
+          `${API_BASE}/api/candidate/dashboard-summary`,
           {
             method: "GET",
-            cache: "no-store",
+            cache: "default",
             headers: {
               Authorization: `Bearer ${token}`,
               "Cache-Control": "no-cache",
@@ -13106,11 +13107,17 @@ export default function Pipeline() {
               userData.final_destination_arrival ||
               null;
             if (rawFinalArrival) {
-              const parsedFinalArrival = new Date(rawFinalArrival);
+              const parsedFinalArrival = new Date(unwrapPipelineFieldValue(rawFinalArrival));
 
               if (!Number.isNaN(parsedFinalArrival.getTime())) {
                 resolvedFinalArrivalDate = parsedFinalArrival;
                 setFinalArrivalDate(parsedFinalArrival);
+
+                // Flight_Arrival_Time is the authoritative Aftercare section gate.
+                // Do not wait for a second endpoint before opening the section.
+                if (isArrivalCalendarDateTodayOrPast(rawFinalArrival)) {
+                  backendAftercareGateOpen = true;
+                }
               } else {
                 console.warn(
                   "[Pipeline] Could not parse Flight_Arrival_Time:",
@@ -13215,10 +13222,10 @@ export default function Pipeline() {
         // This response is not dependent on the larger cached candidate payload.
         try {
           const fieldResponse = await fetch(
-            `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(user.email)}&refresh=false&_=${Date.now()}`,
+            `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(user.email)}&refresh=false`,
             {
               method: "GET",
-              cache: "no-store",
+              cache: "default",
               headers: {
                 Authorization: `Bearer ${token}`
               }
@@ -13353,12 +13360,12 @@ export default function Pipeline() {
             await fetch(
               `${API_BASE}/api/pipeline/hiring-candidate-triggers?email=${encodeURIComponent(
                 user.email
-              )}&_=${Date.now()}`,
+              )}`,
               {
                 method:
                   "GET",
                 cache:
-                  "no-store",
+                  "default",
                 headers: {
                   Authorization:
                     `Bearer ${token}`
@@ -13446,10 +13453,10 @@ export default function Pipeline() {
         // on the shape or cache state of the larger candidate-data response.
         try {
           const gateResponse = await fetch(
-            `${API_BASE}/api/pipeline/aftercare-gate?email=${encodeURIComponent(user.email)}&_=${Date.now()}`,
+            `${API_BASE}/api/pipeline/aftercare-gate?email=${encodeURIComponent(user.email)}`,
             {
               method: "GET",
-              cache: "no-store",
+              cache: "default",
               headers: {
                 Authorization: `Bearer ${token}`
               }
@@ -13548,9 +13555,9 @@ export default function Pipeline() {
         const token =
           localStorage.getItem("icp_auth_token");
         const savedResponse = await fetch(
-          `${API_BASE}/api/pipeline/get?email=${encodeURIComponent(user.email)}&_=${Date.now()}`,
+          `${API_BASE}/api/pipeline/get?email=${encodeURIComponent(user.email)}`,
           {
-            cache: "no-store",
+            cache: "default",
             headers: {
               Authorization: `Bearer ${token}`
             }
@@ -16930,7 +16937,7 @@ export default function Pipeline() {
                   `${API_BASE}/api/reimbursement/acknowledge-expense-report`,
                   {
                     method: "POST",
-                    cache: "no-store",
+                    cache: "default",
                     headers: {
                       Authorization: `Bearer ${token}`,
                       "Content-Type": "application/json"
@@ -17164,9 +17171,9 @@ export default function Pipeline() {
 
         const response =
           await fetch(
-            `${API_BASE}/api/pipeline/nclex-status?_=${Date.now()}`,
+            `${API_BASE}/api/pipeline/nclex-status`,
             {
-              cache: "no-store",
+              cache: "default",
               headers: {
                 Authorization:
                   `Bearer ${token}`
@@ -17298,9 +17305,9 @@ export default function Pipeline() {
         if (!token) return;
 
         const response = await fetch(
-          `${API_BASE}/api/reimbursement/status?email=${encodeURIComponent(user.email)}&_=${Date.now()}`,
+          `${API_BASE}/api/reimbursement/status?email=${encodeURIComponent(user.email)}`,
           {
-            cache: "no-store",
+            cache: "default",
             headers: {
               Authorization: `Bearer ${token}`
             }
@@ -17350,10 +17357,10 @@ export default function Pipeline() {
 
           const response =
             await fetch(
-              `${API_BASE}/api/pipeline/application-status-live?_=${Date.now()}`,
+              `${API_BASE}/api/pipeline/application-status-live`,
               {
                 cache:
-                  "no-store",
+                  "default",
                 headers: {
                   Authorization:
                     `Bearer ${token}`,
@@ -17545,9 +17552,9 @@ export default function Pipeline() {
       try {
         const token = localStorage.getItem("icp_auth_token");
         const response = await fetch(
-          `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(user.email)}&refresh=false&_=${Date.now()}`,
+          `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(user.email)}&refresh=false`,
           {
-            cache: "no-store",
+            cache: "default",
             headers: { Authorization: `Bearer ${token}` }
           }
         );
@@ -17953,9 +17960,9 @@ export default function Pipeline() {
         const response = await fetch(
           `${API_BASE}/api/pipeline/field-status?email=${encodeURIComponent(
             user.email
-          )}&refresh=true&_=${Date.now()}`,
+          )}&refresh=true`,
           {
-            cache: "no-store",
+            cache: "default",
             headers: {
               Authorization:
                 `Bearer ${token}`,
@@ -18033,9 +18040,9 @@ export default function Pipeline() {
         if (!token) return;
 
         const response = await fetch(
-          `${API_BASE}/api/documents/required-approval-status?email=${encodeURIComponent(user.email)}&_=${Date.now()}`,
+          `${API_BASE}/api/documents/required-approval-status?email=${encodeURIComponent(user.email)}`,
           {
-            cache: "no-store",
+            cache: "default",
             headers: {
               Authorization: `Bearer ${token}`
             }
