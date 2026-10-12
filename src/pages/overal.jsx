@@ -15,9 +15,10 @@ import { STAGES_CONFIG } from '@/constants/stagesConfig';
 import { ADMIN_NCLEX_PROGRAM_FLOW } from '@/constants/nclex';
 import { THEME, DOCUMENT_REJECTION_REASONS, PIPELINE_CATEGORIES, PIPELINE_STATUS } from '@/constants/theme';
 
-const API_BASE =
+const API_BASE = String(
   import.meta.env.VITE_API_BASE_URL ||
-  'http://localhost:4000';
+  'http://localhost:4000'
+).replace(/\/+$/, '');
 
 // Instant candidate-document snapshot. The list is metadata-only, so keeping it
 // in sessionStorage is safe and prevents a Zoho round-trip every time an admin
@@ -4056,6 +4057,30 @@ const AdminReceiptsPanel = () => {
   );
 };
 
+const loginApprovalFetch = async (url, options = {}, timeoutMs = 30000) => {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`The Login Approvals request timed out while contacting ${API_BASE}.`);
+    }
+    if (
+      error instanceof TypeError &&
+      /failed to fetch|networkerror|load failed/i.test(String(error.message || ""))
+    ) {
+      throw new Error(
+        `Could not reach the backend at ${API_BASE}. Check that the Azure backend is running and VITE_API_BASE_URL points to the deployed backend URL.`
+      );
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+};
+
 const LoginApprovalsPanel = () => {
   const [approvals, setApprovals] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -4086,13 +4111,14 @@ const LoginApprovalsPanel = () => {
     else setLoading(true);
 
     try {
-      const response = await fetch(
+      const response = await loginApprovalFetch(
         `${API_BASE}/api/admin/login-approvals?status=all&_=${Date.now()}`,
         {
           credentials: "include",
           headers: headers(),
           cache: "no-store"
-        }
+        },
+        30000
       );
       const data = await response.json().catch(() => ({}));
 
@@ -4131,7 +4157,7 @@ const LoginApprovalsPanel = () => {
 
     const interval = window.setInterval(() => {
       if (document.visibilityState === "visible") load({ silent: true });
-    }, 5000);
+    }, 30000);
 
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") load({ silent: true });
@@ -4166,7 +4192,7 @@ const LoginApprovalsPanel = () => {
     }
 
     try {
-      const response = await fetch(
+      const response = await loginApprovalFetch(
         `${API_BASE}/api/admin/login-approvals/${encodeURIComponent(email)}/${actionName}`,
         {
           method: "POST",
@@ -4174,7 +4200,8 @@ const LoginApprovalsPanel = () => {
           headers: headers(),
           cache: "no-store",
           body: JSON.stringify(body)
-        }
+        },
+        actionName === "verify" ? 70000 : 45000
       );
 
       const data = await response.json().catch(() => ({}));
@@ -4185,7 +4212,14 @@ const LoginApprovalsPanel = () => {
 
       setNotice(data.message || "Action completed successfully.");
 
-      if (actionName === "approve" && data.success === true) {
+      if (
+        data.success === true &&
+        (
+          data.removeFromList === true ||
+          actionName === "approve" ||
+          actionName === "reject-invalid"
+        )
+      ) {
         setApprovals(current => current.filter(item => item.email !== email));
       }
 
