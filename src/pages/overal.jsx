@@ -4157,7 +4157,7 @@ const LoginApprovalsPanel = () => {
 
     const interval = window.setInterval(() => {
       if (document.visibilityState === "visible") load({ silent: true });
-    }, 30000);
+    }, 60000);
 
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") load({ silent: true });
