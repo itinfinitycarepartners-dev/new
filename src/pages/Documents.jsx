@@ -46,7 +46,7 @@ const API_BASE = (() => {
     }
   } catch {
   }
-  return "http://localhost:4000";
+  return "http\://localhost:4000";
 })();
 const WORKFLOW_SECTION_ICONS = {
   Recruiting: ClipboardPenLine,
