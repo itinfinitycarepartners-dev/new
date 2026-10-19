@@ -1174,20 +1174,26 @@ export default function Documents() {
         true
       );
       try {
-        const response =
-          await fetch(
+        const uploadController = new AbortController();
+        const uploadTimeout = window.setTimeout(() => {
+          uploadController.abort();
+        }, 60000);
+        let response;
+        try {
+          response = await fetch(
             `${API_BASE}/api/documents/upload`,
             {
-              method:
-                "POST",
+              method: "POST",
               headers: {
-                Authorization:
-                  `Bearer ${token}`
+                Authorization: `Bearer ${token}`
               },
-              body:
-                formData
+              body: formData,
+              signal: uploadController.signal
             }
           );
+        } finally {
+          window.clearTimeout(uploadTimeout);
+        }
         const payload =
           await response
             .json()
@@ -1251,10 +1257,11 @@ export default function Documents() {
         );
         window.dispatchEvent(new CustomEvent("admin-data-updated"));
       } catch (uploadError) {
-        toast.error(
-          uploadError.message ||
-          "Unable to upload the document."
-        );
+        const message =
+          uploadError?.name === "AbortError"
+            ? "The upload took too long and was stopped. Please try again."
+            : uploadError?.message || "Unable to upload the document.";
+        toast.error(message);
       } finally {
         setUploading(
           false
