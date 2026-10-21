@@ -847,6 +847,10 @@ export default function Documents() {
         selectedDepartment
       ]
     );
+  const uploadDepartmentCategories =
+    selectedDepartment === "Deployment"
+      ? departmentCategories.filter(category => category.key === "expense-report")
+      : departmentCategories;
   const filteredDocs =
     useMemo(() => {
       const term =
@@ -1073,13 +1077,13 @@ export default function Documents() {
           selectedCategory
         );
       const resolvedDestination =
-        category?.defaultDestination === "both"
-          ? "both"
-          : category?.defaultDestination === "recruit"
-            ? "recruit"
-            : category?.defaultDestination === "crm"
-              ? "crm"
-              : selectedDepartment === "Recruiting"
+        selectedDepartment === "Recruiting"
+          ? (category?.defaultDestination === "both" ? "both" : "recruit")
+          : ["Immigration", "Deployment"].includes(selectedDepartment)
+            ? "crm"
+            : category?.defaultDestination === "both"
+              ? "both"
+              : category?.defaultDestination === "recruit"
                 ? "recruit"
                 : "crm";
       const formData =
@@ -1526,7 +1530,7 @@ export default function Documents() {
                 <option value="">
                   Select document type
                 </option>
-                {departmentCategories.map(
+                {uploadDepartmentCategories.map(
                   category => (
                     <option
                       key={
