@@ -965,29 +965,73 @@ export default function Documents() {
     ]);
   const workflowSections = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
-    const documentsByCategory = new Map();
+    const categoryMap = new Map(categories.map(category => [String(category.key || ""), category]));
+    const normalizeSection = value => {
+      const raw = String(value || "").trim().toLowerCase();
+      if (["recruiting", "recruitment", "hiring", "nclex program", "nclex"].includes(raw)) return "Recruiting";
+      if (raw === "immigration") return "Immigration";
+      if (raw === "deployment") return "Deployment";
+      return "";
+    };
+    const getDocumentSection = document => {
+      const explicit = normalizeSection(
+        document.document_department ||
+        document.department ||
+        document.library_section ||
+        document.pipeline_section
+      );
+      if (explicit) return explicit;
+      const category = categoryMap.get(String(document.document_category || ""));
+      return normalizeSection(category?.section);
+    };
+    const documentsBySectionAndCategory = new Map();
     for (const document of filteredDocs) {
-      const key = document.document_category || "";
-      if (!documentsByCategory.has(key)) documentsByCategory.set(key, []);
-      documentsByCategory.get(key).push(document);
+      const section = getDocumentSection(document);
+      const key = String(document.document_category || "");
+      const mapKey = `${section}::${key}`;
+      if (!documentsBySectionAndCategory.has(mapKey)) documentsBySectionAndCategory.set(mapKey, []);
+      documentsBySectionAndCategory.get(mapKey).push(document);
     }
+    const recruitingCategories = categories.filter(category => category.section === "Recruiting");
     return WORKFLOW_SECTION_ORDER.map((section, sectionIndex) => {
-      const sectionCategories = categories
-        .filter(category => category.section === section)
-        .sort((a, b) => Number(a.order || 999) - Number(b.order || 999))
+      const ownCategories = categories.filter(category => category.section === section);
+      // Immigration and Deployment expose the shared Recruiting document set
+      // as well as their own department-specific document types. These remain
+      // separate department slots, so a shared document uploaded from either
+      // department is counted in that department's total rather than being
+      // incorrectly added to the Recruiting total.
+      const availableCategories =
+        ["Immigration", "Deployment"].includes(section)
+          ? [...ownCategories, ...recruitingCategories]
+          : ownCategories;
+      const uniqueCategories = availableCategories.filter((category, index, list) =>
+        list.findIndex(item => item.key === category.key) === index
+      );
+      const sectionCategories = uniqueCategories
+        .sort((a, b) => {
+          const aShared = a.section === section ? 0 : 1;
+          const bShared = b.section === section ? 0 : 1;
+          return aShared - bShared || Number(a.order || 999) - Number(b.order || 999);
+        })
         .filter(category => {
+          const docsForSlot = documentsBySectionAndCategory.get(`${section}::${category.key}`) || [];
           if (!term) return true;
           const categoryMatches = [category.label, category.key, category.pipelineStage, category.crmFieldApiName]
             .some(value => String(value || "").toLowerCase().includes(term));
-          const docsMatch = (documentsByCategory.get(category.key) || []).length > 0;
-          return categoryMatches || docsMatch;
+          return categoryMatches || docsForSlot.length > 0;
         });
       const slots = sectionCategories.map(category => ({
-        category,
-        documents: (documentsByCategory.get(category.key) || []).sort((a, b) => new Date(b.uploaded_at || 0) - new Date(a.uploaded_at || 0))
+        category: {
+          ...category,
+          sharedFromRecruiting: ["Immigration", "Deployment"].includes(section) && category.section === "Recruiting"
+        },
+        documents: (documentsBySectionAndCategory.get(`${section}::${category.key}`) || [])
+          .sort((a, b) => new Date(b.uploaded_at || 0) - new Date(a.uploaded_at || 0))
       }));
       return {
-        section, sectionIndex, slots,
+        section,
+        sectionIndex,
+        slots,
         documentCount: slots.reduce((total, slot) => total + slot.documents.length, 0),
         completedSlotCount: slots.filter(slot => slot.documents.length > 0).length
       };
@@ -1867,6 +1911,11 @@ export default function Documents() {
                             <div>
                               <h3 className="font-semibold">{slot.category.label}</h3>
                               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                {slot.category.sharedFromRecruiting && (
+                                  <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 font-medium text-purple-700">
+                                    Shared Recruiting document
+                                  </span>
+                                )}
                                 {slot.category.pipelineStage && <span>Pipeline: {slot.category.pipelineStage}</span>}
                                 {slot.category.crmFieldApiName && <span className="rounded-full border px-2 py-0.5">{slot.category.crmFieldApiName}</span>}
                               </div>
