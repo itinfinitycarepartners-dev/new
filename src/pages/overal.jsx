@@ -20,6 +20,22 @@ const API_BASE = String(
   'http://localhost:4000'
 ).replace(/\/+$/, '');
 
+const ADMIN_FAST_CACHE_PREFIX = "icp_admin_fast_v1:";
+const ADMIN_FAST_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const readAdminFastCache = key => {
+  try {
+    const raw = localStorage.getItem(`${ADMIN_FAST_CACHE_PREFIX}${key}`);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed || Date.now() - Number(parsed.savedAt || 0) > ADMIN_FAST_CACHE_TTL_MS) return null;
+    return parsed.value;
+  } catch (_) { return null; }
+};
+const writeAdminFastCache = (key, value) => {
+  try {
+    localStorage.setItem(`${ADMIN_FAST_CACHE_PREFIX}${key}`, JSON.stringify({ savedAt: Date.now(), value }));
+  } catch (_) {}
+};
+
 // Instant candidate-document snapshot. The list is metadata-only, so keeping it
 // in sessionStorage is safe and prevents a Zoho round-trip every time an admin
 // opens the same candidate during a work session.
@@ -41,6 +57,7 @@ const writeAdminDocumentCache = (email, documents) => {
 
 const ADMIN_DOCUMENT_REJECTION_REASONS = [
   ...(Array.isArray(DOCUMENT_REJECTION_REASONS) ? DOCUMENT_REJECTION_REASONS : []),
+  { value: "duplicate_document", label: "Duplicate", description: "A similar document was uploaded earlier" },
   { value: "right_channel", label: "Use the right email or message channel", description: "This is not the right platform please send an email or message to the appropriate department. ONLY one message or email." }
 ].filter((item,index,list) => list.findIndex(x => String(x?.value || "") === String(item?.value || "")) === index);
 
@@ -4151,7 +4168,7 @@ const loginApprovalFetch = async (url, options = {}, timeoutMs = 30000) => {
 };
 
 const LoginApprovalsPanel = () => {
-  const [approvals, setApprovals] = useState([]);
+  const [approvals, setApprovals] = useState(() => readAdminFastCache("login-approvals") || []);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState("");
@@ -4178,7 +4195,7 @@ const LoginApprovalsPanel = () => {
     loadInFlightRef.current = true;
 
     if (silent) setRefreshing(true);
-    else setLoading(true);
+    else if (approvals.length === 0) setLoading(true);
 
     try {
       const response = await loginApprovalFetch(
@@ -4207,6 +4224,7 @@ const LoginApprovalsPanel = () => {
           return false;
         });
         setApprovals(activeApprovals);
+        writeAdminFastCache("login-approvals", activeApprovals);
         setEmailIssues(current => {
           const next = { ...current };
           for (const item of activeApprovals) {
@@ -4231,11 +4249,11 @@ const LoginApprovalsPanel = () => {
         setRefreshing(false);
       }
     }
-  }, [headers]);
+  }, [headers, approvals.length]);
 
   useEffect(() => {
     mountedRef.current = true;
-    load();
+    load({ silent: approvals.length > 0 });
 
     const interval = window.setInterval(() => {
       if (document.visibilityState === "visible") load({ silent: true });
@@ -4492,8 +4510,9 @@ const adminNotificationHeaders = () => {
 };
 
 const useAdminNotifications = () => {
-  const [notifications, setNotifications] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const initialNotifications = readAdminFastCache("notifications") || [];
+  const [notifications, setNotifications] = useState(initialNotifications);
+  const [loading, setLoading] = useState(initialNotifications.length === 0);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
   const mounted = useRef(false);
@@ -4507,7 +4526,9 @@ const useAdminNotifications = () => {
       const data = await response.json();
       if (!response.ok || data.success !== true) throw new Error(data.error || 'Unable to load notifications.');
       if (mounted.current && version === requestVersion.current) {
-        setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
+        const nextNotifications = Array.isArray(data.notifications) ? data.notifications : [];
+        setNotifications(nextNotifications);
+        writeAdminFastCache("notifications", nextNotifications);
         setError('');
       }
     } catch (err) {
@@ -4578,7 +4599,7 @@ const AdminNotificationsPanel = ({ state, onOpenUser, onOpenRequests }) => {
         ))}
       </div>
       {error && <p role="alert" className="mx-5 mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-      {loading && <p className="px-5 pb-5 text-sm text-gray-500">Loading notifications...</p>}
+      {loading && visible.length === 0 && <p className="px-5 pb-5 text-sm text-gray-500">Loading notifications...</p>}
       {!loading && !error && visible.length === 0 && <p className="px-5 pb-5 text-sm text-gray-500">No notifications to show.</p>}
       <div className="divide-y">
         {visible.map(item => (
@@ -4624,8 +4645,9 @@ const AdminNotificationsPanel = ({ state, onOpenUser, onOpenRequests }) => {
 const AdminPanel = () => {
   const notificationState = useAdminNotifications();
   const [tab, setTab] = useState('overview');
-  const [users, setUsers] = useState([]);
-  const [usersLoaded, setUsersLoaded] = useState(false);
+  const initialCachedUsers = readAdminFastCache("users") || [];
+  const [users, setUsers] = useState(initialCachedUsers);
+  const [usersLoaded, setUsersLoaded] = useState(initialCachedUsers.length > 0);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -4633,11 +4655,29 @@ const AdminPanel = () => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [notificationRequestTarget, setNotificationRequestTarget] = useState(null);
   const [msgTarget, setMsgTarget] = useState(null);
-  const [stats, setStats] = useState({ total: 0, active: 0, expired: 0, recruiting: 0, immigration: 0, deployment: 0, aftercare: 0 });
+  const initialCachedStats = readAdminFastCache("stats") || null;
+  const derivedCachedStats = {
+    total: initialCachedUsers.length,
+    active: 0,
+    expired: 0,
+    recruiting: initialCachedUsers.filter(user => String(user.department || "").toLowerCase() === "recruiting").length,
+    immigration: initialCachedUsers.filter(user => String(user.department || "").toLowerCase() === "immigration").length,
+    deployment: initialCachedUsers.filter(user => String(user.department || "").toLowerCase() === "deployment").length,
+    aftercare: initialCachedUsers.filter(user => String(user.department || "").toLowerCase() === "aftercare").length
+  };
+  const [stats, setStats] = useState(initialCachedStats || derivedCachedStats);
   const [userDepartmentFilter, setUserDepartmentFilter] = useState('');
-  const [departmentsReady, setDepartmentsReady] = useState(false);
+  const [departmentsReady, setDepartmentsReady] = useState(
+    Boolean(initialCachedStats) || initialCachedUsers.some(user => String(user.department || "").trim())
+  );
   const [departmentsError, setDepartmentsError] = useState("");
-  const departmentUsersCacheRef = useRef({ all: null, recruiting: null, immigration: null, deployment: null, aftercare: null });
+  const departmentUsersCacheRef = useRef({
+    all: initialCachedUsers.length ? initialCachedUsers : null,
+    recruiting: initialCachedUsers.filter(user => String(user.department || "").toLowerCase() === "recruiting"),
+    immigration: initialCachedUsers.filter(user => String(user.department || "").toLowerCase() === "immigration"),
+    deployment: initialCachedUsers.filter(user => String(user.department || "").toLowerCase() === "deployment"),
+    aftercare: initialCachedUsers.filter(user => String(user.department || "").toLowerCase() === "aftercare")
+  });
   const departmentRequestRef = useRef(0);
 
   const [backendHealth, setBackendHealth] = useState({ zoho: false, zohoError: null, db: false });
@@ -4678,7 +4718,11 @@ const AdminPanel = () => {
         ...previous,
         db: data.databaseConnected === true
       }));
-      setStats(previous => ({ ...previous, total: data.totalUsers || 0, active: data.activeUsers || 0, expired: data.expiredUsers || 0 }));
+      setStats(previous => {
+        const next = { ...previous, total: data.totalUsers || 0, active: data.activeUsers || 0, expired: data.expiredUsers || 0 };
+        writeAdminFastCache("stats", next);
+        return next;
+      });
       setLogs(data.logs || []);
     } catch (err) {
       setError(err.message || 'Failed to connect to the backend server.');
@@ -4754,7 +4798,7 @@ const AdminPanel = () => {
       return;
     }
     const requestId = ++departmentRequestRef.current;
-    setLoading(true);
+    if (!usersLoaded) setLoading(true);
     setError(null);
     setCrossOriginBlock(false);
     try {
@@ -4792,12 +4836,13 @@ const AdminPanel = () => {
           aftercare: allUsers.filter(user => String(user.department || '').toLowerCase() === 'aftercare')
         };
         departmentUsersCacheRef.current = nextCache;
+        writeAdminFastCache("users", allUsers);
         if (requestId === departmentRequestRef.current) {
           const selectedKey = userDepartmentFilter || key || 'all';
           setUsers(nextCache[selectedKey] || nextCache.all);
         }
         setUsersLoaded(true);
-        setStats({
+        const immediateStats = {
           total: Number(uData.totalUsers || allUsers.length || 0),
           active: Number(uData.activeUsers || 0),
           expired: Number(uData.inactiveUsers || 0),
@@ -4805,8 +4850,10 @@ const AdminPanel = () => {
           immigration: Number(uData.departmentStats?.immigration ?? nextCache.immigration.length ?? 0),
           deployment: Number(uData.departmentStats?.deployment ?? nextCache.deployment.length ?? 0),
           aftercare: Number(uData.departmentStats?.aftercare ?? nextCache.aftercare.length ?? 0)
-        });
-        setDepartmentsReady(false);
+        };
+        setStats(immediateStats);
+        writeAdminFastCache("stats", immediateStats);
+        if (!initialCachedStats && initialCachedUsers.length === 0) setDepartmentsReady(false);
         setDepartmentsError("");
         const emails = allUsers.map(user => user?.email).filter(Boolean);
         fetch(`${API_BASE}/api/admin/user-departments`, {
@@ -4840,15 +4887,20 @@ const AdminPanel = () => {
               aftercare:enriched.filter(user=>String(user.department||'').toLowerCase()==='aftercare')
             };
             departmentUsersCacheRef.current=accurateCache;
+            writeAdminFastCache("users", enriched);
             const selectedKey=userDepartmentFilter||'all';
             setUsers(accurateCache[selectedKey]||accurateCache.all);
-            setStats(previous=>({
-              ...previous,
-              recruiting:Number(departmentData.stats?.recruiting||0),
-              immigration:Number(departmentData.stats?.immigration||0),
-              deployment:Number(departmentData.stats?.deployment||0),
-              aftercare:Number(departmentData.stats?.aftercare||0)
-            }));
+            setStats(previous=>{
+              const next = {
+                ...previous,
+                recruiting:Number(departmentData.stats?.recruiting||0),
+                immigration:Number(departmentData.stats?.immigration||0),
+                deployment:Number(departmentData.stats?.deployment||0),
+                aftercare:Number(departmentData.stats?.aftercare||0)
+              };
+              writeAdminFastCache("stats", next);
+              return next;
+            });
             setDepartmentsReady(true);
             if (departmentData.refreshing === true) {
               window.setTimeout(() => {
@@ -4863,7 +4915,11 @@ const AdminPanel = () => {
                   const finalCache={all:finalUsers,recruiting:finalUsers.filter(u=>String(u.department||'').toLowerCase()==='recruiting'),immigration:finalUsers.filter(u=>String(u.department||'').toLowerCase()==='immigration'),deployment:finalUsers.filter(u=>String(u.department||'').toLowerCase()==='deployment'),aftercare:finalUsers.filter(u=>String(u.department||'').toLowerCase()==='aftercare')};
                   departmentUsersCacheRef.current=finalCache;
                   setUsers(finalCache[userDepartmentFilter||'all']||finalCache.all);
-                  setStats(previous=>({...previous,recruiting:Number(fresh.stats?.recruiting||0),immigration:Number(fresh.stats?.immigration||0),deployment:Number(fresh.stats?.deployment||0),aftercare:Number(fresh.stats?.aftercare||0)}));
+                  setStats(previous=>{
+                    const next={...previous,recruiting:Number(fresh.stats?.recruiting||0),immigration:Number(fresh.stats?.immigration||0),deployment:Number(fresh.stats?.deployment||0),aftercare:Number(fresh.stats?.aftercare||0)};
+                    writeAdminFastCache("stats", next);
+                    return next;
+                  });
                 }).catch(()=>{});
               }, 15000);
             }
@@ -4884,6 +4940,9 @@ const AdminPanel = () => {
 
   useEffect(() => {
     fetchOverview();
+    // Warm the heaviest shared Admin dataset immediately in the background.
+    // Cached data paints instantly; this refresh keeps every later tab hot.
+    fetchUsers("", { force: false });
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') fetchOverview();
     }, 60000);

@@ -102,6 +102,25 @@ function isInfrastructureError(message = "", status = 0) {
  * Those errors are logged in the browser console for debugging,
  * but candidates only receive a friendly generic message.
  */
+
+async function loginFetch(url, options = {}, timeoutMs = 30000, retries = 1) {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } catch (error) {
+      lastError = error;
+      if (attempt >= retries) throw error;
+      await new Promise(resolve => window.setTimeout(resolve, 350 * (attempt + 1)));
+    } finally {
+      window.clearTimeout(timer);
+    }
+  }
+  throw lastError;
+}
+
 async function readApiResponse(response) {
   const body = await response.text();
 
@@ -248,7 +267,8 @@ export default function Login() {
     setError("");
     setInfo("");
 
-    const enteredEmail = email.trim();
+    const rawEnteredEmail = email.trim();
+    const enteredEmail = rawEnteredEmail.toLowerCase() === "admin" ? "Admin" : rawEnteredEmail.toLowerCase();
 
     // Admin uses the same login page but skips
     // candidate email lookup.
@@ -266,7 +286,7 @@ export default function Login() {
     );
 
     try {
-      const response = await fetch(
+      const response = await loginFetch(
         `${API_BASE}/api/auth/check-email`,
         {
           method: "POST",
@@ -364,10 +384,10 @@ export default function Login() {
     setError("");
     setInfo("");
 
-    const isAdmin = email.trim() === "Admin";
+    const isAdmin = email.trim().toLowerCase() === "admin";
 
     try {
-      const response = await fetch(
+      const response = await loginFetch(
         isAdmin
           ? `${API_BASE}/api/admin/login`
           : `${API_BASE}/api/auth/login-with-password`,
@@ -390,7 +410,7 @@ export default function Login() {
                   password,
                 }
               : {
-                  email: email.trim(),
+                  email: email.trim().toLowerCase(),
                   password,
                 }
           ),
@@ -460,7 +480,7 @@ export default function Login() {
       if (data.success && data.token) {
         await loginSuccess(
           data.token,
-          email.trim(),
+          email.trim().toLowerCase(),
           data.user?.name
         );
 
@@ -507,7 +527,7 @@ export default function Login() {
     );
 
     try {
-      const response = await fetch(
+      const response = await loginFetch(
         `${API_BASE}/api/auth/verify-otp`,
         {
           method: "POST",
@@ -611,7 +631,7 @@ export default function Login() {
     );
 
     try {
-      const response = await fetch(
+      const response = await loginFetch(
         `${API_BASE}/api/auth/setup-password`,
         {
           method: "POST",
@@ -685,7 +705,7 @@ export default function Login() {
     setInfo("");
 
     try {
-      const response = await fetch(
+      const response = await loginFetch(
         `${API_BASE}/api/auth/resend-otp`,
         {
           method: "POST",

@@ -847,10 +847,19 @@ export default function Documents() {
         selectedDepartment
       ]
     );
-  const uploadDepartmentCategories =
-    selectedDepartment === "Deployment"
-      ? departmentCategories.filter(category => category.key === "expense-report")
-      : departmentCategories;
+  const uploadDepartmentCategories = useMemo(() => {
+    if (!selectedDepartment) return [];
+    const recruitingCategories = categories.filter(category => category.section === "Recruiting");
+    const ownCategories =
+      selectedDepartment === "Deployment"
+        ? departmentCategories.filter(category => category.key === "expense-report")
+        : departmentCategories;
+    if (selectedDepartment === "Recruiting") return ownCategories;
+    const merged = [...ownCategories, ...recruitingCategories];
+    return merged.filter((category, index, list) =>
+      list.findIndex(item => item.key === category.key) === index
+    );
+  }, [categories, departmentCategories, selectedDepartment]);
   const filteredDocs =
     useMemo(() => {
       const term =
@@ -1181,7 +1190,7 @@ export default function Documents() {
         const uploadController = new AbortController();
         const uploadTimeout = window.setTimeout(() => {
           uploadController.abort();
-        }, 60000);
+        }, 120000);
         let response;
         try {
           response = await fetch(
@@ -1263,7 +1272,7 @@ export default function Documents() {
       } catch (uploadError) {
         const message =
           uploadError?.name === "AbortError"
-            ? "The upload took too long and was stopped. Please try again."
+            ? "The upload took too long to confirm. Please check Documents before uploading the same file again."
             : uploadError?.message || "Unable to upload the document.";
         toast.error(message);
       } finally {
@@ -1884,4 +1893,3 @@ export default function Documents() {
     </div>
   );
 }
-
