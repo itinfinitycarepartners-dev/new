@@ -687,7 +687,7 @@ const getAdminPipelineRisk = stage => {
 // ─── MODALS & PANELS ─────────────────────────────────────────────────────────
 
 const UserDetailModal = ({ user, onClose, onMessage }) => {
-  const [activeTab, setActiveTab] = useState('profile');
+  const [activeTab, setActiveTab] = useState(user?._initialTab || 'profile');
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState({});
   const [documents, setDocuments] = useState([]);
@@ -706,6 +706,13 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   const [approvalBusyKey, setApprovalBusyKey] = useState(null);
   const [rejectingDocument, setRejectingDocument] = useState(null);
   const [rejectionReason, setRejectionReason] = useState("");
+  const notificationDocumentOpenedRef = useRef("");
+
+  useEffect(() => {
+    setActiveTab(user?._initialTab || "profile");
+    notificationDocumentOpenedRef.current = "";
+  }, [user?.email, user?._initialTab]);
+
 
   useEffect(() => {
     return () => {
@@ -1286,6 +1293,57 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   };
 
 
+
+  useEffect(() => {
+    const target = user?._notificationDocument;
+    if (activeTab !== "documents" || !target || !Array.isArray(documents) || documents.length === 0) return;
+
+    const targetKey = String(
+      target.approvalKey || target.pendingUploadId || target.attachmentId ||
+      target.documentId || target.itemName || ""
+    ).trim();
+    if (!targetKey || notificationDocumentOpenedRef.current === targetKey) return;
+
+    const normalize = value => String(value || "").trim().toLowerCase();
+    const sourceMatches = doc => {
+      const targetSource = normalize(target.source);
+      if (!targetSource) return true;
+      return normalize(doc?.source) === targetSource;
+    };
+    const attachmentOf = doc => String(
+      doc?.attachment_id || doc?.crm_attachment_id || doc?.recruit_attachment_id ||
+      doc?.recruit_custom_module1_attachment_id || doc?.document_id || doc?.id || ""
+    ).trim();
+
+    // Prefer exact IDs. A candidate can have several documents with the same
+    // filename, and a single upload can exist in both Recruit and CRM.
+    let match = target.pendingUploadId
+      ? documents.find(doc => String(doc?.pending_upload_id || "").trim() === String(target.pendingUploadId))
+      : null;
+    if (!match && target.attachmentId) {
+      match = documents.find(doc => attachmentOf(doc) === String(target.attachmentId) && sourceMatches(doc));
+    }
+    if (!match && target.approvalKey) {
+      match = documents.find(doc => String(doc?.approval_key || "").trim() === String(target.approvalKey) && sourceMatches(doc));
+    }
+    if (!match && target.documentId) {
+      match = documents.find(doc =>
+        (attachmentOf(doc) === String(target.documentId) || String(doc?._id || "") === String(target.documentId)) &&
+        sourceMatches(doc)
+      );
+    }
+    if (!match && target.itemName) {
+      match = documents.find(doc =>
+        normalize(doc?.document_name || doc?.original_name || doc?.File_Name || doc?.file_name) === normalize(target.itemName) &&
+        sourceMatches(doc)
+      );
+    }
+
+    if (match) {
+      notificationDocumentOpenedRef.current = targetKey;
+      handleViewDocument(match);
+    }
+  }, [activeTab, documents, user?._notificationDocument]);
 
   const updateDocumentApproval = async (
     doc,
@@ -3158,7 +3216,7 @@ const RequestAttachmentViewer = ({ document, onClose }) => {
   return <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-3 sm:p-5"><div className="flex h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"><div className="flex items-center justify-between border-b px-4 py-3"><h3 className="truncate font-bold">{document.document_name || "Inquiry attachment"}</h3><button type="button" onClick={onClose} className="rounded-lg border px-3 py-2 text-sm font-semibold">Close</button></div><div className="min-h-0 flex-1 overflow-auto bg-gray-100 p-2">{loading&&<div className="flex h-full items-center justify-center text-sm text-gray-500">Loading attachment...</div>}{!loading&&error&&<div className="flex h-full items-center justify-center text-sm text-red-600">{error}</div>}{!loading&&!error&&pdf&&url&&<iframe src={`${url}#toolbar=1&navpanes=0`} title={document.document_name||"Inquiry attachment"} className="h-full min-h-[70vh] w-full rounded-lg bg-white"/>}{!loading&&!error&&image&&url&&<div className="flex min-h-full items-center justify-center rounded-lg bg-white p-4"><img src={url} alt={document.document_name||"Inquiry attachment"} className="max-h-full max-w-full object-contain"/></div>}{!loading&&!error&&!pdf&&!image&&url&&<div className="flex h-full items-center justify-center"><a href={url} download={document.document_name||"inquiry-attachment"} className="rounded-lg bg-purple-700 px-4 py-2 text-sm font-semibold text-white">Download attachment</a></div>}</div></div></div>;
 };
 
-const AdminRequestsPanel = ({ onOpenUser }) => {
+const AdminRequestsPanel = ({ onOpenUser, notificationTarget = null, onReturnToNotifications }) => {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
@@ -3239,7 +3297,18 @@ const AdminRequestsPanel = ({ onOpenUser }) => {
   };
 
   if (loading) {
-    return <div className="p-8 text-center text-gray-500">Loading candidate requests...</div>;
+    return <div className="p-8 text-center text-gray-500">
+      {notificationTarget && (
+        <div className="mb-4">
+          <button
+            type="button"
+            onClick={onReturnToNotifications}
+            className="rounded-lg border bg-white px-3 py-2 text-sm font-medium text-purple-700 hover:bg-purple-50"
+          >
+            ← Back to notifications
+          </button>
+        </div>
+      )}Loading candidate requests...</div>;
   }
 
   return (
@@ -4087,6 +4156,7 @@ const LoginApprovalsPanel = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
+  const [emailIssues, setEmailIssues] = useState({});
   const mountedRef = useRef(true);
   const loadInFlightRef = useRef(false);
 
@@ -4137,6 +4207,18 @@ const LoginApprovalsPanel = () => {
           return false;
         });
         setApprovals(activeApprovals);
+        setEmailIssues(current => {
+          const next = { ...current };
+          for (const item of activeApprovals) {
+            if (item?.email_validation?.valid === false) {
+              next[item.email] = {
+                invalid: true,
+                reasons: item.email_validation.reasons || ["Email address is invalid."]
+              };
+            }
+          }
+          return next;
+        });
       }
     } catch (error) {
       if (mountedRef.current && !silent) {
@@ -4157,7 +4239,7 @@ const LoginApprovalsPanel = () => {
 
     const interval = window.setInterval(() => {
       if (document.visibilityState === "visible") load({ silent: true });
-    }, 60000);
+    }, 10000);
 
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") load({ silent: true });
@@ -4207,9 +4289,25 @@ const LoginApprovalsPanel = () => {
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok || !data.success) {
+        if (actionName === "verify" && (data.invalidEmail === true || data?.emailValidation?.valid === false)) {
+          setEmailIssues(current => ({
+            ...current,
+            [email]: {
+              invalid: true,
+              reasons: data?.emailValidation?.reasons || [data.message || "Email address has an issue."]
+            }
+          }));
+        }
         throw new Error(data.message || "Action failed.");
       }
 
+      if (actionName === "verify") {
+        setEmailIssues(current => {
+          const next = { ...current };
+          delete next[email];
+          return next;
+        });
+      }
       setNotice(data.message || "Action completed successfully.");
 
       if (
@@ -4324,6 +4422,17 @@ const LoginApprovalsPanel = () => {
                           {busy === `${item.email}:verify` ? "Checking…" : "Check Zoho"}
                         </button>
                       </>
+                    )}
+
+                    {emailIssues[item.email]?.invalid === true && (
+                      <button
+                        disabled={busy.startsWith(keyBase)}
+                        onClick={() => action(item.email, "reject-invalid")}
+                        title={(emailIssues[item.email]?.reasons || []).join(" ")}
+                        className="rounded-lg bg-red-600 px-3 py-2 text-white hover:bg-red-700 disabled:opacity-50"
+                      >
+                        {busy === `${item.email}:reject-invalid` ? "Rejecting…" : "Reject invalid email"}
+                      </button>
                     )}
 
                     {item.status === "verified" && (
@@ -4477,6 +4586,7 @@ const AdminNotificationsPanel = ({ state, onOpenUser, onOpenRequests }) => {
             <div className="min-w-0">
               <p className="font-semibold text-gray-800">{item.title} {!item.read && <span className="ml-2 text-xs text-purple-700">Unread</span>}</p>
               <p className="text-sm text-gray-700 mt-1">{item.itemName}</p>
+              {item.candidateName && <p className="text-sm font-medium text-gray-700">{item.candidateName}</p>}
               <p className="text-sm text-gray-500 break-all">{item.candidateEmail}</p>
               <p className="text-xs text-gray-500 mt-2">{item.department ? `${item.department} · ` : ''}{item.createdAt ? new Date(item.createdAt).toLocaleString() : ''}</p>
             </div>
@@ -4484,8 +4594,24 @@ const AdminNotificationsPanel = ({ state, onOpenUser, onOpenRequests }) => {
               {!item.read && <button type="button" disabled={Boolean(busy)} onClick={() => markRead(item)} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50">{busy === item.id ? 'Saving...' : 'Mark as read'}</button>}
               <button type="button" disabled={Boolean(busy)} onClick={async () => {
                 if (!await markRead(item)) return;
-                if (item.type === 'request') onOpenRequests();
-                else onOpenUser({ email: item.candidateEmail });
+                if (item.type === 'request') {
+                  onOpenRequests?.(item);
+                } else {
+                  onOpenUser({
+                    email: item.candidateEmail,
+                    name: item.candidateName || item.candidateEmail,
+                    _initialTab: 'documents',
+                    _returnToTab: 'notifications',
+                    _notificationDocument: {
+                      approvalKey: item.approvalKey || null,
+                      pendingUploadId: item.pendingUploadId || null,
+                      attachmentId: item.attachmentId || null,
+                      documentId: item.documentId || null,
+                      itemName: item.itemName || null,
+                      source: item.source || null
+                    }
+                  });
+                }
               }} className="rounded-lg bg-purple-700 text-white px-3 py-2 text-sm disabled:opacity-50">{item.type === 'request' ? 'View requests' : 'View candidate'}</button>
             </div>
           </div>
@@ -4505,6 +4631,7 @@ const AdminPanel = () => {
   const [error, setError] = useState(null);
   const [crossOriginBlock, setCrossOriginBlock] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
+  const [notificationRequestTarget, setNotificationRequestTarget] = useState(null);
   const [msgTarget, setMsgTarget] = useState(null);
   const [stats, setStats] = useState({ total: 0, active: 0, expired: 0, recruiting: 0, immigration: 0, deployment: 0, aftercare: 0 });
   const [userDepartmentFilter, setUserDepartmentFilter] = useState('');
@@ -5157,14 +5284,42 @@ const AdminPanel = () => {
           {tab === 'users' && <UsersTable users={users} onSelectUser={setSelectedUser} onMessageUser={openMessageThread} onBroadcast={handleBroadcast} departmentFilter={userDepartmentFilter} onDepartmentFilterChange={setUserDepartmentFilter} />}
           {tab === 'analytics' && <AnalyticsPanel users={users} logs={logs} />}
           {tab === 'messages' && <MessagingPanel users={users} initialTarget={msgTarget} />}
-          {tab === 'notifications' && <AdminNotificationsPanel state={notificationState} onOpenUser={setSelectedUser} onOpenRequests={() => setTab('requests')} />}
-          {tab === 'requests' && <AdminRequestsPanel onOpenUser={setSelectedUser} />}
+          {tab === 'notifications' && (
+            <AdminNotificationsPanel
+              state={notificationState}
+              onOpenUser={setSelectedUser}
+              onOpenRequests={item => {
+                setNotificationRequestTarget(item || null);
+                setTab('requests');
+              }}
+            />
+          )}
+          {tab === 'requests' && (
+            <AdminRequestsPanel
+              onOpenUser={setSelectedUser}
+              notificationTarget={notificationRequestTarget}
+              onReturnToNotifications={() => {
+                setNotificationRequestTarget(null);
+                setTab('notifications');
+              }}
+            />
+          )}
           {tab === 'login-approvals' && <LoginApprovalsPanel />}
           {tab === 'receipts' && <AdminReceiptsPanel />}
 
         </div>
       </div>
-      {selectedUser && <UserDetailModal user={selectedUser} onClose={() => setSelectedUser(null)} onMessage={openMessageThread} />}
+      {selectedUser && (
+        <UserDetailModal
+          user={selectedUser}
+          onClose={() => {
+            const returnTo = selectedUser?._returnToTab;
+            setSelectedUser(null);
+            if (returnTo) setTab(returnTo);
+          }}
+          onMessage={openMessageThread}
+        />
+      )}
     </div>
   );
 };
