@@ -4301,7 +4301,7 @@ const LoginApprovalsPanel = () => {
           cache: "no-store",
           body: JSON.stringify(body)
         },
-        actionName === "verify" ? 70000 : 45000
+        actionName === "verify" ? 30000 : 45000
       );
 
       const data = await response.json().catch(() => ({}));
@@ -4442,14 +4442,23 @@ const LoginApprovalsPanel = () => {
                       </>
                     )}
 
-                    {emailIssues[item.email]?.invalid === true && (
+                    {item.status === "pending" && emailIssues[item.email]?.invalid === true && (
                       <button
                         disabled={busy.startsWith(keyBase)}
-                        onClick={() => action(item.email, "reject-invalid")}
-                        title={(emailIssues[item.email]?.reasons || []).join(" ")}
+                        onClick={() => {
+                          const confirmed = window.confirm(
+                            `Reject ${item.email} as an incorrect email address? This will remove it from Login Approvals.`
+                          );
+                          if (confirmed) action(item.email, "reject-invalid");
+                        }}
+                        title={
+                          emailIssues[item.email]?.invalid === true
+                            ? (emailIssues[item.email]?.reasons || []).join(" ")
+                            : "Reject this request if the submitted email address is incorrect."
+                        }
                         className="rounded-lg bg-red-600 px-3 py-2 text-white hover:bg-red-700 disabled:opacity-50"
                       >
-                        {busy === `${item.email}:reject-invalid` ? "Rejecting…" : "Reject invalid email"}
+                        {busy === `${item.email}:reject-invalid` ? "Rejecting…" : "Reject wrong email"}
                       </button>
                     )}
 

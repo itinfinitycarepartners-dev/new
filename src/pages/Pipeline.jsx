@@ -84,9 +84,15 @@ const relocationTravelPolicyPdf =
 const photoVideoReleasePdf =
   "/documents/Photo_Release.pdf";
 
-const API_BASE =
+const API_BASE = String(
   import.meta.env.VITE_API_BASE_URL ||
-  "http://localhost:4000";
+  (
+    typeof window !== "undefined" &&
+    ["localhost", "127.0.0.1"].includes(window.location.hostname)
+      ? "http://localhost:4000"
+      : "https://icpcandidateportal.azurewebsites.net"
+  )
+).replace(/\/$/, "");
 
 const PRESCREEN_BOOKING_URL =
   "https://outlook.office.com/book/Prescreen@Infinitycarepartners.com/?ismsaljsauthenabled";
@@ -2585,8 +2591,8 @@ const CLICKABLE_STAGES = {
   "Download Deploymate App": { clickable: true, type: "view", viewType: "downloadApp" },
   "Join ICP Pre-Arrival Support Group": { clickable: true, type: "crmField" },
   "Flights Booked": { clickable: true, type: "view", viewType: "flight" },
-  "ICP Welcome Packet": { clickable: true, type: "view", viewType: "welcomePacket" },
-  "ICP Welcome Packet & Itinerary": { clickable: true, type: "view", viewType: "welcomePacket" },
+  // Legacy Welcome Packet aliases are normalized to the single configured
+  // "Welcome Packet" stage by sanitizePipelineStages. Do not render aliases.
   "Connect with Concierge": { clickable: true, type: "view", viewType: "concierge" },
   "Reimbursement/Advance Payment Report Released": { clickable: true, type: "view", viewType: "reimbursement" },
   "Submit Post-Arrival Documents": { clickable: true, type: "upload", uploadType: "postArrivalDocs" },
@@ -6417,8 +6423,10 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
     destination: "",
     bank: null,
     socialSecurity: null,
+    licensure: null,
     bankSearchUrl: "",
     socialSecuritySearchUrl: "",
+    licensureSearchUrl: "",
     source: ""
   });
   const [packet, setPacket] = useState({
@@ -6445,6 +6453,7 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
     employerWebsite: "",
     uniformRequirement: "",
     stateLicenseRequired: "",
+    endorsementState: "",
     boardOfNursing: "",
     boardAddress: "",
     boardPhone: "",
@@ -6455,26 +6464,47 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
     rentCost: "",
     securityDeposit: "",
     firstMonthRent: "",
-    electric: "",
-    waterSewer: "",
-    gas: "",
-    otherUtilities: "",
+    utilities: "",
+    totalPaymentsMade: "",
     destinationCity: "",
     destinationState: "",
     destinationZip: ""
   });
 
+  const normalizePacketValue = value => {
+    if (value === undefined || value === null) return "";
+
+    // Zoho lookup fields such as Account_Name are objects:
+    // { id, name }. React cannot render those objects directly.
+    if (typeof value === "object") {
+      if (Array.isArray(value)) {
+        return value
+          .map(item => normalizePacketValue(item))
+          .filter(Boolean)
+          .join(", ");
+      }
+
+      const lookupValue =
+        value.name ??
+        value.display_value ??
+        value.displayName ??
+        value.label ??
+        value.value ??
+        value.email ??
+        "";
+
+      return lookupValue === undefined || lookupValue === null
+        ? ""
+        : String(lookupValue).trim();
+    }
+
+    return String(value).trim();
+  };
+
   const pick = (source, ...keys) => {
     for (const key of keys) {
-      const value = source?.[key];
-      if (
-        value !== undefined &&
-        value !== null &&
-        String(value).trim() !== "" &&
-        String(value).trim() !== "—"
-      ) {
-        return value;
-      }
+      const value = normalizePacketValue(source?.[key]);
+      if (value && value !== "—") return value;
     }
     return "";
   };
@@ -6490,14 +6520,64 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
     });
   };
 
-  const fetchLocationServices = async (destination) => {
+  const fetchFacilityInformation = async () => {
+    try {
+      const token = localStorage.getItem("icp_auth_token");
+      if (!token) return;
+
+      const response = await fetch(
+        `${API_BASE}/api/welcome-packet/facility`,
+        {
+          method: "GET",
+          cache: "default",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json"
+          }
+        }
+      );
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.facility) return;
+
+      const facility = data.facility;
+      setPacket(current => ({
+        ...current,
+        employerName:
+          normalizePacketValue(facility.employerName) ||
+          current.employerName,
+        employerAddress:
+          normalizePacketValue(facility.address) ||
+          current.employerAddress,
+        employerContact:
+          normalizePacketValue(facility.contact) ||
+          current.employerContact,
+        employerPhone:
+          normalizePacketValue(facility.phone) ||
+          current.employerPhone,
+        employerEmail:
+          normalizePacketValue(facility.email) ||
+          current.employerEmail,
+        employerWebsite:
+          normalizePacketValue(facility.website) ||
+          current.employerWebsite,
+        uniformRequirement:
+          normalizePacketValue(facility.uniformRequirement) ||
+          current.uniformRequirement
+      }));
+    } catch (error) {
+      console.error("[Welcome Packet] Facility lookup failed:", error);
+    }
+  };
+
+  const fetchLocationServices = async (destination, endorsementState = "") => {
     if (!destination) return;
 
     setLookupLoading(true);
     try {
       const token = localStorage.getItem("icp_auth_token");
       const response = await fetch(
-        `${API_BASE}/api/welcome-packet/location-services?destination=${encodeURIComponent(destination)}`,
+        `${API_BASE}/api/welcome-packet/location-services?destination=${encodeURIComponent(destination)}&endorsementState=${encodeURIComponent(endorsementState || "")}`,
         {
           method: "GET",
           cache: "default",
@@ -6513,8 +6593,10 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
           destination: data.destination || destination,
           bank: data.bank || null,
           socialSecurity: data.socialSecurity || null,
+          licensure: data.licensure || null,
           bankSearchUrl: data.bankSearchUrl || "",
           socialSecuritySearchUrl: data.socialSecuritySearchUrl || "",
+          licensureSearchUrl: data.licensureSearchUrl || "",
           source: data.source || ""
         });
       }
@@ -6538,17 +6620,28 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
           throw new Error("Your session has expired. Please sign in again.");
         }
 
-        const response = await fetch(
-          `${API_BASE}/api/welcome-packet/data`,
-          {
-            method: "GET",
-            cache: "default",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json"
+        let response;
+        try {
+          response = await fetch(
+            `${API_BASE}/api/welcome-packet/data?deferServices=1`,
+            {
+              method: "GET",
+              cache: "no-store",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: "application/json"
+              }
             }
-          }
-        );
+          );
+        } catch (networkError) {
+          console.error("[Welcome Packet] Backend request failed", {
+            apiBase: API_BASE,
+            message: networkError?.message || String(networkError)
+          });
+          throw new Error(
+            "Unable to reach the ICP backend. Please refresh and try again."
+          );
+        }
 
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
@@ -6575,10 +6668,14 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
               packetResponse.locationServices.bank || null,
             socialSecurity:
               packetResponse.locationServices.socialSecurity || null,
+            licensure:
+              packetResponse.locationServices.licensure || null,
             bankSearchUrl:
               packetResponse.locationServices.bankSearchUrl || "",
             socialSecuritySearchUrl:
               packetResponse.locationServices.socialSecuritySearchUrl || "",
+            licensureSearchUrl:
+              packetResponse.locationServices.licensureSearchUrl || "",
             source:
               packetResponse.locationServices.source || ""
           });
@@ -6838,6 +6935,10 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
             "Uniform_Requirements",
             "Scrub_Color"
           ),
+          endorsementState: pick(
+            deal,
+            "NVC_DS_260_Status"
+          ),
           stateLicenseRequired: pick(
             deal,
             "stateLicenseRequired",
@@ -6863,12 +6964,14 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
           housingAddress,
           propertyManager: pick(
             deal,
+            "Property_Manager_Contact",
             "propertyManager",
             "Property_Manager",
             "Property_Manager_Name"
           ),
           propertyManagerPhone: pick(
             deal,
+            "Property_Manager_Contact",
             "propertyManagerPhone",
             "Property_Manager_Phone"
           ),
@@ -6894,13 +6997,20 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
           ),
           firstMonthRent: pick(
             deal,
+            "Total_Paid_by_ICP",
             "firstMonthRent",
             "First_Month_Rent"
           ),
-          electric: pick(deal, "Utilities", "utilities"),
-          waterSewer: pick(deal, "Utilities", "utilities"),
-          gas: pick(deal, "Utilities", "utilities"),
-          otherUtilities: pick(deal, "Other_Utilities", "otherUtilities"),
+          utilities: pick(
+            deal,
+            "Utilities",
+            "utilities"
+          ),
+          totalPaymentsMade: pick(
+            deal,
+            "Total_Payments_Made",
+            "totalPaymentsMade"
+          ),
           destinationCity,
           destinationState,
           destinationZip
@@ -6910,21 +7020,31 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
 
         setPacket(nextPacket);
 
-        const destination = [
-          nextPacket.housingAddress || nextPacket.employerAddress,
-          destinationCity,
-          destinationState,
-          destinationZip
-        ]
-          .filter(Boolean)
-          .join(", ");
+        // Facility details come from the Deal's Account_Name -> CRM Accounts.
+        // Load them independently so they never delay opening the packet.
+        void fetchFacilityInformation();
 
-        if (
-          !packetResponse.locationServices?.bank &&
-          !packetResponse.locationServices?.socialSecurity
-        ) {
-          fetchLocationServices(destination);
-        }
+        const destination =
+          packetResponse.locationServices?.destination ||
+          [
+            nextPacket.employerAddress,
+            destinationCity,
+            destinationState,
+            destinationZip
+          ]
+            .filter(Boolean)
+            .join(", ");
+
+        // Render the packet immediately. Nearby services load independently in
+        // the already-visible Banking / SSN / Licensure sections.
+        void fetchLocationServices(
+          nextPacket.housingAddress || destination,
+          nextPacket.endorsementState
+        );
+
+        // Bank, SSA and Licensure are resolved by /api/welcome-packet/data
+        // using the same CRM-driven relocation model as Relocation Hub.
+        // Do not overwrite them with a second generic location request.
       } catch (loadError) {
         console.error("[Welcome Packet] Load failed:", loadError);
         if (!cancelled) {
@@ -7040,11 +7160,14 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
 
   const printPacket = () => window.print();
 
-  const DisplayValue = ({ value }) => (
-    <span className="font-medium text-gray-900">
-      {value || "Not available"}
-    </span>
-  );
+  const DisplayValue = ({ value }) => {
+    const displayValue = normalizePacketValue(value);
+    return (
+      <span className="whitespace-pre-wrap font-medium text-gray-900">
+        {displayValue || "Not available"}
+      </span>
+    );
+  };
 
   const InfoRow = ({ label, value }) => (
     <div className="grid grid-cols-[minmax(130px,0.45fr)_1fr] gap-3 border-b py-2 text-sm last:border-b-0">
@@ -7180,11 +7303,43 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
         </h3>
         <InfoRow
           label="State of License Required"
-          value={packet.stateLicenseRequired}
+          value={
+            packet.endorsementState ||
+            locationServices.licensure?.state ||
+            packet.stateLicenseRequired
+          }
         />
-        <InfoRow label="Board of Nursing" value={packet.boardOfNursing} />
-        <InfoRow label="Address" value={packet.boardAddress} />
-        <InfoRow label="Phone" value={packet.boardPhone} />
+        <InfoRow
+          label="Board of Nursing"
+          value={
+            locationServices.licensure?.name ||
+            packet.boardOfNursing
+          }
+        />
+        <InfoRow
+          label="Address"
+          value={
+            locationServices.licensure?.address ||
+            packet.boardAddress
+          }
+        />
+        <InfoRow
+          label="Phone"
+          value={
+            locationServices.licensure?.phone ||
+            packet.boardPhone
+          }
+        />
+        {locationServices.licensureSearchUrl && (
+          <a
+            href={locationServices.licensureSearchUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-purple-700 hover:underline"
+          >
+            View Board of Nursing information <ExternalLink className="h-4 w-4" />
+          </a>
+        )}
 
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <div className="rounded-lg bg-gray-50 p-3">
@@ -7210,25 +7365,16 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
           <Home className="h-5 w-5" />
           Housing Information
         </h3>
-        <InfoRow label="Address" value={packet.housingAddress} />
-        <InfoRow label="Property Manager" value={packet.propertyManager} />
+        <InfoRow label="New Home Address" value={packet.housingAddress} />
+        <InfoRow label="Property Manager Contact" value={packet.propertyManager} />
         <InfoRow label="Phone" value={packet.propertyManagerPhone} />
         <InfoRow label="Move-In Date" value={packet.moveInDate} />
         <InfoRow label="Cost of Rent / Month" value={packet.rentCost} />
         <InfoRow label="Security Deposit" value={packet.securityDeposit} />
-        <InfoRow label="First Month Rent" value={packet.firstMonthRent} />
+        <InfoRow label="First Month Rent / Total Paid by ICP" value={packet.firstMonthRent} />
 
-        <h4 className="mt-5 font-bold text-gray-900">Utilities</h4>
-        <InfoRow label="Electric" value={packet.electric} />
-        <InfoRow label="Water / Sewer" value={packet.waterSewer} />
-        <InfoRow label="Gas" value={packet.gas} />
-        <InfoRow label="Other" value={packet.otherUtilities} />
-
-        <div className="mt-4 rounded-lg bg-gray-50 p-3 text-sm">
-          <p className="font-semibold">Furniture rental options</p>
-          <p className="mt-1">CORT Home and Office Furniture Rentals</p>
-          <p>Aaron’s Rent to Own Furniture, Electronics, and Appliances</p>
-        </div>
+        <h4 className="mt-5 font-bold text-gray-900">Breakdown of Payments</h4>
+        <InfoRow label="Breakdown of Payments" value={packet.totalPaymentsMade} />
       </section>
 
       <section className="rounded-xl border bg-white p-5">
@@ -7356,27 +7502,7 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
         </ul>
       </section>
 
-      <section className="rounded-xl border bg-white p-5">
-        <h3 className="mb-3 flex items-center gap-2 font-bold text-purple-800">
-          <ClipboardList className="h-5 w-5" />
-          Recommended Shopping List
-        </h3>
-        <div className="grid gap-4 md:grid-cols-4">
-          {[
-            ["Bedroom", ["Mattress", "Pillows", "Linens", "Extra blanket"]],
-            ["Bathroom", ["Towels", "Shower curtain", "Soap", "Toilet paper"]],
-            ["Kitchen", ["Dishes", "Utensils", "Pots and pans", "Groceries"]],
-            ["Cleaning", ["Laundry detergent", "Paper towels", "Broom or mop", "Surface cleaner"]]
-          ].map(([title, items]) => (
-            <div key={title} className="rounded-lg bg-gray-50 p-3">
-              <p className="text-sm font-bold">{title}</p>
-              <ul className="mt-2 list-disc pl-5 text-sm">
-                {items.map(item => <li key={item}>{item}</li>)}
-              </ul>
-            </div>
-          ))}
-        </div>
-      </section>
+      
 
       <div className="flex flex-wrap justify-end gap-2 border-t pt-4 print:hidden">
         <Button variant="outline" onClick={onClose}>Close</Button>
@@ -10315,10 +10441,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
     balanceAmount === 0;
 
   return (
-    <div className={cn(
-      "space-y-6 max-h-[calc(90vh-80px)] overflow-y-auto pr-2",
-      uploading && "opacity-60 pointer-events-none"
-    )}>
+    <div className="space-y-6 max-h-[calc(90vh-80px)] overflow-y-auto pr-2">
       {submitError && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3">
           <p className="text-xs text-red-700">⚠️ {submitError}</p>
@@ -11706,6 +11829,19 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
 
 // Main Pipeline Component
 
+// Use one canonical identity for every Welcome Packet alias.
+const canonicalPipelineStageName = value => {
+  const raw = String(value || "").trim();
+  const normalized = raw.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (
+    normalized === "welcome packet" ||
+    normalized === "icp welcome packet" ||
+    normalized === "icp welcome packet itinerary" ||
+    normalized === "welcome packet itinerary"
+  ) return "Welcome Packet";
+  return raw;
+};
+
 // Canonicalize every server/cache refresh against the CURRENT configured pipeline.
 // This prevents old MongoDB rows from reappearing a few seconds after the page loads.
 const sanitizePipelineStages = (incomingStages, candidateEmail) => {
@@ -11724,17 +11860,29 @@ const sanitizePipelineStages = (incomingStages, candidateEmail) => {
 
     if (rowEmail && email && rowEmail !== email) continue;
 
-    const existing = byName.get(row.stage_name);
+    const rawStageName = String(row.stage_name || "").trim();
+    const canonicalStageName = canonicalPipelineStageName(rawStageName);
+
+    const canonicalRow =
+      canonicalStageName === rawStageName
+        ? row
+        : {
+            ...row,
+            stage_name: canonicalStageName,
+            legacy_stage_name: rawStageName
+          };
+
+    const existing = byName.get(canonicalStageName);
     if (!existing) {
-      byName.set(row.stage_name, row);
+      byName.set(canonicalStageName, canonicalRow);
       continue;
     }
 
     const existingComplete = isPipelineStageComplete(existing);
-    const rowComplete = isPipelineStageComplete(row);
+    const rowComplete = isPipelineStageComplete(canonicalRow);
 
     if (rowComplete && !existingComplete) {
-      byName.set(row.stage_name, row);
+      byName.set(canonicalStageName, canonicalRow);
       continue;
     }
 
@@ -11748,19 +11896,30 @@ const sanitizePipelineStages = (incomingStages, candidateEmail) => {
     ).getTime();
 
     const rowUpdated = new Date(
-      row.updated_at ||
-      row.completed_date ||
-      row.completed_at ||
+      canonicalRow.updated_at ||
+      canonicalRow.completed_date ||
+      canonicalRow.completed_at ||
       0
     ).getTime();
 
     if (rowUpdated >= existingUpdated) {
-      byName.set(row.stage_name, row);
+      byName.set(canonicalStageName, canonicalRow);
     }
   }
 
   // The visible main pipeline ALWAYS comes from STAGES_CONFIG.
-  const canonical = getEnabledPipelineStages(STAGES_CONFIG).map(config => {
+  const configuredByCanonicalName = new Map();
+  for (const config of getEnabledPipelineStages(STAGES_CONFIG)) {
+    const canonicalName = canonicalPipelineStageName(config.stage_name);
+    if (!configuredByCanonicalName.has(canonicalName)) {
+      configuredByCanonicalName.set(canonicalName, {
+        ...config,
+        stage_name: canonicalName
+      });
+    }
+  }
+
+  const canonical = Array.from(configuredByCanonicalName.values()).map(config => {
     const remote = byName.get(config.stage_name) || {};
     return {
       ...remote,
@@ -11788,13 +11947,31 @@ const sanitizePipelineStages = (incomingStages, candidateEmail) => {
     nclex_subprocess: true
   }));
 
-  return preservePermanentSelectPrescreenInStages(
+  const preserved = preservePermanentSelectPrescreenInStages(
     [
       ...canonical,
       ...nclexHistory
     ],
     email
   );
+
+  // Absolute final dedupe boundary. Legacy DB rows, cached aliases, or helper
+  // re-insertion cannot produce a second visible Welcome Packet.
+  const unique = new Map();
+  for (const stage of preserved) {
+    const canonicalName = canonicalPipelineStageName(stage?.stage_name);
+    if (!canonicalName) continue;
+    const normalized = { ...stage, stage_name: canonicalName };
+    const existing = unique.get(canonicalName);
+    if (
+      !existing ||
+      (isPipelineStageComplete(normalized) &&
+        !isPipelineStageComplete(existing))
+    ) {
+      unique.set(canonicalName, normalized);
+    }
+  }
+  return Array.from(unique.values());
 };
 
 const formatLivePipelineCountdown = (
@@ -12779,10 +12956,24 @@ export default function Pipeline() {
               .trim()
               .toLowerCase();
             if (remoteEmail && remoteEmail !== normalizedEmail) continue;
-            dashboardByName.set(remoteStage.stage_name, remoteStage);
+            const canonicalRemoteName = canonicalPipelineStageName(remoteStage.stage_name);
+            const canonicalRemoteStage = {
+              ...remoteStage,
+              stage_name: canonicalRemoteName
+            };
+            const existingRemote = dashboardByName.get(canonicalRemoteName);
+            if (
+              !existingRemote ||
+              (isPipelineStageComplete(canonicalRemoteStage) &&
+                !isPipelineStageComplete(existingRemote))
+            ) {
+              dashboardByName.set(canonicalRemoteName, canonicalRemoteStage);
+            }
           }
 
-          const currentName = dashboardCurrentStage?.stage_name || null;
+          const currentName = dashboardCurrentStage?.stage_name
+            ? canonicalPipelineStageName(dashboardCurrentStage.stage_name)
+            : null;
 
           const merged = baseStages.map(localStage => {
             const remoteStage = dashboardByName.get(localStage.stage_name);
@@ -18303,8 +18494,61 @@ export default function Pipeline() {
     nclexBranchVisible
   ]);
 
+  // Absolute UI boundary: normalize and dedupe the live state immediately
+  // before rendering. This protects the visible pipeline even when a legacy
+  // async setStages() path temporarily re-inserts "ICP Welcome Packet" after
+  // sanitizePipelineStages has already run.
+  const visibleStageSource = (() => {
+    const unique = new Map();
+
+    for (const rawStage of Array.isArray(stages) ? stages : []) {
+      if (!rawStage?.stage_name) continue;
+
+      const canonicalName = canonicalPipelineStageName(rawStage.stage_name);
+      const stage = {
+        ...rawStage,
+        stage_name: canonicalName
+      };
+
+      const existing = unique.get(canonicalName);
+      if (!existing) {
+        unique.set(canonicalName, stage);
+        continue;
+      }
+
+      const existingComplete = isPipelineStageComplete(existing);
+      const stageComplete = isPipelineStageComplete(stage);
+
+      if (stageComplete && !existingComplete) {
+        unique.set(canonicalName, stage);
+        continue;
+      }
+      if (existingComplete && !stageComplete) continue;
+
+      const existingUpdated = new Date(
+        existing.updated_at ||
+        existing.completed_date ||
+        existing.completed_at ||
+        0
+      ).getTime();
+
+      const stageUpdated = new Date(
+        stage.updated_at ||
+        stage.completed_date ||
+        stage.completed_at ||
+        0
+      ).getTime();
+
+      if (stageUpdated >= existingUpdated) {
+        unique.set(canonicalName, stage);
+      }
+    }
+
+    return Array.from(unique.values());
+  })();
+
   const regularDisplayStages =
-    stages.filter(stage => {
+    visibleStageSource.filter(stage => {
       const authenticatedEmail = String(user?.email || "").trim().toLowerCase();
       const stageEmail = String(stage?.candidate_email || "").trim().toLowerCase();
       if (stageEmail && authenticatedEmail && stageEmail !== authenticatedEmail) {
@@ -18437,7 +18681,9 @@ export default function Pipeline() {
     "Pre-Arrival Banking Call",
     "Employer Pre-Arrival Call",
     "deployMate Ready",
-    // Welcome Packet is completed by candidate acknowledgement, not CRM.
+    // Candidate-action stages are authoritative from persisted backend stage state.
+    "Welcome Packet",
+    "Receipt Submission",
     "Arrived",
 
     // Aftercare source-driven completion
@@ -18867,9 +19113,49 @@ export default function Pipeline() {
       }
     }
 
+    const hasAuthoritativeCompletionMetric =
+      Object.prototype.hasOwnProperty.call(
+        completionMap || {},
+        stage.stage_name
+      ) &&
+      typeof completionMap?.[stage.stage_name] === "boolean";
+
+    if (hasAuthoritativeCompletionMetric) {
+      const metricComplete =
+        completionMap[stage.stage_name] === true;
+      const metricInProgress =
+        !metricComplete &&
+        String(liveStageStatus?.status || "")
+          .trim()
+          .toLowerCase() === "in progress";
+
+      next = {
+        ...next,
+        status:
+          metricComplete
+            ? "Completed"
+            : metricInProgress
+              ? "In Progress"
+              : "Not Started",
+        completed: metricComplete,
+        is_completed: metricComplete,
+        completed_date:
+          metricComplete
+            ? (
+                liveStageStatus?.completed_date ||
+                next.completed_date ||
+                new Date().toISOString()
+              )
+            : null,
+        source_trigger_synced: true,
+        completion_metric_authoritative: true
+      };
+    }
+
     if (
       useLiveCompletion &&
       explicitBackendCompletion === false &&
+      !hasAuthoritativeCompletionMetric &&
       !isPipelineStageComplete(next)
     ) {
       next = {
@@ -18908,6 +19194,34 @@ export default function Pipeline() {
     ).map(
       deriveLivePipelineStage
     );
+
+  // Final render guard. At this point aliases, completion metrics and live
+  // source status have all been applied. Only one canonical stage can reach
+  // the category renderer.
+  displayStages = Array.from(
+    displayStages.reduce((unique, rawStage) => {
+      const canonicalName = canonicalPipelineStageName(rawStage?.stage_name);
+      if (!canonicalName) return unique;
+
+      const stage = {
+        ...rawStage,
+        stage_name: canonicalName
+      };
+      const existing = unique.get(canonicalName);
+
+      if (
+        !existing ||
+        (
+          isPipelineStageComplete(stage) &&
+          !isPipelineStageComplete(existing)
+        )
+      ) {
+        unique.set(canonicalName, stage);
+      }
+
+      return unique;
+    }, new Map()).values()
+  );
 
   if (nclexBranchVisible) {
     const prerequisites =
