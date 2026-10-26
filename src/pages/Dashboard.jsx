@@ -2488,14 +2488,6 @@ export default function Dashboard() {
       badge: unreadUpdates > 0
     },
     {
-      path: "/forms",
-      label: "Forms",
-      sublabel: "Candidate forms",
-      icon: FileSignature,
-      color: "bg-[#ECFDF5] text-[#047857]",
-      accent: "hover:border-[#34D399] hover:bg-[#F0FDF4]"
-    },
-    {
       path: "/pipeline?stage=welcome-packet",
       label: "Welcome Packet",
       sublabel: welcomePacketAvailable
@@ -2813,7 +2805,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {quickLinks.map(
           link => {
             const isImageIcon = typeof link.icon === "string" && link.icon.startsWith("image:");
