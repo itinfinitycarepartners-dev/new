@@ -6473,7 +6473,7 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
   });
 
   const welcomePacketCacheKey = user?.email
-    ? `icp_welcome_packet_v14:${String(user.email).trim().toLowerCase()}`
+    ? `icp_welcome_packet_v15:${String(user.email).trim().toLowerCase()}`
     : "";
 
   const readWelcomePacketCache = () => {
@@ -7413,7 +7413,7 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
         <div className="grid grid-cols-[150px_1fr] gap-3 border-b border-gray-100 py-2 text-sm last:border-b-0">
           <span className="font-semibold text-gray-600">Board of Nursing</span>
           <span className="min-w-0 text-gray-900">
-            {locationServices.licensureSearchUrl ? (
+            {locationServices.licensureSearchUrl && (
               <a
                 href={locationServices.licensureSearchUrl}
                 target="_blank"
@@ -7421,20 +7421,9 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
                 className="inline-flex items-center gap-1 font-semibold text-violet-700 hover:text-violet-900 hover:underline"
               >
                 {locationServices.licensure?.displayName ||
-                  (packet.stateOfLicenseRequired
-                    ? `${packet.stateOfLicenseRequired} Board of Nursing`
-                    : locationServices.licensure?.name ||
-                      packet.boardOfNursing ||
-                      "State Board of Nursing")}
+                  `${packet.stateOfLicenseRequired} Board of Nursing`}
                 <ExternalLink className="h-3.5 w-3.5 shrink-0" />
               </a>
-            ) : (
-              locationServices.licensure?.displayName ||
-              (packet.stateOfLicenseRequired
-                ? `${packet.stateOfLicenseRequired} Board of Nursing`
-                : locationServices.licensure?.name ||
-                  packet.boardOfNursing ||
-                  "Not available")
             )}
           </span>
         </div>
