@@ -63,7 +63,8 @@ import {
   Stethoscope as StethoscopeIcon,
   FileHeart,
   HeartPulse,
-  Lock
+  Lock,
+  Zap
 } from "lucide-react";
 import { ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -4174,7 +4175,7 @@ const ImmigrationCRMChecklistView = ({ stageName, onClose, user, setStages, stag
         )}&refresh=false`,
         {
           method: "GET",
-          cache: "default",
+          cache: "no-store",
           headers: {
             Authorization: `Bearer ${token}`,
             "Cache-Control": "no-cache",
@@ -6472,7 +6473,7 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
   });
 
   const welcomePacketCacheKey = user?.email
-    ? `icp_welcome_packet_v9:${String(user.email).trim().toLowerCase()}`
+    ? `icp_welcome_packet_v14:${String(user.email).trim().toLowerCase()}`
     : "";
 
   const readWelcomePacketCache = () => {
@@ -6562,7 +6563,7 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
         `${API_BASE}/api/welcome-packet/facility`,
         {
           method: "GET",
-          cache: "default",
+          cache: "no-store",
           headers: {
             Authorization: `Bearer ${token}`,
             Accept: "application/json"
@@ -6577,27 +6578,23 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
       setPacket(current => {
         const updated = {
           ...current,
+          // /api/welcome-packet/facility is the authoritative Account_Name ->
+          // Zoho CRM Accounts lookup. Never preserve stale Deal/public values
+          // after the Account record has been resolved.
           employerName:
-          normalizePacketValue(facility.employerName) ||
-          current.employerName,
-        employerAddress:
-          normalizePacketValue(facility.address) ||
-          current.employerAddress,
-        employerContact:
-          normalizePacketValue(facility.contact) ||
-          current.employerContact,
-        employerPhone:
-          normalizePacketValue(facility.phone) ||
-          current.employerPhone,
-        employerEmail:
-          normalizePacketValue(facility.email) ||
-          current.employerEmail,
-        employerWebsite:
-          normalizePacketValue(facility.website) ||
-          current.employerWebsite,
-        uniformRequirement:
-          normalizePacketValue(facility.uniformRequirement) ||
-          current.uniformRequirement
+            normalizePacketValue(facility.employerName),
+          employerAddress:
+            normalizePacketValue(facility.address),
+          employerContact:
+            normalizePacketValue(facility.contact),
+          employerPhone:
+            normalizePacketValue(facility.phone),
+          employerEmail:
+            normalizePacketValue(facility.email),
+          employerWebsite:
+            normalizePacketValue(facility.website),
+          uniformRequirement:
+            normalizePacketValue(facility.uniformRequirement)
         };
         writeWelcomePacketCache(updated);
         return updated;
@@ -7050,16 +7047,11 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
           housingAddress,
           propertyManager: pick(
             deal,
-            "Property_Manager_Contact",
-            "propertyManager",
-            "Property_Manager",
             "Property_Manager_Name"
           ),
           propertyManagerPhone: pick(
             deal,
-            "Property_Manager_Contact",
-            "propertyManagerPhone",
-            "Property_Manager_Phone"
+            "Property_Manager_Contact"
           ),
           moveInDate: formatPacketDate(
             pick(
@@ -7259,6 +7251,30 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
     );
   };
 
+  const formatWelcomeUsd = value => {
+    const raw = String(value ?? "").trim();
+    if (!raw) return "";
+    if (/^\$/.test(raw)) return raw;
+    const numeric = Number(raw.replace(/[$,\s]/g, ""));
+    if (Number.isFinite(numeric)) {
+      return `$${numeric.toLocaleString("en-US", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2
+      })}`;
+    }
+    return `$${raw}`;
+  };
+
+  const cleanSocialSecurityAddress = value => {
+    let raw = String(value || "").trim();
+    if (!raw) return "";
+    raw = raw
+      .replace(/^\s*(?:U\.?\s*S\.?\s*)?Social\s+Security\s+Administration\s*[-,:|]?\s*/i, "")
+      .replace(/^\s*Social\s+Security\s+Office\s*[-,:|]?\s*/i, "")
+      .trim();
+    return raw;
+  };
+
   const InfoRow = ({ label, value }) => (
     <div className="grid grid-cols-[minmax(130px,0.45fr)_1fr] gap-3 border-b py-2 text-sm last:border-b-0">
       <span className="font-semibold text-gray-600">{label}</span>
@@ -7289,22 +7305,18 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
   }
 
   return (
-    <div className="space-y-6 print:space-y-4">
-      <section className="rounded-2xl border border-purple-200 bg-white p-6 text-center">
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-purple-700">
-          Compassionate · Experienced · Committed
-        </p>
-        <h2 className="mt-3 text-3xl font-bold text-purple-800">
-          Infinity Care Partners
-        </h2>
-        <p className="mt-2 text-lg font-semibold uppercase tracking-[0.25em]">
-          Welcome Packet
-        </p>
+    <div className="mx-auto max-w-5xl space-y-4 rounded-2xl bg-white p-2 sm:p-4 print:space-y-3 print:bg-white">
+      <section className="overflow-hidden rounded-2xl border border-purple-200 bg-white shadow-sm">
+        <img
+          src="/welcome-packet-banner.png"
+          alt="Infinity Care Partners - Welcome to the USA"
+          className="block h-auto w-full object-cover"
+        />
       </section>
 
-      <section className="rounded-xl border bg-white p-5">
+      <section className="rounded-2xl border border-purple-200 bg-purple-50/70 p-5 shadow-sm">
         <h3 className="text-xl font-bold text-purple-800">
-          Welcome to America!
+          💌 Welcome!
         </h3>
         <p className="mt-3 text-sm text-gray-600">{packet.welcomeDate}</p>
         <p className="mt-4 text-sm leading-6 text-gray-700">
@@ -7317,18 +7329,41 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
           chosen us to support you in achieving your American Dream.
         </p>
         <p className="mt-3 text-sm leading-6 text-gray-700">
-          This welcome packet provides guidance to help you navigate your
-          relocation and transition into your new role.
+          Enclosed, you will find your comprehensive welcome packet, which
+          provides detailed guidance to help you navigate your relocation. Our
+          commitment is to ensure a seamless, safe, and successful transition to
+          both your new life in the United States and your new role with your
+          employer.
         </p>
         <p className="mt-4 text-sm font-medium text-gray-700">
-          Kind regards,<br />The Infinity Care Partners Team
+          Kind regards.<br />
+          <strong>The Infinity Care Partners Team</strong>
         </p>
       </section>
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="rounded-xl border border-purple-200 bg-purple-50 p-3 text-center">
+          <Building className="mx-auto h-5 w-5 text-purple-700" />
+          <p className="mt-1 text-xs font-bold text-purple-900">Facility Information</p>
+        </div>
+        <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-center">
+          <Banknote className="mx-auto h-5 w-5 text-cyan-700" />
+          <p className="mt-1 text-xs font-bold text-cyan-900">Banking Information</p>
+        </div>
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-center">
+          <DollarSign className="mx-auto h-5 w-5 text-blue-700" />
+          <p className="mt-1 text-xs font-bold text-blue-900">The 50 / 30 / 20 Budget Rule</p>
+        </div>
+        <div className="rounded-xl border border-pink-200 bg-pink-50 p-3 text-center">
+          <CreditCard className="mx-auto h-5 w-5 text-pink-700" />
+          <p className="mt-1 text-xs font-bold text-pink-900">Social Security Information</p>
+        </div>
+      </div>
 
       
 
       <section className="rounded-xl border bg-white p-5">
-        <h3 className="mb-3 flex items-center gap-2 font-bold text-purple-800">
+        <h3 className="mb-3 flex items-center gap-2 rounded-lg bg-purple-100 px-3 py-2 font-bold text-purple-900">
           <Building className="h-5 w-5" />
           Facility Information
         </h3>
@@ -7338,7 +7373,6 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
         <InfoRow label="Phone" value={packet.employerPhone} />
         <InfoRow label="Email" value={packet.employerEmail} />
         <InfoRow label="Website" value={packet.employerWebsite} />
-        <InfoRow label="Uniform Requirement" value={packet.uniformRequirement} />
 
         <h4 className="mt-5 font-bold text-gray-900">Work Expectations</h4>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-700">
@@ -7363,8 +7397,8 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
         </ul>
       </section>
 
-      <section className="rounded-xl border bg-white p-5">
-        <h3 className="mb-3 flex items-center gap-2 font-bold text-purple-800">
+      <section className="rounded-2xl border border-violet-200 bg-violet-50/50 p-5 shadow-sm">
+        <h3 className="mb-3 flex items-center gap-2 rounded-lg bg-violet-100 px-3 py-2 font-bold text-violet-900">
           <Award className="h-5 w-5" />
           Licensure
         </h3>
@@ -7376,6 +7410,34 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
             packet.stateLicenseRequired
           }
         />
+        <div className="grid grid-cols-[150px_1fr] gap-3 border-b border-gray-100 py-2 text-sm last:border-b-0">
+          <span className="font-semibold text-gray-600">Board of Nursing</span>
+          <span className="min-w-0 text-gray-900">
+            {locationServices.licensureSearchUrl ? (
+              <a
+                href={locationServices.licensureSearchUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 font-semibold text-violet-700 hover:text-violet-900 hover:underline"
+              >
+                {locationServices.licensure?.displayName ||
+                  (packet.stateOfLicenseRequired
+                    ? `${packet.stateOfLicenseRequired} Board of Nursing`
+                    : locationServices.licensure?.name ||
+                      packet.boardOfNursing ||
+                      "State Board of Nursing")}
+                <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+              </a>
+            ) : (
+              locationServices.licensure?.displayName ||
+              (packet.stateOfLicenseRequired
+                ? `${packet.stateOfLicenseRequired} Board of Nursing`
+                : locationServices.licensure?.name ||
+                  packet.boardOfNursing ||
+                  "Not available")
+            )}
+          </span>
+        </div>
         <InfoRow
           label="Address"
           value={
@@ -7390,16 +7452,6 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
             packet.boardPhone
           }
         />
-        {locationServices.licensureSearchUrl && (
-          <a
-            href={locationServices.licensureSearchUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-purple-700 hover:underline"
-          >
-            View Board of Nursing information <ExternalLink className="h-4 w-4" />
-          </a>
-        )}
 
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <div className="rounded-lg bg-gray-50 p-3">
@@ -7420,25 +7472,47 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
         </div>
       </section>
 
-      <section className="rounded-xl border bg-white p-5">
-        <h3 className="mb-3 flex items-center gap-2 font-bold text-purple-800">
+      <section className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-5 shadow-sm">
+        <h3 className="mb-3 flex items-center gap-2 rounded-lg bg-indigo-100 px-3 py-2 font-bold text-indigo-900">
           <Home className="h-5 w-5" />
           Housing Information
         </h3>
         <InfoRow label="New Home Address" value={packet.housingAddress} />
-        <InfoRow label="Property Manager Contact" value={packet.propertyManager} />
-        <InfoRow label="Phone" value={packet.propertyManagerPhone} />
+        <InfoRow label="Property Contact Name" value={packet.propertyManager} />
+        <InfoRow label="Property Contact" value={packet.propertyManagerPhone} />
         <InfoRow label="Move-In Date" value={packet.moveInDate} />
-        <InfoRow label="Cost of Rent / Month" value={packet.rentCost} />
-        <InfoRow label="Security Deposit" value={packet.securityDeposit} />
-        <InfoRow label="First Month Rent / Total Paid by ICP" value={packet.firstMonthRent} />
+        <InfoRow
+          label="Cost of Rent / Month"
+          value={formatWelcomeUsd(packet.rentCost)}
+        />
 
         <h4 className="mt-5 font-bold text-gray-900">Breakdown of Payments</h4>
         <InfoRow label="Breakdown of Payments" value={packet.totalPaymentsMade} />
+        <InfoRow
+          label="Total Paid by ICP"
+          value={formatWelcomeUsd(packet.firstMonthRent)}
+        />
       </section>
 
-      <section className="rounded-xl border bg-white p-5">
-        <h3 className="mb-3 flex items-center gap-2 font-bold text-purple-800">
+      <section className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 shadow-sm">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+            <Zap className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-bold text-emerald-900">Utilities</h3>
+            <p className="mt-0.5 text-xs text-emerald-700">
+              Utility information for your new home.
+            </p>
+            <p className="mt-2 whitespace-pre-wrap text-sm text-gray-700">
+              {normalizePacketValue(packet.utilities) || "Not available"}
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-cyan-200 bg-cyan-50/60 p-5 shadow-sm">
+        <h3 className="mb-3 flex items-center gap-2 rounded-lg bg-cyan-100 px-3 py-2 font-bold text-cyan-900">
           <Banknote className="h-5 w-5" />
           Banking Information
         </h3>
@@ -7490,8 +7564,8 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
         </div>
       </section>
 
-      <section className="rounded-xl border bg-white p-5">
-        <h3 className="mb-3 flex items-center gap-2 font-bold text-purple-800">
+      <section className="rounded-2xl border border-pink-200 bg-pink-50/60 p-5 shadow-sm">
+        <h3 className="mb-3 flex items-center gap-2 rounded-lg bg-pink-100 px-3 py-2 font-bold text-pink-900">
           <CreditCard className="h-5 w-5" />
           Social Security Information
         </h3>
@@ -7502,7 +7576,9 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
             />
             <InfoRow
               label="Address"
-              value={locationServices.socialSecurity?.address}
+              value={cleanSocialSecurityAddress(
+                locationServices.socialSecurity?.address
+              )}
             />
             <InfoRow
               label="Phone"
@@ -11075,7 +11151,8 @@ const RECEIPT_CATEGORIES = [
   { id: "housing_stipend", label: "One-time Housing Stipend" },
   { id: "housing_app_admin", label: "Housing App & Admin Fees" },
   { id: "housing_deposit", label: "Housing Deposit" },
-  { id: "rent_move_in", label: "Rent / Move-in fees" },
+  { id: "rent_move_in", label: "Prorated Rent" },
+  { id: "move_in_fees", label: "Move-in Fees" },
   { id: "insurance", label: "Insurance" },
   { id: "other", label: "Other" }
 ];
