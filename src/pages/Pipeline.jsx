@@ -6419,6 +6419,7 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
   const [loading, setLoading] = useState(true);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [acknowledging, setAcknowledging] = useState(false);
+  const [acknowledgedAt, setAcknowledgedAt] = useState(null);
   const [error, setError] = useState("");
   const [locationServices, setLocationServices] = useState({
     destination: "",
@@ -6473,7 +6474,7 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
   });
 
   const welcomePacketCacheKey = user?.email
-    ? `icp_welcome_packet_v15:${String(user.email).trim().toLowerCase()}`
+    ? `icp_welcome_packet_v16:${String(user.email).trim().toLowerCase()}`
     : "";
 
   const readWelcomePacketCache = () => {
@@ -7147,6 +7148,29 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
     };
   }, [user?.email]);
 
+  useEffect(() => {
+    const loadAcknowledgementStatus = async () => {
+      try {
+        const token = localStorage.getItem("icp_auth_token");
+        if (!token) return;
+        const response = await fetch(
+          `${API_BASE}/api/welcome-packet/acknowledgement-status`,
+          {
+            cache: "no-store",
+            headers: { Authorization: `Bearer ${token}` }
+          }
+        );
+        const data = await response.json().catch(() => ({}));
+        if (response.ok && data.success === true) {
+          setAcknowledgedAt(data.acknowledgedAt || null);
+        }
+      } catch {
+        // Timestamp is informational; packet remains usable if this lookup fails.
+      }
+    };
+    loadAcknowledgementStatus();
+  }, [user?.email]);
+
   const acknowledgePacket = async () => {
     setAcknowledging(true);
     try {
@@ -7230,8 +7254,12 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
         }
       }));
 
-      toast.success("Welcome Packet acknowledged successfully.");
-      setTimeout(onClose, 600);
+      const acknowledgementTime =
+        data.acknowledged_at ||
+        data.stage?.acknowledged_at ||
+        new Date().toISOString();
+      setAcknowledgedAt(acknowledgementTime);
+      toast.success("Welcome Packet acknowledgement saved.");
     } catch (error) {
       console.error("[Welcome Packet] Acknowledgement failed:", error);
       toast.error(error.message || "Unable to acknowledge the Welcome Packet.");
@@ -7316,29 +7344,27 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
 
       <section className="rounded-2xl border border-purple-200 bg-purple-50/70 p-5 shadow-sm">
         <h3 className="text-xl font-bold text-purple-800">
-          💌 Welcome!
+          Your Journey to America Begins Soon! 🇺🇸
         </h3>
         <p className="mt-3 text-sm text-gray-600">{packet.welcomeDate}</p>
-        <p className="mt-4 text-sm leading-6 text-gray-700">
-          Dear {packet.recipientName || "Candidate"},
-        </p>
-        <p className="mt-3 text-sm leading-6 text-gray-700">
-          Congratulations on this exciting new chapter in your life! On behalf
-          of Infinity Care Partners, we are thrilled to welcome you as you begin
-          your transition to the United States. We are honored that you have
-          chosen us to support you in achieving your American Dream.
-        </p>
-        <p className="mt-3 text-sm leading-6 text-gray-700">
-          Enclosed, you will find your comprehensive welcome packet, which
-          provides detailed guidance to help you navigate your relocation. Our
-          commitment is to ensure a seamless, safe, and successful transition to
-          both your new life in the United States and your new role with your
-          employer.
-        </p>
-        <p className="mt-4 text-sm font-medium text-gray-700">
-          Kind regards.<br />
-          <strong>The Infinity Care Partners Team</strong>
-        </p>
+        <div className="mt-4 space-y-3 text-sm leading-6 text-gray-700">
+          <p>
+            Dear {packet.preferredName || packet.recipientName || "Nurse"},
+          </p>
+          <p>
+            You've worked incredibly hard to reach this milestone, and you're now one step closer to beginning your new chapter in the United States! We know the dedication, patience, and perseverance it has taken to get here, and we're so excited for what lies ahead.
+          </p>
+          <p>
+            As you prepare for your arrival, you'll find helpful information below about your facility, housing, banking, and other essential resources to help make your transition as smooth as possible.
+          </p>
+          <p className="font-bold text-purple-900">
+            Your next chapter is just around the corner, and we're so excited to welcome you! 💜
+          </p>
+          <p className="font-medium">
+            Warm regards,<br />
+            The Infinity Care Partners Team
+          </p>
+        </div>
       </section>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -7466,7 +7492,10 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
           <Home className="h-5 w-5" />
           Housing Information
         </h3>
-        <InfoRow label="New Home Address" value={packet.housingAddress} />
+        <InfoRow
+          label="New Home Address"
+          value={locationServices.destination || packet.housingAddress}
+        />
         <InfoRow label="Property Contact Name" value={packet.propertyManager} />
         <InfoRow label="Property Contact" value={packet.propertyManagerPhone} />
         <InfoRow label="Move-In Date" value={packet.moveInDate} />
@@ -7506,6 +7535,10 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
           Banking Information
         </h3>
 
+        <InfoRow
+          label="Final Banking Plan"
+          value=""
+        />
         <InfoRow
           label="Local Bank"
           value={locationServices.bank?.name}
@@ -7564,24 +7597,26 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
               value={locationServices.socialSecurity?.name}
             />
             <InfoRow
-              label="Address"
-              value={cleanSocialSecurityAddress(
-                locationServices.socialSecurity?.address
-              )}
-            />
-            <InfoRow
               label="Phone"
               value={locationServices.socialSecurity?.phone}
             />
             {locationServices.socialSecuritySearchUrl && (
-              <a
-                href={locationServices.socialSecuritySearchUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-purple-700 hover:underline"
-              >
-                Find the official local office <ExternalLink className="h-4 w-4" />
-              </a>
+              <div className="grid grid-cols-[150px_1fr] gap-3 border-b border-gray-100 py-2 text-sm last:border-b-0">
+                <span className="font-semibold text-gray-600">
+                  Local Office Locator
+                </span>
+                <span>
+                  <a
+                    href={locationServices.socialSecuritySearchUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 font-semibold text-pink-700 hover:underline"
+                  >
+                    Find your local Social Security office
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                </span>
+              </div>
             )}
 
         <h4 className="mt-5 font-bold">Process</h4>
@@ -7626,8 +7661,13 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
           ) : (
             <CheckCircle2 className="h-4 w-4" />
           )}
-          Acknowledge Packet
+          {acknowledgedAt ? "Re-acknowledge Packet" : "Acknowledge Packet"}
         </Button>
+        {acknowledgedAt && (
+          <p className="w-full text-right text-xs text-muted-foreground">
+            Last acknowledged: {new Date(acknowledgedAt).toLocaleString()}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -9896,13 +9936,39 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState(null);
-  const [expenseReport, setExpenseReport] = useState(null);
+  const [expenseReport, setExpenseReport] = useState(() => ({
+    candidate_email: "",
+    candidate_name: "",
+    arrival_date: "",
+    facility: "",
+    rows: [
+      { id: "visa_screen", label: "VISA Screen", side: "credit", reviewed: false, amount: null },
+      { id: "nclex_exam", label: "NCLEX Exam and Scheduling Fee", side: "credit", reviewed: false, amount: null },
+      { id: "green_card", label: "Green Card", side: "credit", reviewed: false, amount: null },
+      { id: "license_endorsement", label: "Licensure Application", side: "credit", reviewed: false, amount: null },
+      { id: "nursys", label: "NURSYS", side: "credit", reviewed: false, amount: null },
+      { id: "ces_report", label: "CES Report", side: "credit", reviewed: false, amount: null },
+      { id: "english_exam", label: "English Exam", side: "credit", reviewed: false, amount: null },
+      { id: "fingerprints", label: "Background / Fingerprinting", side: "credit", reviewed: false, amount: null, note: "Paid post arrival by RN" },
+      { id: "medical_exam", label: "Medical Exam", side: "credit", reviewed: false, amount: null },
+      { id: "dependent_visa_fee", label: "Dependent VISA Fee Bill", side: "deduction", reviewed: false, amount: null },
+      { id: "dependents_after_i140", label: "Dependents Added after I-140", side: "deduction", reviewed: false, amount: null },
+      { id: "housing_stipend", label: "One-time Housing Stipend", side: "credit", reviewed: false, amount: null },
+      { id: "housing_deposit", label: "Breakdown of Expenses", side: "deduction", reviewed: false, amount: null, display_value: "" },
+      { id: "housing_app_admin", label: "Total Paid by ICP", side: "deduction", reviewed: false, amount: null }
+    ],
+    totals: { credits: 0, deductions: 0, net: 0, due_to: "Neither", amount_due: 0 },
+    submitted_at: null,
+    updated_at: null
+  }));
   const [expenseReportLoading, setExpenseReportLoading] = useState(true);
   const [advanceAgreementReviewed, setAdvanceAgreementReviewed] = useState(false);
   const [advanceAgreementAcknowledged, setAdvanceAgreementAcknowledged] = useState(false);
   const [advanceAgreementSaving, setAdvanceAgreementSaving] = useState(false);
   const [advanceAgreementPersisted, setAdvanceAgreementPersisted] = useState(false);
   const [expenseReportAcknowledged, setExpenseReportAcknowledged] = useState(false);
+  const [expenseReportAcknowledgedAt, setExpenseReportAcknowledgedAt] = useState(null);
+  const [bankSubmittedAt, setBankSubmittedAt] = useState(null);
   const [expenseReportAcknowledging, setExpenseReportAcknowledging] = useState(false);
 
   useEffect(() => {
@@ -9974,6 +10040,12 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
       setExpenseReportAcknowledged(
         reimbursementData.expenseReportAcknowledged === true
       );
+      setExpenseReportAcknowledgedAt(
+        reimbursementData.expenseReportAcknowledgedAt || null
+      );
+      setBankSubmittedAt(
+        reimbursementData.submittedAt || null
+      );
 
     } catch (error) {
       console.error("Error fetching payment data:", error);
@@ -10006,7 +10078,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
           `${API_BASE}/api/reimbursement/expense-report`,
           {
             cache:
-              "default",
+              "no-store",
             headers: {
               Authorization:
                 `Bearer ${token}`
@@ -10031,14 +10103,21 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
         );
       }
 
-      setExpenseReport(
-        data.report ||
-        null
-      );
+      if (data.report) {
+        setExpenseReport(data.report);
+      }
     } catch (error) {
       console.warn(
         "[Reimbursement/Expenses] Expense Report load failed:",
         error
+      );
+      setSubmitError(
+        error?.message ||
+        "Unable to load Expense Report."
+      );
+      toast.error(
+        error?.message ||
+        "Unable to load Expense Report."
       );
     } finally {
       setExpenseReportLoading(
@@ -10200,7 +10279,6 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
   const handleAcknowledgeExpenseReport =
     async () => {
       if (
-        expenseReportAcknowledged ||
         expenseReportAcknowledging
       ) {
         return;
@@ -10264,6 +10342,9 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
 
         setExpenseReportAcknowledged(
           true
+        );
+        setExpenseReportAcknowledgedAt(
+          data.acknowledgedAt || new Date().toISOString()
         );
 
         setStages?.(
@@ -10341,56 +10422,19 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
       return;
     }
 
-    if (
-      isAdvancePaymentAgreement &&
-      !advanceAgreementPersisted &&
-      (!advanceAgreementReviewed || !advanceAgreementAcknowledged)
-    ) {
-      toast.error("Please review and acknowledge the Advance Payment Agreement before submitting.");
-      return;
-    }
-
     setIsSubmitting(true);
     try {
       const token = localStorage.getItem("icp_auth_token");
       if (!token) throw new Error("Not authenticated");
 
-      const totalPayments = 
-        (parseFloat(paymentData.payment1.total) || 0) +
-        (parseFloat(paymentData.payment2.total) || 0) +
-        (parseFloat(paymentData.payment3.total) || 0) +
-        (parseFloat(paymentData.payment4.total) || 0);
-
       const payload = {
-        email: user?.email,
         bankDetails: {
           accountNumber: bankDetails.accountNumber,
           accountName: bankDetails.accountName,
           routingNumber: bankDetails.routingNumber,
           bankName: bankDetails.bankName,
           accountType: bankDetails.accountType
-        },
-        paymentDetails: {
-          nursePaymentType: paymentData.nursePaymentType,
-          initialPayment: paymentData.initialPayment,
-          payment1: paymentData.payment1,
-          payment2: paymentData.payment2,
-          payment3: paymentData.payment3,
-          payment4: paymentData.payment4
-        },
-        totalDueToICPRN: parseFloat(paymentData.totalReimbursement) || 0,
-        advanceAgreement: isAdvancePaymentAgreement
-          ? {
-              reviewed:
-                advanceAgreementPersisted ||
-                advanceAgreementReviewed,
-              acknowledged:
-                advanceAgreementPersisted ||
-                advanceAgreementAcknowledged,
-              acknowledgedAt:
-                new Date().toISOString()
-            }
-          : null
+        }
       };
 
       let requestBody;
@@ -10453,21 +10497,13 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
         );
       }
 
-      toast.success("Payment details submitted successfully!");
+      const submittedAt =
+        data.submittedAt || new Date().toISOString();
+      toast.success("Bank details submitted successfully!");
       setIsSubmitted(true);
+      setBankSubmittedAt(submittedAt);
 
-      if (allPaymentsPaid) {
-        updateStageStatus(
-          user?.email,
-          "Reimbursement/Expenses",
-          setStages
-        );
-      } else {
-        toast.info(
-          `Payment details saved. Remaining balance: $${balanceAmount.toFixed(2)}`
-        );
-      }
-      
+
       // Refresh the data
       await fetchPaymentData();
       
@@ -10575,6 +10611,11 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
           </div>
         ) : expenseReport ? (
           <>
+            {expenseReport.submitted_at && (
+              <p className="pt-4 text-xs text-muted-foreground">
+                Last submitted: {new Date(expenseReport.submitted_at).toLocaleString()}
+              </p>
+            )}
             <div className="grid gap-3 border-b py-4 text-sm md:grid-cols-3">
               <div>
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
@@ -10632,6 +10673,11 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                             {row.label}
                           </div>
 
+                          {row.display_value && (
+                            <div className="mt-1 whitespace-pre-wrap text-xs text-slate-700">
+                              {row.display_value}
+                            </div>
+                          )}
 
                           {row.reference && (
                             <div className="mt-1 text-xs text-slate-500">
@@ -10649,7 +10695,9 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                         </td>
 
                         <td className="border-r px-4 py-3 text-right align-top">
-                          {row.side === "credit" ? (
+                          {row.display_value ? (
+                            <span className="text-slate-300">—</span>
+                          ) : row.side === "credit" ? (
                             row.reviewed ? (
                               <div>
                                 <div className="font-semibold text-emerald-700">
@@ -10672,7 +10720,9 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                         </td>
 
                         <td className="px-4 py-3 text-right align-top">
-                          {row.side === "deduction" ? (
+                          {row.display_value ? (
+                            <span className="text-slate-300">—</span>
+                          ) : row.side === "deduction" ? (
                             row.reviewed ? (
                               <div>
                                 <div className="font-semibold text-amber-700">
@@ -10780,12 +10830,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
             </p>
           </div>
 
-          {expenseReportAcknowledged ? (
-            <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">
-              <CheckCircle2 className="h-4 w-4" />
-              Acknowledged
-            </div>
-          ) : (
+          <div className="flex flex-col items-end gap-2">
             <Button
               type="button"
               onClick={handleAcknowledgeExpenseReport}
@@ -10799,16 +10844,23 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
               {expenseReportAcknowledging ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Acknowledging...
+                  Saving...
                 </>
               ) : (
                 <>
                   <CheckCircle2 className="h-4 w-4" />
-                  Acknowledge Expense Report
+                  {expenseReportAcknowledged
+                    ? "Re-acknowledge Expense Report"
+                    : "Acknowledge Expense Report"}
                 </>
               )}
             </Button>
-          )}
+            {expenseReportAcknowledgedAt && (
+              <p className="text-xs text-muted-foreground">
+                Last acknowledged: {new Date(expenseReportAcknowledgedAt).toLocaleString()}
+              </p>
+            )}
+          </div>
         </div>
       </div>
 
@@ -11016,10 +11068,15 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
             <div>
               <p className="text-sm font-medium text-emerald-700">
-                Payment details were submitted previously.
+                Bank details were submitted previously.
               </p>
               <p className="mt-1 text-xs text-emerald-600">
-                The fields remain open so you can enter or update your information and submit again if anything changes.
+                The fields remain open so you can update and resubmit them at any time.
+                {bankSubmittedAt && (
+                  <span className="mt-1 block">
+                    Last submitted: {new Date(bankSubmittedAt).toLocaleString()}
+                  </span>
+                )}
               </p>
             </div>
           </div>
@@ -11111,7 +11168,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
               {isSubmitting ? (
                 <><Loader2 className="h-4 w-4 animate-spin" /> Submitting...</>
               ) : (
-                <><CheckCircle2 className="h-4 w-4" /> Submit and close</>
+                <><CheckCircle2 className="h-4 w-4" /> {isSubmitted ? "Resubmit Bank Details" : "Submit Bank Details"}</>
               )}
             </Button>
           </div>
@@ -11137,13 +11194,7 @@ const RECEIPT_CATEGORIES = [
   { id: "medical_exam", label: "Medical Exam" },
   { id: "dependent_visa_fee", label: "Dependent VISA Fee Bill" },
   { id: "dependents_after_i140", label: "Dependents Added after I-140" },
-  { id: "housing_stipend", label: "One-time Housing Stipend" },
-  { id: "housing_app_admin", label: "Housing App & Admin Fees" },
-  { id: "housing_deposit", label: "Housing Deposit" },
-  { id: "rent_move_in", label: "Prorated Rent" },
-  { id: "move_in_fees", label: "Move-in Fees" },
-  { id: "insurance", label: "Insurance" },
-  { id: "other", label: "Other" }
+  { id: "housing_stipend", label: "One-time Housing Stipend" }
 ];
 
 // Reimbursement Upload Component (Deployment stage)
@@ -11704,6 +11755,11 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
           </div>
         ) : expenseReport ? (
           <>
+            {expenseReport.submitted_at && (
+              <p className="pt-4 text-xs text-muted-foreground">
+                Last submitted: {new Date(expenseReport.submitted_at).toLocaleString()}
+              </p>
+            )}
             <div className="grid gap-2 py-4 text-sm md:grid-cols-3">
               <div>
                 <span className="font-semibold">
@@ -11751,6 +11807,11 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
                           <div className="font-medium">
                             {row.label}
                           </div>
+                          {row.display_value && (
+                            <div className="mt-1 whitespace-pre-wrap text-xs text-slate-700">
+                              {row.display_value}
+                            </div>
+                          )}
                           {row.note && (
                             <div className="text-xs text-muted-foreground">
                               {row.note}
@@ -11758,18 +11819,22 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
                           )}
                         </td>
                         <td className="px-3 py-2 text-right">
-                          {row.side === "credit"
-                            ? row.reviewed
-                              ? `-$${Math.abs(Number(row.amount || 0)).toFixed(2)}`
-                              : "Pending review"
-                            : ""}
+                          {row.display_value
+                            ? ""
+                            : row.side === "credit"
+                              ? row.reviewed
+                                ? `-$${Math.abs(Number(row.amount || 0)).toFixed(2)}`
+                                : "Pending review"
+                              : ""}
                         </td>
                         <td className="px-3 py-2 text-right">
-                          {row.side === "deduction"
-                            ? row.reviewed
-                              ? `+$${Math.abs(Number(row.amount || 0)).toFixed(2)}`
-                              : "Pending review"
-                            : ""}
+                          {row.display_value
+                            ? ""
+                            : row.side === "deduction"
+                              ? row.reviewed
+                                ? `+$${Math.abs(Number(row.amount || 0)).toFixed(2)}`
+                                : "Pending review"
+                              : ""}
                         </td>
                       </tr>
                     )
@@ -16561,15 +16626,75 @@ export default function Pipeline() {
       requestedStage ===
       "welcome-packet"
     ) {
-      openModal(
-        "ICP Welcome Packet",
-        <WelcomePacketView
-          onClose={closeModal}
-          user={user}
-          setStages={setStages}
-          setDeploymentFieldStatus={setDeploymentFieldStatus}
-        />
-      );
+      const welcomeStage =
+        stages.find(
+          stage => stage?.stage_name === "Welcome Packet"
+        );
+
+      const canOpenWelcomePacket =
+        Boolean(
+          welcomeStage &&
+          (
+            isPipelineStageComplete(welcomeStage) ||
+            welcomeStage.unlocked === true ||
+            welcomeStage.is_unlocked === true ||
+            welcomeStage.trigger_unlocked === true ||
+            welcomeStage.source_trigger_unlocked === true ||
+            String(welcomeStage.status || "").trim().toLowerCase() === "in progress"
+          )
+        );
+
+      if (canOpenWelcomePacket) {
+        openModal(
+          "ICP Welcome Packet",
+          <WelcomePacketView
+            onClose={closeModal}
+            user={user}
+            setStages={setStages}
+            setDeploymentFieldStatus={setDeploymentFieldStatus}
+          />
+        );
+      } else {
+        toast.info("Welcome Packet will open when you reach the Welcome Packet stage.");
+        setSearchParams({}, { replace: true });
+      }
+    }
+
+    if (
+      requestedStage ===
+      "expense-report"
+    ) {
+      const receiptStage =
+        stages.find(
+          stage => stage?.stage_name === "Receipt Submission"
+        );
+
+      const canOpenExpenseReport =
+        Boolean(
+          receiptStage &&
+          (
+            isPipelineStageComplete(receiptStage) ||
+            receiptStage.unlocked === true ||
+            receiptStage.is_unlocked === true ||
+            receiptStage.trigger_unlocked === true ||
+            receiptStage.source_trigger_unlocked === true ||
+            String(receiptStage.status || "").trim().toLowerCase() === "in progress"
+          )
+        );
+
+      if (canOpenExpenseReport) {
+        openModal(
+          "Expense Report",
+          <ReimbursementExpensesView
+            onClose={closeModal}
+            user={user}
+            setStages={setStages}
+          />
+        );
+      } else {
+        toast.info("Expense Report will open when you reach the Receipt Submission stage.");
+        setSearchParams({}, { replace: true });
+      }
     }
   }, [
     isInitialized,

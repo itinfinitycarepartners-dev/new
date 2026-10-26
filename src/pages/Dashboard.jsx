@@ -2259,6 +2259,35 @@ export default function Dashboard() {
     summary?.welcomePacket
       ?.completed === true;
 
+  const welcomeStage =
+    visiblePipelineStages.find(
+      stage => stage?.stage_name === "Welcome Packet"
+    ) || null;
+
+  const expenseStage =
+    visiblePipelineStages.find(
+      stage => stage?.stage_name === "Receipt Submission"
+    ) || null;
+
+  const stageCanOpen = stage =>
+    Boolean(
+      stage &&
+      (
+        isPipelineStageComplete(stage) ||
+        stage.unlocked === true ||
+        stage.is_unlocked === true ||
+        stage.trigger_unlocked === true ||
+        stage.source_trigger_unlocked === true ||
+        String(stage.status || "").trim().toLowerCase() === "in progress"
+      )
+    );
+
+  const welcomePacketAvailable =
+    stageCanOpen(welcomeStage);
+
+  const expenseReportAvailable =
+    stageCanOpen(expenseStage);
+
   const notifications =
     [
       activeStage
@@ -2425,85 +2454,72 @@ export default function Dashboard() {
 
   const quickLinks = [
     {
-      path:
-        "/documents",
-      label:
-        "Documents",
-      sublabel:
-        `${documentCount} document${documentCount === 1 ? "" : "s"}`,
-      icon:
-        "image:docs",
-      color:
-        "bg-[#E0F2FE] text-[#0369A1]",
-      accent:
-        "hover:border-[#38BDF8] hover:bg-[#F0F9FF]"
+      path: "/documents",
+      label: "Documents",
+      sublabel: `${documentCount} document${documentCount === 1 ? "" : "s"}`,
+      icon: "image:docs",
+      color: "bg-[#E0F2FE] text-[#0369A1]",
+      accent: "hover:border-[#38BDF8] hover:bg-[#F0F9FF]"
     },
     {
-      path:
-        "/updates",
-      label:
-        "Updates",
-      sublabel:
-        `${unreadUpdates} unread`,
-      icon:
-        BellRing,
-      color:
-        "bg-[#FEF3C7] text-[#B45309]",
-      accent:
-        "hover:border-[#F59E0B] hover:bg-[#FFFBEB]",
-      badge:
-        unreadUpdates >
-        0
+      path: "/forms",
+      label: "Forms",
+      sublabel: "Housing, Behavioral",
+      icon: ClipboardCheck,
+      color: "bg-[#D1FAE5] text-[#047857]",
+      accent: "hover:border-[#10B981] hover:bg-[#ECFDF5]"
     },
     {
-      path:
-        "/messages",
-      label:
-        "Messages",
-      sublabel:
-        `${unreadMessageCount} unread`,
-      icon:
-        "image:mess",
-      color:
-        "bg-[#FCE7F3] text-[#BE185D]",
-      accent:
-        "hover:border-[#EC4899] hover:bg-[#FFF1F8]",
-      badge:
-        unreadMessageCount >
-        0
+      path: "/messages",
+      label: "Messages",
+      sublabel: `${unreadMessageCount} unread`,
+      icon: "image:mess",
+      color: "bg-[#FCE7F3] text-[#BE185D]",
+      accent: "hover:border-[#EC4899] hover:bg-[#FFF1F8]",
+      badge: unreadMessageCount > 0
     },
     {
-      path:
-        "/pipeline?stage=welcome-packet",
-      label:
-        "Welcome Packet",
-      sublabel:
-        welcomeCompleted
-          ? "Acknowledged"
-          : "View in pipeline",
-      icon:
-        "image:itinerary",
-      color:
-        "bg-[#EDE9FE] text-[#6D28D9]",
-      accent:
-        "hover:border-[#8B5CF6] hover:bg-[#F5F3FF]"
+      path: "/updates",
+      label: "Updates",
+      sublabel: `${unreadUpdates} unread`,
+      icon: BellRing,
+      color: "bg-[#FEF3C7] text-[#B45309]",
+      accent: "hover:border-[#F59E0B] hover:bg-[#FFFBEB]",
+      badge: unreadUpdates > 0
     },
     {
-      // FIX: was "/pipeline?form=hub" which pointed at the wrong route
-      // (Pipeline doesn't handle that query param) and blanked the app.
-      // The real Forms page lives at /forms (see Layout.jsx nav items).
-      path:
-        "/forms",
-      label:
-        "Forms",
-      sublabel:
-        " Housing, Behavioral",
-      icon:
-        ClipboardCheck,
-      color:
-        "bg-[#D1FAE5] text-[#047857]",
-      accent:
-        "hover:border-[#10B981] hover:bg-[#ECFDF5]"
+      path: "/forms",
+      label: "Forms",
+      sublabel: "Candidate forms",
+      icon: FileSignature,
+      color: "bg-[#ECFDF5] text-[#047857]",
+      accent: "hover:border-[#34D399] hover:bg-[#F0FDF4]"
+    },
+    {
+      path: "/pipeline?stage=welcome-packet",
+      label: "Welcome Packet",
+      sublabel: welcomePacketAvailable
+        ? (welcomeCompleted ? "Acknowledged · open again" : "Available now")
+        : "Available at Welcome Packet stage",
+      icon: "image:itinerary",
+      color: "bg-[#EDE9FE] text-[#6D28D9]",
+      accent: welcomePacketAvailable
+        ? "hover:border-[#8B5CF6] hover:bg-[#F5F3FF]"
+        : "",
+      disabled: !welcomePacketAvailable
+    },
+    {
+      path: "/pipeline?stage=expense-report",
+      label: "Expense Report",
+      sublabel: expenseReportAvailable
+        ? (isPipelineStageComplete(expenseStage) ? "Submitted · open again" : "Available now")
+        : "Available at Receipt Submission stage",
+      icon: Receipt,
+      color: "bg-[#FFF1F2] text-[#BE123C]",
+      accent: expenseReportAvailable
+        ? "hover:border-[#FB7185] hover:bg-[#FFF7F7]"
+        : "",
+      disabled: !expenseReportAvailable
     }
   ];
 
@@ -2797,27 +2813,33 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         {quickLinks.map(
           link => {
             const isImageIcon = typeof link.icon === "string" && link.icon.startsWith("image:");
             const Icon = typeof link.icon === "string" ? null : link.icon;
 
             return (
-              <Link
-                key={
-                  link.path
-                }
-                to={
-                  link.path
-                }
-                className={`group relative flex min-h-[170px] items-center justify-center gap-4 rounded-2xl border border-[#E8E1F2] bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md ${link.accent || ""}`}
+              <div
+                key={`${link.path}-${link.label}`}
+                className={`group relative flex min-h-[150px] flex-col items-center justify-center rounded-2xl border border-[#E8E1F2] bg-white px-3 py-4 text-center shadow-sm transition-all duration-200 ${
+                  link.disabled
+                    ? "cursor-not-allowed opacity-55"
+                    : `hover:-translate-y-1 hover:shadow-md ${link.accent || ""}`
+                }`}
               >
+                {!link.disabled && (
+                  <Link
+                    to={link.path}
+                    aria-label={`Open ${link.label}`}
+                    className="absolute inset-0 z-10 rounded-2xl"
+                  />
+                )}
                 {link.badge && (
                   <span className="absolute right-3 top-3 h-2.5 w-2.5 rounded-full bg-red-500" />
                 )}
 
-                <div className={`flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl transition-transform duration-200 group-hover:scale-105 ${link.color}`}>
+                <div className={`flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl transition-transform duration-200 group-hover:scale-105 ${link.color}`}>
                   {isImageIcon ? (
                     <img
                       src={
@@ -2831,20 +2853,20 @@ export default function Dashboard() {
                       className="h-full w-full object-cover object-center"
                     />
                   ) : (
-                    <Icon className="h-8 w-8" strokeWidth={2.25} />
+                    <Icon className="h-5 w-5" strokeWidth={2.25} />
                   )}
                 </div>
 
-                <div className="min-w-0 flex-1 text-left">
-                  <p className="text-base font-semibold text-[#111827]">
+                <div className="mt-3 flex min-h-[58px] w-full min-w-0 flex-col items-center text-center">
+                  <p className="flex min-h-[34px] items-center justify-center text-[13px] font-semibold leading-[17px] text-[#111827]">
                     {link.label}
                   </p>
 
-                  <p className="mt-0.5 text-sm text-[#64748B]">
+                  <p className="mt-1 line-clamp-2 min-h-[32px] text-[12px] leading-4 text-[#64748B]">
                     {link.sublabel}
                   </p>
                 </div>
-              </Link>
+              </div>
             );
           }
         )}
