@@ -6471,6 +6471,39 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
     destinationZip: ""
   });
 
+  const welcomePacketCacheKey = user?.email
+    ? `icp_welcome_packet_v9:${String(user.email).trim().toLowerCase()}`
+    : "";
+
+  const readWelcomePacketCache = () => {
+    if (!welcomePacketCacheKey) return null;
+    try {
+      const raw = localStorage.getItem(welcomePacketCacheKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed?.packet || typeof parsed.packet !== "object") return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  };
+
+  const writeWelcomePacketCache = (nextPacket, nextServices = null) => {
+    if (!welcomePacketCacheKey || !nextPacket) return;
+    try {
+      localStorage.setItem(
+        welcomePacketCacheKey,
+        JSON.stringify({
+          packet: nextPacket,
+          locationServices: nextServices || null,
+          savedAt: Date.now()
+        })
+      );
+    } catch {
+      // Cache is an optimization only.
+    }
+  };
+
   const normalizePacketValue = value => {
     if (value === undefined || value === null) return "";
 
@@ -6541,9 +6574,10 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
       if (!response.ok || !data?.facility) return;
 
       const facility = data.facility;
-      setPacket(current => ({
-        ...current,
-        employerName:
+      setPacket(current => {
+        const updated = {
+          ...current,
+          employerName:
           normalizePacketValue(facility.employerName) ||
           current.employerName,
         employerAddress:
@@ -6564,7 +6598,10 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
         uniformRequirement:
           normalizePacketValue(facility.uniformRequirement) ||
           current.uniformRequirement
-      }));
+        };
+        writeWelcomePacketCache(updated);
+        return updated;
+      });
     } catch (error) {
       console.error("[Welcome Packet] Facility lookup failed:", error);
     }
@@ -6580,24 +6617,58 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
         `${API_BASE}/api/welcome-packet/location-services?destination=${encodeURIComponent(destination)}&endorsementState=${encodeURIComponent(endorsementState || "")}`,
         {
           method: "GET",
-          cache: "default",
+          cache: "no-store",
           headers: {
-            Authorization: `Bearer ${token}`
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json"
           }
         }
       );
 
       const data = await response.json().catch(() => ({}));
       if (response.ok && data.success) {
-        setLocationServices({
-          destination: data.destination || destination,
-          bank: data.bank || null,
-          socialSecurity: data.socialSecurity || null,
-          licensure: data.licensure || null,
-          bankSearchUrl: data.bankSearchUrl || "",
-          socialSecuritySearchUrl: data.socialSecuritySearchUrl || "",
-          licensureSearchUrl: data.licensureSearchUrl || "",
-          source: data.source || ""
+        setLocationServices(current => {
+          const nextServices = {
+            ...current,
+            destination:
+              data.destination ||
+              current.destination ||
+              destination,
+            bank:
+              data.bank?.name && data.bank?.address
+                ? data.bank
+                : current.bank,
+            // Preserve the previously working SSA result unless the backend
+            // returns a complete replacement office. Bank/licensure failures
+            // can never wipe out SSA.
+            socialSecurity:
+              data.socialSecurity || current.socialSecurity,
+            licensure:
+              data.licensure?.name &&
+              data.licensure?.address
+                ? data.licensure
+                : current.licensure,
+            bankSearchUrl:
+              data.bankSearchUrl ||
+              current.bankSearchUrl ||
+              "",
+            socialSecuritySearchUrl:
+              data.socialSecuritySearchUrl ||
+              current.socialSecuritySearchUrl ||
+              "",
+            licensureSearchUrl:
+              data.licensureSearchUrl ||
+              current.licensureSearchUrl ||
+              "",
+            source: data.source || current.source || ""
+          };
+
+          setPacket(currentPacket => {
+            writeWelcomePacketCache(currentPacket, nextServices);
+            return currentPacket;
+          });
+
+          return nextServices;
         });
       }
     } catch (lookupError) {
@@ -6609,9 +6680,24 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
 
   useEffect(() => {
     let cancelled = false;
+    const cached = readWelcomePacketCache();
+
+    if (cached?.packet) {
+      setPacket(current => ({
+        ...current,
+        ...cached.packet
+      }));
+      if (cached?.locationServices) {
+        setLocationServices(current => ({
+          ...current,
+          ...cached.locationServices
+        }));
+      }
+      setLoading(false);
+    }
 
     const loadPacket = async () => {
-      setLoading(true);
+      if (!cached?.packet) setLoading(true);
       setError("");
 
       try {
@@ -7019,6 +7105,10 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
         if (cancelled) return;
 
         setPacket(nextPacket);
+        writeWelcomePacketCache(
+          nextPacket,
+          packetResponse.locationServices || null
+        );
 
         // Facility details come from the Deal's Account_Name -> CRM Accounts.
         // Load them independently so they never delay opening the packet.
@@ -7235,30 +7325,7 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
         </p>
       </section>
 
-      <section className="rounded-xl border bg-white p-5">
-        <h3 className="mb-3 flex items-center gap-2 font-bold text-purple-800">
-          <Plane className="h-5 w-5" />
-          Plan Your Travel
-        </h3>
-        <div className="grid gap-x-6 md:grid-cols-2">
-          <InfoRow label="Departure Date" value={packet.departureDate} />
-          <InfoRow label="Departure Airport" value={packet.departureAirport} />
-          <InfoRow label="Layover Location" value={packet.layoverLocation} />
-          <InfoRow label="Port of Entry" value={packet.portOfEntry} />
-          <InfoRow label="Arrival Date" value={packet.arrivalDate} />
-          <InfoRow label="Arrival Airport" value={packet.arrivalAirport} />
-          <InfoRow label="Total in Party" value={packet.totalParty} />
-          <InfoRow label="Ages of Children" value={packet.childrenAges} />
-          <InfoRow label="Total Bag Count" value={packet.totalBagCount} />
-          <InfoRow label="Concierge Name" value={packet.conciergeName} />
-          <InfoRow label="Concierge Phone" value={packet.conciergePhone} />
-          <InfoRow label="Concierge Email" value={packet.conciergeEmail} />
-        </div>
-        <p className="mt-4 rounded-lg bg-red-50 p-3 text-xs font-semibold text-red-700">
-          Please remember to turn in your VISA Packet to Customs or Border
-          Control at your Port of Entry.
-        </p>
-      </section>
+      
 
       <section className="rounded-xl border bg-white p-5">
         <h3 className="mb-3 flex items-center gap-2 font-bold text-purple-800">
@@ -7307,13 +7374,6 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
             packet.endorsementState ||
             locationServices.licensure?.state ||
             packet.stateLicenseRequired
-          }
-        />
-        <InfoRow
-          label="Board of Nursing"
-          value={
-            locationServices.licensure?.name ||
-            packet.boardOfNursing
           }
         />
         <InfoRow
@@ -7383,33 +7443,22 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
           Banking Information
         </h3>
 
-        {lookupLoading ? (
-          <p className="text-sm text-gray-500">Finding a nearby bank...</p>
-        ) : (
-          <>
-            <InfoRow
-              label="Local Bank"
-              value={locationServices.bank?.name}
-            />
-            <InfoRow
-              label="Address"
-              value={locationServices.bank?.address}
-            />
-            <InfoRow
-              label="Phone"
-              value={locationServices.bank?.phone}
-            />
-            {locationServices.bankSearchUrl && (
-              <a
-                href={locationServices.bankSearchUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-purple-700 hover:underline"
-              >
-                Search nearby banks <ExternalLink className="h-4 w-4" />
-              </a>
-            )}
-          </>
+        <InfoRow
+          label="Local Bank"
+          value={locationServices.bank?.name}
+        />
+        <InfoRow
+          label="Address"
+          value={locationServices.bank?.address}
+        />
+        <InfoRow
+          label="Phone"
+          value={locationServices.bank?.phone}
+        />
+        {lookupLoading && (
+          <p className="mt-2 text-xs text-gray-500">
+            Updating the closest bank for your relocation address...
+          </p>
         )}
 
         <h4 className="mt-5 font-bold">Setting Up Your Account</h4>
@@ -7447,13 +7496,7 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
           Social Security Information
         </h3>
 
-        {lookupLoading ? (
-          <p className="text-sm text-gray-500">
-            Finding the nearest Social Security office...
-          </p>
-        ) : (
-          <>
-            <InfoRow
+        <InfoRow
               label="Local Office"
               value={locationServices.socialSecurity?.name}
             />
@@ -7475,8 +7518,6 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
                 Find the official local office <ExternalLink className="h-4 w-4" />
               </a>
             )}
-          </>
-        )}
 
         <h4 className="mt-5 font-bold">Process</h4>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-700">
@@ -11837,10 +11878,83 @@ const canonicalPipelineStageName = value => {
     normalized === "welcome packet" ||
     normalized === "icp welcome packet" ||
     normalized === "icp welcome packet itinerary" ||
-    normalized === "welcome packet itinerary"
+    normalized === "welcome packet itinerary" ||
+    normalized === "candidate welcome packet" ||
+    normalized === "candidate welcome packet itinerary" ||
+    (
+      normalized.includes("welcome") &&
+      normalized.includes("packet") &&
+      !normalized.includes("acknowledgement")
+    )
   ) return "Welcome Packet";
   return raw;
 };
+
+const isWelcomePacketStage = stage =>
+  canonicalPipelineStageName(stage?.stage_name) === "Welcome Packet";
+
+const dedupeVisiblePipelineStages = stageList => {
+  const unique = new Map();
+
+  for (const rawStage of Array.isArray(stageList) ? stageList : []) {
+    if (!rawStage?.stage_name) continue;
+
+    const canonicalName =
+      canonicalPipelineStageName(rawStage.stage_name);
+
+    const stage = {
+      ...rawStage,
+      stage_name: canonicalName,
+      // React keys must also be canonical for the one Welcome Packet row.
+      ...(canonicalName === "Welcome Packet"
+        ? { id: "pipeline-welcome-packet" }
+        : {})
+    };
+
+    const existing = unique.get(canonicalName);
+    if (!existing) {
+      unique.set(canonicalName, stage);
+      continue;
+    }
+
+    // Keep the strongest state when duplicate backend/legacy rows exist.
+    const existingComplete =
+      isPipelineStageComplete(existing);
+    const stageComplete =
+      isPipelineStageComplete(stage);
+
+    if (stageComplete && !existingComplete) {
+      unique.set(canonicalName, stage);
+      continue;
+    }
+    if (existingComplete && !stageComplete) {
+      continue;
+    }
+
+    const existingUpdated =
+      new Date(
+        existing.updated_at ||
+        existing.completed_date ||
+        existing.completed_at ||
+        0
+      ).getTime() || 0;
+
+    const stageUpdated =
+      new Date(
+        stage.updated_at ||
+        stage.completed_date ||
+        stage.completed_at ||
+        0
+      ).getTime() || 0;
+
+    if (stageUpdated >= existingUpdated) {
+      unique.set(canonicalName, stage);
+    }
+  }
+
+  return Array.from(unique.values());
+};
+
 
 // Canonicalize every server/cache refresh against the CURRENT configured pipeline.
 // This prevents old MongoDB rows from reappearing a few seconds after the page loads.
@@ -13215,7 +13329,36 @@ export default function Pipeline() {
     automaticSyncEmailRef.current =
       normalizedEmail;
 
-    syncAutomaticPipeline();
+    let cancelled = false;
+    let timer = null;
+    let idleId = null;
+
+    const runSync = () => {
+      if (cancelled) return;
+      void syncAutomaticPipeline();
+    };
+
+    // Cached stages + dashboard summary render first. The legacy full
+    // CRM/Recruit reconciliation runs only after the UI is interactive.
+    if (
+      typeof window !== "undefined" &&
+      typeof window.requestIdleCallback === "function"
+    ) {
+      idleId = window.requestIdleCallback(runSync, { timeout: 12000 });
+    } else {
+      timer = window.setTimeout(runSync, 8000);
+    }
+
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+      if (
+        idleId !== null &&
+        typeof window.cancelIdleCallback === "function"
+      ) {
+        window.cancelIdleCallback(idleId);
+      }
+    };
   }, [
     user?.email,
     isCheckingNCLEX
@@ -16223,7 +16366,6 @@ export default function Pipeline() {
   useEffect(() => {
     if (
       !isInitialized ||
-      isLoading ||
       modalState.isOpen
     ) {
       return;
@@ -18498,54 +18640,8 @@ export default function Pipeline() {
   // before rendering. This protects the visible pipeline even when a legacy
   // async setStages() path temporarily re-inserts "ICP Welcome Packet" after
   // sanitizePipelineStages has already run.
-  const visibleStageSource = (() => {
-    const unique = new Map();
-
-    for (const rawStage of Array.isArray(stages) ? stages : []) {
-      if (!rawStage?.stage_name) continue;
-
-      const canonicalName = canonicalPipelineStageName(rawStage.stage_name);
-      const stage = {
-        ...rawStage,
-        stage_name: canonicalName
-      };
-
-      const existing = unique.get(canonicalName);
-      if (!existing) {
-        unique.set(canonicalName, stage);
-        continue;
-      }
-
-      const existingComplete = isPipelineStageComplete(existing);
-      const stageComplete = isPipelineStageComplete(stage);
-
-      if (stageComplete && !existingComplete) {
-        unique.set(canonicalName, stage);
-        continue;
-      }
-      if (existingComplete && !stageComplete) continue;
-
-      const existingUpdated = new Date(
-        existing.updated_at ||
-        existing.completed_date ||
-        existing.completed_at ||
-        0
-      ).getTime();
-
-      const stageUpdated = new Date(
-        stage.updated_at ||
-        stage.completed_date ||
-        stage.completed_at ||
-        0
-      ).getTime();
-
-      if (stageUpdated >= existingUpdated) {
-        unique.set(canonicalName, stage);
-      }
-    }
-
-    return Array.from(unique.values());
-  })();
+  const visibleStageSource =
+    dedupeVisiblePipelineStages(stages);;
 
   const regularDisplayStages =
     visibleStageSource.filter(stage => {
@@ -19195,33 +19291,32 @@ export default function Pipeline() {
       deriveLivePipelineStage
     );
 
-  // Final render guard. At this point aliases, completion metrics and live
-  // source status have all been applied. Only one canonical stage can reach
-  // the category renderer.
-  displayStages = Array.from(
-    displayStages.reduce((unique, rawStage) => {
-      const canonicalName = canonicalPipelineStageName(rawStage?.stage_name);
-      if (!canonicalName) return unique;
+  // Final visible pipeline boundary. Every render passes through one
+  // canonical deduper, so legacy aliases or async refreshes cannot create a
+  // second Welcome Packet.
+  displayStages =
+    dedupeVisiblePipelineStages(displayStages);
 
-      const stage = {
-        ...rawStage,
-        stage_name: canonicalName
-      };
-      const existing = unique.get(canonicalName);
+  // Invariant: there is never more than one Welcome Packet in displayStages.
+  // This is deliberately checked after every transformation that can affect
+  // the visible stage list.
+  const welcomePacketRows =
+    displayStages.filter(isWelcomePacketStage);
 
-      if (
-        !existing ||
-        (
-          isPipelineStageComplete(stage) &&
-          !isPipelineStageComplete(existing)
-        )
-      ) {
-        unique.set(canonicalName, stage);
-      }
+  if (welcomePacketRows.length > 1) {
+    const strongestWelcome =
+      dedupeVisiblePipelineStages(welcomePacketRows)[0];
 
-      return unique;
-    }, new Map()).values()
-  );
+    displayStages = [
+      ...displayStages.filter(
+        stage => !isWelcomePacketStage(stage)
+      ),
+      strongestWelcome
+    ];
+
+    displayStages =
+      sortStagesByConfiguredOrder(displayStages);
+  }
 
   if (nclexBranchVisible) {
     const prerequisites =
@@ -19524,7 +19619,7 @@ export default function Pipeline() {
     );
   }
 
-  if (isLoading) {
+  if (isLoading && !modalState.isOpen) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -19711,7 +19806,10 @@ export default function Pipeline() {
             stage.stage_category === cat
           );
 
-        const catStages = [...baseCategoryStages];
+        const catStages =
+          dedupeVisiblePipelineStages(
+            baseCategoryStages
+          );
 
         if (!catStages || catStages.length === 0) return null;
         const colors = categoryColors[cat];
@@ -19802,7 +19900,13 @@ export default function Pipeline() {
                 const canInteract = (isClickable || isNCLEXStage || isImmigrationStage) && !isLocked;
                 
                 return (
-                  <React.Fragment key={stage.id}>
+                  <React.Fragment
+                    key={
+                      isWelcomePacketStage(stage)
+                        ? "pipeline-welcome-packet"
+                        : stage.id
+                    }
+                  >
                   <div
                     title={PIPELINE_STAGE_COMMENTS[stage.stage_name] || undefined}
                     aria-label={PIPELINE_STAGE_COMMENTS[stage.stage_name] ? `${stage.stage_name}: ${PIPELINE_STAGE_COMMENTS[stage.stage_name]}` : stage.stage_name}
