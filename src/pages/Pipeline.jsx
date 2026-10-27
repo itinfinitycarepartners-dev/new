@@ -3192,10 +3192,14 @@ const isStageUnlocked = (
 // Custom Modal Component
 const CustomModal = ({ isOpen, onClose, title, children }) => {
   if (!isOpen) return null;
-  const isExpenseReport = String(title || "").trim().toLowerCase() === "expense report";
+  const normalizedModalTitle = String(title || "").trim().toLowerCase();
+  const isExpenseReport =
+    normalizedModalTitle === "expense report" ||
+    normalizedModalTitle === "reimbursement/expenses" ||
+    normalizedModalTitle.includes("expense");
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className={`bg-white rounded-2xl shadow-2xl overflow-hidden ${isExpenseReport ? "w-[98vw] max-w-[1600px] max-h-[96vh]" : "w-full max-w-4xl max-h-[90vh]"}`}>
+      <div className={`bg-white rounded-2xl shadow-2xl overflow-hidden ${isExpenseReport ? "w-[99vw] max-w-[1800px] h-[96vh]" : "w-full max-w-4xl max-h-[90vh]"}`}>
         <div className="flex items-center justify-between p-6 border-b border-border sticky top-0 bg-white z-10">
           <h2 className="text-xl font-semibold">{title}</h2>
           <button onClick={onClose} className="p-1 hover:bg-muted rounded-lg transition-colors"><X className="h-5 w-5" /></button>
@@ -6557,23 +6561,30 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   const fetchFacilityInformation = async () => {
     try {
       const token = localStorage.getItem("icp_auth_token");
-      if (!token) return;
       let savedFinalBankingPlan = "";
       let savedFinalBankNameCity = "";
       try {
-        const extendedResponse = await fetch(`${API_BASE}/api/profile/extended?_=${Date.now()}`, {
-          cache: "no-store",
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const extendedResponse = await fetch(
+          `${API_BASE}/api/profile/extended`,
+          {
+            cache: "default",
+            headers: { Authorization: `Bearer ${token}` }
+          }
+        );
         const extendedData = await extendedResponse.json().catch(() => ({}));
-        const savedTravel = extendedData?.success === true ? (extendedData.profile?.travelSummary || {}) : {};
-        savedFinalBankingPlan = String(savedTravel.finalBankingPlan || savedTravel.final_banking_plan || savedTravel.Final_Banking_Plan || "").trim();
-        savedFinalBankNameCity = String(savedTravel.finalBankNameCity || savedTravel.final_bank_name_city || "").trim();
+        const savedTravel =
+          extendedData?.success === true
+            ? (extendedData.profile?.travelSummary || {})
+            : {};
+        savedFinalBankingPlan = String(savedTravel.finalBankingPlan || "").trim();
+        savedFinalBankNameCity = String(savedTravel.finalBankNameCity || "").trim();
       } catch (profileError) {
         console.warn("[Welcome Packet] Final Banking Plan unavailable:", profileError?.message || profileError);
       }
       setFinalBankingPlan(savedFinalBankingPlan);
       setFinalBankNameCity(savedFinalBankNameCity);
+      if (!token) return;
+
       const response = await fetch(
         `${API_BASE}/api/welcome-packet/facility`,
         {
@@ -7581,40 +7592,27 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         </div>
       </section>
 
-      {String(finalBankingPlan || "").trim().toLowerCase().startsWith("local bank") ? (
       <section className="rounded-2xl border border-cyan-200 bg-cyan-50/60 p-5 shadow-sm">
         <h3 className="mb-3 flex items-center gap-2 rounded-lg bg-cyan-100 px-3 py-2 font-bold text-cyan-900">
           <Banknote className="h-5 w-5" />
           Banking Information
         </h3>
 
-        <InfoRow
-          label="Local Bank"
-          value={locationServices.bank?.name || (lookupLoading ? "Loading local bank..." : "Local bank information is being resolved.")}
-        />
-        <InfoRow
-          label="Address"
-          value={locationServices.bank?.address || (lookupLoading ? "Loading..." : "—")}
-        />
-        <InfoRow
-          label="Phone"
-          value={locationServices.bank?.phone || (lookupLoading ? "Loading..." : "—")}
-        />
+        <InfoRow label="Local Bank" value={locationServices.bank?.name} />
+        <InfoRow label="Address" value={locationServices.bank?.address} />
+        <InfoRow label="Phone" value={locationServices.bank?.phone} />
+
         {lookupLoading && (
           <p className="mt-2 text-xs text-gray-500">
-            Updating the closest bank for your relocation address...
+            Updating the closest bank for your housing address...
           </p>
         )}
 
         <h4 className="mt-5 font-bold">Setting Up Your Account</h4>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-700">
           <li>Consider opening both checking and savings accounts.</li>
-          <li>
-            Return to the bank with your Social Security card when it arrives.
-          </li>
-          <li>
-            Ask about a beginner credit card to begin building credit history.
-          </li>
+          <li>Return to the bank with your Social Security card when it arrives.</li>
+          <li>Ask about a beginner credit card to begin building credit history.</li>
           <li>Set up the bank’s mobile application to monitor your account.</li>
         </ul>
 
@@ -7634,25 +7632,6 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           </div>
         </div>
       </section>
-      ) : (
-        <section className="rounded-2xl border border-cyan-200 bg-cyan-50/60 p-5 shadow-sm">
-          <h3 className="mb-3 flex items-center gap-2 rounded-lg bg-cyan-100 px-3 py-2 font-bold text-cyan-900">
-            <Banknote className="h-5 w-5" />
-            Banking Information
-          </h3>
-          <InfoRow
-            label="Final Banking Plan"
-            value={
-              finalBankingPlan ||
-              "Complete your Final Banking Plan in My Profile."
-            }
-          />
-          {finalBankingPlan === "Already Have an Account – Provide Bank Name and City" &&
-            finalBankNameCity ? (
-              <InfoRow label="Bank Name and City" value={finalBankNameCity} />
-            ) : null}
-        </section>
-      )}
 
       <section className="rounded-2xl border border-pink-200 bg-pink-50/60 p-5 shadow-sm">
         <h3 className="mb-3 flex items-center gap-2 rounded-lg bg-pink-100 px-3 py-2 font-bold text-pink-900">
@@ -10028,7 +10007,7 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
       { id: "housing_deposit", label: "Breakdown of Expenses", side: "deduction", reviewed: false, amount: null, display_value: "" },
       { id: "housing_app_admin", label: "Total Paid by ICP", side: "deduction", reviewed: false, amount: null }
     ],
-    totals: { credits: 0, deductions: 0, net: 0, due_to: "Either", amount_due: 0 },
+    totals: { credits: 0, deductions: 0, net: 0, due_to: "Neither", amount_due: 0 },
     submitted_at: null,
     updated_at: null
   }));
