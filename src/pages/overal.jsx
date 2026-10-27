@@ -4199,7 +4199,7 @@ const LoginApprovalsPanel = () => {
 
     try {
       const response = await loginApprovalFetch(
-        `${API_BASE}/api/admin/login-approvals?status=all&_=${Date.now()}`,
+        `${API_BASE}/api/admin/login-approvals?status=unresolved&_=${Date.now()}`,
         {
           credentials: "include",
           headers: headers(),
@@ -4217,12 +4217,31 @@ const LoginApprovalsPanel = () => {
         // Defensive frontend filter: Login Approvals is an active work queue.
         // Completed approvals stay hidden even if an older backend response
         // happens to include historical rows.
-        const activeApprovals = (Array.isArray(data.approvals) ? data.approvals : []).filter(item => {
+        const activeApprovalsRaw = (Array.isArray(data.approvals) ? data.approvals : []).filter(item => {
           const itemStatus = String(item?.status || "").toLowerCase();
-          if (itemStatus === "pending" || itemStatus === "verified") return true;
-          if (itemStatus === "approved") return !item?.password_setup_email_sent_at;
-          return false;
+          return itemStatus === "pending" || itemStatus === "verified";
         });
+
+        // One email = one work item. Historical duplicate request rows must
+        // never render as separate approvals.
+        const activeApprovalsByEmail = new Map();
+        for (const item of activeApprovalsRaw) {
+          const normalized = String(item?.email || "").trim().toLowerCase();
+          if (!normalized) continue;
+          const existing = activeApprovalsByEmail.get(normalized);
+          if (!existing) {
+            activeApprovalsByEmail.set(normalized, item);
+            continue;
+          }
+          const existingVerified = String(existing?.status || "").toLowerCase() === "verified";
+          const incomingVerified = String(item?.status || "").toLowerCase() === "verified";
+          const existingTime = new Date(existing?.updated_at || existing?.requested_at || 0).getTime() || 0;
+          const incomingTime = new Date(item?.updated_at || item?.requested_at || 0).getTime() || 0;
+          if ((incomingVerified && !existingVerified) || (incomingVerified === existingVerified && incomingTime > existingTime)) {
+            activeApprovalsByEmail.set(normalized, item);
+          }
+        }
+        const activeApprovals = [...activeApprovalsByEmail.values()];
         setApprovals(activeApprovals);
         writeAdminFastCache("login-approvals", activeApprovals);
         setEmailIssues(current => {
@@ -4301,13 +4320,20 @@ const LoginApprovalsPanel = () => {
           cache: "no-store",
           body: JSON.stringify(body)
         },
-        actionName === "verify" ? 30000 : 45000
+        actionName === "verify" ? 70000 : 45000
       );
 
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok || !data.success) {
-        if (actionName === "verify" && (data.invalidEmail === true || data?.emailValidation?.valid === false)) {
+        if (
+          actionName === "verify" &&
+          (
+            data.invalidEmail === true ||
+            data?.emailValidation?.valid === false ||
+            data?.wrongEmail === true
+          )
+        ) {
           setEmailIssues(current => ({
             ...current,
             [email]: {
@@ -4336,7 +4362,13 @@ const LoginApprovalsPanel = () => {
           actionName === "reject-invalid"
         )
       ) {
-        setApprovals(current => current.filter(item => item.email !== email));
+        setApprovals(current => {
+          const next = current.filter(
+            item => String(item?.email || "").trim().toLowerCase() !== String(email || "").trim().toLowerCase()
+          );
+          writeAdminFastCache("login-approvals", next);
+          return next;
+        });
       }
 
       window.dispatchEvent(
@@ -4352,7 +4384,9 @@ const LoginApprovalsPanel = () => {
 
       load({ silent: true });
     } catch (error) {
-      setApprovals(previousApprovals);
+      // No optimistic removal is performed before the request, so restoring the
+      // pre-action array here can resurrect a completed approval after a racing
+      // refresh. Keep the current active queue instead.
       setNotice(error.message || "Action failed.");
     } finally {
       setBusy("");
@@ -4442,7 +4476,8 @@ const LoginApprovalsPanel = () => {
                       </>
                     )}
 
-                    {item.status === "pending" && emailIssues[item.email]?.invalid === true && (
+                    {item.status === "pending" &&
+                      emailIssues[item.email]?.invalid === true && (
                       <button
                         disabled={busy.startsWith(keyBase)}
                         onClick={() => {
@@ -4451,11 +4486,7 @@ const LoginApprovalsPanel = () => {
                           );
                           if (confirmed) action(item.email, "reject-invalid");
                         }}
-                        title={
-                          emailIssues[item.email]?.invalid === true
-                            ? (emailIssues[item.email]?.reasons || []).join(" ")
-                            : "Reject this request if the submitted email address is incorrect."
-                        }
+                        title={(emailIssues[item.email]?.reasons || []).join(" ")}
                         className="rounded-lg bg-red-600 px-3 py-2 text-white hover:bg-red-700 disabled:opacity-50"
                       >
                         {busy === `${item.email}:reject-invalid` ? "Rejecting…" : "Reject wrong email"}
@@ -4594,7 +4625,24 @@ const useAdminNotifications = () => {
 const AdminNotificationsPanel = ({ state, onOpenUser, onOpenRequests }) => {
   const [filter, setFilter] = useState('all');
   const { notifications, loading, error, busy, refresh, markRead } = state;
-  const visible = notifications.filter(item => filter === 'all' || (filter === 'unread' ? !item.read : item.type === filter));
+  const filtered = notifications.filter(item => filter === 'all' || (filter === 'unread' ? !item.read : item.type === filter));
+  const groupedByCandidate = new Map();
+  for (const item of filtered) {
+    const key = String(item?.candidateEmail || "unknown").trim().toLowerCase();
+    const group = groupedByCandidate.get(key) || { ...item, id: `candidate:${key}`, items: [], read: true };
+    group.items.push(item);
+    group.read = group.read && item.read === true;
+    if (!group.candidateName && item.candidateName) group.candidateName = item.candidateName;
+    if (new Date(item?.createdAt || 0) > new Date(group?.createdAt || 0)) group.createdAt = item.createdAt;
+    groupedByCandidate.set(key, group);
+  }
+  const visible = [...groupedByCandidate.values()].sort((a,b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  const markCandidateGroupRead = async group => {
+    for (const item of (group.items || []).filter(row => !row.read)) {
+      if (!await markRead(item)) return false;
+    }
+    return true;
+  };
   return (
     <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
       <div className="p-5 border-b flex flex-wrap items-center justify-between gap-4">
@@ -4611,41 +4659,30 @@ const AdminNotificationsPanel = ({ state, onOpenUser, onOpenRequests }) => {
       {loading && visible.length === 0 && <p className="px-5 pb-5 text-sm text-gray-500">Loading notifications...</p>}
       {!loading && !error && visible.length === 0 && <p className="px-5 pb-5 text-sm text-gray-500">No notifications to show.</p>}
       <div className="divide-y">
-        {visible.map(item => (
-          <div key={item.id} className={`p-5 flex flex-wrap items-start justify-between gap-4 ${item.read ? '' : 'bg-purple-50'}`}>
-            <div className="min-w-0">
-              <p className="font-semibold text-gray-800">{item.title} {!item.read && <span className="ml-2 text-xs text-purple-700">Unread</span>}</p>
-              <p className="text-sm text-gray-700 mt-1">{item.itemName}</p>
-              {item.candidateName && <p className="text-sm font-medium text-gray-700">{item.candidateName}</p>}
-              <p className="text-sm text-gray-500 break-all">{item.candidateEmail}</p>
-              <p className="text-xs text-gray-500 mt-2">{item.department ? `${item.department} · ` : ''}{item.createdAt ? new Date(item.createdAt).toLocaleString() : ''}</p>
+        {visible.map(group => {
+          const items = group.items || [];
+          const documents = items.filter(item => item.type === "document");
+          const requests = items.filter(item => item.type === "request");
+          const primary = documents[0] || requests[0] || items[0] || group;
+          return (
+            <div key={group.id} className={`p-5 flex flex-wrap items-start justify-between gap-4 ${group.read ? '' : 'bg-purple-50'}`}>
+              <div className="min-w-0">
+                <p className="font-semibold text-gray-800">{group.candidateName || group.candidateEmail}{!group.read && <span className="ml-2 text-xs text-purple-700">Unread</span>}</p>
+                <p className="text-sm text-gray-500 break-all">{group.candidateEmail}</p>
+                <p className="mt-2 text-sm text-gray-700">{items.length} submission{items.length === 1 ? "" : "s"}{documents.length ? ` · ${documents.length} document${documents.length === 1 ? "" : "s"}` : ""}{requests.length ? ` · ${requests.length} request${requests.length === 1 ? "" : "s"}` : ""}</p>
+                <div className="mt-2 flex flex-wrap gap-1.5">{items.slice(0,6).map(item => <span key={item.id} className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">{item.itemName}</span>)}</div>
+              </div>
+              <div className="flex gap-2">
+                {!group.read && <button type="button" disabled={Boolean(busy)} onClick={() => markCandidateGroupRead(group)} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50">Mark all as read</button>}
+                <button type="button" disabled={Boolean(busy)} onClick={async () => {
+                  if (!await markCandidateGroupRead(group)) return;
+                  if (requests.length && !documents.length) onOpenRequests?.(requests[0]);
+                  else onOpenUser({ email:group.candidateEmail, name:group.candidateName || group.candidateEmail, _initialTab:'documents', _returnToTab:'notifications', _notificationDocument:{ approvalKey:primary.approvalKey || null, pendingUploadId:primary.pendingUploadId || null, attachmentId:primary.attachmentId || null, documentId:primary.documentId || null, itemName:primary.itemName || null, source:primary.source || null }});
+                }} className="rounded-lg bg-purple-700 text-white px-3 py-2 text-sm disabled:opacity-50">View candidate</button>
+              </div>
             </div>
-            <div className="flex gap-2">
-              {!item.read && <button type="button" disabled={Boolean(busy)} onClick={() => markRead(item)} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50">{busy === item.id ? 'Saving...' : 'Mark as read'}</button>}
-              <button type="button" disabled={Boolean(busy)} onClick={async () => {
-                if (!await markRead(item)) return;
-                if (item.type === 'request') {
-                  onOpenRequests?.(item);
-                } else {
-                  onOpenUser({
-                    email: item.candidateEmail,
-                    name: item.candidateName || item.candidateEmail,
-                    _initialTab: 'documents',
-                    _returnToTab: 'notifications',
-                    _notificationDocument: {
-                      approvalKey: item.approvalKey || null,
-                      pendingUploadId: item.pendingUploadId || null,
-                      attachmentId: item.attachmentId || null,
-                      documentId: item.documentId || null,
-                      itemName: item.itemName || null,
-                      source: item.source || null
-                    }
-                  });
-                }
-              }} className="rounded-lg bg-purple-700 text-white px-3 py-2 text-sm disabled:opacity-50">{item.type === 'request' ? 'View requests' : 'View candidate'}</button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -5201,6 +5238,7 @@ const AdminPanel = () => {
     { id: 'requests', icon: <ClipboardList className="w-4 h-4" />, label: 'Requests', badge: pendingRequestCount },
     { id: 'login-approvals', icon: <UserCheck className="w-4 h-4" />, label: 'Login approvals', badge: loginApprovalCount },
     { id: 'receipts', icon: <Receipt className="w-4 h-4" />, label: 'Receipts', badge: receiptCount },
+    { id: 'exit-panel', icon: <LogOut className="w-4 h-4" />, label: 'Exit Panel', action: forceLogout },
   ];
 
   return (
@@ -5212,17 +5250,13 @@ const AdminPanel = () => {
         </div>
         <nav className="flex-1 p-3 space-y-1 mt-2">
           {navItems.map((item) => (
-            <button key={item.id} onClick={() => setTab(item.id)} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${tab === item.id ? 'bg-white/20 text-white' : 'text-white/60 hover:bg-white/10 hover:text-white'}`}>
+            <button key={item.id} onClick={() => item.action ? item.action() : setTab(item.id)} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${tab === item.id ? 'bg-white/20 text-white' : 'text-white/60 hover:bg-white/10 hover:text-white'}`}>
               {item.icon} {item.label}
               {item.badge > 0 && <span className="ml-auto bg-white/20 text-white text-xs px-2 rounded-full">{item.badge}</span>}
             </button>
           ))}
         </nav>
-        <div className="p-3">
-          <button onClick={forceLogout} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-white/50 hover:bg-white/10 hover:text-white transition">
-            <LogOut className="w-4 h-4" /> Exit Panel
-          </button>
-        </div>
+
       </div>
 
       <div className="flex-1 flex flex-col min-h-screen">

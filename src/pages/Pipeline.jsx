@@ -72,6 +72,7 @@ import { cn } from "@/lib/utils";
 import { format, differenceInDays, differenceInHours, addDays, addMonths } from "date-fns";
 import { toast } from "sonner";
 import {
+  useLocation,
   useNavigate,
   useSearchParams
 } from "react-router-dom";
@@ -3191,19 +3192,15 @@ const isStageUnlocked = (
 // Custom Modal Component
 const CustomModal = ({ isOpen, onClose, title, children }) => {
   if (!isOpen) return null;
-  
+  const isExpenseReport = String(title || "").trim().toLowerCase() === "expense report";
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className={`bg-white rounded-2xl shadow-2xl overflow-hidden ${isExpenseReport ? "w-[98vw] max-w-[1600px] max-h-[96vh]" : "w-full max-w-4xl max-h-[90vh]"}`}>
         <div className="flex items-center justify-between p-6 border-b border-border sticky top-0 bg-white z-10">
           <h2 className="text-xl font-semibold">{title}</h2>
-          <button onClick={onClose} className="p-1 hover:bg-muted rounded-lg transition-colors">
-            <X className="h-5 w-5" />
-          </button>
+          <button onClick={onClose} className="p-1 hover:bg-muted rounded-lg transition-colors"><X className="h-5 w-5" /></button>
         </div>
-        <div data-modal-scroll-body className="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
-          {children}
-        </div>
+        <div data-modal-scroll-body className={`overflow-y-auto ${isExpenseReport ? "p-4 max-h-[calc(96vh-80px)]" : "p-6 max-h-[calc(90vh-80px)]"}`}>{children}</div>
       </div>
     </div>
   );
@@ -6415,9 +6412,11 @@ const DeploymentCRMStatusView = ({
   );
 };
 
-const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus }) => {
+export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus }) => {
   const [loading, setLoading] = useState(true);
   const [lookupLoading, setLookupLoading] = useState(false);
+  const [finalBankingPlan, setFinalBankingPlan] = useState("");
+  const [finalBankNameCity, setFinalBankNameCity] = useState("");
   const [acknowledging, setAcknowledging] = useState(false);
   const [acknowledgedAt, setAcknowledgedAt] = useState(null);
   const [error, setError] = useState("");
@@ -6559,7 +6558,22 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
     try {
       const token = localStorage.getItem("icp_auth_token");
       if (!token) return;
-
+      let savedFinalBankingPlan = "";
+      let savedFinalBankNameCity = "";
+      try {
+        const extendedResponse = await fetch(`${API_BASE}/api/profile/extended?_=${Date.now()}`, {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const extendedData = await extendedResponse.json().catch(() => ({}));
+        const savedTravel = extendedData?.success === true ? (extendedData.profile?.travelSummary || {}) : {};
+        savedFinalBankingPlan = String(savedTravel.finalBankingPlan || savedTravel.final_banking_plan || savedTravel.Final_Banking_Plan || "").trim();
+        savedFinalBankNameCity = String(savedTravel.finalBankNameCity || savedTravel.final_bank_name_city || "").trim();
+      } catch (profileError) {
+        console.warn("[Welcome Packet] Final Banking Plan unavailable:", profileError?.message || profileError);
+      }
+      setFinalBankingPlan(savedFinalBankingPlan);
+      setFinalBankNameCity(savedFinalBankNameCity);
       const response = await fetch(
         `${API_BASE}/api/welcome-packet/facility`,
         {
@@ -6675,6 +6689,33 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
       setLookupLoading(false);
     }
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadFinalBankingPlan = async () => {
+      try {
+        const token = localStorage.getItem("icp_auth_token");
+        if (!token) return;
+        const response = await fetch(`${API_BASE}/api/profile/extended?_=${Date.now()}`, {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.success !== true || cancelled) return;
+        const savedTravel = data.profile?.travelSummary || {};
+        setFinalBankingPlan(String(savedTravel.finalBankingPlan || savedTravel.final_banking_plan || savedTravel.Final_Banking_Plan || "").trim());
+        setFinalBankNameCity(String(savedTravel.finalBankNameCity || savedTravel.final_bank_name_city || "").trim());
+      } catch (error) {
+        console.warn("[Welcome Packet] Banking plan refresh failed:", error?.message || error);
+      }
+    };
+    loadFinalBankingPlan();
+    window.addEventListener("candidate-data-updated", loadFinalBankingPlan);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("candidate-data-updated", loadFinalBankingPlan);
+    };
+  }, [user?.email]);
 
   useEffect(() => {
     let cancelled = false;
@@ -7120,6 +7161,9 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
 
         // Render the packet immediately. Nearby services load independently in
         // the already-visible Banking / SSN / Licensure sections.
+        // Banking is based on the candidate's U.S. housing address.
+        // The backend selects the closest available bank ONLY from the
+        // ICP banking spreadsheet directory.
         void fetchLocationServices(
           nextPacket.housingAddress || destination,
           nextPacket.endorsementState
@@ -7304,9 +7348,11 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
   };
 
   const InfoRow = ({ label, value }) => (
-    <div className="grid grid-cols-[minmax(130px,0.45fr)_1fr] gap-3 border-b py-2 text-sm last:border-b-0">
-      <span className="font-semibold text-gray-600">{label}</span>
-      <DisplayValue value={value} />
+    <div className="grid grid-cols-[240px_minmax(0,1fr)] items-start gap-x-8 border-b border-gray-100 py-3 text-sm last:border-b-0 max-md:grid-cols-[minmax(130px,38%)_minmax(0,1fr)] max-md:gap-x-4">
+      <span className="font-semibold leading-5 text-gray-600">{label}</span>
+      <div className="min-w-0 break-words leading-5">
+        <DisplayValue value={value} />
+      </div>
     </div>
   );
 
@@ -7336,9 +7382,9 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
     <div className="mx-auto max-w-5xl space-y-4 rounded-2xl bg-white p-2 sm:p-4 print:space-y-3 print:bg-white">
       <section className="overflow-hidden rounded-2xl border border-purple-200 bg-white shadow-sm">
         <img
-          src="/welcome-packet-banner.png"
+          src="/welcome-packet-banner-clean.png"
           alt="Infinity Care Partners - Welcome to the USA"
-          className="block h-auto w-full object-cover"
+          className="block h-auto w-full object-contain"
         />
       </section>
 
@@ -7395,7 +7441,7 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
         </h3>
         <InfoRow label="Employer Name" value={packet.employerName} />
         <InfoRow label="Address" value={packet.employerAddress} />
-        <InfoRow label="Contact" value={packet.employerContact} />
+        <InfoRow label="Contact Person: Name and Title" value={packet.employerContact} />
         <InfoRow label="Phone" value={packet.employerPhone} />
         <InfoRow label="Email" value={packet.employerEmail} />
         <InfoRow label="Website" value={packet.employerWebsite} />
@@ -7436,7 +7482,7 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
             packet.stateLicenseRequired
           }
         />
-        <div className="grid grid-cols-[150px_1fr] gap-3 border-b border-gray-100 py-2 text-sm last:border-b-0">
+        <div className="grid grid-cols-[240px_minmax(0,1fr)] items-start gap-x-8 border-b border-gray-100 py-3 text-sm last:border-b-0 max-md:grid-cols-[minmax(130px,38%)_minmax(0,1fr)] max-md:gap-x-4">
           <span className="font-semibold text-gray-600">Board of Nursing</span>
           <span className="min-w-0 text-gray-900">
             {locationServices.licensureSearchUrl && (
@@ -7475,6 +7521,12 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
               <li>Credentials sent to the Board of Nursing</li>
               <li>NURSYS verification of license</li>
               <li>Application endorsement where required</li>
+              <li>
+                Applicants may complete fingerprinting before arrival when the
+                licensing state offers a pre-arrival option, including Tennessee
+                (TN) and Indiana (IN). Follow the applicable Board of Nursing
+                instructions for your state.
+              </li>
             </ul>
           </div>
           <div className="rounded-lg bg-gray-50 p-3">
@@ -7512,7 +7564,7 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
         />
       </section>
 
-      <section className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 shadow-sm">
+      <section className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-5 shadow-sm">
         <div className="flex items-start gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
             <Zap className="h-5 w-5" />
@@ -7529,6 +7581,7 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
         </div>
       </section>
 
+      {String(finalBankingPlan || "").trim().toLowerCase().startsWith("local bank") ? (
       <section className="rounded-2xl border border-cyan-200 bg-cyan-50/60 p-5 shadow-sm">
         <h3 className="mb-3 flex items-center gap-2 rounded-lg bg-cyan-100 px-3 py-2 font-bold text-cyan-900">
           <Banknote className="h-5 w-5" />
@@ -7536,20 +7589,16 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
         </h3>
 
         <InfoRow
-          label="Final Banking Plan"
-          value=""
-        />
-        <InfoRow
           label="Local Bank"
-          value={locationServices.bank?.name}
+          value={locationServices.bank?.name || (lookupLoading ? "Loading local bank..." : "Local bank information is being resolved.")}
         />
         <InfoRow
           label="Address"
-          value={locationServices.bank?.address}
+          value={locationServices.bank?.address || (lookupLoading ? "Loading..." : "—")}
         />
         <InfoRow
           label="Phone"
-          value={locationServices.bank?.phone}
+          value={locationServices.bank?.phone || (lookupLoading ? "Loading..." : "—")}
         />
         {lookupLoading && (
           <p className="mt-2 text-xs text-gray-500">
@@ -7585,6 +7634,25 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
           </div>
         </div>
       </section>
+      ) : (
+        <section className="rounded-2xl border border-cyan-200 bg-cyan-50/60 p-5 shadow-sm">
+          <h3 className="mb-3 flex items-center gap-2 rounded-lg bg-cyan-100 px-3 py-2 font-bold text-cyan-900">
+            <Banknote className="h-5 w-5" />
+            Banking Information
+          </h3>
+          <InfoRow
+            label="Final Banking Plan"
+            value={
+              finalBankingPlan ||
+              "Complete your Final Banking Plan in My Profile."
+            }
+          />
+          {finalBankingPlan === "Already Have an Account – Provide Bank Name and City" &&
+            finalBankNameCity ? (
+              <InfoRow label="Bank Name and City" value={finalBankNameCity} />
+            ) : null}
+        </section>
+      )}
 
       <section className="rounded-2xl border border-pink-200 bg-pink-50/60 p-5 shadow-sm">
         <h3 className="mb-3 flex items-center gap-2 rounded-lg bg-pink-100 px-3 py-2 font-bold text-pink-900">
@@ -7601,11 +7669,11 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
               value={locationServices.socialSecurity?.phone}
             />
             {locationServices.socialSecuritySearchUrl && (
-              <div className="grid grid-cols-[150px_1fr] gap-3 border-b border-gray-100 py-2 text-sm last:border-b-0">
-                <span className="font-semibold text-gray-600">
+              <div className="grid grid-cols-[240px_minmax(0,1fr)] items-start gap-x-8 border-b border-gray-100 py-3 text-sm last:border-b-0 max-md:grid-cols-[minmax(130px,38%)_minmax(0,1fr)] max-md:gap-x-4">
+                <span className="font-semibold leading-5 text-gray-600">
                   Local Office Locator
                 </span>
-                <span>
+                <div className="min-w-0 leading-5">
                   <a
                     href={locationServices.socialSecuritySearchUrl}
                     target="_blank"
@@ -7615,7 +7683,10 @@ const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus 
                     Find your local Social Security office
                     <ExternalLink className="h-3.5 w-3.5" />
                   </a>
-                </span>
+                  <p className="mt-1 text-[11px] italic leading-4 text-gray-500">
+                    Enter the 5-digit ZIP code for your home or employer address.
+                  </p>
+                </div>
               </div>
             )}
 
@@ -9912,7 +9983,7 @@ const HousingDetails = ({ onClose, user, setStages }) => {
 
 // ============= Reimbursement/Expenses Component (Aftercare) =============
 // Loads the payment schedule and submission status securely.
-const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
+export const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
   const [loading, setLoading] = useState(true);
   const [paymentData, setPaymentData] = useState({
     nursePaymentType: "",
@@ -9957,7 +10028,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
       { id: "housing_deposit", label: "Breakdown of Expenses", side: "deduction", reviewed: false, amount: null, display_value: "" },
       { id: "housing_app_admin", label: "Total Paid by ICP", side: "deduction", reviewed: false, amount: null }
     ],
-    totals: { credits: 0, deductions: 0, net: 0, due_to: "Neither", amount_due: 0 },
+    totals: { credits: 0, deductions: 0, net: 0, due_to: "Either", amount_due: 0 },
     submitted_at: null,
     updated_at: null
   }));
@@ -10649,13 +10720,13 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
               <table className="w-full min-w-[760px] border-collapse text-sm">
                 <thead>
                   <tr className="bg-slate-100">
-                    <th className="border-r px-4 py-3 text-left font-semibold text-slate-700">
+                    <th className="border-r px-2.5 py-2 text-left font-semibold text-slate-700">
                       Expense / What the Amount Is For
                     </th>
-                    <th className="border-r px-4 py-3 text-right font-semibold text-emerald-700">
+                    <th className="border-r px-2.5 py-2 text-right font-semibold text-emerald-700">
                       Credit
                     </th>
-                    <th className="px-4 py-3 text-right font-semibold text-amber-700">
+                    <th className="px-2.5 py-2 text-right font-semibold text-amber-700">
                       Deduction
                     </th>
                   </tr>
@@ -10668,7 +10739,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                         key={row.id}
                         className="border-t bg-white"
                       >
-                        <td className="border-r px-4 py-3 align-top">
+                        <td className="border-r px-2.5 py-2 align-top">
                           <div className="font-semibold text-slate-900">
                             {row.label}
                           </div>
@@ -10694,7 +10765,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                           )}
                         </td>
 
-                        <td className="border-r px-4 py-3 text-right align-top">
+                        <td className="border-r px-2.5 py-2 text-right align-top">
                           {row.display_value ? (
                             <span className="text-slate-300">—</span>
                           ) : row.side === "credit" ? (
@@ -10719,7 +10790,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                           )}
                         </td>
 
-                        <td className="px-4 py-3 text-right align-top">
+                        <td className="px-2.5 py-2 text-right align-top">
                           {row.display_value ? (
                             <span className="text-slate-300">—</span>
                           ) : row.side === "deduction" ? (
@@ -10750,27 +10821,27 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
 
                 <tfoot>
                   <tr className="border-t-2 bg-emerald-50 font-semibold">
-                    <td className="border-r px-4 py-3">
+                    <td className="border-r px-2.5 py-2">
                       Total Credits
                     </td>
-                    <td className="border-r px-4 py-3 text-right text-emerald-700">
+                    <td className="border-r px-2.5 py-2 text-right text-emerald-700">
                       ${Number(
                         expenseReport.totals?.credits || 0
                       ).toFixed(2)}
                     </td>
-                    <td className="px-4 py-3 text-right text-slate-300">
+                    <td className="px-2.5 py-2 text-right text-slate-300">
                       —
                     </td>
                   </tr>
 
                   <tr className="border-t bg-amber-50 font-semibold">
-                    <td className="border-r px-4 py-3">
+                    <td className="border-r px-2.5 py-2">
                       Total Deductions
                     </td>
-                    <td className="border-r px-4 py-3 text-right text-slate-300">
+                    <td className="border-r px-2.5 py-2 text-right text-slate-300">
                       —
                     </td>
-                    <td className="px-4 py-3 text-right text-amber-700">
+                    <td className="px-2.5 py-2 text-right text-amber-700">
                       ${Number(
                         expenseReport.totals?.deductions || 0
                       ).toFixed(2)}
@@ -10781,7 +10852,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
             </div>
 
             <div className="mt-4 grid gap-3 md:grid-cols-3">
-              <div className="rounded-lg border bg-emerald-50 px-4 py-3">
+              <div className="rounded-lg border bg-emerald-50 px-2.5 py-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
                   Credits
                 </p>
@@ -10792,7 +10863,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                 </p>
               </div>
 
-              <div className="rounded-lg border bg-amber-50 px-4 py-3">
+              <div className="rounded-lg border bg-amber-50 px-2.5 py-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
                   Deductions
                 </p>
@@ -10803,7 +10874,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                 </p>
               </div>
 
-              <div className="rounded-lg border bg-purple-50 px-4 py-3">
+              <div className="rounded-lg border bg-purple-50 px-2.5 py-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-purple-700">
                   Reimbursement Due to {expenseReport.totals?.due_to || "Neither"}
                 </p>
@@ -11093,7 +11164,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                 spellCheck={false}
                 value={bankDetails.accountName}
                 onChange={handleBankChange}
-                className="w-full px-3 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-2.5 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="Full name on account"
                 required
               />
@@ -11107,7 +11178,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                 spellCheck={false}
                 value={bankDetails.bankName}
                 onChange={handleBankChange}
-                className="w-full px-3 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-2.5 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="Bank name"
                 required
               />
@@ -11122,7 +11193,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                 spellCheck={false}
                 value={bankDetails.accountNumber}
                 onChange={handleBankChange}
-                className="w-full px-3 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-2.5 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="Account number"
                 required
               />
@@ -11137,7 +11208,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                 spellCheck={false}
                 value={bankDetails.routingNumber}
                 onChange={handleBankChange}
-                className="w-full px-3 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-2.5 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="Routing number"
                 required
               />
@@ -11148,7 +11219,7 @@ const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
                 name="accountType"
                 value={bankDetails.accountType}
                 onChange={handleBankChange}
-                className="w-full px-3 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-2.5 py-2 rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="Checking">Checking</option>
                 <option value="Savings">Savings</option>
@@ -11781,17 +11852,17 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
               </div>
             </div>
 
-            <div className="overflow-x-auto rounded-lg border">
-              <table className="w-full min-w-[620px] text-sm">
+            <div className="w-full overflow-hidden rounded-lg border">
+              <table className="w-full table-fixed text-xs sm:text-sm">
                 <thead className="bg-slate-100">
                   <tr>
-                    <th className="px-3 py-2 text-left">
+                    <th className="px-2.5 py-2 text-left">
                       Receipt Details
                     </th>
-                    <th className="px-3 py-2 text-right">
+                    <th className="px-2.5 py-2 text-right">
                       Credits
                     </th>
-                    <th className="px-3 py-2 text-right">
+                    <th className="px-2.5 py-2 text-right">
                       Deductions
                     </th>
                   </tr>
@@ -11803,7 +11874,7 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
                         key={row.id}
                         className="border-t"
                       >
-                        <td className="px-3 py-2">
+                        <td className="px-2.5 py-2">
                           <div className="font-medium">
                             {row.label}
                           </div>
@@ -11818,7 +11889,7 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
                             </div>
                           )}
                         </td>
-                        <td className="px-3 py-2 text-right">
+                        <td className="px-2.5 py-2 text-right">
                           {row.display_value
                             ? ""
                             : row.side === "credit"
@@ -11827,7 +11898,7 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
                                 : "Pending review"
                               : ""}
                         </td>
-                        <td className="px-3 py-2 text-right">
+                        <td className="px-2.5 py-2 text-right">
                           {row.display_value
                             ? ""
                             : row.side === "deduction"
@@ -11842,15 +11913,15 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
                 </tbody>
                 <tfoot className="border-t bg-purple-50 font-semibold">
                   <tr>
-                    <td className="px-3 py-2">
+                    <td className="px-2.5 py-2">
                       Totals
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-2.5 py-2 text-right">
                       -${Math.abs(Number(
                         expenseReport.totals?.credits || 0
                       )).toFixed(2)}
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-2.5 py-2 text-right">
                       +${Math.abs(Number(
                         expenseReport.totals?.deductions || 0
                       )).toFixed(2)}
@@ -11860,7 +11931,7 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
               </table>
             </div>
 
-            <div className="mt-4 rounded-lg bg-purple-700 px-4 py-3 text-center font-bold text-white">
+            <div className="mt-4 rounded-lg bg-purple-700 px-2.5 py-2 text-center font-bold text-white">
               Reimbursement Due to {expenseReport.totals?.due_to || "Neither"}:
               {" "}
               ${Number(
@@ -12377,7 +12448,7 @@ const LiveCurrentStageTimer = ({
   return (
     <div
       className={cn(
-        "mt-3 rounded-lg border px-3 py-2",
+        "mt-3 rounded-lg border px-2.5 py-2",
         countdown.overdue
           ? "border-orange-200 bg-orange-50"
           : atRisk
@@ -12422,6 +12493,7 @@ const LiveCurrentStageTimer = ({
 export default function Pipeline() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] =
     useSearchParams();
   const [stages, setStages] = useState([]);
@@ -16495,214 +16567,44 @@ export default function Pipeline() {
   };
 
   useEffect(() => {
-    if (
-      !isInitialized ||
-      modalState.isOpen
-    ) {
-      return;
-    }
+    if (!isInitialized || modalState.isOpen) return;
+    const requestedForm = String(searchParams.get("form") || "").trim().toLowerCase();
 
-    const requestedForm =
-      String(
-        searchParams.get("form") ||
-        ""
-      )
-        .trim()
-        .toLowerCase();
-
-    const requestedStage =
-      String(
-        searchParams.get("stage") ||
-        ""
-      )
-        .trim()
-        .toLowerCase();
-
-    if (
-      requestedForm ===
-      "hub"
-    ) {
+    if (requestedForm === "hub") {
       openModal(
         "Forms",
         <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Open and complete your required candidate forms.
-          </p>
-
+          <p className="text-sm text-muted-foreground">Open and complete your required candidate forms.</p>
           <div className="grid gap-3 md:grid-cols-3">
             {[
-              {
-                key: "behavioral",
-                title: "Behavioral Assessment",
-                description:
-                  "Complete your behavioral assessment.",
-                icon: ClipboardList
-              },
-              {
-                key: "housing",
-                title: "Housing & Transportation Call",
-                description:
-                  "Complete your housing and transportation form.",
-                icon: Home
-              }
+              { key: "behavioral", title: "Behavioral Assessment", description: "Complete your behavioral assessment.", icon: ClipboardList },
+              { key: "housing", title: "Housing & Transportation Call", description: "Complete your housing and transportation form.", icon: Home }
             ].map(item => {
-              const Icon =
-                item.icon;
-
+              const Icon = item.icon;
               return (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => {
-                    setModalState({
-                      isOpen: false,
-                      type: null,
-                      title: null,
-                      component: null
-                    });
-
-                    setSearchParams(
-                      {
-                        form:
-                          item.key
-                      },
-                      {
-                        replace:
-                          true
-                      }
-                    );
-                  }}
-                  className="rounded-xl border bg-white p-4 text-left transition hover:border-primary/40 hover:shadow-sm"
-                >
+                <button key={item.key} type="button" onClick={() => {
+                  setModalState({ isOpen:false, type:null, title:null, component:null });
+                  setSearchParams({ form:item.key }, { replace:true });
+                }} className="rounded-xl border bg-white p-4 text-left transition hover:border-primary/40 hover:shadow-sm">
                   <Icon className="h-5 w-5 text-primary" />
-                  <p className="mt-3 font-semibold">
-                    {item.title}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {item.description}
-                  </p>
+                  <p className="mt-3 font-semibold">{item.title}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{item.description}</p>
                 </button>
               );
             })}
           </div>
         </div>
       );
-
       return;
     }
-
-    if (
-      requestedForm ===
-      "behavioral"
-    ) {
-      openModal(
-        "Behavioral Assessment",
-        <BehavioralAssessmentForm
-          onClose={closeModal}
-          user={user}
-        />
-      );
-
+    if (requestedForm === "behavioral") {
+      openModal("Behavioral Assessment", <BehavioralAssessmentForm onClose={closeModal} user={user} />);
       return;
     }
-
-    if (
-      requestedForm ===
-      "housing"
-    ) {
-      openModal(
-        "Housing Form",
-        <HousingDetails
-          onClose={closeModal}
-          user={user}
-          setStages={setStages}
-        />
-      );
-
-      return;
+    if (requestedForm === "housing") {
+      openModal("Housing Form", <HousingDetails onClose={closeModal} user={user} setStages={setStages} />);
     }
-
-    if (
-      requestedStage ===
-      "welcome-packet"
-    ) {
-      const welcomeStage =
-        stages.find(
-          stage => stage?.stage_name === "Welcome Packet"
-        );
-
-      const canOpenWelcomePacket =
-        Boolean(
-          welcomeStage &&
-          (
-            isPipelineStageComplete(welcomeStage) ||
-            welcomeStage.unlocked === true ||
-            welcomeStage.is_unlocked === true ||
-            welcomeStage.trigger_unlocked === true ||
-            welcomeStage.source_trigger_unlocked === true ||
-            String(welcomeStage.status || "").trim().toLowerCase() === "in progress"
-          )
-        );
-
-      if (canOpenWelcomePacket) {
-        openModal(
-          "ICP Welcome Packet",
-          <WelcomePacketView
-            onClose={closeModal}
-            user={user}
-            setStages={setStages}
-            setDeploymentFieldStatus={setDeploymentFieldStatus}
-          />
-        );
-      } else {
-        toast.info("Welcome Packet will open when you reach the Welcome Packet stage.");
-        setSearchParams({}, { replace: true });
-      }
-    }
-
-    if (
-      requestedStage ===
-      "expense-report"
-    ) {
-      const receiptStage =
-        stages.find(
-          stage => stage?.stage_name === "Receipt Submission"
-        );
-
-      const canOpenExpenseReport =
-        Boolean(
-          receiptStage &&
-          (
-            isPipelineStageComplete(receiptStage) ||
-            receiptStage.unlocked === true ||
-            receiptStage.is_unlocked === true ||
-            receiptStage.trigger_unlocked === true ||
-            receiptStage.source_trigger_unlocked === true ||
-            String(receiptStage.status || "").trim().toLowerCase() === "in progress"
-          )
-        );
-
-      if (canOpenExpenseReport) {
-        openModal(
-          "Expense Report",
-          <ReimbursementExpensesView
-            onClose={closeModal}
-            user={user}
-            setStages={setStages}
-          />
-        );
-      } else {
-        toast.info("Expense Report will open when you reach the Receipt Submission stage.");
-        setSearchParams({}, { replace: true });
-      }
-    }
-  }, [
-    isInitialized,
-    isLoading,
-    searchParams,
-    modalState.isOpen,
-    user?.email
-  ]);
+  }, [isInitialized, searchParams, modalState.isOpen, user?.email]);
 
   const cycleStatus = async (stageId) => {
     const order = ["Not Started", "In Progress", "Completed", "Blocked"];
@@ -17674,6 +17576,55 @@ export default function Pipeline() {
       return;
     }
   };
+
+  // Dashboard direct links use the exact same handler as clicking the stage
+  // inside Pipeline. This restores the previously working Welcome Packet path
+  // and makes Expense Report follow the identical mechanism.
+  useEffect(() => {
+    if (!isInitialized || isLoading || modalState.isOpen || stages.length === 0) return;
+
+    const requestedStage = String(
+      searchParams.get("stage") ||
+      location.state?.openPipelineStage ||
+      ""
+    ).trim().toLowerCase();
+
+    if (!requestedStage) return;
+
+    const stageName =
+      requestedStage === "welcome-packet"
+        ? "Welcome Packet"
+        : requestedStage === "expense-report"
+          ? "Receipt Submission"
+          : null;
+
+    if (!stageName) return;
+
+    const targetStage = stages.find(stage => stage?.stage_name === stageName);
+    if (!targetStage) {
+      toast.info(`${stageName} is not available in your current pipeline yet.`);
+      return;
+    }
+
+    // handleStageClick owns the same availability/lock rules used by the
+    // visible Pipeline row, so Dashboard cannot diverge from Pipeline.
+    handleStageClick(targetStage);
+
+    // Clear the deep-link only after handing the stage to the working click path.
+    setSearchParams({}, { replace: true });
+    if (location.state?.openPipelineStage) {
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [
+    isInitialized,
+    isLoading,
+    modalState.isOpen,
+    stages,
+    searchParams,
+    location.state,
+    location.pathname,
+    navigate
+  ]);
 
   const transferToICPUSRN =
     normalizeApplicationStatus(applicationStatus) ===

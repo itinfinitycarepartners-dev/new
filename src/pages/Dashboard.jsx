@@ -55,6 +55,7 @@ import itineraryImage from "../components/itinerary.png";
 import moment from "moment";
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
+import { WelcomePacketView, ReimbursementExpensesView } from "./Pipeline";
 
 // ─── IMPORT FROM src/api/icpClient.js ──────────────────────────────────────
 import { messaging, websocket, tokenStorage } from "@/api/icpClient";
@@ -1417,6 +1418,16 @@ export default function Dashboard() {
   // The progress marker is only 40px wide. Do not download a multi-megabyte
   // CRM photo for it; the lightweight fallback marker below is intentional.
   const candidatePhotoUrl = null;
+  const [bankingReminder, setBankingReminder] = useState({ show: false });
+  const [directPortalModal, setDirectPortalModal] = useState(null);
+
+  const closeDirectPortalModal = () => setDirectPortalModal(null);
+
+  const refreshAfterDirectPortalAction = () => {
+    try {
+      refetch?.();
+    } catch {}
+  };
 
   const [
     unreadMessageCount,
@@ -2452,6 +2463,31 @@ export default function Dashboard() {
   ]);
 
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadBankingReminder = async () => {
+      try {
+        const token = localStorage.getItem("icp_auth_token");
+        if (!token) return;
+        const response = await fetch(`${API_BASE}/api/profile/extended?_=${Date.now()}`, {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.success !== true || cancelled) return;
+        const travel = data.profile?.travelSummary || {};
+        const plan = String(travel.finalBankingPlan || travel.final_banking_plan || travel.Final_Banking_Plan || "").trim();
+        setBankingReminder({ show: !plan && !welcomePacketAvailable });
+      } catch {}
+    };
+    loadBankingReminder();
+    window.addEventListener("candidate-data-updated", loadBankingReminder);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("candidate-data-updated", loadBankingReminder);
+    };
+  }, [user?.email, welcomePacketAvailable]);
+
   const quickLinks = [
     {
       path: "/documents",
@@ -2488,7 +2524,7 @@ export default function Dashboard() {
       badge: unreadUpdates > 0
     },
     {
-      path: "/pipeline?stage=welcome-packet",
+      action: "welcome-packet",
       label: "Welcome Packet",
       sublabel: welcomePacketAvailable
         ? (welcomeCompleted ? "Acknowledged · open again" : "Available now")
@@ -2501,7 +2537,7 @@ export default function Dashboard() {
       disabled: !welcomePacketAvailable
     },
     {
-      path: "/pipeline?stage=expense-report",
+      action: "expense-report",
       label: "Expense Report",
       sublabel: expenseReportAvailable
         ? (isPipelineStageComplete(expenseStage) ? "Submitted · open again" : "Available now")
@@ -2588,6 +2624,67 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      {directPortalModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-3 backdrop-blur-sm">
+          <div
+            className={`overflow-hidden rounded-2xl bg-white shadow-2xl ${
+              directPortalModal === "expense-report"
+                ? "h-[96vh] w-[99vw] max-w-[1800px]"
+                : "max-h-[90vh] w-full max-w-4xl"
+            }`}
+          >
+            <div className="flex items-center justify-between border-b bg-white px-5 py-4">
+              <h2 className="text-xl font-semibold">
+                {directPortalModal === "expense-report"
+                  ? "Expense Report"
+                  : "ICP Welcome Packet"}
+              </h2>
+              <button
+                type="button"
+                onClick={closeDirectPortalModal}
+                className="rounded-lg p-2 hover:bg-muted"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div
+              className={
+                directPortalModal === "expense-report"
+                  ? "h-[calc(96vh-65px)] overflow-y-auto overflow-x-hidden p-3"
+                  : "max-h-[calc(90vh-65px)] overflow-y-auto p-6"
+              }
+            >
+              {directPortalModal === "welcome-packet" ? (
+                <WelcomePacketView
+                  onClose={closeDirectPortalModal}
+                  user={user}
+                  setStages={refreshAfterDirectPortalAction}
+                  setDeploymentFieldStatus={() => {}}
+                />
+              ) : (
+                <ReimbursementExpensesView
+                  onClose={closeDirectPortalModal}
+                  user={user}
+                  setStages={refreshAfterDirectPortalAction}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {bankingReminder.show && (
+        <div className="sticky top-4 z-30 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 shadow-md">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="font-semibold text-amber-900">Final Banking Plan required</p>
+              <p className="text-sm text-amber-800">Submit your Final Banking Plan in My Profile at least 15 days before the Welcome Packet becomes active.</p>
+            </div>
+            <Link to="/profile" className="rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-800">Complete banking info</Link>
+          </div>
+        </div>
+      )}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
         <div className="relative flex min-h-[220px] min-w-0 flex-1 flex-col justify-between overflow-hidden rounded-2xl border border-[#E8E1F2] bg-[#FDF2F8] p-6 lg:p-8">
           <img
@@ -2813,7 +2910,7 @@ export default function Dashboard() {
 
             return (
               <div
-                key={`${link.path}-${link.label}`}
+                key={`${link.action || link.path}-${link.label}`}
                 className={`group relative flex min-h-[150px] flex-col items-center justify-center rounded-2xl border border-[#E8E1F2] bg-white px-3 py-4 text-center shadow-sm transition-all duration-200 ${
                   link.disabled
                     ? "cursor-not-allowed opacity-55"
@@ -2821,11 +2918,20 @@ export default function Dashboard() {
                 }`}
               >
                 {!link.disabled && (
-                  <Link
-                    to={link.path}
-                    aria-label={`Open ${link.label}`}
-                    className="absolute inset-0 z-10 rounded-2xl"
-                  />
+                  link.action ? (
+                    <button
+                      type="button"
+                      aria-label={`Open ${link.label}`}
+                      className="absolute inset-0 z-10 rounded-2xl"
+                      onClick={() => setDirectPortalModal(link.action)}
+                    />
+                  ) : (
+                    <Link
+                      to={link.path}
+                      aria-label={`Open ${link.label}`}
+                      className="absolute inset-0 z-10 rounded-2xl"
+                    />
+                  )
                 )}
                 {link.badge && (
                   <span className="absolute right-3 top-3 h-2.5 w-2.5 rounded-full bg-red-500" />

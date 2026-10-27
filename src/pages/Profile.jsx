@@ -329,7 +329,9 @@ export default function Profile() {
     drivingPlan: "",
     carPurchasePlan: "",
     foundationsCompleted: "",
-    spouseEmployment: ""
+    spouseEmployment: "",
+    finalBankingPlan: "",
+    finalBankNameCity: ""
   });
   const [savingTravelPlanning, setSavingTravelPlanning] = useState(false);
   const [travelPlanningMessage, setTravelPlanningMessage] = useState("");
@@ -1913,6 +1915,65 @@ export default function Profile() {
 
           {travelPlanningMessage ? (
             <p className="mt-4 text-sm text-muted-foreground">{travelPlanningMessage}</p>
+          ) : null}
+        </Section>
+
+        <Section
+          title="Final Banking Plan"
+          icon={Building2}
+          actionLabel={savingTravelPlanning ? "Saving..." : "Save"}
+          onAction={saveTravelPlanning}
+        >
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block">
+              <span className="text-xs font-medium text-muted-foreground">
+                Final Banking Plan
+              </span>
+              <select
+                value={travelPlanning.finalBankingPlan || ""}
+                onChange={event =>
+                  setTravelPlanning(previous => ({
+                    ...previous,
+                    finalBankingPlan: event.target.value
+                  }))
+                }
+                className="mt-1 w-full rounded-lg border border-[#e6def1] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
+              >
+                <option value="">Select banking plan</option>
+                <option value="Advancial Pre-Arrival Banking">Advancial Pre-Arrival Banking</option>
+                <option value="Local Bank (Please Schedule Appointment)">Local Bank (Please Schedule Appointment)</option>
+                <option value="Already Have an Account – Provide Bank Name and City">Already Have an Account – Provide Bank Name and City</option>
+              </select>
+            </label>
+
+            {travelPlanning.finalBankingPlan ===
+              "Already Have an Account – Provide Bank Name and City" ? (
+              <label className="block">
+                <span className="text-xs font-medium text-muted-foreground">
+                  Bank Name and City
+                </span>
+                <input
+                  type="text"
+                  value={travelPlanning.finalBankNameCity || ""}
+                  onChange={event =>
+                    setTravelPlanning(previous => ({
+                      ...previous,
+                      finalBankNameCity: event.target.value
+                    }))
+                  }
+                  placeholder="e.g. Chase Bank, Nashville"
+                  className="mt-1 w-full rounded-lg border border-[#e6def1] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
+                />
+              </label>
+            ) : null}
+          </div>
+
+          <p className="mt-3 text-xs font-medium text-amber-700">
+            Complete your Final Banking Plan at least 15 days before arrival and before the Welcome Packet is due.
+          </p>
+
+          {travelPlanningMessage ? (
+            <p className="mt-3 text-sm text-muted-foreground">{travelPlanningMessage}</p>
           ) : null}
         </Section>
 
