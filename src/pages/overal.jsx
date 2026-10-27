@@ -40,7 +40,7 @@ const writeAdminFastCache = (key, value) => {
 // in sessionStorage is safe and prevents a Zoho round-trip every time an admin
 // opens the same candidate during a work session.
 const ADMIN_DOC_CACHE_PREFIX = "icp_admin_candidate_docs_v3:";
-const ADMIN_DOC_CACHE_MAX_AGE_MS = 15 * 60 * 1000;
+const ADMIN_DOC_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const readAdminDocumentCache = email => {
   try {
     const raw = sessionStorage.getItem(`${ADMIN_DOC_CACHE_PREFIX}${String(email || "").trim().toLowerCase()}`);
@@ -796,8 +796,14 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     // File bytes are still fetched only when a document is viewed.
     const cachedDocuments = readAdminDocumentCache(user.email);
     if (Array.isArray(cachedDocuments)) {
+      // Warm candidate: paint every cached document immediately.
       setDocuments(cachedDocuments);
       setDocumentsLoading(false);
+    } else {
+      // Open the candidate modal immediately, but do not render a false empty
+      // state before the first authoritative inventory arrives.
+      setDocuments([]);
+      setDocumentsLoading(true);
     }
 
     setLoading(false);
@@ -858,11 +864,18 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
         const email = encodeURIComponent(user.email);
         const emailParam = `?email=${email}`;
+        // INSTANT DOCUMENT PAINT:
+        // Candidate-specific document metadata is painted from the local admin cache
+        // immediately when the user is selected. Never replace the modal with a
+        // document spinner while the fresh server snapshot is loading.
         const warmDocs = readAdminDocumentCache(user.email);
         if (Array.isArray(warmDocs)) {
           setDocuments(warmDocs);
           setDocumentsLoading(false);
         } else {
+          // Cold candidate: the tab is already open; show its lightweight
+          // loading state until the authoritative inventory arrives.
+          setDocuments([]);
           setDocumentsLoading(true);
         }
         const documentsLoadPromise = fetch(`${API_BASE}/api/admin/documents/${email}`, {
@@ -888,10 +901,15 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
             );
             setDocuments(allDocs);
             setDocumentsLoading(false);
+            // Backend now returns the complete merged inventory (local + CRM +
+            // Recruit + CustomModule1), so this snapshot is safe to paint
+            // instantly the next time this candidate is opened.
             writeAdminDocumentCache(user.email, allDocs);
           })
           .catch(error => {
-            console.warn('Unable to load candidate documents:', error);
+            console.warn('Unable to refresh candidate documents:', error);
+            // Keep the last successful snapshot visible. A transient Zoho/API
+            // failure must never blank the candidate's document section.
           })
           .finally(() => setDocumentsLoading(false));
 
@@ -1362,6 +1380,22 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     }
   }, [activeTab, documents, user?._notificationDocument]);
 
+  // Notification fast path: when Admin opens a document notification, switch to
+  // Candidate Documents immediately and paint the candidate's cached inventory
+  // before any CRM/Recruit refresh completes.
+  useEffect(() => {
+    const target = user?._notificationDocument;
+    if (!target || !user?.email) return;
+
+    setActiveTab("documents");
+
+    const cached = readAdminDocumentCache(user.email);
+    if (Array.isArray(cached)) {
+      setDocuments(cached);
+      setDocumentsLoading(false);
+    }
+  }, [user?.email, user?._notificationDocument]);
+
   const updateDocumentApproval = async (
     doc,
     action,
@@ -1443,7 +1477,30 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                 null,
               uploaded_at:
                 doc.uploaded_at ||
-                null
+                null,
+              pending_upload_id:
+                doc.pending_upload_id ||
+                (String(doc.source || "").toLowerCase() === "pending"
+                  ? (doc.attachment_id || doc.id || null)
+                  : null),
+              document_category:
+                doc.document_category || doc.category_key || null,
+              category_key:
+                doc.category_key || doc.document_category || null,
+              section:
+                doc.section || null,
+              document_department:
+                doc.document_department || doc.section || null,
+              destination:
+                doc.destination || null,
+              recruit_attachment_id:
+                doc.recruit_attachment_id || null,
+              recruit_record_id:
+                doc.recruit_record_id || doc.candidate_id || null,
+              crm_attachment_id:
+                doc.crm_attachment_id || null,
+              crm_record_id:
+                doc.crm_record_id || doc.deal_id || null
             }
           })
         }
@@ -1460,45 +1517,73 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
         );
       }
 
-      setDocuments(previous =>
-        previous.map(item => {
+      setDocuments(previous => {
+        const resolvedAt = data.approved_at || new Date().toISOString();
+
+        const next = previous.map(item => {
           const itemKey =
             item.approval_key ||
             [
-              item.source ||
-                "unknown",
-              item.crm_field_api_name ||
-                "",
-              item.attachment_id ||
-                item.id ||
-                item.document_id ||
-                ""
+              item.source || "unknown",
+              item.crm_field_api_name || "",
+              item.attachment_id || item.id || item.document_id || ""
             ].join(":");
 
-          return itemKey === approvalKey
-            ? {
-                ...item,
-                approval_key:
-                  approvalKey,
-                approval_status:
-                  action === "approve"
-                    ? "approved"
-                    : "rejected",
-                approved_at:
-                  action === "approve"
-                    ? new Date().toISOString()
-                    : null,
-                rejection_reason:
-                  action === "reject"
-                    ? reason
-                    : null
-              }
-            : item;
-        })
-      );
+          const sameSubmission =
+            Boolean(doc.pending_upload_id) &&
+            String(item.pending_upload_id || "") ===
+              String(doc.pending_upload_id);
+
+          if (itemKey !== approvalKey && !sameSubmission) return item;
+
+          return {
+            ...item,
+            approval_key: approvalKey,
+            approval_status: action === "approve" ? "approved" : "rejected",
+            already_approved: action === "approve",
+            approved_at: action === "approve" ? resolvedAt : null,
+            rejected_at:
+              action === "reject"
+                ? (data.rejected_at || resolvedAt)
+                : null,
+            rejection_reason: action === "reject" ? reason : null,
+            pending_upload_id:
+              data.pending_upload_id ||
+              item.pending_upload_id ||
+              doc.pending_upload_id ||
+              null
+          };
+        });
+
+        // Persist the approved state immediately so reopening this candidate
+        // paints the same approved card from cache without another spinner.
+        writeAdminDocumentCache(user.email, next);
+        return next;
+      });
+
+      // Keep Candidate Documents mounted. The backend has already completed the
+      // provider routing before returning success, so there is no reason to
+      // reload the whole candidate window here.
+      setDocumentsLoading(false);
       setRejectingDocument(null);
       setRejectionReason("");
-      window.dispatchEvent(new CustomEvent("admin-data-updated"));
+
+      // IMPORTANT: do not dispatch "admin-data-updated" here. This component's
+      // listener treats that global event as a full refresh and was the direct
+      // cause of the post-approval "Loading candidate documents..." screen.
+      window.dispatchEvent(
+        new CustomEvent("document-approval-updated", {
+          detail: {
+            email: user.email,
+            approvalKey,
+            action,
+            pendingUploadId:
+              data.pending_upload_id ||
+              doc.pending_upload_id ||
+              null
+          }
+        })
+      );
     } catch (error) {
       setDocActionError(
         error.message ||
@@ -1914,12 +1999,15 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                     <div className="text-center py-12 bg-white rounded-xl border border-dashed border-gray-300">
                       <FolderOpen className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                       <p className="text-gray-600 font-medium text-lg">No documents found.</p>
-                      <p className="text-sm text-gray-400 mt-1">Checked both Zoho CRM and Zoho Recruit.</p>
+                      <p className="text-sm text-gray-400 mt-1">No documents are currently available in the portal, Zoho CRM, Zoho Recruit Candidates, or Recruit CustomModule1.</p>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {documents.map((doc, idx) => {
-                        const { category, icon: DocIcon, color } = classifyDocument(doc.document_name || doc.File_Name);
+                        const classified = classifyDocument(doc.document_name || doc.File_Name);
+                        const category = doc.section || doc.document_department || doc.category_label || classified.category;
+                        const DocIcon = classified.icon;
+                        const color = classified.color;
                         const docSource = String(doc.source || '').toLowerCase();
                         const docId = docSource.includes('crm')
                           ? (doc.crm_attachment_id || doc.attachment_id || doc.id || idx)
