@@ -7415,7 +7415,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             As you prepare for your arrival, you'll find helpful information below about your facility, housing, banking, and other essential resources to help make your transition as smooth as possible.
           </p>
           <p className="font-bold text-purple-900">
-            Your next chapter is just around the corner, and we're so excited to welcome you! 💜
+            Your next chapter is just around the corner, and we're so excited to welcome you!
           </p>
           <p className="font-medium">
             Warm regards,<br />
@@ -10007,7 +10007,7 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
       { id: "housing_deposit", label: "Breakdown of Expenses", side: "deduction", reviewed: false, amount: null, display_value: "" },
       { id: "housing_app_admin", label: "Total Paid by ICP", side: "deduction", reviewed: false, amount: null }
     ],
-    totals: { credits: 0, deductions: 0, net: 0, due_to: "Neither", amount_due: 0 },
+    totals: { credits: 0, deductions: 0, net: 0, due_to: "Either", amount_due: 0 },
     submitted_at: null,
     updated_at: null
   }));

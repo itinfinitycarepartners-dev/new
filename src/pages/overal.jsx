@@ -4250,8 +4250,22 @@ const LoginApprovalsPanel = () => {
             if (item?.email_validation?.valid === false) {
               next[item.email] = {
                 invalid: true,
+                unregistered: false,
                 reasons: item.email_validation.reasons || ["Email address is invalid."]
               };
+            } else if (
+              item?.unregistered_email_confirmed === true ||
+              item?.wrong_email_confirmed === true
+            ) {
+              next[item.email] = {
+                invalid: false,
+                unregistered: true,
+                reasons: [
+                  "This email is valid but is not registered in ICP's CRM or Recruit records."
+                ]
+              };
+            } else {
+              delete next[item.email];
             }
           }
           return next;
@@ -4330,14 +4344,14 @@ const LoginApprovalsPanel = () => {
           actionName === "verify" &&
           (
             data.invalidEmail === true ||
-            data?.emailValidation?.valid === false ||
-            data?.wrongEmail === true
+            data?.emailValidation?.valid === false
           )
         ) {
           setEmailIssues(current => ({
             ...current,
             [email]: {
               invalid: true,
+              unregistered: false,
               reasons: data?.emailValidation?.reasons || [data.message || "Email address has an issue."]
             }
           }));
@@ -4348,9 +4362,33 @@ const LoginApprovalsPanel = () => {
       if (actionName === "verify") {
         setEmailIssues(current => {
           const next = { ...current };
-          delete next[email];
+          if (data?.unregisteredEmail === true) {
+            next[email] = {
+              invalid: false,
+              unregistered: true,
+              reasons: [
+                "This email is valid but is not registered in ICP's CRM or Recruit records."
+              ]
+            };
+          } else {
+            delete next[email];
+          }
           return next;
         });
+      }
+
+      if (actionName === "send-unregistered-email" && data?.success === true) {
+        setEmailIssues(current => ({
+          ...current,
+          [email]: {
+            invalid: false,
+            unregistered: true,
+            noticeSent: true,
+            reasons: [
+              "Candidate notified to use the email address registered with Infinity Care Partners."
+            ]
+          }
+        }));
       }
       setNotice(data.message || "Action completed successfully.");
 
@@ -4359,7 +4397,8 @@ const LoginApprovalsPanel = () => {
         (
           data.removeFromList === true ||
           actionName === "approve" ||
-          actionName === "reject-invalid"
+          actionName === "reject-invalid" ||
+          actionName === "send-unregistered-email"
         )
       ) {
         setApprovals(current => {
@@ -4382,7 +4421,15 @@ const LoginApprovalsPanel = () => {
         })
       );
 
-      load({ silent: true });
+      // Do not race a successful local removal with an immediate GET.
+      // The normal poll/visibility refresh reconciles against the no-cache queue.
+      if (
+        actionName !== "approve" &&
+        actionName !== "reject-invalid" &&
+        actionName !== "send-unregistered-email"
+      ) {
+        load({ silent: true });
+      }
     } catch (error) {
       // No optimistic removal is performed before the request, so restoring the
       // pre-action array here can resurrect a completed approval after a racing
@@ -4445,10 +4492,31 @@ const LoginApprovalsPanel = () => {
             {approvals.map(item => {
               const keyBase = `${item.email}:`;
               const lookup = item?.zoho_lookup || {};
+              const serverSaysInvalid = item?.email_validation?.valid === false;
+              const invalidEmail =
+                serverSaysInvalid || emailIssues[item.email]?.invalid === true;
+              const unregisteredEmail =
+                !invalidEmail &&
+                (
+                  item?.unregistered_email_confirmed === true ||
+                  emailIssues[item.email]?.unregistered === true
+                );
 
               return (
                 <tr key={item._id || item.email} className="border-t">
-                  <td className="px-5 py-4 font-medium text-gray-800">{item.email}</td>
+                  <td className="px-5 py-4">
+                    <div className="font-medium text-gray-800">{item.email}</div>
+                    {unregisteredEmail && (
+                      <div className="mt-1 text-xs font-normal text-blue-700">
+                        Valid email, but not registered in CRM or Recruit.
+                      </div>
+                    )}
+                    {invalidEmail && (
+                      <div className="mt-1 text-xs font-normal text-red-600">
+                        {(emailIssues[item.email]?.reasons || ["Invalid email address."])[0]}
+                      </div>
+                    )}
+                  </td>
                   <td className="px-5 py-4 text-gray-500">
                     {item.requested_at
                       ? new Date(item.requested_at).toLocaleString()
@@ -4476,8 +4544,7 @@ const LoginApprovalsPanel = () => {
                       </>
                     )}
 
-                    {item.status === "pending" &&
-                      emailIssues[item.email]?.invalid === true && (
+                    {invalidEmail && (
                       <button
                         disabled={busy.startsWith(keyBase)}
                         onClick={() => {
@@ -4490,6 +4557,22 @@ const LoginApprovalsPanel = () => {
                         className="rounded-lg bg-red-600 px-3 py-2 text-white hover:bg-red-700 disabled:opacity-50"
                       >
                         {busy === `${item.email}:reject-invalid` ? "Rejecting…" : "Reject wrong email"}
+                      </button>
+                    )}
+
+                    {item.status === "pending" &&
+                      unregisteredEmail && (
+                      <button
+                        disabled={busy.startsWith(keyBase)}
+                        onClick={() => action(item.email, "send-unregistered-email")}
+                        title="Tell the candidate to use the email address registered with Infinity Care Partners."
+                        className="rounded-lg bg-blue-600 px-3 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {busy === `${item.email}:send-unregistered-email`
+                          ? "Sending…"
+                          : emailIssues[item.email]?.noticeSent
+                            ? "Send Email Again"
+                            : "Send Email"}
                       </button>
                     )}
 
