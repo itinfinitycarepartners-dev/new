@@ -335,7 +335,11 @@ export default function Profile() {
     finalTransportationPlan: ""
   });
   const [savingTravelPlanning, setSavingTravelPlanning] = useState(false);
+  const [savingBankingPlanning, setSavingBankingPlanning] = useState(false);
   const [travelPlanningMessage, setTravelPlanningMessage] = useState("");
+  const [bankingPlanningMessage, setBankingPlanningMessage] = useState("");
+  const [travelSaved, setTravelSaved] = useState(false);
+  const [bankingSaved, setBankingSaved] = useState(false);
   const [planningOptions, setPlanningOptions] = useState({
     finalTransportationPlan: [],
     finalBankingPlan: []
@@ -688,6 +692,7 @@ export default function Profile() {
           `${API_BASE}/api/profile/planning-options`,
           {
             cache: "no-store",
+            credentials: "include",
             headers: {
               Authorization: `Bearer ${token}`
             }
@@ -730,7 +735,8 @@ export default function Profile() {
         const response = await fetch(
           `${API_BASE}/api/profile/extended`,
           {
-            cache: "default",
+            cache: "no-store",
+            credentials: "include",
             headers: {
               Authorization: `Bearer ${token}`
             }
@@ -751,6 +757,41 @@ export default function Profile() {
             ...previous,
             ...(nextProfile.travelSummary || {})
           }));
+
+          const persistedTravel =
+            nextProfile.travelSummary || {};
+
+          const hasTravelSaved =
+            [
+              "departureCity",
+              "wheelchair",
+              "checkedBags",
+              "carryOn",
+              "boxes",
+              "pets",
+              "travelCash",
+              "carSeats",
+              "phoneModelCarrier",
+              "simUnlocked",
+              "drivingPlan",
+              "carPurchasePlan",
+              "foundationsCompleted",
+              "spouseEmployment",
+              "finalTransportationPlan"
+            ].some(field =>
+              String(persistedTravel[field] ?? "").trim() !== ""
+            );
+
+          const hasBankingSaved =
+            [
+              "finalBankingPlan",
+              "finalBankNameCity"
+            ].some(field =>
+              String(persistedTravel[field] ?? "").trim() !== ""
+            );
+
+          setTravelSaved(hasTravelSaved);
+          setBankingSaved(hasBankingSaved);
         }
       } catch (error) {
         console.warn(
@@ -760,13 +801,11 @@ export default function Profile() {
       }
     };
 
-    const start = () => {
-      if ("requestIdleCallback" in window) window.requestIdleCallback(loadExtendedProfile, { timeout: 5000 });
-      else window.setTimeout(loadExtendedProfile, 2500);
-    };
-    start();
+    // Cross-browser persistence must come from PostgreSQL immediately.
+    // Do not delay this authoritative profile request behind idle callbacks.
+    loadExtendedProfile();
 
-    const refresh = () => start();
+    const refresh = () => loadExtendedProfile();
 
     window.addEventListener(
       "candidate-data-updated",
@@ -792,15 +831,20 @@ export default function Profile() {
 
   // Eligibility is populated from the canonical source-data response above.
 
-  const saveTravelPlanning = async () => {
-    setSavingTravelPlanning(true);
-    setTravelPlanningMessage("");
+  const savePlanningSection = async section => {
+    const isBanking = section === "banking";
+
+    if (isBanking) {
+      setSavingBankingPlanning(true);
+      setBankingPlanningMessage("");
+    } else {
+      setSavingTravelPlanning(true);
+      setTravelPlanningMessage("");
+    }
 
     try {
       const token =
-        localStorage.getItem(
-          "icp_auth_token"
-        );
+        localStorage.getItem("icp_auth_token");
 
       if (!token) {
         throw new Error(
@@ -808,90 +852,142 @@ export default function Profile() {
         );
       }
 
+      const travelFields = [
+        "departureCity",
+        "wheelchair",
+        "checkedBags",
+        "carryOn",
+        "boxes",
+        "pets",
+        "travelCash",
+        "carSeats",
+        "phoneModelCarrier",
+        "simUnlocked",
+        "drivingPlan",
+        "carPurchasePlan",
+        "foundationsCompleted",
+        "spouseEmployment",
+        "finalTransportationPlan"
+      ];
+
+      const bankingFields = [
+        "finalBankingPlan",
+        "finalBankNameCity"
+      ];
+
+      const fields =
+        isBanking
+          ? bankingFields
+          : travelFields;
+
+      const sectionValues =
+        fields.reduce(
+          (result, field) => {
+            result[field] =
+              travelPlanning[field] ?? "";
+            return result;
+          },
+          {}
+        );
+
       const response =
         await fetch(
           `${API_BASE}/api/profile/extended`,
           {
             method: "PUT",
+            cache: "no-store",
+            credentials: "include",
             headers: {
-              Authorization:
-                `Bearer ${token}`,
-              "Content-Type":
-                "application/json"
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json"
             },
-            body:
-              JSON.stringify({
-                travelSummary:
-                  travelPlanning
-              })
+            body: JSON.stringify({
+              section,
+              travelSummary: sectionValues
+            })
           }
         );
 
       const data =
-        await response
-          .json()
-          .catch(() => ({}));
+        await response.json().catch(() => ({}));
 
-      if (
-        !response.ok ||
-        data.success !== true
-      ) {
+      if (!response.ok || data.success !== true) {
         throw new Error(
           data.error ||
-          "Unable to save travel and arrival planning."
+          `Unable to save ${isBanking ? "banking" : "travel and arrival"} planning.`
         );
       }
 
-      setExtendedProfile(
-        previous => ({
-          ...previous,
-          ...(data.profile || {}),
-          travelSummary:
-            data.profile?.travelSummary ||
-            travelPlanning
-        })
-      );
-
       const savedTravel =
-        data.profile?.travelSummary ||
-        travelPlanning;
+        data.profile?.travelSummary || {};
 
-      setTravelPlanning(savedTravel);
+      // The server returns the complete merged PostgreSQL record, so neither
+      // section can wipe the other section from the screen.
+      setTravelPlanning(previous => ({
+        ...previous,
+        ...savedTravel
+      }));
 
-      setTravelPlanningMessage(
+      setExtendedProfile(previous => ({
+        ...previous,
+        ...(data.profile || {}),
+        travelSummary: savedTravel
+      }));
+
+      const message =
         data.crmSync?.attempted === true &&
         data.crmSync?.success === false
           ? `Saved permanently in the portal. CRM sync needs retry: ${data.crmSync?.error || "CRM update failed."}`
-          : "Travel and arrival planning saved permanently."
-      );
+          : isBanking
+            ? "Banking plan saved permanently."
+            : "Travel and arrival planning saved permanently.";
 
-      // Do not immediately refetch and overwrite the just-saved state with a
-      // stale snapshot. Other screens can refresh independently.
+      if (isBanking) {
+        setBankingPlanningMessage(message);
+        setBankingSaved(true);
+      } else {
+        setTravelPlanningMessage(message);
+        setTravelSaved(true);
+      }
+
       window.dispatchEvent(
-        new CustomEvent(
-          "profile-planning-saved",
-          {
-            detail: {
-              email: user?.email,
-              travelSummary: savedTravel
-            }
+        new CustomEvent("profile-planning-saved", {
+          detail: {
+            email: user?.email,
+            section,
+            travelSummary: savedTravel
           }
-        )
+        })
       );
     } catch (error) {
       console.error(
-        "[Profile] Travel planning save failed:",
+        `[Profile] ${section} planning save failed:`,
         error
       );
 
-      setTravelPlanningMessage(
+      const message =
         error?.message ||
-        "Unable to save travel and arrival planning."
-      );
+        `Unable to save ${isBanking ? "banking" : "travel and arrival"} planning.`;
+
+      if (isBanking) {
+        setBankingPlanningMessage(message);
+      } else {
+        setTravelPlanningMessage(message);
+      }
     } finally {
-      setSavingTravelPlanning(false);
+      if (isBanking) {
+        setSavingBankingPlanning(false);
+      } else {
+        setSavingTravelPlanning(false);
+      }
     }
   };
+
+  const saveTravelPlanning = () =>
+    savePlanningSection("travel");
+
+  const saveBankingPlanning = () =>
+    savePlanningSection("banking");
 
   const hasCanonicalProfileFallback = Boolean(
     profileData ||
@@ -1912,7 +2008,13 @@ export default function Profile() {
         <Section
           title="Travel and arrival planning"
           icon={Plane}
-          actionLabel={savingTravelPlanning ? "Saving..." : "Save"}
+          actionLabel={
+            savingTravelPlanning
+              ? "Saving..."
+              : travelSaved
+                ? "Saved ✓"
+                : "Save Travel"
+          }
           onAction={saveTravelPlanning}
         >
           <div className="grid gap-4 md:grid-cols-2">
@@ -1935,10 +2037,14 @@ export default function Profile() {
                   type={type}
                   value={travelPlanning[field] ?? ""}
                   onChange={event =>
-                    setTravelPlanning(previous => ({
-                      ...previous,
-                      [field]: event.target.value
-                    }))
+                    {
+                      setTravelPlanning(previous => ({
+                        ...previous,
+                        [field]: event.target.value
+                      }));
+                      setTravelSaved(false);
+                      setTravelPlanningMessage("");
+                    }
                   }
                   className="mt-1 w-full rounded-lg border border-[#e6def1] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
                 />
@@ -1951,10 +2057,14 @@ export default function Profile() {
             <textarea
               value={travelPlanning.drivingPlan || ""}
               onChange={event =>
-                setTravelPlanning(previous => ({
-                  ...previous,
-                  drivingPlan: event.target.value
-                }))
+                {
+                  setTravelPlanning(previous => ({
+                    ...previous,
+                    drivingPlan: event.target.value
+                  }));
+                  setTravelSaved(false);
+                  setTravelPlanningMessage("");
+                }
               }
               rows={3}
               className="mt-1 w-full rounded-lg border border-[#e6def1] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
@@ -1966,10 +2076,14 @@ export default function Profile() {
             <textarea
               value={travelPlanning.spouseEmployment || ""}
               onChange={event =>
-                setTravelPlanning(previous => ({
-                  ...previous,
-                  spouseEmployment: event.target.value
-                }))
+                {
+                  setTravelPlanning(previous => ({
+                    ...previous,
+                    spouseEmployment: event.target.value
+                  }));
+                  setTravelSaved(false);
+                  setTravelPlanningMessage("");
+                }
               }
               rows={3}
               className="mt-1 w-full rounded-lg border border-[#e6def1] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
@@ -1983,15 +2097,24 @@ export default function Profile() {
             <select
               value={travelPlanning.finalTransportationPlan || ""}
               onChange={event =>
-                setTravelPlanning(previous => ({
-                  ...previous,
-                  finalTransportationPlan: event.target.value
-                }))
+                {
+                  setTravelPlanning(previous => ({
+                    ...previous,
+                    finalTransportationPlan: event.target.value
+                  }));
+                  setTravelSaved(false);
+                  setTravelPlanningMessage("");
+                }
               }
               className="mt-1 w-full rounded-lg border border-[#e6def1] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
             >
               <option value="">Select transportation plan</option>
-              {planningOptions.finalTransportationPlan.map(option => (
+              {[
+                ...new Set([
+                  travelPlanning.finalTransportationPlan || "",
+                  ...planningOptions.finalTransportationPlan
+                ].filter(Boolean))
+              ].map(option => (
                 <option key={option} value={option}>{option}</option>
               ))}
             </select>
@@ -2001,15 +2124,25 @@ export default function Profile() {
           </label>
 
           {travelPlanningMessage ? (
-            <p className="mt-4 text-sm text-muted-foreground">{travelPlanningMessage}</p>
+            <p className={`mt-4 text-sm font-medium ${
+              travelSaved ? "text-emerald-600" : "text-muted-foreground"
+            }`}>
+              {travelPlanningMessage}
+            </p>
           ) : null}
         </Section>
 
         <Section
           title="Final Banking Plan"
           icon={Building2}
-          actionLabel={savingTravelPlanning ? "Saving..." : "Save"}
-          onAction={saveTravelPlanning}
+          actionLabel={
+            savingBankingPlanning
+              ? "Saving..."
+              : bankingSaved
+                ? "Saved ✓"
+                : "Save Banking"
+          }
+          onAction={saveBankingPlanning}
         >
           <div className="grid gap-4 md:grid-cols-2">
             <label className="block">
@@ -2019,15 +2152,24 @@ export default function Profile() {
               <select
                 value={travelPlanning.finalBankingPlan || ""}
                 onChange={event =>
-                  setTravelPlanning(previous => ({
-                    ...previous,
-                    finalBankingPlan: event.target.value
-                  }))
+                  {
+                    setTravelPlanning(previous => ({
+                      ...previous,
+                      finalBankingPlan: event.target.value
+                    }));
+                    setBankingSaved(false);
+                    setBankingPlanningMessage("");
+                  }
                 }
                 className="mt-1 w-full rounded-lg border border-[#e6def1] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
               >
                 <option value="">Select banking plan</option>
-                {planningOptions.finalBankingPlan.map(option => (
+                {[
+                  ...new Set([
+                    travelPlanning.finalBankingPlan || "",
+                    ...planningOptions.finalBankingPlan
+                  ].filter(Boolean))
+                ].map(option => (
                   <option key={option} value={option}>{option}</option>
                 ))}
               </select>
@@ -2043,10 +2185,14 @@ export default function Profile() {
                   type="text"
                   value={travelPlanning.finalBankNameCity || ""}
                   onChange={event =>
-                    setTravelPlanning(previous => ({
-                      ...previous,
-                      finalBankNameCity: event.target.value
-                    }))
+                    {
+                      setTravelPlanning(previous => ({
+                        ...previous,
+                        finalBankNameCity: event.target.value
+                      }));
+                      setBankingSaved(false);
+                      setBankingPlanningMessage("");
+                    }
                   }
                   placeholder="e.g. Chase Bank, Nashville"
                   className="mt-1 w-full rounded-lg border border-[#e6def1] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
@@ -2059,8 +2205,12 @@ export default function Profile() {
             Complete your Final Banking Plan at least 15 days before arrival and before the Welcome Packet is due.
           </p>
 
-          {travelPlanningMessage ? (
-            <p className="mt-3 text-sm text-muted-foreground">{travelPlanningMessage}</p>
+          {bankingPlanningMessage ? (
+            <p className={`mt-3 text-sm font-medium ${
+              bankingSaved ? "text-emerald-600" : "text-muted-foreground"
+            }`}>
+              {bankingPlanningMessage}
+            </p>
           ) : null}
         </Section>
 
