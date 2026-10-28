@@ -6416,6 +6416,19 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   const [loading, setLoading] = useState(true);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [finalBankingPlan, setFinalBankingPlan] = useState("");
+
+  const isLocalBankPlan = (() => {
+    const value = String(finalBankingPlan || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[–—]/g, "-")
+      .replace(/\s+/g, " ");
+
+    return (
+      value === "local bank (please schedule appointment)" ||
+      value.startsWith("local bank")
+    );
+  })();
   const [finalBankNameCity, setFinalBankNameCity] = useState("");
   const [acknowledging, setAcknowledging] = useState(false);
   const [acknowledgedAt, setAcknowledgedAt] = useState(null);
@@ -6747,6 +6760,27 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       window.removeEventListener("candidate-data-updated", loadFinalBankingPlan);
     };
   }, [user?.email]);
+
+  useEffect(() => {
+    if (!isLocalBankPlan) return;
+
+    const destination =
+      packet.housingAddress ||
+      locationServices.destination ||
+      packet.employerAddress;
+
+    if (!destination) return;
+
+    void fetchLocationServices(
+      destination,
+      packet.endorsementState
+    );
+  }, [
+    isLocalBankPlan,
+    packet.housingAddress,
+    packet.employerAddress,
+    packet.endorsementState
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -7440,7 +7474,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             As you prepare for your arrival, you'll find helpful information below about your facility, housing, banking, and other essential resources to help make your transition as smooth as possible.
           </p>
           <p className="font-bold text-purple-900">
-            Your next chapter is just around the corner, and we're so excited to welcome you! 💜
+            Your next chapter is just around the corner, and we're so excited to welcome you! 
           </p>
           <p className="font-medium">
             Warm regards,<br />
@@ -7617,7 +7651,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         </div>
       </section>
 
-      {finalBankingPlan === "Local Bank (Please Schedule Appointment)" ? (
+      {isLocalBankPlan ? (
       <section className="rounded-2xl border border-cyan-200 bg-cyan-50/60 p-5 shadow-sm">
         <h3 className="mb-3 flex items-center gap-2 rounded-lg bg-cyan-100 px-3 py-2 font-bold text-cyan-900">
           <Banknote className="h-5 w-5" />
@@ -7625,7 +7659,11 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         </h3>
 
         <InfoRow
-          label="Local Bank"
+          label="Final Banking Plan"
+          value={finalBankingPlan}
+        />
+        <InfoRow
+          label="Local Bank Name"
           value={locationServices.bank?.name}
         />
         <InfoRow
@@ -7636,6 +7674,12 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           label="Phone"
           value={locationServices.bank?.phone}
         />
+        {locationServices.bank?.directoryCity ? (
+          <InfoRow
+            label="Reference Location"
+            value={locationServices.bank.directoryCity}
+          />
+        ) : null}
         {lookupLoading && (
           <p className="mt-2 text-xs text-gray-500">
             Updating the closest bank for your relocation address...
@@ -10064,7 +10108,7 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
       { id: "housing_deposit", label: "Breakdown of Expenses", side: "deduction", reviewed: false, amount: null, display_value: "" },
       { id: "housing_app_admin", label: "Total Paid by ICP", side: "deduction", reviewed: false, amount: null }
     ],
-    totals: { credits: 0, deductions: 0, net: 0, due_to: "Neither", amount_due: 0 },
+    totals: { credits: 0, deductions: 0, net: 0, due_to: "Either", amount_due: 0 },
     submitted_at: null,
     updated_at: null
   }));
