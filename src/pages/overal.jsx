@@ -707,6 +707,11 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   const [activeTab, setActiveTab] = useState(user?._initialTab || 'profile');
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState({});
+  const [portalProfile, setPortalProfile] = useState({
+    travelSummary: {},
+    dependants: []
+  });
+  const [portalProfileLoading, setPortalProfileLoading] = useState(false);
   const [documents, setDocuments] = useState([]);
   const [documentsLoading, setDocumentsLoading] = useState(true);
   const [pipeline, setPipeline] = useState([]);
@@ -864,6 +869,32 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
         const email = encodeURIComponent(user.email);
         const emailParam = `?email=${email}`;
+
+        // Candidate-entered transport, banking and approved dependant data live
+        // in candidate_extended_profiles. Load that durable PostgreSQL record
+        // independently from Zoho so it remains visible after refresh/browser changes.
+        setPortalProfileLoading(true);
+        fetch(`${API_BASE}/api/admin/candidate/${email}/profile`, {
+          headers,
+          credentials: "include",
+          cache: "no-store"
+        })
+          .then(async response => {
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.success !== true) {
+              throw new Error(data.error || "Unable to load portal profile.");
+            }
+            setPortalProfile({
+              travelSummary: data.profile?.travelSummary || {},
+              dependants: Array.isArray(data.profile?.dependants)
+                ? data.profile.dependants
+                : []
+            });
+          })
+          .catch(error => {
+            console.warn("[Admin Profile] Portal profile unavailable:", error);
+          })
+          .finally(() => setPortalProfileLoading(false));
         // INSTANT DOCUMENT PAINT:
         // Candidate-specific document metadata is painted from the local admin cache
         // immediately when the user is selected. Never replace the modal with a
@@ -1840,6 +1871,111 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                       <InfoRow label="Order Number" value={profile.orderNumber} icon={CheckCircle} />
                     </Section>
                   </div>
+
+                  <Section title={<><Plane className="w-5 h-5 text-blue-600" /> Transport & Banking Profile</>}>
+                    {portalProfileLoading ? (
+                      <div className="flex items-center gap-2 py-3 text-sm text-gray-500">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading saved profile information...
+                      </div>
+                    ) : (
+                      <>
+                        <InfoRow label="Departure City / Airport" value={portalProfile.travelSummary?.departureCity} icon={Plane} />
+                        <InfoRow label="Wheelchair Traveler" value={portalProfile.travelSummary?.wheelchair} icon={User} />
+                        <InfoRow label="Checked Bags" value={portalProfile.travelSummary?.checkedBags} icon={Briefcase} />
+                        <InfoRow label="Personal Carry On" value={portalProfile.travelSummary?.carryOn} icon={Briefcase} />
+                        <InfoRow label="Boxes" value={portalProfile.travelSummary?.boxes} icon={Folder} />
+                        <InfoRow label="Traveling With Pets" value={portalProfile.travelSummary?.pets} icon={HeartPulse} />
+                        <InfoRow label="Travel Cash ($)" value={portalProfile.travelSummary?.travelCash} icon={DollarSign} />
+                        <InfoRow label="Car Seats / Boosters Needed" value={portalProfile.travelSummary?.carSeats} icon={Briefcase} />
+                        <InfoRow label="Cell Phone Model + Carrier" value={portalProfile.travelSummary?.phoneModelCarrier} icon={Phone} />
+                        <InfoRow label="SIM Card Unlocked" value={portalProfile.travelSummary?.simUnlocked} icon={Phone} />
+                        <InfoRow label="Employment Plans for Spouse / Adult Children" value={portalProfile.travelSummary?.spouseEmployment} icon={Users} />
+                        <InfoRow label="Final Transportation Plan" value={portalProfile.travelSummary?.finalTransportationPlan} icon={Plane} />
+                        <InfoRow label="Car Purchasing Plan Post Arrival" value={portalProfile.travelSummary?.carPurchasePlan} icon={Briefcase} />
+                        <InfoRow label="Immediate Driving Plan" value={portalProfile.travelSummary?.drivingPlan} icon={MapPin} />
+                        <InfoRow label="Final Banking Plan" value={portalProfile.travelSummary?.finalBankingPlan} icon={Building2} />
+                        <InfoRow label="Final Bank Name / City" value={portalProfile.travelSummary?.finalBankNameCity} icon={Building} />
+                      </>
+                    )}
+                  </Section>
+
+                  <Section title={<><Users className="w-5 h-5 text-indigo-600" /> Dependants</>}>
+                    {portalProfileLoading ? (
+                      <div className="flex items-center gap-2 py-3 text-sm text-gray-500">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading dependant information...
+                      </div>
+                    ) : portalProfile.dependants?.length ? (
+                      <div className="space-y-3">
+                        {portalProfile.dependants.map((dependant, index) => (
+                          <div key={`${dependant.name || "dependant"}-${index}`} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                            <p className="font-semibold text-gray-900">
+                              {dependant.name || `Dependant ${index + 1}`}
+                            </p>
+                            <div className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
+                              <InfoRow label="Age" value={dependant.age} />
+                              <InfoRow label="Relationship" value={dependant.relationship} />
+                              <InfoRow label="Arrival Plan" value={dependant.arrival_plan || dependant.arrivalPlan} />
+                              <InfoRow label="Passport" value={dependant.passport} />
+                              <InfoRow
+                                label="Approved"
+                                value={dependant.approved_at ? "Yes" : "No"}
+                              />
+                              <InfoRow
+                                label="Approved At"
+                                value={dependant.approved_at}
+                                isDate
+                              />
+                              {(dependant.passport_attachment_id && dependant.passport_deal_id) ? (
+                                <div className="sm:col-span-2 mt-2">
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      try {
+                                        const { adminToken } = getTokens();
+                                        if (!adminToken) throw new Error("Admin session is unavailable.");
+
+                                        const response = await fetch(
+                                          `${API_BASE}/api/admin/dependants/attachment?candidateEmail=${encodeURIComponent(user.email)}&dealId=${encodeURIComponent(dependant.passport_deal_id)}&attachmentId=${encodeURIComponent(dependant.passport_attachment_id)}`,
+                                          {
+                                            headers: {
+                                              Authorization: `AdminBearer ${adminToken}`,
+                                              "x-admin-token": adminToken
+                                            },
+                                            credentials: "include",
+                                            cache: "no-store"
+                                          }
+                                        );
+
+                                        if (!response.ok) {
+                                          const data = await response.json().catch(() => ({}));
+                                          throw new Error(data.error || "Unable to load dependant attachment.");
+                                        }
+
+                                        const blob = await response.blob();
+                                        const url = URL.createObjectURL(blob);
+                                        window.open(url, "_blank", "noopener,noreferrer");
+                                        window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+                                      } catch (error) {
+                                        setDocActionError(error.message || "Unable to open dependant attachment.");
+                                      }
+                                    }}
+                                    className="inline-flex items-center gap-2 rounded-lg border border-purple-200 bg-white px-3 py-2 text-sm font-semibold text-purple-700 hover:bg-purple-50"
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                    Review Dependant Attachment
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-500">No approved dependants saved to this candidate's profile.</p>
+                    )}
+                  </Section>
                 </div>
               )}
 
@@ -3590,6 +3726,7 @@ const AdminRequestsPanel = ({ onOpenUser, notificationTarget = null, onReturnToN
 
 const AdminReceiptsPanel = () => {
   const [receipts, setReceipts] = useState([]);
+  const [receiptRejectReasons, setReceiptRejectReasons] = useState({});
   const [loading, setLoading] = useState(true);
   const [drafts, setDrafts] = useState({});
   const [sideDrafts, setSideDrafts] = useState({});
@@ -3749,6 +3886,70 @@ const AdminReceiptsPanel = () => {
     }
   };
 
+  const rejectReceipt = async receipt => {
+    const id = String(receipt?.id || receipt?._id || "").trim();
+    const reason = String(receiptRejectReasons[id] || "").trim();
+
+    if (!id) {
+      setSaveMessage("This receipt is missing its record ID.");
+      return;
+    }
+
+    if (!reason) {
+      setSaveMessage("Select a rejection reason before rejecting the receipt.");
+      return;
+    }
+
+    setBusyId(id);
+    setSaveMessage("");
+
+    try {
+      const { adminToken } = getTokens();
+      if (!adminToken) {
+        throw new Error("Admin session is unavailable. Please sign in again.");
+      }
+
+      const response = await fetch(
+        `${API_BASE}/api/admin/receipts/${encodeURIComponent(id)}/reject`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `AdminBearer ${adminToken}`,
+            "x-admin-token": adminToken
+          },
+          body: JSON.stringify({ reason })
+        }
+      );
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || "Unable to reject receipt.");
+      }
+
+      setReceipts(previous =>
+        previous.filter(item => String(item.id || item._id) !== id)
+      );
+      setReceiptRejectReasons(previous => {
+        const next = { ...previous };
+        delete next[id];
+        return next;
+      });
+      setSaveMessage(`Receipt rejected: ${reason}.`);
+      window.dispatchEvent(
+        new CustomEvent("receipt-reviewed", {
+          detail: { receiptId: id, rejected: true, reason }
+        })
+      );
+    } catch (error) {
+      console.error("[Admin Receipts] Reject failed:", error);
+      setSaveMessage(error.message || "Unable to reject receipt.");
+    } finally {
+      setBusyId("");
+    }
+  };
+
   const save = async receipt => {
     const id =
       String(
@@ -3842,8 +4043,12 @@ const AdminReceiptsPanel = () => {
         data.success !== true
       ) {
         throw new Error(
-          data.error ||
-          "Unable to submit amount."
+          data.code === "duplicate_expense_receipt"
+            ? "Blocked: this receipt category is already in the candidate's Expense Report."
+            : (
+                data.error ||
+                "Unable to submit amount."
+              )
         );
       }
 
@@ -4149,6 +4354,35 @@ const AdminReceiptsPanel = () => {
                         {busyId === id
                           ? "Submitting..."
                           : "Submit Amount"}
+                      </button>
+
+                      <select
+                        value={receiptRejectReasons[id] || ""}
+                        onChange={event =>
+                          setReceiptRejectReasons(previous => ({
+                            ...previous,
+                            [id]: event.target.value
+                          }))
+                        }
+                        className="min-w-[190px] rounded-lg border bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="">Reject reason...</option>
+                        <option value="Duplicate">Duplicate</option>
+                        <option value="Not a receipt">Not a receipt</option>
+                        <option value="Not itemized">Not itemized</option>
+                        <option value="Not eligible for reimbursement">
+                          Not eligible for reimbursement
+                        </option>
+                        <option value="Other">Other</option>
+                      </select>
+
+                      <button
+                        type="button"
+                        onClick={() => rejectReceipt(receipt)}
+                        disabled={busyId === id || !receiptRejectReasons[id]}
+                        className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {busyId === id ? "Working..." : "Reject"}
                       </button>
                     </div>
                   </div>
@@ -4794,8 +5028,25 @@ const useAdminNotifications = () => {
 
 const AdminNotificationsPanel = ({ state, onOpenUser, onOpenRequests }) => {
   const [filter, setFilter] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
   const { notifications, loading, error, busy, refresh, markRead } = state;
-  const filtered = notifications.filter(item => filter === 'all' || (filter === 'unread' ? !item.read : item.type === filter));
+  const normalizedSearch = String(searchTerm || '').trim().toLowerCase();
+  const filtered = notifications.filter(item => {
+    const matchesFilter =
+      filter === 'all' ||
+      (filter === 'unread' ? !item.read : item.type === filter);
+
+    if (!matchesFilter) return false;
+    if (!normalizedSearch) return true;
+
+    return [
+      item.candidateName,
+      item.candidateEmail,
+      item.itemName
+    ].some(value =>
+      String(value || '').toLowerCase().includes(normalizedSearch)
+    );
+  });
   const groupedByCandidate = new Map();
   for (const item of filtered) {
     const key = String(item?.candidateEmail || "unknown").trim().toLowerCase();
@@ -4819,6 +5070,18 @@ const AdminNotificationsPanel = ({ state, onOpenUser, onOpenRequests }) => {
         <div><h3 className="font-bold text-gray-800">Notifications</h3>
           <p className="text-sm text-gray-500 mt-1">New candidate documents and requests awaiting review.</p></div>
         <button type="button" onClick={refresh} disabled={loading} className="rounded-lg border px-3 py-2 text-sm text-purple-700 disabled:opacity-50">Refresh</button>
+      </div>
+      <div className="p-5 border-b">
+        <div className="relative max-w-xl">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <input
+            type="search"
+            value={searchTerm}
+            onChange={event => setSearchTerm(event.target.value)}
+            placeholder="Search notifications by candidate name or email..."
+            className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-3 text-sm outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-100"
+          />
+        </div>
       </div>
       <div className="p-5 flex flex-wrap gap-2">
         {[['all', 'All'], ['unread', 'Unread'], ['document', 'Documents'], ['request', 'Requests']].map(([id, label]) => (

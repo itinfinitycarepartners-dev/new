@@ -692,7 +692,6 @@ export default function Profile() {
           `${API_BASE}/api/profile/planning-options`,
           {
             cache: "no-store",
-            credentials: "include",
             headers: {
               Authorization: `Bearer ${token}`
             }
@@ -736,7 +735,6 @@ export default function Profile() {
           `${API_BASE}/api/profile/extended`,
           {
             cache: "no-store",
-            credentials: "include",
             headers: {
               Authorization: `Bearer ${token}`
             }
@@ -896,7 +894,6 @@ export default function Profile() {
           {
             method: "PUT",
             cache: "no-store",
-            credentials: "include",
             headers: {
               Authorization: `Bearer ${token}`,
               "Content-Type": "application/json"
@@ -2028,8 +2025,7 @@ export default function Profile() {
               ["Travel Cash ($), excluding reimbursement", "travelCash", "number"],
               ["Car seats or boosters needed?", "carSeats", "text"],
               ["Cell Phone Model + Carrier", "phoneModelCarrier", "text"],
-              ["Is the SIM card unlocked?", "simUnlocked", "text"],
-              ["Car Purchasing Plan Post Arrival", "carPurchasePlan", "text"]
+              ["Is the SIM card unlocked?", "simUnlocked", "text"]
             ].map(([label, field, type]) => (
               <label key={field} className="block">
                 <span className="text-xs font-medium text-muted-foreground">{label}</span>
@@ -2090,38 +2086,55 @@ export default function Profile() {
             />
           </label>
 
-          <label className="mt-4 block">
-            <span className="text-xs font-medium text-muted-foreground">
-              Final Transportation Plan
-            </span>
-            <select
-              value={travelPlanning.finalTransportationPlan || ""}
-              onChange={event =>
-                {
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <label className="block">
+              <span className="text-xs font-medium text-muted-foreground">
+                Car Purchasing Plan Post Arrival
+              </span>
+              <input
+                type="text"
+                value={travelPlanning.carPurchasePlan ?? ""}
+                onChange={event => {
+                  setTravelPlanning(previous => ({
+                    ...previous,
+                    carPurchasePlan: event.target.value
+                  }));
+                  setTravelSaved(false);
+                  setTravelPlanningMessage("");
+                }}
+                className="mt-1 w-full rounded-lg border border-[#e6def1] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
+              />
+            </label>
+
+            <label className="block">
+              <span className="text-xs font-medium text-muted-foreground">
+                Final Transportation Plan
+              </span>
+              <select
+                value={travelPlanning.finalTransportationPlan || ""}
+                onChange={event => {
                   setTravelPlanning(previous => ({
                     ...previous,
                     finalTransportationPlan: event.target.value
                   }));
                   setTravelSaved(false);
                   setTravelPlanningMessage("");
-                }
-              }
-              className="mt-1 w-full rounded-lg border border-[#e6def1] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
-            >
-              <option value="">Select transportation plan</option>
-              {[
-                ...new Set([
-                  travelPlanning.finalTransportationPlan || "",
-                  ...planningOptions.finalTransportationPlan
-                ].filter(Boolean))
-              ].map(option => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Options are loaded directly from CRM Deals field Final_Transportation_Plan.
-            </p>
-          </label>
+                }}
+                className="mt-1 w-full rounded-lg border border-[#e6def1] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
+              >
+                <option value="">Select transportation plan</option>
+                {[
+                  ...new Set([
+                    travelPlanning.finalTransportationPlan || "",
+                    ...planningOptions.finalTransportationPlan
+                  ].filter(Boolean))
+                ].map(option => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+              
+            </label>
+          </div>
 
           {travelPlanningMessage ? (
             <p className={`mt-4 text-sm font-medium ${

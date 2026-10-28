@@ -6748,6 +6748,14 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         if (!response.ok || data.success !== true || cancelled) return;
         const savedTravel = data.profile?.travelSummary || {};
         setFinalBankingPlan(String(savedTravel.finalBankingPlan || savedTravel.final_banking_plan || savedTravel.Final_Banking_Plan || "").trim());
+        setFinalTransportationPlan(
+          String(
+            savedTravel.finalTransportationPlan ||
+            savedTravel.final_transportation_plan ||
+            savedTravel.Final_Transportation_Plan ||
+            ""
+          ).trim()
+        );
         setFinalBankNameCity(String(savedTravel.finalBankNameCity || savedTravel.final_bank_name_city || "").trim());
       } catch (error) {
         console.warn("[Welcome Packet] Banking plan refresh failed:", error?.message || error);
@@ -7382,7 +7390,16 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     }
   };
 
-  const printPacket = () => window.print();
+  const printPacket = () => {
+    document.body.classList.add("printing-welcome-packet");
+    const cleanup = () => {
+      document.body.classList.remove("printing-welcome-packet");
+      window.removeEventListener("afterprint", cleanup);
+    };
+    window.addEventListener("afterprint", cleanup);
+    window.print();
+    window.setTimeout(cleanup, 1500);
+  };
 
   const DisplayValue = ({ value }) => {
     const displayValue = normalizePacketValue(value);
@@ -7449,7 +7466,38 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4 rounded-2xl bg-white p-2 sm:p-4 print:space-y-3 print:bg-white">
+    <div
+      id="welcome-packet-print-root"
+      className="mx-auto max-w-5xl space-y-4 rounded-2xl bg-white p-2 sm:p-4 print:space-y-3 print:bg-white"
+    >
+      <style>{`
+        @media print {
+          body.printing-welcome-packet * {
+            visibility: hidden !important;
+          }
+          body.printing-welcome-packet #welcome-packet-print-root,
+          body.printing-welcome-packet #welcome-packet-print-root * {
+            visibility: visible !important;
+          }
+          body.printing-welcome-packet #welcome-packet-print-root {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            max-width: none !important;
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+          }
+          body.printing-welcome-packet #welcome-packet-print-root section {
+            break-inside: avoid-page;
+            page-break-inside: avoid;
+          }
+          body.printing-welcome-packet {
+            overflow: visible !important;
+          }
+        }
+      `}</style>
       <section className="overflow-hidden rounded-2xl border border-purple-200 bg-white shadow-sm">
         <img
           src="/welcome-packet-banner-clean.png"
@@ -7626,10 +7674,13 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           value={formatWelcomeUsd(packet.rentCost)}
         />
 
-        <h4 className="mt-5 font-bold text-gray-900">Breakdown of Payments</h4>
-        <InfoRow label="Breakdown of Payments" value={packet.totalPaymentsMade} />
+        <h4 className="mt-5 font-bold text-gray-900">Breakdown of Housing & Relocation Expenses</h4>
         <InfoRow
-          label="Total Paid by ICP"
+          label="Breakdown of Housing & Relocation Expenses"
+          value={packet.totalPaymentsMade}
+        />
+        <InfoRow
+          label="Total Housing & Relocation Paid by ICP"
           value={formatWelcomeUsd(packet.firstMonthRent)}
         />
       </section>
@@ -7649,6 +7700,20 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             </p>
           </div>
         </div>
+      </section>
+
+      <section className="rounded-2xl border border-violet-200 bg-violet-50/60 p-5 shadow-sm">
+        <h3 className="mb-3 flex items-center gap-2 rounded-lg bg-violet-100 px-3 py-2 font-bold text-violet-900">
+          <Car className="h-5 w-5" />
+          Transportation Information
+        </h3>
+        <InfoRow
+          label="Final Transportation Plan"
+          value={
+            finalTransportationPlan ||
+            "Complete your Final Transportation Plan in My Profile."
+          }
+        />
       </section>
 
       {isLocalBankPlan ? (
@@ -10094,7 +10159,8 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
     facility: "",
     rows: [
       { id: "visa_screen", label: "VISA Screen", side: "credit", reviewed: false, amount: null },
-      { id: "nclex_exam", label: "NCLEX Exam and Scheduling Fee", side: "credit", reviewed: false, amount: null },
+      { id: "nclex_exam", label: "NCLEX Exam Fee", side: "credit", reviewed: false, amount: null },
+      { id: "nclex_scheduling", label: "NCLEX Scheduling Fee", side: "credit", reviewed: false, amount: null },
       { id: "green_card", label: "Green Card", side: "credit", reviewed: false, amount: null },
       { id: "license_endorsement", label: "Licensure Application", side: "credit", reviewed: false, amount: null },
       { id: "nursys", label: "NURSYS", side: "credit", reviewed: false, amount: null },
@@ -10105,10 +10171,10 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
       { id: "dependent_visa_fee", label: "Dependent VISA Fee Bill", side: "deduction", reviewed: false, amount: null },
       { id: "dependents_after_i140", label: "Dependents Added after I-140", side: "deduction", reviewed: false, amount: null },
       { id: "housing_stipend", label: "One-time Housing Stipend", side: "credit", reviewed: false, amount: null },
-      { id: "housing_deposit", label: "Breakdown of Expenses", side: "deduction", reviewed: false, amount: null, display_value: "" },
-      { id: "housing_app_admin", label: "Total Paid by ICP", side: "deduction", reviewed: false, amount: null }
+      { id: "housing_deposit", label: "Breakdown of Housing & Relocation Expenses", side: "deduction", reviewed: false, amount: null, display_value: "" },
+      { id: "housing_app_admin", label: "Total Housing & Relocation Paid by ICP", side: "deduction", reviewed: false, amount: null }
     ],
-    totals: { credits: 0, deductions: 0, net: 0, due_to: "Either", amount_due: 0 },
+    totals: { credits: 0, deductions: 0, net: 0, due_to: "Eiither", amount_due: 0 },
     submitted_at: null,
     updated_at: null
   }));
@@ -11335,7 +11401,8 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
 
 const RECEIPT_CATEGORIES = [
   { id: "visa_screen", label: "VISA Screen" },
-  { id: "nclex_exam", label: "NCLEX Exam and Scheduling Fee" },
+  { id: "nclex_exam", label: "NCLEX Exam Fee" },
+  { id: "nclex_scheduling", label: "NCLEX Scheduling Fee" },
   { id: "green_card", label: "Green Card" },
   { id: "license_endorsement", label: "Licensure Application" },
   { id: "nursys", label: "NURSYS" },

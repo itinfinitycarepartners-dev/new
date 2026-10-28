@@ -793,6 +793,15 @@ export default function Documents() {
     window.addEventListener("documents-updated", handleDocumentsUpdated);
     return () => window.removeEventListener("documents-updated", handleDocumentsUpdated);
   }, [refetch]);
+
+  // Server pending_count is authoritative. This makes the number rise when a
+  // document is submitted and fall immediately after admin approval/rejection.
+  useEffect(() => {
+    if (documentData?.pending_count === undefined) return;
+    setOptimisticPendingCount(
+      Number(documentData.pending_count || 0)
+    );
+  }, [documentData?.pending_count]);
   const allDocs =
     documentData?.documents ||
     [];
@@ -995,13 +1004,13 @@ export default function Documents() {
     const recruitingCategories = categories.filter(category => category.section === "Recruiting");
     return WORKFLOW_SECTION_ORDER.map((section, sectionIndex) => {
       const ownCategories = categories.filter(category => category.section === section);
-      // Immigration and Deployment expose the shared Recruiting document set
-      // as well as their own department-specific document types. These remain
-      // separate department slots, so a shared document uploaded from either
-      // department is counted in that department's total rather than being
-      // incorrectly added to the Recruiting total.
+      // Immigration exposes the shared Recruiting document set as well as its
+      // Immigration-specific documents. These are separate section slots so an
+      // Immigration upload is counted under Immigration rather than being
+      // incorrectly added to the Recruiting total merely because it uses a
+      // shared Recruiting document type.
       const availableCategories =
-        ["Immigration", "Deployment"].includes(section)
+        section === "Immigration"
           ? [...ownCategories, ...recruitingCategories]
           : ownCategories;
       const uniqueCategories = availableCategories.filter((category, index, list) =>
@@ -1023,7 +1032,7 @@ export default function Documents() {
       const slots = sectionCategories.map(category => ({
         category: {
           ...category,
-          sharedFromRecruiting: ["Immigration", "Deployment"].includes(section) && category.section === "Recruiting"
+          sharedFromRecruiting: section === "Immigration" && category.section === "Recruiting"
         },
         documents: (documentsBySectionAndCategory.get(`${section}::${category.key}`) || [])
           .sort((a, b) => new Date(b.uploaded_at || 0) - new Date(a.uploaded_at || 0))
@@ -1270,11 +1279,13 @@ export default function Documents() {
         const successMessage =
           payload.pending_approval === true
             ? `${category?.label || "Document"} submitted successfully and is awaiting administrator approval.`
-            : resolvedDestination === "both"
-              ? `${category?.label || "Document"} uploaded to both Recruit Candidates and CRM Deals attachments successfully.`
-              : resolvedDestination === "crm"
-                ? `${category?.label || "Document"} uploaded to CRM Deals attachments successfully.`
-                : `${category?.label || "Document"} uploaded to Zoho Recruit Candidates successfully.`;
+            : payload.receipt_review_pending === true
+              ? `${category?.label || "Receipt"} submitted successfully and is awaiting receipt review.`
+              : resolvedDestination === "both"
+                ? `${category?.label || "Document"} uploaded to both Recruit Candidates and CRM Deals attachments successfully.`
+                : resolvedDestination === "crm"
+                  ? `${category?.label || "Document"} uploaded to CRM Deals attachments successfully.`
+                  : `${category?.label || "Document"} uploaded to Zoho Recruit Candidates successfully.`;
         toast.success(successMessage);
         setSubmissionPopup({
           title: "Submission Successful",
@@ -1293,7 +1304,21 @@ export default function Documents() {
         // Zoho's attachment lists are re-read; refresh the library in the
         // background and let the new upload appear as soon as Zoho exposes it.
         window.setTimeout(() => {
-          refetch().catch(() => {});
+          refetch()
+            .then(result => {
+              if (
+                result?.data?.pending_count !==
+                undefined
+              ) {
+                setOptimisticPendingCount(
+                  Number(
+                    result.data.pending_count ||
+                    0
+                  )
+                );
+              }
+            })
+            .catch(() => {});
         }, 0);
         queryClient.invalidateQueries({
           queryKey: [
@@ -1942,3 +1967,4 @@ export default function Documents() {
     </div>
   );
 }
+
