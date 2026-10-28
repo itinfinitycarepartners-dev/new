@@ -1457,7 +1457,7 @@ export default function Profile() {
       formData.append("document_department", "Deployment");
       formData.append("destination", "crm");
 
-      const uploadResponse = await fetch(`${API_BASE}/api/documents/upload`, {
+      const uploadResponse = await fetch(`${API_BASE}/api/profile/travel-dependants/evidence`, {
         method: "POST",
         cache: "no-store",
         credentials: "include",
@@ -1469,15 +1469,26 @@ export default function Profile() {
         throw new Error(uploadData.error || "Unable to upload dependant passport.");
       }
 
-      const uploadResult = uploadData.upload || uploadData.document || uploadData;
+      const uploadResult = uploadData.evidence || uploadData.upload || uploadData.document || uploadData;
       const pendingUploadId = String(
-        uploadData.pending_upload_id || uploadResult?.pending_upload_id ||
-        uploadResult?._id || uploadResult?.id || ""
+        uploadData.pending_upload_id ||
+        uploadResult?.pending_upload_id ||
+        uploadResult?._id ||
+        uploadResult?.id ||
+        ""
       ).trim();
+
+      if (!pendingUploadId) {
+        throw new Error("Passport uploaded, but the evidence reference was not returned. Please try again.");
+      }
+
       const attachmentId = String(
-        uploadData.attachment_id || uploadData.crmAttachmentId ||
-        uploadResult?.attachment_id || uploadResult?.attachmentId ||
-        uploadResult?.crmAttachmentId || pendingUploadId || ""
+        uploadData.attachment_id ||
+        uploadData.crmAttachmentId ||
+        uploadResult?.attachment_id ||
+        uploadResult?.attachmentId ||
+        uploadResult?.crmAttachmentId ||
+        ""
       ).trim();
 
       const nextDependant = {

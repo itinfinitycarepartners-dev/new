@@ -3714,21 +3714,47 @@ const AdminRequestsPanel = ({ onOpenUser, notificationTarget = null, onReturnToN
                   <InfoRow label="Phone" value={details.phone} />
                   <InfoRow label="Passport" value={details.passport_file_name} />
                 </div>
+                <div className="mt-4 rounded-xl border border-purple-200 bg-purple-50/40 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-purple-700">Attached Evidence</p>
+                      <p className="mt-1 text-sm font-semibold text-gray-900">
+                        {details.passport_file_name || "Dependent passport"}
+                      </p>
+                      <p className="mt-0.5 text-xs text-gray-500">
+                        {details.passport_mime_type || "Passport evidence"}
+                      </p>
+                    </div>
+                    {(details.passport_pending_upload_id || details.passport_attachment_id) ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const pendingId = String(details.passport_pending_upload_id || "").trim();
+                          const attachmentId = String(details.passport_attachment_id || "").trim();
+                          setRequestAttachment({
+                            attachment_id: pendingId || attachmentId,
+                            pending_upload_id: pendingId,
+                            crm_attachment_id: attachmentId,
+                            crm_record_id: details.passport_crm_record_id || "",
+                            candidate_email: request.candidate_email,
+                            source: pendingId ? "pending" : (details.passport_source || "crm"),
+                            document_name: details.passport_file_name || "Dependent passport",
+                            file_type: details.passport_mime_type || ""
+                          });
+                        }}
+                        className="rounded-lg bg-purple-700 px-4 py-2 text-xs font-semibold text-white hover:bg-purple-800"
+                      >
+                        Preview Attached Evidence
+                      </button>
+                    ) : (
+                      <span className="rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+                        Evidence file reference unavailable
+                      </span>
+                    )}
+                  </div>
+                </div>
+
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {(details.passport_pending_upload_id || details.passport_attachment_id) ? (
-                    <button type="button" onClick={() => setRequestAttachment({
-                      attachment_id: details.passport_pending_upload_id || details.passport_attachment_id,
-                      pending_upload_id: details.passport_pending_upload_id || details.passport_attachment_id,
-                      crm_attachment_id: details.passport_attachment_id || "",
-                      crm_record_id: details.passport_crm_record_id || "",
-                      candidate_email: request.candidate_email,
-                      source: details.passport_pending_upload_id ? "pending" : (details.passport_source || "crm"),
-                      document_name: details.passport_file_name || "Dependent passport",
-                      file_type: details.passport_mime_type || ""
-                    })} className="rounded-lg border border-purple-200 px-3 py-2 text-xs font-semibold text-purple-700">
-                      View Passport
-                    </button>
-                  ) : null}
                   <button type="button" onClick={async () => {
                     try {
                       const { adminToken } = getTokens();
