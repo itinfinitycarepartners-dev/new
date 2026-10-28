@@ -709,8 +709,12 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   const [profile, setProfile] = useState({});
   const [portalProfile, setPortalProfile] = useState({
     travelSummary: {},
+    travelDependants: [],
     dependants: []
   });
+  const [expandedTravelDependant, setExpandedTravelDependant] = useState("");
+  const [expandedPostI140Dependant, setExpandedPostI140Dependant] = useState("");
+  const [dependantAttachment, setDependantAttachment] = useState(null);
   const [portalProfileLoading, setPortalProfileLoading] = useState(false);
   const [documents, setDocuments] = useState([]);
   const [documentsLoading, setDocumentsLoading] = useState(true);
@@ -886,6 +890,9 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
             }
             setPortalProfile({
               travelSummary: data.profile?.travelSummary || {},
+              travelDependants: Array.isArray(data.profile?.travelDependants)
+                ? data.profile.travelDependants
+                : [],
               dependants: Array.isArray(data.profile?.dependants)
                 ? data.profile.dependants
                 : []
@@ -1705,6 +1712,13 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-0 backdrop-blur-sm sm:p-4">
+      {dependantAttachment && (
+        <RequestAttachmentViewer
+          document={dependantAttachment}
+          onClose={() => setDependantAttachment(null)}
+        />
+      )}
+
       {rejectingDocument && (
         <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl">
@@ -1872,35 +1886,94 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                     </Section>
                   </div>
 
-                  <Section title={<><Plane className="w-5 h-5 text-blue-600" /> Transport & Banking Profile</>}>
+                  <Section title={<><Plane className="w-5 h-5 text-blue-600" /> Travel and Arrival Planning</>}>
                     {portalProfileLoading ? (
                       <div className="flex items-center gap-2 py-3 text-sm text-gray-500">
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        Loading saved profile information...
+                        Loading saved travel and arrival planning...
                       </div>
                     ) : (
                       <>
-                        <InfoRow label="Departure City / Airport" value={portalProfile.travelSummary?.departureCity} icon={Plane} />
-                        <InfoRow label="Wheelchair Traveler" value={portalProfile.travelSummary?.wheelchair} icon={User} />
-                        <InfoRow label="Checked Bags" value={portalProfile.travelSummary?.checkedBags} icon={Briefcase} />
-                        <InfoRow label="Personal Carry On" value={portalProfile.travelSummary?.carryOn} icon={Briefcase} />
-                        <InfoRow label="Boxes" value={portalProfile.travelSummary?.boxes} icon={Folder} />
-                        <InfoRow label="Traveling With Pets" value={portalProfile.travelSummary?.pets} icon={HeartPulse} />
-                        <InfoRow label="Travel Cash ($)" value={portalProfile.travelSummary?.travelCash} icon={DollarSign} />
-                        <InfoRow label="Car Seats / Boosters Needed" value={portalProfile.travelSummary?.carSeats} icon={Briefcase} />
-                        <InfoRow label="Cell Phone Model + Carrier" value={portalProfile.travelSummary?.phoneModelCarrier} icon={Phone} />
-                        <InfoRow label="SIM Card Unlocked" value={portalProfile.travelSummary?.simUnlocked} icon={Phone} />
-                        <InfoRow label="Employment Plans for Spouse / Adult Children" value={portalProfile.travelSummary?.spouseEmployment} icon={Users} />
-                        <InfoRow label="Final Transportation Plan" value={portalProfile.travelSummary?.finalTransportationPlan} icon={Plane} />
-                        <InfoRow label="Car Purchasing Plan Post Arrival" value={portalProfile.travelSummary?.carPurchasePlan} icon={Briefcase} />
-                        <InfoRow label="Immediate Driving Plan" value={portalProfile.travelSummary?.drivingPlan} icon={MapPin} />
-                        <InfoRow label="Final Banking Plan" value={portalProfile.travelSummary?.finalBankingPlan} icon={Building2} />
-                        <InfoRow label="Final Bank Name / City" value={portalProfile.travelSummary?.finalBankNameCity} icon={Building} />
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <InfoRow label="Departure City / Airport" value={portalProfile.travelSummary?.departureCity} icon={Plane} />
+                          <InfoRow label="Total Travelling Including Yourself" value={1 + (portalProfile.travelDependants?.length || 0)} icon={Users} />
+                          <InfoRow label="Employment Plans for Spouse or Adult Children" value={portalProfile.travelSummary?.spouseEmployment} icon={Briefcase} />
+                          <InfoRow label="Immediate Driving Plan After Arrival" value={portalProfile.travelSummary?.drivingPlan} icon={MapPin} />
+                          <InfoRow label="Car Purchasing Plan Post Arrival" value={portalProfile.travelSummary?.carPurchasePlan} icon={Briefcase} />
+                          <InfoRow label="Final Transportation Plan" value={portalProfile.travelSummary?.finalTransportationPlan} icon={Plane} />
+                          <InfoRow label="Wheelchair" value={portalProfile.travelSummary?.wheelchair} />
+                          <InfoRow label="Checked Bags" value={portalProfile.travelSummary?.checkedBags} />
+                          <InfoRow label="Personal Carry On" value={portalProfile.travelSummary?.carryOn} />
+                          <InfoRow label="Boxes" value={portalProfile.travelSummary?.boxes} />
+                          <InfoRow label="Travelling With Pets" value={portalProfile.travelSummary?.pets} />
+                          <InfoRow label="Travel Cash" value={portalProfile.travelSummary?.travelCash} />
+                          <InfoRow label="Car Seats / Boosters" value={portalProfile.travelSummary?.carSeats} />
+                          <InfoRow label="Cell Phone Model + Carrier" value={portalProfile.travelSummary?.phoneModelCarrier} />
+                          <InfoRow label="SIM Card Unlocked" value={portalProfile.travelSummary?.simUnlocked} />
+                          <InfoRow label="Foundations Completed" value={portalProfile.travelSummary?.foundationsCompleted} />
+                          <InfoRow label="Final Banking Plan" value={portalProfile.travelSummary?.finalBankingPlan} icon={Building2} />
+                          <InfoRow label="Final Bank Name / City" value={portalProfile.travelSummary?.finalBankNameCity} icon={Building} />
+                        </div>
+                        <div className="mt-5 border-t pt-4">
+                          <h4 className="text-sm font-semibold text-gray-800">Dependents Travelling With Me</h4>
+                          {portalProfile.travelDependants?.filter(item => String(item?.approval_status || "").toLowerCase() === "approved").length ? (
+                            <div className="mt-3 space-y-2">
+                              {portalProfile.travelDependants
+                                .filter(item => String(item?.approval_status || "").toLowerCase() === "approved")
+                                .map((dependant, index) => {
+                                const key = `${dependant.firstName || "dependent"}-${dependant.lastName || ""}-${index}`;
+                                const expanded = expandedTravelDependant === key;
+                                return (
+                                  <div key={key} className="rounded-lg border border-gray-200 bg-gray-50">
+                                    <button type="button" onClick={() => setExpandedTravelDependant(expanded ? "" : key)} className="flex w-full items-center justify-between px-3 py-3 text-left">
+                                      <span className="font-semibold text-gray-900">
+                                        {[dependant.firstName, dependant.lastName].filter(Boolean).join(" ") || `Dependent ${index + 1}`}
+                                      </span>
+                                      <span className="text-xs font-semibold text-purple-700">{expanded ? "Hide" : "View"}</span>
+                                    </button>
+                                    {expanded ? (
+                                      <>
+                                        <div className="grid gap-2 border-t px-3 py-3 text-sm sm:grid-cols-2">
+                                          <InfoRow label="First Name" value={dependant.firstName} />
+                                          <InfoRow label="Last Name" value={dependant.lastName} />
+                                          <InfoRow label="DOB" value={dependant.dob} />
+                                          <InfoRow label="Email" value={dependant.email} />
+                                          <InfoRow label="Phone" value={dependant.phone} />
+                                          <InfoRow label="Passport" value={dependant.passport_file_name} />
+                                        </div>
+                                        {dependant.passport_attachment_id || dependant.passport_pending_upload_id ? (
+                                          <div className="flex flex-wrap gap-2 border-t px-3 py-3">
+                                            <button
+                                              type="button"
+                                              onClick={() => setDependantAttachment({
+                                                attachment_id: dependant.passport_pending_upload_id || dependant.passport_attachment_id,
+                                                pending_upload_id: dependant.passport_pending_upload_id || dependant.passport_attachment_id,
+                                                crm_attachment_id: dependant.passport_attachment_id,
+                                                crm_record_id: dependant.passport_crm_record_id || "",
+                                                candidate_email: user.email,
+                                                source: dependant.passport_pending_upload_id ? "pending" : (dependant.passport_source || "crm"),
+                                                document_name: dependant.passport_file_name || "Travel dependant passport",
+                                                file_type: dependant.passport_mime_type || ""
+                                              })}
+                                              className="rounded-lg border border-purple-200 px-3 py-2 text-xs font-semibold text-purple-700"
+                                            >
+                                              View Passport
+                                            </button>
+                                          </div>
+                                        ) : null}
+                                      </>
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : <p className="mt-2 text-sm text-gray-500">No dependents travelling with this candidate have been added.</p>}
+                        </div>
                       </>
                     )}
                   </Section>
 
-                  <Section title={<><Users className="w-5 h-5 text-indigo-600" /> Dependants</>}>
+                  <Section title={<><Users className="w-5 h-5 text-indigo-600" /> Dependents after I140 Filing</>}>
                     {portalProfileLoading ? (
                       <div className="flex items-center gap-2 py-3 text-sm text-gray-500">
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -1908,73 +1981,49 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                       </div>
                     ) : portalProfile.dependants?.length ? (
                       <div className="space-y-3">
-                        {portalProfile.dependants.map((dependant, index) => (
-                          <div key={`${dependant.name || "dependant"}-${index}`} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                            <p className="font-semibold text-gray-900">
-                              {dependant.name || `Dependant ${index + 1}`}
-                            </p>
-                            <div className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
-                              <InfoRow label="Age" value={dependant.age} />
-                              <InfoRow label="Relationship" value={dependant.relationship} />
-                              <InfoRow label="Arrival Plan" value={dependant.arrival_plan || dependant.arrivalPlan} />
-                              <InfoRow label="Passport" value={dependant.passport} />
-                              <InfoRow
-                                label="Approved"
-                                value={dependant.approved_at ? "Yes" : "No"}
-                              />
-                              <InfoRow
-                                label="Approved At"
-                                value={dependant.approved_at}
-                                isDate
-                              />
-                              {(dependant.passport_attachment_id && dependant.passport_deal_id) ? (
-                                <div className="sm:col-span-2 mt-2">
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      try {
-                                        const { adminToken } = getTokens();
-                                        if (!adminToken) throw new Error("Admin session is unavailable.");
-
-                                        const response = await fetch(
-                                          `${API_BASE}/api/admin/dependants/attachment?candidateEmail=${encodeURIComponent(user.email)}&dealId=${encodeURIComponent(dependant.passport_deal_id)}&attachmentId=${encodeURIComponent(dependant.passport_attachment_id)}`,
-                                          {
-                                            headers: {
-                                              Authorization: `AdminBearer ${adminToken}`,
-                                              "x-admin-token": adminToken
-                                            },
-                                            credentials: "include",
-                                            cache: "no-store"
-                                          }
-                                        );
-
-                                        if (!response.ok) {
-                                          const data = await response.json().catch(() => ({}));
-                                          throw new Error(data.error || "Unable to load dependant attachment.");
-                                        }
-
-                                        const blob = await response.blob();
-                                        const url = URL.createObjectURL(blob);
-                                        window.open(url, "_blank", "noopener,noreferrer");
-                                        window.setTimeout(() => URL.revokeObjectURL(url), 60000);
-                                      } catch (error) {
-                                        setDocActionError(error.message || "Unable to open dependant attachment.");
-                                      }
-                                    }}
-                                    className="inline-flex items-center gap-2 rounded-lg border border-purple-200 bg-white px-3 py-2 text-sm font-semibold text-purple-700 hover:bg-purple-50"
-                                  >
-                                    <Eye className="h-4 w-4" />
-                                    Review Dependant Attachment
-                                  </button>
+                        {portalProfile.dependants.map((dependant, index) => {
+                          const key = `${dependant.name || "dependant"}-${index}`;
+                          const expanded = expandedPostI140Dependant === key;
+                          return (
+                            <div key={key} className="rounded-lg border border-gray-200 bg-gray-50">
+                              <button type="button" onClick={() => setExpandedPostI140Dependant(expanded ? "" : key)} className="flex w-full items-center justify-between px-3 py-3 text-left">
+                                <span className="font-semibold text-gray-900">{dependant.name || `Dependant ${index + 1}`}</span>
+                                <span className="text-xs font-semibold text-purple-700">{expanded ? "Hide" : "View"}</span>
+                              </button>
+                              {expanded ? (
+                                <div className="border-t px-3 py-3">
+                                  <div className="grid gap-2 text-sm sm:grid-cols-2">
+                                    <InfoRow label="Age" value={dependant.age} />
+                                    <InfoRow label="Relationship" value={dependant.relationship} />
+                                    <InfoRow label="Arrival Plan" value={dependant.arrival_plan || dependant.arrivalPlan} />
+                                    <InfoRow label="Passport" value={dependant.passport} />
+                                    <InfoRow label="Approved" value={dependant.approved_at ? "Yes" : "No"} />
+                                    <InfoRow label="Approved At" value={dependant.approved_at} isDate />
+                                  </div>
+                                  {dependant.passport_attachment_id && dependant.passport_deal_id ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setDependantAttachment({
+                                        attachment_id: dependant.passport_attachment_id,
+                                        crm_attachment_id: dependant.passport_attachment_id,
+                                        crm_record_id: dependant.passport_deal_id,
+                                        candidate_email: user.email,
+                                        source: dependant.passport_source || "crm",
+                                        document_name: dependant.passport || "Dependent evidence",
+                                        file_type: dependant.passport_mime_type || ""
+                                      })}
+                                      className="mt-3 rounded-lg border border-purple-200 px-3 py-2 text-xs font-semibold text-purple-700"
+                                    >
+                                      View Dependent Evidence
+                                    </button>
+                                  ) : null}
                                 </div>
                               ) : null}
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
-                    ) : (
-                      <p className="text-sm text-gray-500">No approved dependants saved to this candidate's profile.</p>
-                    )}
+                    ) : <p className="text-sm text-gray-500">No approved dependents after I140 filing are saved to this candidate's profile.</p>}
                   </Section>
                 </div>
               )}
@@ -3465,6 +3514,82 @@ const AdminRequestsPanel = ({ onOpenUser, notificationTarget = null, onReturnToN
   const [requestAttachment, setRequestAttachment] = useState(null);
   const [rejectingRequest, setRejectingRequest] = useState(null);
   const [requestRejectionReason, setRequestRejectionReason] = useState("");
+  const [evidenceBusyId, setEvidenceBusyId] = useState("");
+  const [evidenceRejectTarget, setEvidenceRejectTarget] = useState(null);
+  const [evidenceRejectReason, setEvidenceRejectReason] = useState("");
+
+  const decideEvidence = async (request, kind, action, reason = "") => {
+    const details = request?.details || {};
+    const isPassport = kind === "passport";
+    const attachmentId = String(
+      isPassport
+        ? (details.passport_pending_upload_id || details.passport_attachment_id || "")
+        : (details.evidence_pending_upload_id || details.evidence_attachment_id || "")
+    ).trim();
+    const approvalKey = String(
+      isPassport
+        ? (details.passport_approval_key || (attachmentId ? `pending:${attachmentId}` : ""))
+        : (details.evidence_approval_key || (attachmentId ? `pending:${attachmentId}` : ""))
+    ).trim();
+
+    if (!attachmentId || !approvalKey) {
+      alert("This evidence has no approval identifier. Re-submit it using the updated Inquiry page.");
+      return;
+    }
+
+    setEvidenceBusyId(`${request._id}:${kind}:${action}`);
+    try {
+      const { adminToken } = getTokens();
+      const response = await fetch(
+        `${API_BASE}/api/admin/documents/${encodeURIComponent(request.candidate_email)}/${encodeURIComponent(approvalKey)}/approval`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            Authorization: `AdminBearer ${adminToken}`,
+            "x-admin-token": adminToken,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            action,
+            reason,
+            document: {
+              attachment_id: attachmentId,
+              pending_upload_id: attachmentId,
+              document_name: isPassport
+                ? (details.passport || details.passportDocumentName || "Dependent evidence")
+                : (details.evidenceFileName || details.evidence_file_name || "Supporting Evidence"),
+              source: "pending",
+              destination: "crm",
+              document_category: isPassport
+                ? "dependant-passport"
+                : (request.request_type === "embassy_change" ? "embassy-transfer-evidence" : "additional-inquiry-evidence"),
+              category_key: isPassport
+                ? "dependant-passport"
+                : (request.request_type === "embassy_change" ? "embassy-transfer-evidence" : "additional-inquiry-evidence"),
+              section: request.request_type === "embassy_change"
+                ? "Embassy Transfer"
+                : request.request_type === "add_dependant"
+                  ? "Dependants"
+                  : "Additional Inquiries",
+              document_department: "Immigration",
+              crm_record_id: isPassport ? (details.passport_deal_id || null) : (details.evidence_deal_id || null)
+            }
+          })
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || "Unable to update evidence approval.");
+      }
+      alert(action === "approve" ? "Evidence approved successfully." : "Evidence rejected successfully.");
+      await load();
+    } catch (error) {
+      alert(error.message || "Unable to update evidence approval.");
+    } finally {
+      setEvidenceBusyId("");
+    }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -3565,6 +3690,82 @@ const AdminRequestsPanel = ({ onOpenUser, notificationTarget = null, onReturnToN
       ) : (
         requests.map(request => {
           const details = request.details || {};
+          const isTravelDependent =
+            String(request.request_type || request.type || "").toLowerCase() === "travel_dependant";
+
+          if (isTravelDependent) {
+            const requestId = String(request._id || request.id || "");
+            const fullName = [details.firstName, details.lastName].filter(Boolean).join(" ");
+            return (
+              <div key={requestId} className="rounded-xl border border-purple-200 bg-white p-4 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-purple-600">Travel and Arrival Planning</p>
+                    <h3 className="mt-1 text-base font-bold text-gray-900">Add Dependent Request</h3>
+                    <p className="text-sm text-gray-500">{request.candidate_email}</p>
+                  </div>
+                  <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">Pending Approval</span>
+                </div>
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  <InfoRow label="Name" value={fullName} />
+                  <InfoRow label="DOB" value={details.dob} />
+                  <InfoRow label="Age" value={details.age} />
+                  <InfoRow label="Email" value={details.email} />
+                  <InfoRow label="Phone" value={details.phone} />
+                  <InfoRow label="Passport" value={details.passport_file_name} />
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {(details.passport_pending_upload_id || details.passport_attachment_id) ? (
+                    <button type="button" onClick={() => setRequestAttachment({
+                      attachment_id: details.passport_pending_upload_id || details.passport_attachment_id,
+                      pending_upload_id: details.passport_pending_upload_id || details.passport_attachment_id,
+                      crm_attachment_id: details.passport_attachment_id || "",
+                      crm_record_id: details.passport_crm_record_id || "",
+                      candidate_email: request.candidate_email,
+                      source: details.passport_pending_upload_id ? "pending" : (details.passport_source || "crm"),
+                      document_name: details.passport_file_name || "Dependent passport",
+                      file_type: details.passport_mime_type || ""
+                    })} className="rounded-lg border border-purple-200 px-3 py-2 text-xs font-semibold text-purple-700">
+                      View Passport
+                    </button>
+                  ) : null}
+                  <button type="button" onClick={async () => {
+                    try {
+                      const { adminToken } = getTokens();
+                      const response = await fetch(`${API_BASE}/api/admin/travel-dependants/${encodeURIComponent(requestId)}/decision`, {
+                        method: "POST", credentials: "include",
+                        headers: { Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken, "Content-Type": "application/json" },
+                        body: JSON.stringify({ action: "approve" })
+                      });
+                      const data = await response.json().catch(() => ({}));
+                      if (!response.ok || data.success !== true) throw new Error(data.error || "Unable to approve dependent.");
+                      await load();
+                    } catch (error) { alert(error.message || "Unable to approve dependent."); }
+                  }} className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white">
+                    Approve Dependent
+                  </button>
+                  <button type="button" onClick={async () => {
+                    const reason = window.prompt("Reason for rejecting this dependent request:");
+                    if (reason === null) return;
+                    try {
+                      const { adminToken } = getTokens();
+                      const response = await fetch(`${API_BASE}/api/admin/travel-dependants/${encodeURIComponent(requestId)}/decision`, {
+                        method: "POST", credentials: "include",
+                        headers: { Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken, "Content-Type": "application/json" },
+                        body: JSON.stringify({ action: "reject", reason })
+                      });
+                      const data = await response.json().catch(() => ({}));
+                      if (!response.ok || data.success !== true) throw new Error(data.error || "Unable to reject dependent.");
+                      await load();
+                    } catch (error) { alert(error.message || "Unable to reject dependent."); }
+                  }} className="rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white">
+                    Reject Dependent
+                  </button>
+                </div>
+              </div>
+            );
+          }
+
           return (
             <div key={String(request._id)} className="rounded-xl border bg-white p-5">
               <div className="flex flex-wrap items-start justify-between gap-4">
@@ -3609,7 +3810,12 @@ const AdminRequestsPanel = ({ onOpenUser, notificationTarget = null, onReturnToN
                           "evidence_attachment_id",
                           "evidence_deal_id",
                           "evidence_source",
-                          "evidence_mime_type"
+                          "evidence_mime_type",
+                          "evidence_pending_upload_id",
+                          "evidence_approval_key",
+                          "evidence_document_id",
+                          "passport_pending_upload_id",
+                          "passport_approval_key"
                         ].includes(key)
                       )
                       .map(([key,value]) => (
@@ -3621,45 +3827,59 @@ const AdminRequestsPanel = ({ onOpenUser, notificationTarget = null, onReturnToN
 
                     {request.request_type === "add_dependant" &&
                       details.passport_attachment_id && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setRequestAttachment({
-                              attachment_id: details.passport_attachment_id,
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setRequestAttachment({
+                              attachment_id: details.passport_pending_upload_id || details.passport_attachment_id,
+                              pending_upload_id: details.passport_pending_upload_id || details.passport_attachment_id,
                               candidate_email: request.candidate_email,
-                              source: details.passport_source || "crm",
+                              source: details.passport_pending_upload_id ? "pending" : (details.passport_source || "crm"),
                               crm_record_id: details.passport_deal_id || "",
-                              document_name: details.passport || details.passportDocumentName || "Passport",
+                              document_name: details.passport || details.passportDocumentName || "Dependent evidence",
                               file_type: details.passport_mime_type || ""
-                            });
-                          }}
-                          className="mt-3 rounded-lg border border-purple-200 px-3 py-2 text-xs font-semibold text-purple-700"
-                        >
-                          View Passport Image
-                        </button>
+                            })}
+                            className="rounded-lg border border-purple-200 px-3 py-2 text-xs font-semibold text-purple-700"
+                          >
+                            View Dependent Evidence
+                          </button>
+                          <button type="button" disabled={Boolean(evidenceBusyId)} onClick={() => decideEvidence(request, "passport", "approve")} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
+                            Approve Evidence
+                          </button>
+                          <button type="button" disabled={Boolean(evidenceBusyId)} onClick={() => { setEvidenceRejectTarget({request, kind:"passport"}); setEvidenceRejectReason(""); }} className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
+                            Reject Evidence
+                          </button>
+                        </div>
                       )}
 
                     {(request.request_type === "embassy_change" ||
                       request.request_type === "additional_inquiry") &&
                       details.evidence_attachment_id && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setRequestAttachment({
-                              attachment_id: details.evidence_attachment_id,
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setRequestAttachment({
+                              attachment_id: details.evidence_pending_upload_id || details.evidence_attachment_id,
+                              pending_upload_id: details.evidence_pending_upload_id || details.evidence_attachment_id,
                               candidate_email: request.candidate_email,
-                              source: details.evidence_source || "crm",
+                              source: details.evidence_pending_upload_id ? "pending" : (details.evidence_source || "crm"),
                               crm_record_id: details.evidence_deal_id || "",
                               recruit_record_id: details.evidence_recruit_record_id || details.recruit_record_id || "",
                               custom_module1_record_id: details.evidence_custom_module1_record_id || "",
                               document_name: details.evidenceFileName || details.evidence_file_name || "Supporting Evidence",
                               file_type: details.evidence_mime_type || ""
-                            });
-                          }}
-                          className="mt-3 ml-2 rounded-lg border border-purple-200 px-3 py-2 text-xs font-semibold text-purple-700"
-                        >
-                          View Supporting Evidence
-                        </button>
+                            })}
+                            className="rounded-lg border border-purple-200 px-3 py-2 text-xs font-semibold text-purple-700"
+                          >
+                            View Supporting Evidence
+                          </button>
+                          <button type="button" disabled={Boolean(evidenceBusyId)} onClick={() => decideEvidence(request, "evidence", "approve")} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
+                            Approve Evidence
+                          </button>
+                          <button type="button" disabled={Boolean(evidenceBusyId)} onClick={() => { setEvidenceRejectTarget({request, kind:"evidence"}); setEvidenceRejectReason(""); }} className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
+                            Reject Evidence
+                          </button>
+                        </div>
                       )}
                   </div>
                 </div>
@@ -3685,6 +3905,38 @@ const AdminRequestsPanel = ({ onOpenUser, notificationTarget = null, onReturnToN
         })
       )}
       {requestAttachment && <RequestAttachmentViewer document={requestAttachment} onClose={() => setRequestAttachment(null)} />}
+      {evidenceRejectTarget && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl">
+            <h3 className="text-lg font-bold text-gray-900">Reject evidence</h3>
+            <p className="mt-2 text-sm text-gray-600">Select the rejection reason for this evidence document.</p>
+            <select value={evidenceRejectReason} onChange={event => setEvidenceRejectReason(event.target.value)} className="mt-4 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm">
+              <option value="">Select a reason</option>
+              {ADMIN_DOCUMENT_REJECTION_REASONS.map(reason => (
+                <option key={reason.value} value={`${reason.label} - ${reason.description}`}>
+                  {reason.label} - {reason.description}
+                </option>
+              ))}
+            </select>
+            <div className="mt-5 flex justify-end gap-3">
+              <button type="button" onClick={() => { setEvidenceRejectTarget(null); setEvidenceRejectReason(""); }} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button>
+              <button
+                type="button"
+                disabled={!evidenceRejectReason || Boolean(evidenceBusyId)}
+                onClick={async () => {
+                  await decideEvidence(evidenceRejectTarget.request, evidenceRejectTarget.kind, "reject", evidenceRejectReason);
+                  setEvidenceRejectTarget(null);
+                  setEvidenceRejectReason("");
+                }}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                Reject evidence
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {rejectingRequest && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl">

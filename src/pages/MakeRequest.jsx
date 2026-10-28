@@ -104,16 +104,22 @@ export default function MakeRequest() {
         String(
           payload.source ||
           uploadResult?.source ||
-          "crm"
+          (
+            payload.pending_upload_id || uploadResult?.pending_upload_id
+              ? "pending"
+              : "crm"
+          )
         ).trim(),
       evidenceAttachmentId:
         String(
           payload.attachmentId ||
           payload.attachment_id ||
           payload.crmAttachmentId ||
+          payload.pending_upload_id ||
           uploadResult?.attachmentId ||
           uploadResult?.attachment_id ||
           uploadResult?.crmAttachmentId ||
+          uploadResult?.pending_upload_id ||
           ""
         ).trim(),
       evidenceDealId:
@@ -134,6 +140,23 @@ export default function MakeRequest() {
           payload.mimeType ||
           payload.mime_type ||
           ""
+        ).trim(),
+      evidencePendingUploadId:
+        String(payload.pending_upload_id || uploadResult?.pending_upload_id || "").trim(),
+      evidenceApprovalKey:
+        String(
+          payload.approval_key ||
+          uploadResult?.approval_key ||
+          (
+            payload.pending_upload_id || uploadResult?.pending_upload_id
+              ? `pending:${payload.pending_upload_id || uploadResult?.pending_upload_id}`
+              : ""
+          )
+        ).trim(),
+      evidenceDocumentId:
+        String(
+          payload._id || payload.id || payload.document_id ||
+          uploadResult?.document_id || ""
         ).trim()
     };
   };
@@ -269,7 +292,7 @@ export default function MakeRequest() {
         !embassyEvidenceFile
       ) {
         setNotice(
-          "New embassy location, reason, evidence type and an evidence image are required."
+          "New embassy location, reason, evidence type and supporting evidence are required."
         );
         return;
       }
@@ -1096,11 +1119,11 @@ export default function MakeRequest() {
             <Upload className="h-4 w-4 text-purple-600" />
             <div className="min-w-0 flex-1">
               <p className="font-medium text-slate-700">
-                Evidence image
+                Evidence image or PDF
               </p>
               <p className="truncate text-xs text-slate-500">
                 {embassyEvidenceFile?.name ||
-                  "Upload residency evidence, work permit or passport"}
+                  "Upload residency evidence, work permit, passport image or PDF"}
               </p>
             </div>
             <input
@@ -1112,10 +1135,12 @@ export default function MakeRequest() {
                   event.target.files?.[0] ||
                   null;
                 if (!file) return;
-                if (!file.type.startsWith("image/")) {
-                  setNotice(
-                    "Embassy transfer evidence must be uploaded as an image."
-                  );
+                const isImage = String(file.type || "").toLowerCase().startsWith("image/");
+                const isPdf =
+                  String(file.type || "").toLowerCase() === "application/pdf" ||
+                  /\.pdf$/i.test(file.name || "");
+                if (!isImage && !isPdf) {
+                  setNotice("Embassy transfer evidence must be an image or PDF.");
                   event.target.value = "";
                   return;
                 }
@@ -1124,7 +1149,7 @@ export default function MakeRequest() {
                   15 * 1024 * 1024
                 ) {
                   setNotice(
-                    "Embassy transfer evidence image must be under 15MB."
+                    "Embassy transfer evidence must be under 15MB."
                   );
                   event.target.value = "";
                   return;
@@ -1152,11 +1177,20 @@ export default function MakeRequest() {
                 <ImageIcon className="h-4 w-4 text-purple-600" />
                 {embassyEvidenceType || "Supporting evidence"} selected
               </div>
-              <img
-                src={embassyEvidencePreview}
-                alt="Embassy transfer evidence preview"
-                className="max-h-52 rounded-md border object-contain"
-              />
+              {String(embassyEvidenceFile?.type || "").toLowerCase() === "application/pdf" ||
+              /\.pdf$/i.test(embassyEvidenceFile?.name || "") ? (
+                <iframe
+                  src={embassyEvidencePreview}
+                  title="Embassy transfer evidence PDF preview"
+                  className="h-64 w-full rounded-md border bg-white"
+                />
+              ) : (
+                <img
+                  src={embassyEvidencePreview}
+                  alt="Embassy transfer evidence preview"
+                  className="max-h-52 rounded-md border object-contain"
+                />
+              )}
             </div>
           )}
         </div>
@@ -1211,7 +1245,7 @@ export default function MakeRequest() {
           <UserPlus className="h-5 w-5 text-purple-600" />
           <div>
             <h2 className="font-semibold">
-              Add Dependants
+              Add Dependents AFTER I140 Filing
             </h2>
             <p className="text-sm text-slate-500">
               Submit a dependant for admin approval. Once approved, the dependant will appear on your profile.
@@ -1312,28 +1346,28 @@ export default function MakeRequest() {
             <Upload className="h-4 w-4 text-purple-600" />
             <div className="min-w-0 flex-1">
               <p className="font-medium text-slate-700">
-                Passport image
+                Passport evidence
               </p>
               <p className="truncate text-xs text-slate-500">
                 {dependant.passportFile?.name ||
-                  "Upload a clear JPG, PNG, WEBP, or HEIC image"}
+                  "Upload a clear JPG, PNG, WEBP, HEIC, or PDF"}
               </p>
             </div>
             <input
               type="file"
-              accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,.pdf"
               className="hidden"
               onChange={event => {
                 const file =
                   event.target.files?.[0] ||
                   null;
                 if (!file) return;
-                if (
-                  !file.type.startsWith("image/")
-                ) {
-                  setNotice(
-                    "Passport must be uploaded as an image."
-                  );
+                const isImage = String(file.type || "").toLowerCase().startsWith("image/");
+                const isPdf =
+                  String(file.type || "").toLowerCase() === "application/pdf" ||
+                  /\.pdf$/i.test(file.name || "");
+                if (!isImage && !isPdf) {
+                  setNotice("Passport evidence must be an image or PDF.");
                   event.target.value = "";
                   return;
                 }
@@ -1342,7 +1376,7 @@ export default function MakeRequest() {
                   15 * 1024 * 1024
                 ) {
                   setNotice(
-                    "Passport image must be under 15MB."
+                    "Passport evidence must be under 15MB."
                   );
                   event.target.value = "";
                   return;
@@ -1377,11 +1411,20 @@ export default function MakeRequest() {
                 <ImageIcon className="h-4 w-4 text-purple-600" />
                 Passport image selected
               </div>
-              <img
-                src={dependant.passportPreview}
-                alt="Dependant passport preview"
-                className="max-h-52 rounded-md border object-contain"
-              />
+              {String(dependant.passportFile?.type || "").toLowerCase() === "application/pdf" ||
+              /\.pdf$/i.test(dependant.passportFile?.name || "") ? (
+                <iframe
+                  src={dependant.passportPreview}
+                  title="Dependent passport PDF preview"
+                  className="h-64 w-full rounded-md border bg-white"
+                />
+              ) : (
+                <img
+                  src={dependant.passportPreview}
+                  alt="Dependent passport preview"
+                  className="max-h-52 rounded-md border object-contain"
+                />
+              )}
             </div>
           )}
         </div>
@@ -1487,7 +1530,7 @@ export default function MakeRequest() {
               </div>
               <input
                 type="file"
-                accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,.pdf"
                 className="hidden"
                 onChange={event => {
                   const file =
@@ -1506,7 +1549,7 @@ export default function MakeRequest() {
                     15 * 1024 * 1024
                   ) {
                     setNotice(
-                      "Inquiry evidence image must be under 15MB."
+                      "Inquiry evidence must be under 15MB."
                     );
                     event.target.value = "";
                     return;
@@ -1534,11 +1577,20 @@ export default function MakeRequest() {
                   <ImageIcon className="h-4 w-4 text-purple-600" />
                   Inquiry evidence selected
                 </div>
-                <img
-                  src={additionalEvidencePreview}
-                  alt="Inquiry evidence preview"
-                  className="max-h-52 rounded-md border object-contain"
-                />
+                {String(additionalEvidenceFile?.type || "").toLowerCase() === "application/pdf" ||
+                /\.pdf$/i.test(additionalEvidenceFile?.name || "") ? (
+                  <iframe
+                    src={additionalEvidencePreview}
+                    title="Inquiry evidence PDF preview"
+                    className="h-64 w-full rounded-md border bg-white"
+                  />
+                ) : (
+                  <img
+                    src={additionalEvidencePreview}
+                    alt="Inquiry evidence preview"
+                    className="max-h-52 rounded-md border object-contain"
+                  />
+                )}
               </div>
             )}
           </>

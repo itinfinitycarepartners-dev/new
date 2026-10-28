@@ -64,7 +64,8 @@ import {
   FileHeart,
   HeartPulse,
   Lock,
-  Zap
+  Zap,
+  Car
 } from "lucide-react";
 import { ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -6416,6 +6417,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   const [loading, setLoading] = useState(true);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [finalBankingPlan, setFinalBankingPlan] = useState("");
+  const [finalTransportationPlan, setFinalTransportationPlan] = useState("");
 
   const isLocalBankPlan = (() => {
     const value = String(finalBankingPlan || "")
@@ -10174,7 +10176,7 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
       { id: "housing_deposit", label: "Breakdown of Housing & Relocation Expenses", side: "deduction", reviewed: false, amount: null, display_value: "" },
       { id: "housing_app_admin", label: "Total Housing & Relocation Paid by ICP", side: "deduction", reviewed: false, amount: null }
     ],
-    totals: { credits: 0, deductions: 0, net: 0, due_to: "Eiither", amount_due: 0 },
+    totals: { credits: 0, deductions: 0, net: 0, due_to: "Either", amount_due: 0 },
     submitted_at: null,
     updated_at: null
   }));

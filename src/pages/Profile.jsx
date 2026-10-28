@@ -344,6 +344,16 @@ export default function Profile() {
     finalTransportationPlan: [],
     finalBankingPlan: []
   });
+  const [showTravelDependantForm, setShowTravelDependantForm] = useState(false);
+  const [travelDependantDraft, setTravelDependantDraft] = useState({
+    firstName: "",
+    lastName: "",
+    dob: "",
+    email: "",
+    phone: "",
+    passportFile: null
+  });
+  const [savingTravelDependant, setSavingTravelDependant] = useState(false);
 
   // Fast primary profile load.  A session snapshot paints instantly on refresh,
   // while the canonical endpoint refreshes the data in the background.
@@ -1371,6 +1381,156 @@ export default function Profile() {
     return raw;
   };
 
+  const travelDependants = (
+    Array.isArray(extendedProfile?.travelDependants)
+      ? extendedProfile.travelDependants
+      : []
+  ).filter(item =>
+    item &&
+    Object.values(item).some(value =>
+      value !== null && value !== undefined && String(value).trim() !== ""
+    )
+  );
+
+  const approvedTravelDependants = travelDependants.filter(
+    item => String(item?.approval_status || "").toLowerCase() === "approved"
+  );
+  const totalTravellingIncludingYourself = 1 + approvedTravelDependants.length;
+
+  const addTravelDependant = async () => {
+    const firstName = String(travelDependantDraft.firstName || "").trim();
+    const lastName = String(travelDependantDraft.lastName || "").trim();
+    const dob = String(travelDependantDraft.dob || "").trim();
+    const email = String(travelDependantDraft.email || "").trim();
+    const phone = String(travelDependantDraft.phone || "").trim();
+    const passportFile = travelDependantDraft.passportFile || null;
+
+    if (!firstName || !lastName || !dob) {
+      setTravelPlanningMessage("First name, last name and DOB are required.");
+      return;
+    }
+    if (!passportFile) {
+      setTravelPlanningMessage("Please attach the dependant's passport as an image or PDF.");
+      return;
+    }
+
+    const passportMime = String(passportFile.type || "").toLowerCase();
+    const passportIsImage = passportMime.startsWith("image/");
+    const passportIsPdf = passportMime === "application/pdf" || /\.pdf$/i.test(passportFile.name || "");
+    if (!passportIsImage && !passportIsPdf) {
+      setTravelPlanningMessage("Passport attachment must be an image or PDF.");
+      return;
+    }
+    if (passportFile.size > 15 * 1024 * 1024) {
+      setTravelPlanningMessage("Passport attachment must be under 15MB.");
+      return;
+    }
+
+    const birthDate = new Date(`${dob}T00:00:00`);
+    let age = null;
+    if (!Number.isNaN(birthDate.getTime())) {
+      const today = new Date();
+      age = today.getFullYear() - birthDate.getFullYear();
+      if (
+        today.getMonth() < birthDate.getMonth() ||
+        (today.getMonth() === birthDate.getMonth() && today.getDate() < birthDate.getDate())
+      ) age -= 1;
+    }
+    if (age !== null && age >= 18 && (!email || !phone)) {
+      setTravelPlanningMessage("Dependants aged 18 or older must include a valid email and phone number.");
+      return;
+    }
+
+    setSavingTravelDependant(true);
+    setTravelPlanningMessage("");
+
+    try {
+      const token = localStorage.getItem("icp_auth_token");
+      if (!token) throw new Error("Your session has expired. Please sign in again.");
+
+      const formData = new FormData();
+      formData.append("file", passportFile);
+      formData.append("document_name", `Travel Dependant Passport - ${firstName} ${lastName}`.trim());
+      formData.append("document_category", "travel-dependant-passport");
+      formData.append("category_key", "travel-dependant-passport");
+      formData.append("section", "Travel and Arrival Planning");
+      formData.append("document_department", "Deployment");
+      formData.append("destination", "crm");
+
+      const uploadResponse = await fetch(`${API_BASE}/api/documents/upload`, {
+        method: "POST",
+        cache: "no-store",
+        credentials: "include",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData
+      });
+      const uploadData = await uploadResponse.json().catch(() => ({}));
+      if (!uploadResponse.ok || uploadData.success !== true) {
+        throw new Error(uploadData.error || "Unable to upload dependant passport.");
+      }
+
+      const uploadResult = uploadData.upload || uploadData.document || uploadData;
+      const pendingUploadId = String(
+        uploadData.pending_upload_id || uploadResult?.pending_upload_id ||
+        uploadResult?._id || uploadResult?.id || ""
+      ).trim();
+      const attachmentId = String(
+        uploadData.attachment_id || uploadData.crmAttachmentId ||
+        uploadResult?.attachment_id || uploadResult?.attachmentId ||
+        uploadResult?.crmAttachmentId || pendingUploadId || ""
+      ).trim();
+
+      const nextDependant = {
+        firstName, lastName, dob, email, phone,
+        addedAt: new Date().toISOString(),
+        passport_file_name: passportFile.name,
+        passport_mime_type: passportFile.type || "",
+        passport_source: String(
+          uploadData.source || uploadResult?.source || (pendingUploadId ? "pending" : "crm")
+        ).trim(),
+        passport_attachment_id: attachmentId,
+        passport_pending_upload_id: pendingUploadId,
+        passport_approval_key: String(
+          uploadData.approval_key || uploadResult?.approval_key ||
+          (pendingUploadId ? `pending:${pendingUploadId}` : "")
+        ).trim(),
+        passport_crm_record_id: String(
+          uploadData.crm_record_id || uploadResult?.crm_record_id || uploadResult?.deal_id || ""
+        ).trim()
+      };
+
+      const requestResponse = await fetch(`${API_BASE}/api/profile/travel-dependants/request`, {
+        method: "POST",
+        cache: "no-store",
+        credentials: "include",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ ...nextDependant, age })
+      });
+      const requestData = await requestResponse.json().catch(() => ({}));
+      if (!requestResponse.ok || requestData.success !== true) {
+        throw new Error(requestData.error || "Unable to submit dependent for admin approval.");
+      }
+
+      setTravelDependantDraft({
+        firstName: "", lastName: "", dob: "", email: "", phone: "", passportFile: null
+      });
+      setShowTravelDependantForm(false);
+      setTravelPlanningMessage(
+        "Dependent submitted for admin approval. It will appear permanently in your profile after approval."
+      );
+      window.dispatchEvent(new CustomEvent("candidate-data-updated", {
+        detail: { event: "travel-dependant-saved" }
+      }));
+    } catch (error) {
+      setTravelPlanningMessage(error?.message || "Unable to save dependant travel information.");
+    } finally {
+      setSavingTravelDependant(false);
+    }
+  };
+
   const visibleDependants = (Array.isArray(extendedProfile?.dependants)
     ? extendedProfile.dependants
     : []
@@ -2015,8 +2175,33 @@ export default function Profile() {
           onAction={saveTravelPlanning}
         >
           <div className="grid gap-4 md:grid-cols-2">
+            <label className="block">
+              <span className="text-xs font-medium text-muted-foreground">
+                Departure city and country / closest international airport
+              </span>
+              <input
+                type="text"
+                value={travelPlanning.departureCity ?? ""}
+                onChange={event => {
+                  setTravelPlanning(previous => ({ ...previous, departureCity: event.target.value }));
+                  setTravelSaved(false);
+                  setTravelPlanningMessage("");
+                }}
+                className="mt-1 w-full rounded-lg border border-[#e6def1] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-muted-foreground">
+                Total Travelling Including Yourself
+              </span>
+              <input
+                type="number"
+                value={totalTravellingIncludingYourself}
+                readOnly
+                className="mt-1 w-full rounded-lg border border-[#e6def1] bg-slate-50 px-3 py-2 text-sm font-semibold"
+              />
+            </label>
             {[
-              ["Departure city and country / closest international airport", "departureCity", "text"],
               ["Will anyone travel in a wheelchair?", "wheelchair", "text"],
               ["Checked Bags", "checkedBags", "number"],
               ["Personal Carry On", "carryOn", "number"],
@@ -2048,43 +2233,38 @@ export default function Profile() {
             ))}
           </div>
 
-          <label className="mt-4 block">
-            <span className="text-xs font-medium text-muted-foreground">Immediate driving plan after arrival</span>
-            <textarea
-              value={travelPlanning.drivingPlan || ""}
-              onChange={event =>
-                {
-                  setTravelPlanning(previous => ({
-                    ...previous,
-                    drivingPlan: event.target.value
-                  }));
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <label className="block">
+              <span className="text-xs font-medium text-muted-foreground">
+                Employment plans for spouse or adult children
+              </span>
+              <textarea
+                value={travelPlanning.spouseEmployment || ""}
+                onChange={event => {
+                  setTravelPlanning(previous => ({ ...previous, spouseEmployment: event.target.value }));
                   setTravelSaved(false);
                   setTravelPlanningMessage("");
-                }
-              }
-              rows={3}
-              className="mt-1 w-full rounded-lg border border-[#e6def1] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
-            />
-          </label>
-
-          <label className="mt-4 block">
-            <span className="text-xs font-medium text-muted-foreground">Employment plans for spouse or adult children</span>
-            <textarea
-              value={travelPlanning.spouseEmployment || ""}
-              onChange={event =>
-                {
-                  setTravelPlanning(previous => ({
-                    ...previous,
-                    spouseEmployment: event.target.value
-                  }));
+                }}
+                rows={3}
+                className="mt-1 w-full rounded-lg border border-[#e6def1] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-muted-foreground">
+                Immediate driving plan after arrival
+              </span>
+              <textarea
+                value={travelPlanning.drivingPlan || ""}
+                onChange={event => {
+                  setTravelPlanning(previous => ({ ...previous, drivingPlan: event.target.value }));
                   setTravelSaved(false);
                   setTravelPlanningMessage("");
-                }
-              }
-              rows={3}
-              className="mt-1 w-full rounded-lg border border-[#e6def1] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
-            />
-          </label>
+                }}
+                rows={3}
+                className="mt-1 w-full rounded-lg border border-[#e6def1] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
+              />
+            </label>
+          </div>
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <label className="block">
@@ -2132,8 +2312,132 @@ export default function Profile() {
                   <option key={option} value={option}>{option}</option>
                 ))}
               </select>
-              
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Options are loaded directly from CRM Deals field Final_Transportation_Plan.
+              </p>
             </label>
+          </div>
+
+          <div className="mt-5 rounded-xl border border-[#e6def1] bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-[#302a42]">
+                  Dependents Travelling With Me
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Dependents over 18 must include a valid email and phone number.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowTravelDependantForm(previous => !previous);
+                  setTravelPlanningMessage("");
+                }}
+                className="inline-flex items-center border border-[#302a42] bg-white px-4 py-2 text-sm font-semibold text-[#302a42] hover:bg-slate-50"
+              >
+                + ADD Dependent
+              </button>
+            </div>
+
+            {approvedTravelDependants.length > 0 ? (
+              <div className="mt-4 space-y-2">
+                {approvedTravelDependants.map((item, index) => (
+                  <div
+                    key={`${item.firstName || "dependent"}-${item.lastName || ""}-${index}`}
+                    className="rounded-lg border bg-slate-50 px-3 py-2 text-sm"
+                  >
+                    <span className="font-semibold">
+                      {[item.firstName, item.lastName].filter(Boolean).join(" ") || `Dependent ${index + 1}`}
+                    </span>
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {[item.age !== null && item.age !== undefined ? `Age ${item.age}` : null, item.email || null, item.phone || null, item.passport_file_name ? `Passport: ${item.passport_file_name}` : null]
+                        .filter(Boolean).join(" · ")}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {showTravelDependantForm ? (
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                {[
+                  ["First Name", "firstName", "text"],
+                  ["Last Name", "lastName", "text"],
+                  ["DOB", "dob", "date"],
+                  ["Email", "email", "email"],
+                  ["Phone", "phone", "tel"]
+                ].map(([label, field, type]) => (
+                  <label key={field} className="block">
+                    <span className="text-xs font-medium text-muted-foreground">{label}</span>
+                    <input
+                      type={type}
+                      value={travelDependantDraft[field] || ""}
+                      onChange={event =>
+                        setTravelDependantDraft(previous => ({
+                          ...previous,
+                          [field]: event.target.value
+                        }))
+                      }
+                      className="mt-1 w-full rounded-lg border border-[#e6def1] px-3 py-2 text-sm"
+                    />
+                  </label>
+                ))}
+                <label className="block md:col-span-2">
+                  <span className="text-xs font-medium text-muted-foreground">Passport Attachment</span>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,.pdf"
+                    onChange={event => {
+                      const file = event.target.files?.[0] || null;
+                      if (!file) {
+                        setTravelDependantDraft(previous => ({ ...previous, passportFile: null }));
+                        return;
+                      }
+                      const mime = String(file.type || "").toLowerCase();
+                      const isImage = mime.startsWith("image/");
+                      const isPdf = mime === "application/pdf" || /\.pdf$/i.test(file.name || "");
+                      if (!isImage && !isPdf) {
+                        setTravelPlanningMessage("Passport attachment must be an image or PDF.");
+                        event.target.value = "";
+                        return;
+                      }
+                      if (file.size > 15 * 1024 * 1024) {
+                        setTravelPlanningMessage("Passport attachment must be under 15MB.");
+                        event.target.value = "";
+                        return;
+                      }
+                      setTravelDependantDraft(previous => ({ ...previous, passportFile: file }));
+                      setTravelPlanningMessage("");
+                    }}
+                    className="mt-1 w-full rounded-lg border border-[#e6def1] bg-white px-3 py-2 text-sm"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">PDF, JPG, PNG, WEBP, HEIC or HEIF. Maximum 15MB.</p>
+                  {travelDependantDraft.passportFile ? (
+                    <p className="mt-1 text-xs font-semibold text-[#6d3bb8]">
+                      Selected: {travelDependantDraft.passportFile.name}
+                    </p>
+                  ) : null}
+                </label>
+                <div className="md:col-span-2 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowTravelDependantForm(false)}
+                    className="rounded-lg border px-4 py-2 text-sm font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={savingTravelDependant}
+                    onClick={addTravelDependant}
+                    className="rounded-lg bg-[#6d3bb8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    {savingTravelDependant ? "Saving..." : "Add Dependent"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           {travelPlanningMessage ? (
@@ -2228,7 +2532,7 @@ export default function Profile() {
         </Section>
 
         {visibleDependants.length > 0 ? (
-          <Section title="Dependants" icon={Users} hideAction>
+          <Section title="Dependents after I140 Filing" icon={Users} hideAction>
             {visibleDependants.map((dependant, index) => (
               <div
                 key={`${dependant.name || "dependant"}-${index}`}
