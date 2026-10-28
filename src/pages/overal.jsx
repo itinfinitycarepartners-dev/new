@@ -3850,18 +3850,14 @@ const AdminReceiptsPanel = () => {
       setSaveMessage(
         `${amountType === "credit" ? "Credit" : "Deduction"} of $${amount.toFixed(2)} saved successfully.`
       );
-      setReceipts(previous => previous.map(item =>
-        String(item.id || item._id) === id
-          ? {
-              ...item,
-              admin_reviewed: true,
-              admin_reviewed_at: data.reviewedAt || new Date().toISOString(),
-              admin_correct_amount: amount,
-              admin_correct_amount_usd: amount,
-              admin_amount_type: amountType
-            }
-          : item
-      ));
+      // Submitted/reviewed receipts are completed work. Remove the receipt
+      // from the pending queue immediately; the CRM attachment and expense
+      // report data remain stored by the backend.
+      setReceipts(previous =>
+        previous.filter(
+          item => String(item.id || item._id) !== id
+        )
+      );
       window.dispatchEvent(new CustomEvent("receipt-reviewed", { detail: { receiptId: id } }));
 
       if (data.report) {
@@ -3869,8 +3865,6 @@ const AdminReceiptsPanel = () => {
           data.report
         );
       }
-
-      await load();
 
       if (
         selectedCandidate &&
@@ -4054,18 +4048,23 @@ const AdminReceiptsPanel = () => {
                       </p>
 
                       {receipt.admin_reviewed === true && (
-                        <p className="mt-1 text-xs font-semibold text-emerald-600">
-                          Saved as{" "}
-                          {receipt.admin_amount_type === "deduction"
-                            ? "Deduction"
-                            : "Credit"}
-                          {" • "}
-                          ${Number(
-                            receipt.admin_correct_amount_usd ??
-                            receipt.admin_correct_amount ??
-                            0
-                          ).toFixed(2)}
-                        </p>
+                        <div className="mt-1">
+                          <span className="inline-flex rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-emerald-700">
+                            Amount Submitted
+                          </span>
+                          <p className="mt-1 text-xs font-semibold text-emerald-600">
+                            Saved as{" "}
+                            {receipt.admin_amount_type === "deduction"
+                              ? "Deduction"
+                              : "Credit"}
+                            {" • "}
+                            ${Number(
+                              receipt.admin_correct_amount_usd ??
+                              receipt.admin_correct_amount ??
+                              0
+                            ).toFixed(2)}
+                          </p>
+                        </div>
                       )}
                     </div>
 

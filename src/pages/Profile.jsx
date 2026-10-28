@@ -246,7 +246,7 @@ export default function Profile() {
         const response = await fetch(
           `${API_BASE}/api/candidate/photo?width=192`,
           {
-            cache: "default",
+            cache: "no-store",
             headers: { Authorization: `Bearer ${token}` }
           }
         );
@@ -331,10 +331,15 @@ export default function Profile() {
     foundationsCompleted: "",
     spouseEmployment: "",
     finalBankingPlan: "",
-    finalBankNameCity: ""
+    finalBankNameCity: "",
+    finalTransportationPlan: ""
   });
   const [savingTravelPlanning, setSavingTravelPlanning] = useState(false);
   const [travelPlanningMessage, setTravelPlanningMessage] = useState("");
+  const [planningOptions, setPlanningOptions] = useState({
+    finalTransportationPlan: [],
+    finalBankingPlan: []
+  });
 
   // Fast primary profile load.  A session snapshot paints instantly on refresh,
   // while the canonical endpoint refreshes the data in the background.
@@ -674,6 +679,47 @@ export default function Profile() {
 
 
   useEffect(() => {
+    const loadPlanningOptions = async () => {
+      const token = localStorage.getItem("icp_auth_token");
+      if (!token) return;
+
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/profile/planning-options`,
+          {
+            cache: "no-store",
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          }
+        );
+
+        const data = await response.json().catch(() => ({}));
+
+        if (response.ok && data.success === true) {
+          setPlanningOptions({
+            finalTransportationPlan:
+              Array.isArray(data.finalTransportationPlan)
+                ? data.finalTransportationPlan
+                : [],
+            finalBankingPlan:
+              Array.isArray(data.finalBankingPlan)
+                ? data.finalBankingPlan
+                : []
+          });
+        }
+      } catch (error) {
+        console.warn(
+          "[Profile] CRM planning options unavailable:",
+          error?.message || error
+        );
+      }
+    };
+
+    loadPlanningOptions();
+  }, [user?.email]);
+
+  useEffect(() => {
     const loadExtendedProfile = async () => {
       if (!user?.email) return;
 
@@ -806,13 +852,30 @@ export default function Profile() {
         })
       );
 
+      const savedTravel =
+        data.profile?.travelSummary ||
+        travelPlanning;
+
+      setTravelPlanning(savedTravel);
+
       setTravelPlanningMessage(
-        "Travel and arrival planning saved."
+        data.crmSync?.attempted === true &&
+        data.crmSync?.success === false
+          ? `Saved permanently in the portal. CRM sync needs retry: ${data.crmSync?.error || "CRM update failed."}`
+          : "Travel and arrival planning saved permanently."
       );
 
+      // Do not immediately refetch and overwrite the just-saved state with a
+      // stale snapshot. Other screens can refresh independently.
       window.dispatchEvent(
         new CustomEvent(
-          "candidate-data-updated"
+          "profile-planning-saved",
+          {
+            detail: {
+              email: user?.email,
+              travelSummary: savedTravel
+            }
+          }
         )
       );
     } catch (error) {
@@ -1913,6 +1976,30 @@ export default function Profile() {
             />
           </label>
 
+          <label className="mt-4 block">
+            <span className="text-xs font-medium text-muted-foreground">
+              Final Transportation Plan
+            </span>
+            <select
+              value={travelPlanning.finalTransportationPlan || ""}
+              onChange={event =>
+                setTravelPlanning(previous => ({
+                  ...previous,
+                  finalTransportationPlan: event.target.value
+                }))
+              }
+              className="mt-1 w-full rounded-lg border border-[#e6def1] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
+            >
+              <option value="">Select transportation plan</option>
+              {planningOptions.finalTransportationPlan.map(option => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Options are loaded directly from CRM Deals field Final_Transportation_Plan.
+            </p>
+          </label>
+
           {travelPlanningMessage ? (
             <p className="mt-4 text-sm text-muted-foreground">{travelPlanningMessage}</p>
           ) : null}
@@ -1940,9 +2027,9 @@ export default function Profile() {
                 className="mt-1 w-full rounded-lg border border-[#e6def1] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
               >
                 <option value="">Select banking plan</option>
-                <option value="Advancial Pre-Arrival Banking">Advancial Pre-Arrival Banking</option>
-                <option value="Local Bank (Please Schedule Appointment)">Local Bank (Please Schedule Appointment)</option>
-                <option value="Already Have an Account – Provide Bank Name and City">Already Have an Account – Provide Bank Name and City</option>
+                {planningOptions.finalBankingPlan.map(option => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
               </select>
             </label>
 
