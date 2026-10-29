@@ -6422,7 +6422,7 @@ const DeploymentCRMStatusView = ({
   );
 };
 
-export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus }) => {
+export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentFieldStatus, adminMode = false, adminToken = "" }) => {
   const [loading, setLoading] = useState(true);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [finalBankingPlan, setFinalBankingPlan] = useState("");
@@ -6580,7 +6580,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
 
   const fetchFacilityInformation = async (retryCount = 0) => {
     try {
-      const token = localStorage.getItem("icp_auth_token");
+      const token = (adminMode ? adminToken : localStorage.getItem("icp_auth_token"));
       if (!token) return;
 
       const response = await fetch(
@@ -6590,7 +6590,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           cache: "no-store",
           credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`, ...(adminMode ? { "x-candidate-email": user?.email || "" } : {}),
             Accept: "application/json"
           }
         }
@@ -6679,14 +6679,14 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
 
     setLookupLoading(true);
     try {
-      const token = localStorage.getItem("icp_auth_token");
+      const token = (adminMode ? adminToken : localStorage.getItem("icp_auth_token"));
       const response = await fetch(
         `${API_BASE}/api/welcome-packet/location-services?destination=${encodeURIComponent(destination)}&endorsementState=${encodeURIComponent(endorsementState || "")}`,
         {
           method: "GET",
           cache: "no-store",
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`, ...(adminMode ? { "x-candidate-email": user?.email || "" } : {}),
             Accept: "application/json"
           }
         }
@@ -6749,11 +6749,11 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     let cancelled = false;
     const loadFinalBankingPlan = async () => {
       try {
-        const token = localStorage.getItem("icp_auth_token");
+        const token = (adminMode ? adminToken : localStorage.getItem("icp_auth_token"));
         if (!token) return;
         const response = await fetch(`${API_BASE}/api/profile/extended?_=${Date.now()}`, {
           cache: "no-store",
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`, ...(adminMode ? { "x-candidate-email": user?.email || "" } : {}) }
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok || data.success !== true || cancelled) return;
@@ -6824,7 +6824,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       setError("");
 
       try {
-        const token = localStorage.getItem("icp_auth_token");
+        const token = (adminMode ? adminToken : localStorage.getItem("icp_auth_token"));
         if (!token) {
           throw new Error("Your session has expired. Please sign in again.");
         }
@@ -6837,7 +6837,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
               method: "GET",
               cache: "no-store",
               headers: {
-                Authorization: `Bearer ${token}`,
+                Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`, ...(adminMode ? { "x-candidate-email": user?.email || "" } : {}),
                 Accept: "application/json"
               }
             }
@@ -6847,6 +6847,15 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             apiBase: API_BASE,
             message: networkError?.message || String(networkError)
           });
+          // A transient provider/backend failure must never make an already
+          // rendered Welcome Packet disappear from the Admin panel.
+          if (cached?.packet) {
+            if (!cancelled) {
+              setLoading(false);
+              setError("");
+            }
+            return;
+          }
           throw new Error(
             "Unable to reach the ICP backend. Please refresh and try again."
           );
@@ -7284,13 +7293,13 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   useEffect(() => {
     const loadAcknowledgementStatus = async () => {
       try {
-        const token = localStorage.getItem("icp_auth_token");
+        const token = (adminMode ? adminToken : localStorage.getItem("icp_auth_token"));
         if (!token) return;
         const response = await fetch(
           `${API_BASE}/api/welcome-packet/acknowledgement-status`,
           {
             cache: "no-store",
-            headers: { Authorization: `Bearer ${token}` }
+            headers: { Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`, ...(adminMode ? { "x-candidate-email": user?.email || "" } : {}) }
           }
         );
         const data = await response.json().catch(() => ({}));
@@ -7307,7 +7316,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   const acknowledgePacket = async () => {
     setAcknowledging(true);
     try {
-      const token = localStorage.getItem("icp_auth_token");
+      const token = (adminMode ? adminToken : localStorage.getItem("icp_auth_token"));
       if (!token) throw new Error("Your session has expired. Please sign in again.");
 
       const response = await fetch(
@@ -7315,7 +7324,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`, ...(adminMode ? { "x-candidate-email": user?.email || "" } : {}),
             "Content-Type": "application/json"
           },
           body: JSON.stringify({ email: user?.email })
@@ -7484,7 +7493,11 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     );
   }
 
-  if (error) {
+  const hasRenderablePacket = Object.values(packet || {}).some(value =>
+    value !== null && value !== undefined && String(value).trim() !== ""
+  );
+
+  if (error && !hasRenderablePacket) {
     return (
       <div className="space-y-4">
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">
@@ -7999,13 +8012,13 @@ const ConciergeDetails = ({ onClose, user, setStages }) => {
     setLoading(true);
     setError(null);
     try {
-      const token = localStorage.getItem("icp_auth_token");
+      const token = (adminMode ? adminToken : localStorage.getItem("icp_auth_token"));
       if (!token) throw new Error("Not authenticated");
 
       const response = await fetch(`${API_BASE}/api/zoho/my-deals`, {
         method: "GET",
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`, ...(adminMode ? { "x-candidate-email": user?.email || "" } : {}),
           "Content-Type": "application/json"
         }
       });
@@ -8127,12 +8140,12 @@ const DeploymateDownloadView = ({
 
   const openVersion = async href => {
     try {
-            const token = localStorage.getItem("icp_auth_token");
+            const token = (adminMode ? adminToken : localStorage.getItem("icp_auth_token"));
             if (token) {
               await fetch(`${API_BASE}/api/pipeline/deploymate-complete`, {
                 method: "POST",
                 headers: {
-                  Authorization: `Bearer ${token}`,
+                  Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`, ...(adminMode ? { "x-candidate-email": user?.email || "" } : {}),
                   "Content-Type": "application/json"
                 }
               });
@@ -8328,7 +8341,7 @@ const FlightDetails = ({ onClose, user, setStages }) => {
     setLoading(true);
     setError(null);
     try {
-      const token = localStorage.getItem("icp_auth_token");
+      const token = (adminMode ? adminToken : localStorage.getItem("icp_auth_token"));
       if (!token) {
         throw new Error("Not authenticated");
       }
@@ -8336,7 +8349,7 @@ const FlightDetails = ({ onClose, user, setStages }) => {
       const response = await fetch(`${API_BASE}/api/zoho/my-deals`, {
         method: "GET",
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`, ...(adminMode ? { "x-candidate-email": user?.email || "" } : {}),
           "Content-Type": "application/json"
         }
       });
@@ -8789,13 +8802,13 @@ export const DeploymentDetails = ({ onClose, user, setStages, behavioralOnly = f
 
     setBehavioralSubmitting(true);
   try {
-    const token = localStorage.getItem("icp_auth_token");
+    const token = (adminMode ? adminToken : localStorage.getItem("icp_auth_token"));
     if (!token) throw new Error("Not authenticated");
 
     const response = await fetch(`${API_BASE}/api/deployment/behavioral-assessment`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${token}`,
+        Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`, ...(adminMode ? { "x-candidate-email": user?.email || "" } : {}),
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
@@ -8898,7 +8911,7 @@ export const DeploymentDetails = ({ onClose, user, setStages, behavioralOnly = f
     setUploading(prev => ({ ...prev, [key]: true }));
 
     try {
-      const token = localStorage.getItem("icp_auth_token");
+      const token = (adminMode ? adminToken : localStorage.getItem("icp_auth_token"));
       if (!token) throw new Error("Not authenticated");
 
       const formData = new FormData();
@@ -8943,7 +8956,7 @@ export const DeploymentDetails = ({ onClose, user, setStages, behavioralOnly = f
       const response = await fetch(`${API_BASE}/api/documents/upload`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`
+          Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`, ...(adminMode ? { "x-candidate-email": user?.email || "" } : {})
         },
         body: formData
       });
@@ -9016,7 +9029,7 @@ export const DeploymentDetails = ({ onClose, user, setStages, behavioralOnly = f
 
     setIsSubmitting(true);
     try {
-      const token = localStorage.getItem("icp_auth_token");
+      const token = (adminMode ? adminToken : localStorage.getItem("icp_auth_token"));
       if (!token) throw new Error("Not authenticated");
 
       const submissionData = {
@@ -9033,7 +9046,7 @@ export const DeploymentDetails = ({ onClose, user, setStages, behavioralOnly = f
       const response = await fetch(`${API_BASE}/api/deployment/requirements`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`, ...(adminMode ? { "x-candidate-email": user?.email || "" } : {}),
           "Content-Type": "application/json"
         },
         body: JSON.stringify(submissionData)
@@ -10215,7 +10228,7 @@ const HousingDetails = ({ onClose, user, setStages }) => {
 
 // ============= Reimbursement/Expenses Component (Aftercare) =============
 // Loads the payment schedule and submission status securely.
-export const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
+export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode = false, adminToken = "" }) => {
   const [loading, setLoading] = useState(true);
   const [paymentData, setPaymentData] = useState({
     nursePaymentType: "",
@@ -10258,8 +10271,8 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
       { id: "dependent_visa_fee", label: "Dependent VISA Fee Bill", side: "deduction", reviewed: false, amount: null },
       { id: "dependents_after_i140", label: "Dependents Added after I-140", side: "deduction", reviewed: false, amount: null },
       { id: "housing_stipend", label: "One-time Housing Stipend", side: "credit", reviewed: false, amount: null },
-      { id: "housing_deposit", label: "Breakdown of Housing & Relocation Expenses", side: "deduction", reviewed: false, amount: null, display_value: "" },
-      { id: "housing_app_admin", label: "Total Housing & Relocation Paid by ICP", side: "deduction", reviewed: false, amount: null }
+      { id: "housing_deposit", label: "Breakdown of Housing and Relocation Expenses", side: "deduction", reviewed: false, amount: null, display_value: "" },
+      { id: "housing_app_admin", label: "Total Housing and Relocation Expenses", side: "deduction", reviewed: false, amount: null }
     ],
     totals: { credits: 0, deductions: 0, net: 0, due_to: "Either", amount_due: 0 },
     submitted_at: null,
@@ -10290,17 +10303,20 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
     setLoading(true);
     setSubmitError(null);
     try {
-      const token = localStorage.getItem("icp_auth_token");
+      const token = (adminMode ? adminToken : localStorage.getItem("icp_auth_token"));
       if (!token) {
         throw new Error("Not authenticated");
       }
 
       // Fetch from the reimbursement endpoint, which maps directly to the
       // exact Zoho CRM Deals reimbursement and bank-detail API fields.
-      const response = await fetch(`${API_BASE}/api/crm/reimbursement-data`, {
+      const reimbursementUrl = adminMode
+        ? `${API_BASE}/api/admin/crm/reimbursement-data?email=${encodeURIComponent(user?.email || "")}`
+        : `${API_BASE}/api/crm/reimbursement-data`;
+      const response = await fetch(reimbursementUrl, {
         method: "GET",
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`, ...(adminMode ? { "x-candidate-email": user?.email || "" } : {}),
           "Content-Type": "application/json"
         }
       });
@@ -10367,9 +10383,9 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
 
     try {
       const token =
-        localStorage.getItem(
+        (adminMode ? adminToken : localStorage.getItem(
           "icp_auth_token"
-        );
+        ));
 
       if (!token) {
         throw new Error(
@@ -10379,13 +10395,16 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
 
       const response =
         await fetch(
-          `${API_BASE}/api/reimbursement/expense-report`,
+          adminMode
+            ? `${API_BASE}/api/admin/reimbursement/expense-report?email=${encodeURIComponent(user?.email || "")}`
+            : `${API_BASE}/api/reimbursement/expense-report`,
           {
             cache:
               "no-store",
             headers: {
               Authorization:
-                `Bearer ${token}`
+                adminMode ? `AdminBearer ${token}` : `Bearer ${token}`,
+              ...(adminMode ? { "x-candidate-email": user?.email || "" } : {})
             }
           }
         );
@@ -10728,7 +10747,7 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
 
     setIsSubmitting(true);
     try {
-      const token = localStorage.getItem("icp_auth_token");
+      const token = (adminMode ? adminToken : localStorage.getItem("icp_auth_token"));
       if (!token) throw new Error("Not authenticated");
 
       const payload = {
@@ -10758,7 +10777,7 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
           cache: "default",
           credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`, ...(adminMode ? { "x-candidate-email": user?.email || "" } : {}),
             "Content-Type": "application/json"
           },
           body: JSON.stringify(body)
@@ -11570,9 +11589,9 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
 
     try {
       const token =
-        localStorage.getItem(
+        (adminMode ? adminToken : localStorage.getItem(
           "icp_auth_token"
-        );
+        ));
 
       if (!token) {
         return;
@@ -11583,13 +11602,17 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
 
       let response;
       try {
+        const expenseReportUrl = adminMode
+          ? `${API_BASE}/api/admin/reimbursement/expense-report?email=${encodeURIComponent(user?.email || "")}`
+          : `${API_BASE}/api/reimbursement/expense-report`;
         response = await fetch(
-          `${API_BASE}/api/reimbursement/expense-report`,
+          expenseReportUrl,
           {
             cache: "no-store",
             signal: controller.signal,
             headers: {
-              Authorization: `Bearer ${token}`
+              Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`,
+              ...(adminMode ? { "x-candidate-email": user?.email || "" } : {})
             }
           }
         );
@@ -11647,7 +11670,7 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
           refresh
         );
     },
-    []
+    [adminMode, adminToken, user?.email]
   );
 
   const downloadExpenseReport =
@@ -11666,11 +11689,13 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
 
         const response =
           await fetch(
-            `${API_BASE}/api/reimbursement/expense-report/document`,
+            adminMode
+              ? `${API_BASE}/api/admin/reimbursement/expense-report/document?email=${encodeURIComponent(user?.email || "")}`
+              : `${API_BASE}/api/reimbursement/expense-report/document`,
             {
               headers: {
-                Authorization:
-                  `Bearer ${token}`
+                Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`,
+                ...(adminMode ? { "x-candidate-email": user?.email || "" } : {})
               }
             }
           );
@@ -17050,11 +17075,16 @@ export default function Pipeline() {
         displayStages
       );
 
+    const isDirectCandidateReportAction =
+      stage?.stage_name === "Receipt Submission" ||
+      stage?.stage_name === "Welcome Packet";
+
     if (
       !stageUnlocked &&
       !isPipelineStageComplete(
         stage
-      )
+      ) &&
+      !isDirectCandidateReportAction
     ) {
       toast.info(
         "This stage is locked. Complete the previous stage or satisfy this stage's CRM/Recruit gate."
@@ -17581,7 +17611,7 @@ export default function Pipeline() {
           // for the acknowledgement API before mounting the modal; a slow API
           // therefore looked like a blank section.
           openModal(
-            "Reimbursement/Expenses",
+            "Expense Report",
             <ReimbursementExpensesView
               onClose={closeModal}
               user={user}
@@ -18499,7 +18529,11 @@ export default function Pipeline() {
               live?.evaluated === true &&
               typeof live?.completed === "boolean";
 
+            const wasAlreadyCompleted =
+              isPipelineStageComplete(stage);
+
             const completed =
+              wasAlreadyCompleted ||
               rawRuleCompleted === true ||
               (
                 rawRuleCompleted !== false &&
@@ -18527,6 +18561,7 @@ export default function Pipeline() {
             // source of truth and is fully reversible. Empty / unmet => not complete.
             if (rule) {
               const nextCompleted =
+                wasAlreadyCompleted ||
                 rawRuleCompleted === true ||
                 (
                   !rawRuleHasValue &&
@@ -18588,7 +18623,9 @@ export default function Pipeline() {
 
             return {
               ...stage,
-              status: live.status || (completed ? "Completed" : "Not Started"),
+              status: completed
+                ? "Completed"
+                : (live.status || "Not Started"),
               completed,
               is_completed: completed,
               completed_date: completed
@@ -18681,6 +18718,7 @@ export default function Pipeline() {
             headers: {
               Authorization:
                 `Bearer ${token}`,
+              
               "Cache-Control":
                 "no-cache",
               Pragma:
@@ -19175,6 +19213,11 @@ export default function Pipeline() {
   const deriveLivePipelineStage = stage => {
     if (!stage) return stage;
 
+    // Pipeline completion is monotonic. A stage that was already persisted as
+    // Completed must not reopen because a later CRM/Recruit refresh is sparse,
+    // delayed, or temporarily reports an empty trigger value.
+    const wasAlreadyCompleted = isPipelineStageComplete(stage);
+
     const liveFields = {
       ...(deploymentFieldStatus || {})
     };
@@ -19363,9 +19406,12 @@ export default function Pipeline() {
         rule.complete?.(value) === true;
 
       const rawCompleted =
-        explicitBackendCompletion !== null
-          ? explicitBackendCompletion
-          : localRuleCompleted;
+        wasAlreadyCompleted ||
+        (
+          explicitBackendCompletion !== null
+            ? explicitBackendCompletion
+            : localRuleCompleted
+        );
 
       const rawInProgress =
         !rawCompleted &&
@@ -19600,6 +19646,7 @@ export default function Pipeline() {
 
     if (hasAuthoritativeCompletionMetric) {
       const metricComplete =
+        wasAlreadyCompleted ||
         completionMap[stage.stage_name] === true;
       const metricInProgress =
         !metricComplete &&
@@ -19633,6 +19680,7 @@ export default function Pipeline() {
     if (
       useLiveCompletion &&
       explicitBackendCompletion === false &&
+      !wasAlreadyCompleted &&
       !hasAuthoritativeCompletionMetric &&
       !isPipelineStageComplete(next)
     ) {
@@ -19660,6 +19708,25 @@ export default function Pipeline() {
         completed_date:
           next.completed_date ||
           new Date().toISOString()
+      };
+    }
+
+    if (wasAlreadyCompleted && !isPipelineStageComplete(next)) {
+      next = {
+        ...next,
+        status: "Completed",
+        completed: true,
+        is_completed: true,
+        completed_date:
+          stage.completed_date ||
+          stage.completed_at ||
+          next.completed_date ||
+          new Date().toISOString(),
+        source_trigger_unlocked: true,
+        trigger_unlocked: true,
+        unlocked: true,
+        is_unlocked: true,
+        is_locked: false
       };
     }
 
@@ -20001,7 +20068,7 @@ export default function Pipeline() {
     );
   }
 
-  if (isLoading && !modalState.isOpen) {
+  if (isLoading && !modalState.isOpen && (!Array.isArray(stages) || stages.length === 0)) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -20111,17 +20178,6 @@ export default function Pipeline() {
                 </p>
               )}
 
-              {currentCandidateStageForTimer &&
-                !(
-                  currentCandidateStageForTimer.target_date ||
-                  currentCandidateStageForTimer.targetDate ||
-                  currentCandidateStageForTimer.due_date ||
-                  currentCandidateStageForTimer.dueDate
-                ) && (
-                  <p className="mt-2 text-xs font-medium text-amber-700">
-                    Countdown will appear as soon as the required timing anchor is available.
-                  </p>
-                )}
             </>
           )}
 
@@ -20275,7 +20331,9 @@ export default function Pipeline() {
                     stage.stage_name ===
                       "Immigration Call"
                   );
-                const unlocked = stage.non_counted_section === true
+                const alwaysAvailableCandidateTool =
+                  stage.stage_name === "Welcome Packet" || stage.stage_name === "Receipt Submission";
+                const unlocked = alwaysAvailableCandidateTool || stage.non_counted_section === true
                   ? true
                   : isStageUnlocked(stage, displayStages);
                 const isLocked = !unlocked && !isPipelineStageComplete(stage);

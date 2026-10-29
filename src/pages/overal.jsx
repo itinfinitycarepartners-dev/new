@@ -14,6 +14,7 @@ import {
 import { STAGES_CONFIG } from '@/constants/stagesConfig';
 import { ADMIN_NCLEX_PROGRAM_FLOW } from '@/constants/nclex';
 import { THEME, DOCUMENT_REJECTION_REASONS, PIPELINE_CATEGORIES, PIPELINE_STATUS } from '@/constants/theme';
+import { WelcomePacketView, ReimbursementExpensesView } from './Pipeline';
 
 const API_BASE = String(
   import.meta.env.VITE_API_BASE_URL ||
@@ -734,6 +735,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   const [approvalBusyKey, setApprovalBusyKey] = useState(null);
   const [rejectingDocument, setRejectingDocument] = useState(null);
   const [rejectionReason, setRejectionReason] = useState("");
+  const [candidateExpenseReport, setCandidateExpenseReport] = useState(null);
+  const [candidateExpenseReportLoading, setCandidateExpenseReportLoading] = useState(false);
   const notificationDocumentOpenedRef = useRef("");
 
   useEffect(() => {
@@ -811,10 +814,10 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       setDocuments(cachedDocuments);
       setDocumentsLoading(false);
     } else {
-      // Open the candidate modal immediately, but do not render a false empty
-      // state before the first authoritative inventory arrives.
+      // Cold candidate: never flash a false "No documents" state while the
+      // local PostgreSQL inventory is arriving. The modal itself still opens instantly.
       setDocuments([]);
-      setDocumentsLoading(true);
+      setDocumentsLoading(false);
     }
 
     setLoading(false);
@@ -913,12 +916,12 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
           setDocuments(warmDocs);
           setDocumentsLoading(false);
         } else {
-          // Cold candidate: the tab is already open; show its lightweight
-          // loading state until the authoritative inventory arrives.
+          // Cold candidate: keep only the documents panel in its tiny loading
+          // state. Never block or gray the rest of Admin.
           setDocuments([]);
-          setDocumentsLoading(true);
+          setDocumentsLoading(false);
         }
-        const documentsLoadPromise = fetch(`${API_BASE}/api/admin/documents/${email}`, {
+        const documentsLoadPromise = fetch(`${API_BASE}/api/admin/documents/${email}?refresh=1`, {
           headers,
           credentials: 'include',
           cache: 'no-store'
@@ -945,6 +948,47 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
             // Recruit + CustomModule1), so this snapshot is safe to paint
             // instantly the next time this candidate is opened.
             writeAdminDocumentCache(user.email, allDocs);
+
+            // The backend returns PostgreSQL/persisted snapshot immediately and
+            // refreshes Zoho in the background. Re-read the lightweight endpoint
+            // without blocking the modal so newly discovered provider documents
+            // appear during the same open session.
+            // Trigger one provider sync without blocking the tab, then repaint from
+            // the lightweight persisted snapshot. CRM/Recruit latency never owns the UI.
+            // Provider synchronization can legitimately take several seconds for a
+            // candidate with records in CRM + Recruit + CustomModule1. Poll only the
+            // cheap PostgreSQL snapshot until the backend marks it complete. The
+            // candidate modal and the rest of Admin remain fully interactive.
+            const pollDelays = [150, 400, 800, 1400, 2200, 3500, 5000, 7500, 10000, 15000, 22000];
+            let providerSyncComplete = false;
+            pollDelays.forEach(delay => {
+              window.setTimeout(async () => {
+                if (providerSyncComplete) return;
+                try {
+                  const refreshed = await fetch(`${API_BASE}/api/admin/documents/${email}?snapshot=1&_=${Date.now()}`, {
+                    headers, credentials:'include', cache:'no-store'
+                  });
+                  if (!refreshed.ok) return;
+                  const refreshedData = await refreshed.json().catch(() => ({}));
+                  if (!Array.isArray(refreshedData.documents)) return;
+                  const nextDocs = refreshedData.documents.filter(document => {
+                    const source = String(document?.source || '').toLowerCase();
+                    return source !== 'recruit_field' || Boolean(
+                      document?.attachment_id || document?.recruit_attachment_id ||
+                      document?.crm_attachment_id || document?.document_id
+                    );
+                  });
+                  nextDocs.sort((a,b) => new Date(b.uploaded_at || b.Created_Time || 0) - new Date(a.uploaded_at || a.Created_Time || 0));
+
+                  // Never replace a populated list with a transient empty snapshot.
+                  // This is especially important while Zoho synchronization is still
+                  // running or one provider is temporarily unavailable.
+                  setDocuments(current => nextDocs.length || !Array.isArray(current) || current.length === 0 ? nextDocs : current);
+                  if (nextDocs.length) writeAdminDocumentCache(user.email, nextDocs);
+                  providerSyncComplete = refreshedData.complete === true;
+                } catch (_) {}
+              }, delay);
+            });
           })
           .catch(error => {
             console.warn('Unable to refresh candidate documents:', error);
@@ -1145,10 +1189,15 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   }, [user]);
 
   const handleViewDocument = async (doc) => {
-    const source = String(doc?.source || '').trim().toLowerCase();
+    // Prefer the portal's staged copy whenever it exists. It opens immediately
+    // from PostgreSQL and avoids a fragile Zoho round-trip for review.
+    const hasPortalCopy = Boolean(String(doc?.pending_upload_id || "").trim());
+    const source = hasPortalCopy ? "pending" : String(doc?.source || '').trim().toLowerCase();
     const isCrmDocument = source === "crm" || source.includes("crm");
     const isRecruitFieldDocument = source === "recruit_field" || doc?.recruit_field_upload === true;
-    const docId = isCrmDocument
+    const docId = hasPortalCopy
+      ? doc.pending_upload_id
+      : isCrmDocument
       ? (doc?.crm_file_id || doc?.crm_attachment_id || doc?.attachment_id || doc?.document_id || doc?.id)
       : isRecruitFieldDocument
         ? (doc?.recruit_file_id || doc?.recruit_attachment_id || doc?.attachment_id || doc?.document_id || doc?.id)
@@ -1369,57 +1418,6 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
 
 
-  useEffect(() => {
-    const target = user?._notificationDocument;
-    if (activeTab !== "documents" || !target || !Array.isArray(documents) || documents.length === 0) return;
-
-    const targetKey = String(
-      target.approvalKey || target.pendingUploadId || target.attachmentId ||
-      target.documentId || target.itemName || ""
-    ).trim();
-    if (!targetKey || notificationDocumentOpenedRef.current === targetKey) return;
-
-    const normalize = value => String(value || "").trim().toLowerCase();
-    const sourceMatches = doc => {
-      const targetSource = normalize(target.source);
-      if (!targetSource) return true;
-      return normalize(doc?.source) === targetSource;
-    };
-    const attachmentOf = doc => String(
-      doc?.attachment_id || doc?.crm_attachment_id || doc?.recruit_attachment_id ||
-      doc?.recruit_custom_module1_attachment_id || doc?.document_id || doc?.id || ""
-    ).trim();
-
-    // Prefer exact IDs. A candidate can have several documents with the same
-    // filename, and a single upload can exist in both Recruit and CRM.
-    let match = target.pendingUploadId
-      ? documents.find(doc => String(doc?.pending_upload_id || "").trim() === String(target.pendingUploadId))
-      : null;
-    if (!match && target.attachmentId) {
-      match = documents.find(doc => attachmentOf(doc) === String(target.attachmentId) && sourceMatches(doc));
-    }
-    if (!match && target.approvalKey) {
-      match = documents.find(doc => String(doc?.approval_key || "").trim() === String(target.approvalKey) && sourceMatches(doc));
-    }
-    if (!match && target.documentId) {
-      match = documents.find(doc =>
-        (attachmentOf(doc) === String(target.documentId) || String(doc?._id || "") === String(target.documentId)) &&
-        sourceMatches(doc)
-      );
-    }
-    if (!match && target.itemName) {
-      match = documents.find(doc =>
-        normalize(doc?.document_name || doc?.original_name || doc?.File_Name || doc?.file_name) === normalize(target.itemName) &&
-        sourceMatches(doc)
-      );
-    }
-
-    if (match) {
-      notificationDocumentOpenedRef.current = targetKey;
-      handleViewDocument(match);
-    }
-  }, [activeTab, documents, user?._notificationDocument]);
-
   // Notification fast path: when Admin opens a document notification, switch to
   // Candidate Documents immediately and paint the candidate's cached inventory
   // before any CRM/Recruit refresh completes.
@@ -1427,7 +1425,10 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     const target = user?._notificationDocument;
     if (!target || !user?.email) return;
 
+    // Do this synchronously from selected notification state: the user should
+    // land on Candidate Documents, never Profile, while data hydrates.
     setActiveTab("documents");
+    setDocumentsLoading(false);
 
     const cached = readAdminDocumentCache(user.email);
     if (Array.isArray(cached)) {
@@ -1634,6 +1635,25 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     }
   };
 
+  useEffect(() => {
+    if (activeTab !== "expense-report" || !user?.email) return;
+    let cancelled = false;
+    setCandidateExpenseReportLoading(true);
+    const { adminToken } = getTokens();
+    fetch(`${API_BASE}/api/admin/reimbursement/expense-report?email=${encodeURIComponent(user.email)}&_=${Date.now()}`, {
+      cache: "no-store", credentials: "include",
+      headers: { Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken }
+    })
+      .then(async response => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.success !== true) throw new Error(data.error || "Unable to load expense report.");
+        if (!cancelled) setCandidateExpenseReport(data.report || null);
+      })
+      .catch(error => { if (!cancelled) setDocActionError(error.message || "Unable to load expense report."); })
+      .finally(() => { if (!cancelled) setCandidateExpenseReportLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeTab, user?.email]);
+
   if (!user) return null;
 
   // The candidate-visible /api/pipeline/get response is authoritative.
@@ -1645,6 +1665,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
   const tabs = [
     { id: 'profile', label: 'Candidate Profile' },
+    { id: 'welcome-packet', label: 'Welcome Packet' },
+    { id: 'expense-report', label: 'Expense Report' },
     { id: 'pipeline', label: 'Candidate Pipeline', badge: adminVisiblePipeline.length },
     { id: 'documents', label: 'Candidate Documents', badge: documents.length },
     { id: 'deployment', label: 'Travel & Extras' },
@@ -2030,6 +2052,31 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                 </div>
               )}
 
+              {activeTab === 'welcome-packet' && (
+                <div className="rounded-xl border bg-white p-2">
+                  <WelcomePacketView
+                    user={{ ...(user || {}), email: user?.email }}
+                    adminMode={true}
+                    adminToken={getTokens().adminToken || ""}
+                    onClose={() => setActiveTab('profile')}
+                    setStages={setPipeline}
+                    setDeploymentFieldStatus={() => {}}
+                  />
+                </div>
+              )}
+
+              {activeTab === 'expense-report' && (
+                <div className="rounded-xl border bg-white p-2">
+                  <ReimbursementExpensesView
+                    user={{ ...(user || {}), email: user?.email }}
+                    adminMode={true}
+                    adminToken={getTokens().adminToken || ""}
+                    onClose={() => setActiveTab('profile')}
+                    setStages={setPipeline}
+                  />
+                </div>
+              )}
+
               {/* TAB 2: PIPELINE */}
               {activeTab === 'pipeline' && (
                 <div className="space-y-6">
@@ -2186,7 +2233,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                     <div className="text-center py-12 bg-white rounded-xl border border-dashed border-gray-300">
                       <FolderOpen className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                       <p className="text-gray-600 font-medium text-lg">No documents found.</p>
-                      <p className="text-sm text-gray-400 mt-1">No documents are currently available in the portal, Zoho CRM, Zoho Recruit Candidates, or Recruit CustomModule1.</p>
+                      <p className="text-sm text-gray-400 mt-1">No persisted documents are available yet. CRM and Recruit continue syncing in the background; this panel will update automatically.</p>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2244,7 +2291,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                     }`}
                                   >
                                     {doc.already_approved === true ||
-                                      doc.approval_status === "approved"
+                                      doc.approval_status === "approved" ||
+                                      (["crm", "recruit", "custommodule1", "recruit_field"].includes(String(doc.source || "").toLowerCase()) && !doc.pending_upload_id && doc.approval_status !== "rejected")
                                       ? "Approved"
                                       : doc.approval_status === "rejected"
                                         ? "Rejected"
@@ -2272,57 +2320,26 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                   : <Eye className="h-4 w-4" />}
                               </button>
 
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  updateDocumentApproval(
-                                    doc,
-                                    "approve"
-                                  )
-                                }
-                                disabled={
-                                  approvalBusyKey ===
-                                    doc.approval_key ||
-                                  doc.already_approved ===
-                                    true ||
-                                  doc.approval_status ===
-                                    "approved"
-                                }
-                                className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
-                              >
-                                {approvalBusyKey === doc.approval_key ? (
-                                  <span className="flex items-center gap-2">
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    Approving…
-                                  </span>
-                                ) : (
-                                  "Approve"
-                                )}
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  updateDocumentApproval(
-                                    doc,
-                                    "reject"
-                                  )
-                                }
-                                disabled={
-                                  approvalBusyKey ===
-                                    doc.approval_key
-                                }
-                                className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
-                              >
-                                {approvalBusyKey === doc.approval_key ? (
-                                  <span className="flex items-center gap-2">
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    Processing…
-                                  </span>
-                                ) : (
-                                  "Reject"
-                                )}
-                              </button>
+                              {!(doc.already_approved === true || doc.approval_status === "approved" || doc.approval_status === "rejected" || (["crm", "recruit", "custommodule1", "recruit_field"].includes(String(doc.source || "").toLowerCase()) && !doc.pending_upload_id)) && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => updateDocumentApproval(doc, "approve")}
+                                    disabled={approvalBusyKey === doc.approval_key}
+                                    className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                                  >
+                                    {approvalBusyKey === doc.approval_key ? "Approving…" : "Approve"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => updateDocumentApproval(doc, "reject")}
+                                    disabled={approvalBusyKey === doc.approval_key}
+                                    className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                                  >
+                                    Reject
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </div>
                         )
@@ -3771,71 +3788,37 @@ const AdminRequestsPanel = ({ onOpenUser, notificationTarget = null, onReturnToN
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={busyId === requestId}
-                    onClick={async () => {
-                      setBusyId(requestId);
-                      try {
-                        const { adminToken } = getTokens();
-                        const response = await fetch(`${API_BASE}/api/admin/travel-dependants/${encodeURIComponent(requestId)}/decision`, {
-                          method: "POST", credentials: "include",
-                          headers: { Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken, "Content-Type": "application/json" },
-                          body: JSON.stringify({ action: "approve" })
-                        });
-                        const data = await response.json().catch(() => ({}));
-                        if (!response.ok || data.success !== true) throw new Error(data.error || "Unable to approve dependent.");
-                        await load();
-                      } catch (error) {
-                        alert(error.message || "Unable to approve dependent.");
-                      } finally {
-                        setBusyId("");
-                      }
-                    }}
-                    className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white disabled:cursor-wait disabled:opacity-70"
-                  >
-                    {busyId === requestId ? (
-                      <span className="flex items-center gap-2">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        Approving…
-                      </span>
-                    ) : (
-                      "Approve Dependent"
-                    )}
+                  <button type="button" onClick={async () => {
+                    try {
+                      const { adminToken } = getTokens();
+                      const response = await fetch(`${API_BASE}/api/admin/travel-dependants/${encodeURIComponent(requestId)}/decision`, {
+                        method: "POST", credentials: "include",
+                        headers: { Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken, "Content-Type": "application/json" },
+                        body: JSON.stringify({ action: "approve" })
+                      });
+                      const data = await response.json().catch(() => ({}));
+                      if (!response.ok || data.success !== true) throw new Error(data.error || "Unable to approve dependent.");
+                      await load();
+                    } catch (error) { alert(error.message || "Unable to approve dependent."); }
+                  }} className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white">
+                    Approve Dependent
                   </button>
-                  <button
-                    type="button"
-                    disabled={busyId === requestId}
-                    onClick={async () => {
-                      const reason = window.prompt("Reason for rejecting this dependent request:");
-                      if (reason === null) return;
-                      setBusyId(requestId);
-                      try {
-                        const { adminToken } = getTokens();
-                        const response = await fetch(`${API_BASE}/api/admin/travel-dependants/${encodeURIComponent(requestId)}/decision`, {
-                          method: "POST", credentials: "include",
-                          headers: { Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken, "Content-Type": "application/json" },
-                          body: JSON.stringify({ action: "reject", reason })
-                        });
-                        const data = await response.json().catch(() => ({}));
-                        if (!response.ok || data.success !== true) throw new Error(data.error || "Unable to reject dependent.");
-                        await load();
-                      } catch (error) {
-                        alert(error.message || "Unable to reject dependent.");
-                      } finally {
-                        setBusyId("");
-                      }
-                    }}
-                    className="rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white disabled:cursor-wait disabled:opacity-70"
-                  >
-                    {busyId === requestId ? (
-                      <span className="flex items-center gap-2">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        Rejecting…
-                      </span>
-                    ) : (
-                      "Reject Dependent"
-                    )}
+                  <button type="button" onClick={async () => {
+                    const reason = window.prompt("Reason for rejecting this dependent request:");
+                    if (reason === null) return;
+                    try {
+                      const { adminToken } = getTokens();
+                      const response = await fetch(`${API_BASE}/api/admin/travel-dependants/${encodeURIComponent(requestId)}/decision`, {
+                        method: "POST", credentials: "include",
+                        headers: { Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken, "Content-Type": "application/json" },
+                        body: JSON.stringify({ action: "reject", reason })
+                      });
+                      const data = await response.json().catch(() => ({}));
+                      if (!response.ok || data.success !== true) throw new Error(data.error || "Unable to reject dependent.");
+                      await load();
+                    } catch (error) { alert(error.message || "Unable to reject dependent."); }
+                  }} className="rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white">
+                    Reject Dependent
                   </button>
                 </div>
               </div>
@@ -4697,7 +4680,6 @@ const AdminReceiptsPanel = () => {
                         <option value="">Reject reason...</option>
                         <option value="Duplicate">Duplicate</option>
                         <option value="Not a receipt">Not a receipt</option>
-                        <option value="Does not match selected receipt type">Does not match selected receipt type</option>
                         <option value="Not itemized">Not itemized</option>
                         <option value="Not eligible for reimbursement">
                           Not eligible for reimbursement
@@ -5345,7 +5327,7 @@ const useAdminNotifications = () => {
       }
       return true;
     } catch (err) {
-      if (mounted.current) setError(err.message || 'Unable to mark notification as read.');
+      if (mounted.current) console.warn('[Admin Notifications] Unable to mark notification as read:', err);
       return false;
     } finally {
       if (mounted.current) setBusy('');
@@ -5436,11 +5418,13 @@ const AdminNotificationsPanel = ({ state, onOpenUser, onOpenRequests }) => {
               </div>
               <div className="flex gap-2">
                 {!group.read && <button type="button" disabled={Boolean(busy)} onClick={() => markCandidateGroupRead(group)} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50">Mark all as read</button>}
-                <button type="button" disabled={Boolean(busy)} onClick={async () => {
-                  if (!await markCandidateGroupRead(group)) return;
+                <button type="button" onClick={() => {
+                  // Navigation is the priority. Never make "View candidate" wait
+                  // for notification read acknowledgements or document-provider I/O.
                   if (requests.length && !documents.length) onOpenRequests?.(requests[0]);
-                  else onOpenUser({ email:group.candidateEmail, name:group.candidateName || group.candidateEmail, _initialTab:'documents', _returnToTab:'notifications', _notificationDocument:{ approvalKey:primary.approvalKey || null, pendingUploadId:primary.pendingUploadId || null, attachmentId:primary.attachmentId || null, documentId:primary.documentId || null, itemName:primary.itemName || null, source:primary.source || null }});
-                }} className="rounded-lg bg-purple-700 text-white px-3 py-2 text-sm disabled:opacity-50">View candidate</button>
+                  else onOpenUser({ email:group.candidateEmail, name:group.candidateName || group.candidateEmail, _initialTab:'documents', _returnToTab:'notifications' });
+                  void markCandidateGroupRead(group);
+                }} className="rounded-lg bg-purple-700 text-white px-3 py-2 text-sm">View candidate</button>
               </div>
             </div>
           );

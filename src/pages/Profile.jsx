@@ -1448,77 +1448,20 @@ export default function Profile() {
       const token = localStorage.getItem("icp_auth_token");
       if (!token) throw new Error("Your session has expired. Please sign in again.");
 
+      // One network request stores the passport evidence and creates the Admin
+      // approval request atomically. This removes the old two-request delay.
       const formData = new FormData();
       formData.append("file", passportFile);
-      formData.append("document_name", `Travel Dependant Passport - ${firstName} ${lastName}`.trim());
-      formData.append("document_category", "travel-dependant-passport");
-      formData.append("category_key", "travel-dependant-passport");
-      formData.append("section", "Travel and Arrival Planning");
-      formData.append("document_department", "Deployment");
-      formData.append("destination", "crm");
+      formData.append("firstName", firstName);
+      formData.append("lastName", lastName);
+      formData.append("dob", dob);
+      formData.append("age", age === null ? "" : String(age));
+      formData.append("dependentEmail", email);
+      formData.append("phone", phone);
 
-      const uploadResponse = await fetch(`${API_BASE}/api/profile/travel-dependants/evidence`, {
-        method: "POST",
-        cache: "no-store",
-        credentials: "include",
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData
-      });
-      const uploadData = await uploadResponse.json().catch(() => ({}));
-      if (!uploadResponse.ok || uploadData.success !== true) {
-        throw new Error(uploadData.error || "Unable to upload dependant passport.");
-      }
-
-      const uploadResult = uploadData.evidence || uploadData.upload || uploadData.document || uploadData;
-      const pendingUploadId = String(
-        uploadData.pending_upload_id ||
-        uploadResult?.pending_upload_id ||
-        uploadResult?._id ||
-        uploadResult?.id ||
-        ""
-      ).trim();
-
-      if (!pendingUploadId) {
-        throw new Error("Passport uploaded, but the evidence reference was not returned. Please try again.");
-      }
-
-      const attachmentId = String(
-        uploadData.attachment_id ||
-        uploadData.crmAttachmentId ||
-        uploadResult?.attachment_id ||
-        uploadResult?.attachmentId ||
-        uploadResult?.crmAttachmentId ||
-        ""
-      ).trim();
-
-      const nextDependant = {
-        firstName, lastName, dob, email, phone,
-        addedAt: new Date().toISOString(),
-        passport_file_name: passportFile.name,
-        passport_mime_type: passportFile.type || "",
-        passport_source: String(
-          uploadData.source || uploadResult?.source || (pendingUploadId ? "pending" : "crm")
-        ).trim(),
-        passport_attachment_id: attachmentId,
-        passport_pending_upload_id: pendingUploadId,
-        passport_approval_key: String(
-          uploadData.approval_key || uploadResult?.approval_key ||
-          (pendingUploadId ? `pending:${pendingUploadId}` : "")
-        ).trim(),
-        passport_crm_record_id: String(
-          uploadData.crm_record_id || uploadResult?.crm_record_id || uploadResult?.deal_id || ""
-        ).trim()
-      };
-
-      const requestResponse = await fetch(`${API_BASE}/api/profile/travel-dependants/request`, {
-        method: "POST",
-        cache: "no-store",
-        credentials: "include",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ ...nextDependant, age })
+      const requestResponse = await fetch(`${API_BASE}/api/profile/travel-dependants/request-with-evidence`, {
+        method: "POST", cache: "no-store", credentials: "include",
+        headers: { Authorization: `Bearer ${token}` }, body: formData
       });
       const requestData = await requestResponse.json().catch(() => ({}));
       if (!requestResponse.ok || requestData.success !== true) {
@@ -1530,7 +1473,7 @@ export default function Profile() {
       });
       setShowTravelDependantForm(false);
       setTravelPlanningMessage(
-        "Dependent submitted for admin approval. It will appear permanently in your profile after approval."
+        "✓ Dependent submitted successfully for admin approval. It will appear permanently in your profile after approval."
       );
       window.dispatchEvent(new CustomEvent("candidate-data-updated", {
         detail: { event: "travel-dependant-saved" }
@@ -2503,9 +2446,7 @@ export default function Profile() {
               </select>
             </label>
 
-            {travelPlanning.finalBankingPlan ===
-              "Already Have an Account – Provide Bank Name and City" ? (
-              <label className="block">
+            <label className="block">
                 <span className="text-xs font-medium text-muted-foreground">
                   Bank Name and City
                 </span>
@@ -2526,7 +2467,6 @@ export default function Profile() {
                   className="mt-1 w-full rounded-lg border border-[#e6def1] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
                 />
               </label>
-            ) : null}
           </div>
 
           <p className="mt-3 text-xs font-medium text-amber-700">

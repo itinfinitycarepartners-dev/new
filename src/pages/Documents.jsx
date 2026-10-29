@@ -33,6 +33,7 @@ import { toast } from "sonner";
 import {
   useEffect,
   useMemo,
+  useRef,
   useState
 } from "react";
 const API_BASE = (() => {
@@ -66,14 +67,7 @@ const DEPLOYMENT_RECEIPT_TYPES = [
   { id:"english_exam", label:"English Exam" },
   { id:"fingerprints", label:"Background / Fingerprinting" },
   { id:"medical_exam", label:"Medical Exam" },
-  { id:"dependent_visa_fee", label:"Dependent VISA Fee Bill" },
-  { id:"dependents_after_i140", label:"Dependents Added after I-140" },
-  { id:"housing_stipend", label:"One-time Housing Stipend" },
-  { id:"housing_app_admin", label:"Housing App & Admin Fees" },
-  { id:"housing_deposit", label:"Housing Deposit" },
-  { id:"rent_move_in", label:"Rent / Move-in fees" },
-  { id:"insurance", label:"Insurance" },
-  { id:"other", label:"Other" }
+  { id:"dependents_after_i140", label:"Dependents Added after I-140" }
 ];
 const REQUIRED_PROFILE_DOCUMENT_TYPES = [
   { key: "candidate-passport-picture", label: "Candidate Passport Picture", section: "Profile", order: 1, defaultDestination: "crm" },
@@ -161,6 +155,7 @@ const isHiddenDocument = document => {
     "housing & transportation",
     "housing and transportation",
     "photo and video release",
+    "flight confirmation",
     "photo release form",
     "video release form",
     "immigration pathway acknowledgement",
@@ -701,6 +696,8 @@ export default function Documents() {
     setUploading
   ] = useState(false);
   const [optimisticPendingCount, setOptimisticPendingCount] = useState(0);
+  const [submittedDocumentCount, setSubmittedDocumentCount] = useState(0);
+  const pendingCountRequestRef = useRef(false);
   const [submissionPopup, setSubmissionPopup] = useState(null);
   const {
     data: documentData,
@@ -799,11 +796,73 @@ export default function Documents() {
   // Server pending_count is authoritative. This makes the number rise when a
   // document is submitted and fall immediately after admin approval/rejection.
   useEffect(() => {
-    if (documentData?.pending_count === undefined) return;
-    setOptimisticPendingCount(
-      Number(documentData.pending_count || 0)
-    );
-  }, [documentData?.pending_count]);
+    if (documentData?.pending_count !== undefined) {
+      setOptimisticPendingCount(Number(documentData.pending_count || 0));
+    }
+    if (documentData?.submitted_count !== undefined) {
+      setSubmittedDocumentCount(Number(documentData.submitted_count || 0));
+    }
+  }, [documentData?.pending_count, documentData?.submitted_count]);
+
+  // Pending approval count is intentionally independent from the full document
+  // inventory. This endpoint reads only PostgreSQL approval queues, so CRM/Recruit
+  // latency cannot freeze the number.
+  useEffect(() => {
+    if (!user?.email) return undefined;
+
+    let cancelled = false;
+
+    const refreshPendingCount = async () => {
+      if (pendingCountRequestRef.current) return;
+      const token = getAuthToken();
+      if (!token) return;
+
+      pendingCountRequestRef.current = true;
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/documents/pending-count?t=${Date.now()}`,
+          {
+            method: "GET",
+            cache: "no-store",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Cache-Control": "no-cache"
+            }
+          }
+        );
+        const payload = await response.json().catch(() => ({}));
+        if (!cancelled && response.ok) {
+          if (payload?.pending_count !== undefined) {
+            setOptimisticPendingCount(Number(payload.pending_count || 0));
+          }
+          if (payload?.submitted_count !== undefined) {
+            setSubmittedDocumentCount(Number(payload.submitted_count || 0));
+          }
+        }
+      } catch (_) {
+        // Keep the last confirmed count; the next poll retries automatically.
+      } finally {
+        pendingCountRequestRef.current = false;
+      }
+    };
+
+    refreshPendingCount();
+    const timer = window.setInterval(refreshPendingCount, 3000);
+    const handleFocus = () => refreshPendingCount();
+    const handleApprovalUpdate = () => refreshPendingCount();
+
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("documents-updated", handleApprovalUpdate);
+    window.addEventListener("admin-data-updated", handleApprovalUpdate);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("documents-updated", handleApprovalUpdate);
+      window.removeEventListener("admin-data-updated", handleApprovalUpdate);
+    };
+  }, [user?.email]);
   const allDocs =
     documentData?.documents ||
     [];
@@ -860,17 +919,12 @@ export default function Documents() {
     );
   const uploadDepartmentCategories = useMemo(() => {
     if (!selectedDepartment) return [];
-    const recruitingCategories = categories.filter(category => category.section === "Recruiting");
-    const ownCategories =
-      selectedDepartment === "Deployment"
-        ? departmentCategories.filter(category => category.key === "expense-report")
-        : departmentCategories;
-    if (selectedDepartment === "Recruiting") return ownCategories;
-    const merged = [...ownCategories, ...recruitingCategories];
-    return merged.filter((category, index, list) =>
-      list.findIndex(item => item.key === category.key) === index
+    // Department controls routing only. Document type is independent, so every
+    // department can submit any configured type, including Receipts.
+    return categories.filter(category =>
+      !["Profile", "Dependants"].includes(String(category.section || ""))
     );
-  }, [categories, departmentCategories, selectedDepartment]);
+  }, [categories, selectedDepartment]);
   const filteredDocs =
     useMemo(() => {
       const term =
@@ -975,84 +1029,42 @@ export default function Documents() {
       sortBy
     ]);
   const workflowSections = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
-    const categoryMap = new Map(categories.map(category => [String(category.key || ""), category]));
-    const normalizeSection = value => {
-      const raw = String(value || "").trim().toLowerCase();
-      if (["recruiting", "recruitment", "hiring", "nclex program", "nclex"].includes(raw)) return "Recruiting";
-      if (raw === "immigration") return "Immigration";
-      if (raw === "deployment") return "Deployment";
-      return "";
-    };
-    const getDocumentSection = document => {
-      const explicit = normalizeSection(
-        document.document_department ||
-        document.department ||
-        document.library_section ||
-        document.pipeline_section
-      );
-      if (explicit) return explicit;
-      const category = categoryMap.get(String(document.document_category || ""));
-      return normalizeSection(category?.section);
-    };
-    const documentsBySectionAndCategory = new Map();
-    for (const document of filteredDocs) {
-      const section = getDocumentSection(document);
-      const key = String(document.document_category || "");
-      const mapKey = `${section}::${key}`;
-      if (!documentsBySectionAndCategory.has(mapKey)) documentsBySectionAndCategory.set(mapKey, []);
-      documentsBySectionAndCategory.get(mapKey).push(document);
-    }
-    const recruitingCategories = categories.filter(category => category.section === "Recruiting");
-    return WORKFLOW_SECTION_ORDER.map((section, sectionIndex) => {
-      const ownCategories = categories.filter(category => category.section === section);
-      // Immigration exposes the shared Recruiting document set as well as its
-      // Immigration-specific documents. These are separate section slots so an
-      // Immigration upload is counted under Immigration rather than being
-      // incorrectly added to the Recruiting total merely because it uses a
-      // shared Recruiting document type.
-      const availableCategories =
-        section === "Immigration"
-          ? [...ownCategories, ...recruitingCategories]
-          : ownCategories;
-      const uniqueCategories = availableCategories.filter((category, index, list) =>
-        list.findIndex(item => item.key === category.key) === index
-      );
-      const sectionCategories = uniqueCategories
-        .sort((a, b) => {
-          const aShared = a.section === section ? 0 : 1;
-          const bShared = b.section === section ? 0 : 1;
-          return aShared - bShared || Number(a.order || 999) - Number(b.order || 999);
-        })
-        .filter(category => {
-          const docsForSlot = documentsBySectionAndCategory.get(`${section}::${category.key}`) || [];
-          if (!term) return true;
-          const categoryMatches = [category.label, category.key, category.pipelineStage, category.crmFieldApiName]
-            .some(value => String(value || "").toLowerCase().includes(term));
-          return categoryMatches || docsForSlot.length > 0;
-        });
-      const slots = sectionCategories.map(category => ({
-        category: {
-          ...category,
-          sharedFromRecruiting: section === "Immigration" && category.section === "Recruiting"
-        },
-        documents: (documentsBySectionAndCategory.get(`${section}::${category.key}`) || [])
-          .sort((a, b) => new Date(b.uploaded_at || 0) - new Date(a.uploaded_at || 0))
-      }));
-      return {
-        section,
-        sectionIndex,
-        slots,
-        documentCount: slots.reduce((total, slot) => total + slot.documents.length, 0),
-        completedSlotCount: slots.filter(slot => slot.documents.length > 0).length
+    const normalize = value => String(value || "").trim().toLowerCase();
+    const categoryForDocument = document => {
+      const explicit = normalize(document.document_category || document.library_category || document.category_key || document.requirement_key);
+      let category = categories.find(item => normalize(item.key) === explicit);
+      if (category) return category;
+      const label = normalize(document.category_label || document.document_type);
+      category = categories.find(item => normalize(item.label) === label);
+      return category || {
+        key: explicit || label || "other",
+        label: document.category_label || document.document_type || "Other Documents",
+        order: 999
       };
-    });
-  }, [categories, filteredDocs, searchTerm]);
+    };
+    const configured = categories
+      .filter(category => !["Profile", "Dependants"].includes(String(category.section || "")))
+      .sort((a,b) => Number(a.order || 999) - Number(b.order || 999));
+    const groups = new Map(configured.map((category,index) => [category.key, {
+      section: category.label, categoryKey: category.key, sectionIndex: index, documents: [], documentCount: 0
+    }]));
+    for (const document of filteredDocs) {
+      const category = categoryForDocument(document);
+      if (!groups.has(category.key)) groups.set(category.key, {
+        section: category.label, categoryKey: category.key, sectionIndex: groups.size, documents: [], documentCount: 0
+      });
+      groups.get(category.key).documents.push(document);
+    }
+    return [...groups.values()].map((group,index) => ({
+      ...group, sectionIndex:index, documentCount:group.documents.length,
+      documents:group.documents.sort((a,b) => new Date(b.uploaded_at || 0)-new Date(a.uploaded_at || 0))
+    }));
+  }, [categories, filteredDocs]);
   const visibleWorkflowSections = useMemo(
-    () => searchTerm.trim() ? workflowSections.filter(group => group.slots.length > 0) : workflowSections,
+    () => searchTerm.trim() ? workflowSections.filter(group => group.documents.length > 0) : workflowSections,
     [workflowSections, searchTerm]
   );
-  const totalDocumentTypes = workflowSections.reduce((total, group) => total + group.slots.length, 0);
+  const totalDocumentTypes = allDocs.length;
   const toggleSection = section => {
     setExpandedSections(previous => ({
       ...previous,
@@ -1118,7 +1130,6 @@ export default function Documents() {
         !selectedCategory ||
         !selectedFile ||
         (
-          selectedDepartment === "Deployment" &&
           selectedCategory === "expense-report" &&
           !selectedReceiptType
         )
@@ -1306,26 +1317,19 @@ export default function Documents() {
         // Close/reset the upload form only after the success state has been queued.
         // The popup remains mounted even if the background library refresh reports loading.
         resetUpload();
-        // Upload is already confirmed by the API. Do not block the UI while
-        // Zoho's attachment lists are re-read; refresh the library in the
-        // background and let the new upload appear as soon as Zoho exposes it.
-        window.setTimeout(() => {
-          refetch()
-            .then(result => {
-              if (
-                result?.data?.pending_count !==
-                undefined
-              ) {
-                setOptimisticPendingCount(
-                  Number(
-                    result.data.pending_count ||
-                    0
-                  )
-                );
-              }
-            })
-            .catch(() => {});
-        }, 0);
+        // Do not immediately refetch the full CRM/Recruit document inventory here.
+        // The upload response already contains the committed PostgreSQL count,
+        // and the dedicated count endpoint keeps it synchronized after Admin actions.
+        queryClient.setQueryData(
+          ["document-library", user?.email],
+          previous => ({
+            ...(previous || {}),
+            pending_count:
+              payload.pending_count !== undefined
+                ? Number(payload.pending_count || 0)
+                : Number(previous?.pending_count || 0)
+          })
+        );
         queryClient.invalidateQueries({
           queryKey: [
             "dashboard-summary",
@@ -1630,8 +1634,7 @@ export default function Documents() {
                 )}
               </select>
             </div>
-            {selectedDepartment === "Deployment" &&
-              selectedCategory === "expense-report" && (
+            {selectedCategory === "expense-report" && (
                 <div>
                   <label className="text-sm font-medium">
                     Receipt Type
@@ -1739,10 +1742,10 @@ export default function Documents() {
               Documents
             </p>
             <p className="mt-1 text-2xl font-bold">
-              {allDocs.length}
+              {submittedDocumentCount || allDocs.length}
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Total documents
+              Total documents submitted
             </p>
           </div>
         </div>
@@ -1877,41 +1880,19 @@ export default function Documents() {
                   {group.sectionIndex + 1}
                 </span>
                 {(() => {
-                  const SectionIcon = WORKFLOW_SECTION_ICONS[group.section];
-                  return SectionIcon ? (
-                    <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-[#F5F0FF]">
-                      <SectionIcon className="h-11 w-11 text-[#3B0764]" />
+                  const SectionIcon = FileText;
+                  return (
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#F5F0FF]">
+                      <SectionIcon className="h-8 w-8 text-[#3B0764]" />
                     </div>
-                  ) : null;
+                  );
                 })()}
                 <div className="min-w-0 flex-1">
                   <h2 className="text-lg font-bold text-[#111827]">{group.section}</h2>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {group.completedSlotCount} of {group.slots.length} document types currently on file • {group.documentCount} file{group.documentCount === 1 ? "" : "s"}
+                    {group.documentCount} submitted file{group.documentCount === 1 ? "" : "s"} attached to this document type
                   </p>
-                  <div className="mt-3 flex items-center gap-3">
-                    <div
-                      className="h-2 flex-1 overflow-hidden rounded-full bg-[#E8E1F2]"
-                      role="progressbar"
-                      aria-label={`${group.section} pipeline progress`}
-                      aria-valuemin={0}
-                      aria-valuemax={group.slots.length}
-                      aria-valuenow={group.completedSlotCount}
-                    >
-                      <div
-                        className="h-full rounded-full bg-[#8B5CF6] transition-all"
-                        style={{
-                          width: `${group.slots.length > 0 ? (group.completedSlotCount / group.slots.length) * 100 : 0}%`
-                        }}
-                      />
-                    </div>
-                    <span className="shrink-0 text-xs font-semibold text-[#3B0764]">
-                      {group.completedSlotCount}/{group.slots.length}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs font-semibold text-[#111827]">
-                    {group.slots.length > 0 ? Math.round((group.completedSlotCount / group.slots.length) * 100) : 0}% complete
-                  </p>
+
                 </div>
                 <button
                   type="button"
@@ -1919,7 +1900,7 @@ export default function Documents() {
                   aria-expanded={Boolean(expandedSections[group.section])}
                   className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg bg-[#6D28D9] px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#3B0764]"
                 >
-                  {expandedSections[group.section] ? "Hide uploaded documents" : "View uploaded documents"}
+                  {expandedSections[group.section] ? "Hide submitted documents" : "View submitted documents"}
                   {expandedSections[group.section] ? (
                     <ChevronUp className="h-4 w-4" />
                   ) : (
@@ -1928,39 +1909,12 @@ export default function Documents() {
                 </button>
               </div>
               {expandedSections[group.section] && (
-                <div className="divide-y">
-                  {group.slots.map((slot, slotIndex) => {
-                    const hasDocuments = slot.documents.length > 0;
-                    return (
-                      <div key={slot.category.key} className="p-5">
-                        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                          <div className="flex min-w-0 items-start gap-3">
-                            <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${hasDocuments ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>{slotIndex + 1}</span>
-                            <div>
-                              <h3 className="font-semibold">{slot.category.label}</h3>
-                              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                                {slot.category.sharedFromRecruiting && (
-                                  <span className="rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 font-medium text-purple-700">
-                                    Shared Recruiting document
-                                  </span>
-                                )}
-                                {slot.category.pipelineStage && <span>Pipeline: {slot.category.pipelineStage}</span>}
-                                {slot.category.crmFieldApiName && <span className="rounded-full border px-2 py-0.5">{slot.category.crmFieldApiName}</span>}
-                              </div>
-                            </div>
-                          </div>
-                          <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${hasDocuments ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-gray-200 bg-gray-50 text-gray-500"}`}>
-                            {hasDocuments ? `${slot.documents.length} on file` : "Not submitted"}
-                          </span>
-                        </div>
-                        {hasDocuments ? (
-                          <div className="space-y-3 pl-10">{slot.documents.map(renderDocumentItem)}</div>
-                        ) : (
-                          <div className="ml-10 rounded-lg border border-dashed bg-muted/20 px-4 py-3 text-sm text-muted-foreground">No document is currently available for this item.</div>
-                        )}
-                      </div>
-                    );
-                  })}
+                <div className="p-5">
+                  {group.documents.length > 0 ? (
+                    <div className="space-y-3">{group.documents.map(renderDocumentItem)}</div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed bg-muted/20 px-4 py-6 text-center text-sm text-muted-foreground">No submitted document is currently attached to this document type.</div>
+                  )}
                 </div>
               )}
             </section>

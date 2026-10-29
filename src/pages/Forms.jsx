@@ -73,6 +73,14 @@ export default function Forms() {
     setLocalStages
   ] =
     useState([]);
+
+  // Forms are available to every authenticated candidate at every pipeline stage.
+  // Individual electronic-signature forms still require the document to be opened
+  // before the acknowledgement/sign action is enabled.
+  const [formsAccessLoading] = useState(false);
+  const [formsAccessAllowed] = useState(true);
+  const [formsAccessStage] = useState("");
+
   const policyAcknowledgementKey = user?.email
     ? `icp_policy_acknowledgements:${String(user.email).trim().toLowerCase()}`
     : null;
@@ -165,6 +173,51 @@ export default function Forms() {
       </div>
     );
   }
+  if (formsAccessLoading) {
+    return (
+      <div className="min-h-screen bg-[#F3F4F6] p-6">
+        <div className="mx-auto max-w-2xl rounded-xl border bg-white p-8 text-center">
+          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-primary/20 border-t-primary" />
+          <h2 className="mt-4 text-lg font-bold text-gray-900">
+            Checking forms access
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            We are confirming that you are currently in Deployment or Aftercare.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!formsAccessAllowed) {
+    return (
+      <div className="min-h-screen bg-[#F3F4F6] p-6">
+        <div className="mx-auto max-w-2xl rounded-xl border bg-white p-8 text-center shadow-sm">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-100">
+            <ClipboardList className="h-7 w-7 text-amber-700" />
+          </div>
+          <h1 className="mt-4 text-2xl font-bold text-gray-900">
+            Forms are not available yet
+          </h1>
+          <p className="mt-3 text-base leading-7 text-gray-600">
+            Your Forms section becomes available when you reach the Deployment stage and remains available during Aftercare.
+          </p>
+          {formsAccessStage ? (
+            <p className="mt-2 text-sm text-gray-500">
+              Current stage: {formsAccessStage}
+            </p>
+          ) : null}
+          <Link
+            to="/pipeline"
+            className="mt-6 inline-flex items-center justify-center rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground"
+          >
+            View My Pipeline
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   if (activeForm) {
     return (
       <div className="min-h-screen space-y-4 bg-[#F3F4F6] p-4 lg:p-6">
