@@ -1339,7 +1339,7 @@ export default function MakeRequest() {
           >
             <option value="">When will this dependant travel?</option>
             <option value="Follow to Join">Follow to Join</option>
-            <option value="Coming With You">Coming With You</option>
+            <option value="Coming With You">Coming With Me</option>
             <option value="Coming Later">Coming Later</option>
           </select>
           <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-dashed px-3 py-3 text-sm md:col-span-2">

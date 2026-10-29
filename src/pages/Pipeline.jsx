@@ -784,8 +784,8 @@ const DEPLOYMENT_TIMING_REQUIREMENTS = Object.freeze({
   },
   "Pre-Arrival Banking Call": {
     anchor: "arrival",
-    offsetDays: -60,
-    timingRule: "Attend 60 days before the scheduled arrival date."
+    offsetDays: -15,
+    timingRule: "Attend 15 days before the scheduled arrival date. Final Banking Plan should be confirmed before the Welcome Packet is due."
   },
   "Employer Pre-Arrival Call": {
     anchor: "arrival",
@@ -799,8 +799,8 @@ const DEPLOYMENT_TIMING_REQUIREMENTS = Object.freeze({
   },
   "Welcome Packet": {
     anchor: "arrival",
-    offsetDays: -30,
-    timingRule: "Review and acknowledge the Welcome Packet 30 days before the scheduled arrival date."
+    offsetDays: -14,
+    timingRule: "Welcome Packet becomes part of the T-30 readiness flow and should be reviewed/acknowledged 10–14 days before arrival; countdown target is T-14."
   },
   "Receipt Submission": {
     anchor: "arrival",
@@ -1288,6 +1288,7 @@ const APPLICATION_STATUS_STAGE_MAP = new Map([
   ["qualified-candidate pool", "Qualified Candidate Pool"],
   ["qualified- candidate pool", "Qualified Candidate Pool"],
   ["qualified candidate pool", "Qualified Candidate Pool"],
+  ["rejected", "Not Qualified - to close"],
   ["not qualified-to close", "Not Qualified - to close"],
   ["not qualified - to close", "Not Qualified - to close"],
   ["not qualified to close", "Not Qualified - to close"],
@@ -1343,6 +1344,7 @@ const getEffectiveQualificationOutcome = applicationStatus => {
 
   if (
     [
+      "rejected",
       "not qualified-to close",
       "not qualified - to close",
       "not qualified to close",
@@ -1918,11 +1920,10 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
     field: "Credential_Service",
     type: "picklist",
     accepted: [
-      "Paid by ICP",
-      "Sponsored by ICP",
-      "To be Sponsored by Infinity",
-      "Paid by Infinity"
-    ]
+      "Paid and completed by candidate",
+      "Paid by ICP"
+    ],
+    module: "CustomModule1"
   },
   {
     name: "Credential Evaluation Completed",
@@ -1945,11 +1946,10 @@ const ICP_USRN_SUBPROCESS_CONFIG = [
   {
     name: "Board Registration",
     days: 120,
-    field: "State_License_Board_of_Registration",
-    type: "picklist",
-    // CustomModule1 → Payment Resp, for BON.
-    // This stage completes ONLY for the two approved payment outcomes.
-    accepted: ["Paid and Completed by Candidate", "Paid by Infinity"],
+    field: "BON_Registration_Payment_Date",
+    type: "present",
+    // CustomModule1 → BON Registration Payment Date.
+    // Completes when the DateTime field contains a value.
     module: "CustomModule1"
   },
   {
@@ -3219,7 +3219,15 @@ const uploadDocument = async (
 ) => {
   const token = localStorage.getItem("icp_auth_token");
   if (!token) throw new Error("Not authenticated");
-  if (!file) throw new Error("No file selected");
+  if (!file) throw new Error("A PDF document is required.");
+
+  const isPdf =
+    String(file.type || "").toLowerCase() === "application/pdf" ||
+    /\.pdf$/i.test(String(file.name || ""));
+
+  if (!isPdf) {
+    throw new Error("Document uploads are restricted to PDF files only.");
+  }
 
   const formData = new FormData();
   formData.append("file", file);
@@ -3275,7 +3283,8 @@ const HIRING_REQUIRED_DOCUMENTS = [
   { key: "passportId", label: "Passport or Government ID", type: "Passport or ID" },
   { key: "birthCertificate", label: "Birth Certificate", type: "Birth Certificate" },
   { key: "license", label: "Professional License", type: "License" },
-  { key: "education", label: "Diploma or Degree", type: "Diploma or Degree" },
+  { key: "diploma", label: "Diploma", type: "Diploma" },
+  { key: "tor", label: "Transcript of Records (TOR)", type: "Transcript of Records" },
   { key: "commitmentAgreement", label: "Commitment Agreement", type: "Commitment Agreement" },
 ];
 
@@ -3291,7 +3300,7 @@ const HiringRequiredDocumentsUpload = ({ onClose, user, setStages }) => {
   const submit = async (event) => {
     event.preventDefault();
     if (!allSelected) {
-      toast.error("Select all seven required Hiring documents.");
+      toast.error("Select all eight required Hiring documents.");
       return;
     }
 
@@ -3353,7 +3362,7 @@ const HiringRequiredDocumentsUpload = ({ onClose, user, setStages }) => {
         )
       );
 
-      toast.success("All seven Hiring documents were attached to Recruit.");
+      toast.success("All eight Hiring documents were attached to Recruit.");
       setTimeout(onClose, 1200);
     } catch (error) {
       toast.error(error.message);
@@ -3365,7 +3374,7 @@ const HiringRequiredDocumentsUpload = ({ onClose, user, setStages }) => {
   return (
     <form onSubmit={submit} className="space-y-4">
       <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
-        All seven documents are required. They are uploaded to the candidate's Zoho Recruit record.
+        All eight documents are required. PDF files only. They are uploaded to the candidate's Zoho Recruit record.
       </div>
 
       {HIRING_REQUIRED_DOCUMENTS.map(item => {
@@ -3375,7 +3384,7 @@ const HiringRequiredDocumentsUpload = ({ onClose, user, setStages }) => {
             <span className="text-sm font-semibold">{item.label}</span>
             <input
               type="file"
-              accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+              accept=".pdf,application/pdf"
               disabled={submitting || result?.success}
               onChange={event =>
                 setFiles(prev => ({
@@ -3514,7 +3523,7 @@ const ImmigrationRenewalUpload = ({
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             <input
               type="file"
-              accept=".pdf,image/*"
+              accept=".pdf,application/pdf"
               disabled={submitting || results[item.key]?.success}
               onChange={event => setFiles(prev => ({
                 ...prev,
@@ -3670,7 +3679,7 @@ const RecruitUpload = ({ onClose, user, title, documentLabel, multiple = false, 
           type="file" 
           className="mt-2 text-sm"
           onChange={handleFileChange}
-          accept=".pdf,image/jpeg,image/png,image/webp,image/heic,image/heif"
+          accept=".pdf,application/pdf"
           multiple={multiple}
           required={files.length === 0}
         />
@@ -7393,14 +7402,36 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   };
 
   const printPacket = () => {
+    const root = document.getElementById("welcome-packet-print-root");
+    if (!root) {
+      toast.error("Welcome Packet is not ready to print.");
+      return;
+    }
+
+    const ancestors = [];
+    let node = root.parentElement;
+    while (node && node !== document.body) {
+      node.classList.add("welcome-print-ancestor");
+      ancestors.push(node);
+      node = node.parentElement;
+    }
+
     document.body.classList.add("printing-welcome-packet");
+
     const cleanup = () => {
       document.body.classList.remove("printing-welcome-packet");
+      ancestors.forEach(item => item.classList.remove("welcome-print-ancestor"));
       window.removeEventListener("afterprint", cleanup);
     };
-    window.addEventListener("afterprint", cleanup);
-    window.print();
-    window.setTimeout(cleanup, 1500);
+
+    window.addEventListener("afterprint", cleanup, { once: true });
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        window.print();
+        window.setTimeout(cleanup, 1800);
+      });
+    });
   };
 
   const DisplayValue = ({ value }) => {
@@ -7474,29 +7505,83 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     >
       <style>{`
         @media print {
+          @page {
+            size: auto;
+            margin: 10mm;
+          }
+
+          html,
+          body,
+          #root {
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            overflow: visible !important;
+            background: #ffffff !important;
+          }
+
           body.printing-welcome-packet * {
             visibility: hidden !important;
           }
+
+          body.printing-welcome-packet .welcome-print-ancestor {
+            visibility: visible !important;
+            position: static !important;
+            inset: auto !important;
+            width: auto !important;
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            overflow: visible !important;
+            transform: none !important;
+          }
+
           body.printing-welcome-packet #welcome-packet-print-root,
           body.printing-welcome-packet #welcome-packet-print-root * {
             visibility: visible !important;
           }
+
           body.printing-welcome-packet #welcome-packet-print-root {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
+            position: static !important;
+            display: block !important;
             width: 100% !important;
             max-width: none !important;
             height: auto !important;
             max-height: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
             overflow: visible !important;
+            background: #ffffff !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
           }
+
           body.printing-welcome-packet #welcome-packet-print-root section {
-            break-inside: avoid-page;
-            page-break-inside: avoid;
-          }
-          body.printing-welcome-packet {
+            break-inside: auto !important;
+            page-break-inside: auto !important;
             overflow: visible !important;
+          }
+
+          body.printing-welcome-packet #welcome-packet-print-root table,
+          body.printing-welcome-packet #welcome-packet-print-root tr,
+          body.printing-welcome-packet #welcome-packet-print-root img {
+            break-inside: avoid-page !important;
+            page-break-inside: avoid !important;
+          }
+
+          body.printing-welcome-packet #welcome-packet-print-root img {
+            max-width: 100% !important;
+            height: auto !important;
+          }
+
+          body.printing-welcome-packet #welcome-packet-print-root [class*="overflow-"],
+          body.printing-welcome-packet #welcome-packet-print-root [class*="max-h-"] {
+            overflow: visible !important;
+            max-height: none !important;
+          }
+
+          body.printing-welcome-packet .print\\:hidden {
+            display: none !important;
           }
         }
       `}</style>
@@ -11404,7 +11489,7 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages }) => {
 const RECEIPT_CATEGORIES = [
   { id: "visa_screen", label: "VISA Screen" },
   { id: "nclex_exam", label: "NCLEX Exam Fee" },
-  { id: "nclex_scheduling", label: "NCLEX Scheduling Fee" },
+  { id: "nclex_scheduling", label: "NCLEX Exam Scheduling Fee" },
   { id: "green_card", label: "Green Card" },
   { id: "license_endorsement", label: "Licensure Application" },
   { id: "nursys", label: "NURSYS" },
@@ -11493,18 +11578,24 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
         return;
       }
 
-      const response =
-        await fetch(
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 12000);
+
+      let response;
+      try {
+        response = await fetch(
           `${API_BASE}/api/reimbursement/expense-report`,
           {
-            cache:
-              "default",
+            cache: "no-store",
+            signal: controller.signal,
             headers: {
-              Authorization:
-                `Bearer ${token}`
+              Authorization: `Bearer ${token}`
             }
           }
         );
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
 
       const data =
         await response
@@ -20591,3 +20682,5 @@ export default function Pipeline() {
     </div>
   );
 }
+
+

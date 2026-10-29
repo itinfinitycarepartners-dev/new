@@ -2201,6 +2201,128 @@ export default function Profile() {
                 className="mt-1 w-full rounded-lg border border-[#e6def1] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
               />
             </label>
+          <div className="md:col-span-2 rounded-xl border border-[#e6def1] bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-[#302a42]">
+                  Dependents Travelling With Me
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Dependents over 18 must include a valid email and phone number.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowTravelDependantForm(previous => !previous);
+                  setTravelPlanningMessage("");
+                }}
+                className="inline-flex items-center border border-[#302a42] bg-white px-4 py-2 text-sm font-semibold text-[#302a42] hover:bg-slate-50"
+              >
+                + ADD Dependent
+              </button>
+            </div>
+
+            {approvedTravelDependants.length > 0 ? (
+              <div className="mt-4 space-y-2">
+                {approvedTravelDependants.map((item, index) => (
+                  <div
+                    key={`${item.firstName || "dependent"}-${item.lastName || ""}-${index}`}
+                    className="rounded-lg border bg-slate-50 px-3 py-2 text-sm"
+                  >
+                    <span className="font-semibold">
+                      {[item.firstName, item.lastName].filter(Boolean).join(" ") || `Dependent ${index + 1}`}
+                    </span>
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {[item.age !== null && item.age !== undefined ? `Age ${item.age}` : null, item.email || null, item.phone || null, item.passport_file_name ? `Passport: ${item.passport_file_name}` : null]
+                        .filter(Boolean).join(" · ")}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {showTravelDependantForm ? (
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                {[
+                  ["First Name", "firstName", "text"],
+                  ["Last Name", "lastName", "text"],
+                  ["DOB", "dob", "date"],
+                  ["Email", "email", "email"],
+                  ["Phone", "phone", "tel"]
+                ].map(([label, field, type]) => (
+                  <label key={field} className="block">
+                    <span className="text-xs font-medium text-muted-foreground">{label}</span>
+                    <input
+                      type={type}
+                      value={travelDependantDraft[field] || ""}
+                      onChange={event =>
+                        setTravelDependantDraft(previous => ({
+                          ...previous,
+                          [field]: event.target.value
+                        }))
+                      }
+                      className="mt-1 w-full rounded-lg border border-[#e6def1] px-3 py-2 text-sm"
+                    />
+                  </label>
+                ))}
+                <label className="block md:col-span-2">
+                  <span className="text-xs font-medium text-muted-foreground">Passport Attachment</span>
+                  <input
+                    type="file"
+                    accept=".pdf,application/pdf"
+                    onChange={event => {
+                      const file = event.target.files?.[0] || null;
+                      if (!file) {
+                        setTravelDependantDraft(previous => ({ ...previous, passportFile: null }));
+                        return;
+                      }
+                      const mime = String(file.type || "").toLowerCase();
+                      const isPdf = mime === "application/pdf" || /\.pdf$/i.test(file.name || "");
+                      if (!isPdf) {
+                        setTravelPlanningMessage("Passport attachment must be a PDF file.");
+                        event.target.value = "";
+                        return;
+                      }
+                      if (file.size > 15 * 1024 * 1024) {
+                        setTravelPlanningMessage("Passport attachment must be under 15MB.");
+                        event.target.value = "";
+                        return;
+                      }
+                      setTravelDependantDraft(previous => ({ ...previous, passportFile: file }));
+                      setTravelPlanningMessage("");
+                    }}
+                    className="mt-1 w-full rounded-lg border border-[#e6def1] bg-white px-3 py-2 text-sm"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">PDF only. Maximum 15MB.</p>
+                  {travelDependantDraft.passportFile ? (
+                    <p className="mt-1 text-xs font-semibold text-[#6d3bb8]">
+                      Selected: {travelDependantDraft.passportFile.name}
+                    </p>
+                  ) : null}
+                </label>
+                <div className="md:col-span-2 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowTravelDependantForm(false)}
+                    className="rounded-lg border px-4 py-2 text-sm font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={savingTravelDependant}
+                    onClick={addTravelDependant}
+                    className="rounded-lg bg-[#6d3bb8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    {savingTravelDependant ? "Saving..." : "Add Dependent"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+
             <label className="block">
               <span className="text-xs font-medium text-muted-foreground">
                 Total Travelling Including Yourself
@@ -2327,128 +2449,6 @@ export default function Profile() {
                 Options are loaded directly from CRM Deals field Final_Transportation_Plan.
               </p>
             </label>
-          </div>
-
-          <div className="mt-5 rounded-xl border border-[#e6def1] bg-white p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-[#302a42]">
-                  Dependents Travelling With Me
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Dependents over 18 must include a valid email and phone number.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowTravelDependantForm(previous => !previous);
-                  setTravelPlanningMessage("");
-                }}
-                className="inline-flex items-center border border-[#302a42] bg-white px-4 py-2 text-sm font-semibold text-[#302a42] hover:bg-slate-50"
-              >
-                + ADD Dependent
-              </button>
-            </div>
-
-            {approvedTravelDependants.length > 0 ? (
-              <div className="mt-4 space-y-2">
-                {approvedTravelDependants.map((item, index) => (
-                  <div
-                    key={`${item.firstName || "dependent"}-${item.lastName || ""}-${index}`}
-                    className="rounded-lg border bg-slate-50 px-3 py-2 text-sm"
-                  >
-                    <span className="font-semibold">
-                      {[item.firstName, item.lastName].filter(Boolean).join(" ") || `Dependent ${index + 1}`}
-                    </span>
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      {[item.age !== null && item.age !== undefined ? `Age ${item.age}` : null, item.email || null, item.phone || null, item.passport_file_name ? `Passport: ${item.passport_file_name}` : null]
-                        .filter(Boolean).join(" · ")}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-
-            {showTravelDependantForm ? (
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                {[
-                  ["First Name", "firstName", "text"],
-                  ["Last Name", "lastName", "text"],
-                  ["DOB", "dob", "date"],
-                  ["Email", "email", "email"],
-                  ["Phone", "phone", "tel"]
-                ].map(([label, field, type]) => (
-                  <label key={field} className="block">
-                    <span className="text-xs font-medium text-muted-foreground">{label}</span>
-                    <input
-                      type={type}
-                      value={travelDependantDraft[field] || ""}
-                      onChange={event =>
-                        setTravelDependantDraft(previous => ({
-                          ...previous,
-                          [field]: event.target.value
-                        }))
-                      }
-                      className="mt-1 w-full rounded-lg border border-[#e6def1] px-3 py-2 text-sm"
-                    />
-                  </label>
-                ))}
-                <label className="block md:col-span-2">
-                  <span className="text-xs font-medium text-muted-foreground">Passport Attachment</span>
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,.pdf"
-                    onChange={event => {
-                      const file = event.target.files?.[0] || null;
-                      if (!file) {
-                        setTravelDependantDraft(previous => ({ ...previous, passportFile: null }));
-                        return;
-                      }
-                      const mime = String(file.type || "").toLowerCase();
-                      const isImage = mime.startsWith("image/");
-                      const isPdf = mime === "application/pdf" || /\.pdf$/i.test(file.name || "");
-                      if (!isImage && !isPdf) {
-                        setTravelPlanningMessage("Passport attachment must be an image or PDF.");
-                        event.target.value = "";
-                        return;
-                      }
-                      if (file.size > 15 * 1024 * 1024) {
-                        setTravelPlanningMessage("Passport attachment must be under 15MB.");
-                        event.target.value = "";
-                        return;
-                      }
-                      setTravelDependantDraft(previous => ({ ...previous, passportFile: file }));
-                      setTravelPlanningMessage("");
-                    }}
-                    className="mt-1 w-full rounded-lg border border-[#e6def1] bg-white px-3 py-2 text-sm"
-                  />
-                  <p className="mt-1 text-xs text-muted-foreground">PDF, JPG, PNG, WEBP, HEIC or HEIF. Maximum 15MB.</p>
-                  {travelDependantDraft.passportFile ? (
-                    <p className="mt-1 text-xs font-semibold text-[#6d3bb8]">
-                      Selected: {travelDependantDraft.passportFile.name}
-                    </p>
-                  ) : null}
-                </label>
-                <div className="md:col-span-2 flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowTravelDependantForm(false)}
-                    className="rounded-lg border px-4 py-2 text-sm font-semibold"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    disabled={savingTravelDependant}
-                    onClick={addTravelDependant}
-                    className="rounded-lg bg-[#6d3bb8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                  >
-                    {savingTravelDependant ? "Saving..." : "Add Dependent"}
-                  </button>
-                </div>
-              </div>
-            ) : null}
           </div>
 
           {travelPlanningMessage ? (

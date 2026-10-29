@@ -57,7 +57,8 @@ const getAuthToken = () =>
   localStorage.getItem("icp_auth_token") || "";
 const DEPLOYMENT_RECEIPT_TYPES = [
   { id:"visa_screen", label:"VISA Screen" },
-  { id:"nclex_exam", label:"NCLEX Exam and Scheduling Fee" },
+  { id:"nclex_exam", label:"NCLEX Exam Fee" },
+  { id:"nclex_scheduling", label:"NCLEX Exam Scheduling Fee" },
   { id:"green_card", label:"Green Card" },
   { id:"license_endorsement", label:"Licensure Application" },
   { id:"nursys", label:"NURSYS" },
@@ -716,17 +717,16 @@ export default function Documents() {
       Boolean(
         user?.email
       ),
-    staleTime:
-      2 * 60 * 1000,
+    staleTime: 0,
     gcTime:
       5 * 60 * 1000,
     retry: 2,
     retryDelay:
       attempt => Math.min(500 * 2 ** attempt, 2000),
-    refetchOnMount:
-      false,
-    refetchOnWindowFocus:
-      false,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchInterval: 10000,
+    refetchIntervalInBackground: false,
     queryFn:
       async () => {
         const token =
@@ -742,9 +742,11 @@ export default function Documents() {
             {
               method:
                 "GET",
+              cache: "no-store",
               headers: {
                 Authorization:
-                  `Bearer ${token}`
+                  `Bearer ${token}`,
+                "Cache-Control": "no-cache"
               }
             }
           );
@@ -1292,10 +1294,14 @@ export default function Documents() {
           message: successMessage,
           fileName: selectedFile?.name || category?.label || "Document",
         });
-        if (payload.pending_approval === true) {
-          setOptimisticPendingCount((previous) =>
-            Math.max(previous, Number(documentData?.pending_count || 0)) + 1
-          );
+        if (payload.pending_approval === true || payload.receipt_review_pending === true) {
+          if (payload.pending_count !== undefined && payload.pending_count !== null) {
+            setOptimisticPendingCount(Number(payload.pending_count || 0));
+          } else {
+            setOptimisticPendingCount((previous) =>
+              Math.max(previous, Number(documentData?.pending_count || 0)) + 1
+            );
+          }
         }
         // Close/reset the upload form only after the success state has been queued.
         // The popup remains mounted even if the background library refresh reports loading.
@@ -1662,26 +1668,23 @@ export default function Documents() {
               </label>
               <input
                 type="file"
-                accept={
-                  selectedCategory ===
-                  "candidate-2x2-photo"
-                    ? "image/jpeg,image/png,image/webp"
-                    : undefined
-                }
-                onChange={
-                  event =>
-                    setSelectedFile(
-                      event.target.files
-                        ?.[0] ||
-                      null
-                    )
-                }
+                accept=".pdf,application/pdf"
+                onChange={event => {
+                  const file = event.target.files?.[0] || null;
+                  if (file && file.type !== "application/pdf" && !/\.pdf$/i.test(file.name || "")) {
+                    toast.error("Document uploads must be PDF files.");
+                    event.target.value = "";
+                    setSelectedFile(null);
+                    return;
+                  }
+                  setSelectedFile(file);
+                }}
                 className="mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
                 required
               />
               {selectedCategory === "candidate-2x2-photo" && (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Upload a JPG, PNG, or WebP passport-size / 2x2 photo.
+                  Upload this document as a PDF file.
                 </p>
               )}
               {selectedCategory === "prior-immigration-notices" && (
@@ -1752,7 +1755,7 @@ export default function Documents() {
               Awaiting Approval
             </p>
             <p className="mt-1 text-2xl font-bold">
-              {Math.max(Number(documentData?.pending_count || 0), optimisticPendingCount)}
+              {optimisticPendingCount}
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
               Waiting for review
@@ -1792,9 +1795,9 @@ export default function Documents() {
           </div>
         </div>
       )}
-      {Math.max(Number(documentData?.pending_count || 0), optimisticPendingCount) > 0 && (
+      {optimisticPendingCount > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          {Math.max(Number(documentData?.pending_count || 0), optimisticPendingCount)} document{Math.max(Number(documentData?.pending_count || 0), optimisticPendingCount) === 1 ? " is" : "s are"} awaiting administrator approval.
+          {optimisticPendingCount} document{optimisticPendingCount === 1 ? " is" : "s are"} awaiting administrator approval.
         </div>
       )}
       {Number(documentData?.rejected_count || 0) > 0 && (

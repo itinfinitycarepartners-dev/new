@@ -58,6 +58,7 @@ const writeAdminDocumentCache = (email, documents) => {
 const ADMIN_DOCUMENT_REJECTION_REASONS = [
   ...(Array.isArray(DOCUMENT_REJECTION_REASONS) ? DOCUMENT_REJECTION_REASONS : []),
   { value: "duplicate_document", label: "Duplicate", description: "A similar document was uploaded earlier" },
+  { value: "receipt_type_mismatch", label: "Does not match selected receipt type", description: "The uploaded receipt does not match the receipt type selected by the candidate" },
   { value: "right_channel", label: "Use the right email or message channel", description: "This is not the right platform please send an email or message to the appropriate department. ONLY one message or email." }
 ].filter((item,index,list) => list.findIndex(x => String(x?.value || "") === String(item?.value || "")) === index);
 
@@ -282,6 +283,7 @@ const buildAdminCandidatePipelineFlow = (
 
   const unqualified =
     [
+      "rejected",
       "unqualified",
       "not qualified-to close",
       "not qualified-to-close",
@@ -2288,7 +2290,14 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                 }
                                 className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
                               >
-                                Approve
+                                {approvalBusyKey === doc.approval_key ? (
+                                  <span className="flex items-center gap-2">
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    Approving…
+                                  </span>
+                                ) : (
+                                  "Approve"
+                                )}
                               </button>
 
                               <button
@@ -2305,7 +2314,14 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                 }
                                 className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
                               >
-                                Reject
+                                {approvalBusyKey === doc.approval_key ? (
+                                  <span className="flex items-center gap-2">
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    Processing…
+                                  </span>
+                                ) : (
+                                  "Reject"
+                                )}
                               </button>
                             </div>
                           </div>
@@ -3755,37 +3771,71 @@ const AdminRequestsPanel = ({ onOpenUser, notificationTarget = null, onReturnToN
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <button type="button" onClick={async () => {
-                    try {
-                      const { adminToken } = getTokens();
-                      const response = await fetch(`${API_BASE}/api/admin/travel-dependants/${encodeURIComponent(requestId)}/decision`, {
-                        method: "POST", credentials: "include",
-                        headers: { Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken, "Content-Type": "application/json" },
-                        body: JSON.stringify({ action: "approve" })
-                      });
-                      const data = await response.json().catch(() => ({}));
-                      if (!response.ok || data.success !== true) throw new Error(data.error || "Unable to approve dependent.");
-                      await load();
-                    } catch (error) { alert(error.message || "Unable to approve dependent."); }
-                  }} className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white">
-                    Approve Dependent
+                  <button
+                    type="button"
+                    disabled={busyId === requestId}
+                    onClick={async () => {
+                      setBusyId(requestId);
+                      try {
+                        const { adminToken } = getTokens();
+                        const response = await fetch(`${API_BASE}/api/admin/travel-dependants/${encodeURIComponent(requestId)}/decision`, {
+                          method: "POST", credentials: "include",
+                          headers: { Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken, "Content-Type": "application/json" },
+                          body: JSON.stringify({ action: "approve" })
+                        });
+                        const data = await response.json().catch(() => ({}));
+                        if (!response.ok || data.success !== true) throw new Error(data.error || "Unable to approve dependent.");
+                        await load();
+                      } catch (error) {
+                        alert(error.message || "Unable to approve dependent.");
+                      } finally {
+                        setBusyId("");
+                      }
+                    }}
+                    className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white disabled:cursor-wait disabled:opacity-70"
+                  >
+                    {busyId === requestId ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Approving…
+                      </span>
+                    ) : (
+                      "Approve Dependent"
+                    )}
                   </button>
-                  <button type="button" onClick={async () => {
-                    const reason = window.prompt("Reason for rejecting this dependent request:");
-                    if (reason === null) return;
-                    try {
-                      const { adminToken } = getTokens();
-                      const response = await fetch(`${API_BASE}/api/admin/travel-dependants/${encodeURIComponent(requestId)}/decision`, {
-                        method: "POST", credentials: "include",
-                        headers: { Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken, "Content-Type": "application/json" },
-                        body: JSON.stringify({ action: "reject", reason })
-                      });
-                      const data = await response.json().catch(() => ({}));
-                      if (!response.ok || data.success !== true) throw new Error(data.error || "Unable to reject dependent.");
-                      await load();
-                    } catch (error) { alert(error.message || "Unable to reject dependent."); }
-                  }} className="rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white">
-                    Reject Dependent
+                  <button
+                    type="button"
+                    disabled={busyId === requestId}
+                    onClick={async () => {
+                      const reason = window.prompt("Reason for rejecting this dependent request:");
+                      if (reason === null) return;
+                      setBusyId(requestId);
+                      try {
+                        const { adminToken } = getTokens();
+                        const response = await fetch(`${API_BASE}/api/admin/travel-dependants/${encodeURIComponent(requestId)}/decision`, {
+                          method: "POST", credentials: "include",
+                          headers: { Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken, "Content-Type": "application/json" },
+                          body: JSON.stringify({ action: "reject", reason })
+                        });
+                        const data = await response.json().catch(() => ({}));
+                        if (!response.ok || data.success !== true) throw new Error(data.error || "Unable to reject dependent.");
+                        await load();
+                      } catch (error) {
+                        alert(error.message || "Unable to reject dependent.");
+                      } finally {
+                        setBusyId("");
+                      }
+                    }}
+                    className="rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white disabled:cursor-wait disabled:opacity-70"
+                  >
+                    {busyId === requestId ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Rejecting…
+                      </span>
+                    ) : (
+                      "Reject Dependent"
+                    )}
                   </button>
                 </div>
               </div>
@@ -4647,6 +4697,7 @@ const AdminReceiptsPanel = () => {
                         <option value="">Reject reason...</option>
                         <option value="Duplicate">Duplicate</option>
                         <option value="Not a receipt">Not a receipt</option>
+                        <option value="Does not match selected receipt type">Does not match selected receipt type</option>
                         <option value="Not itemized">Not itemized</option>
                         <option value="Not eligible for reimbursement">
                           Not eligible for reimbursement
