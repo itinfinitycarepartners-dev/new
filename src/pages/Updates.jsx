@@ -15,7 +15,7 @@ import { tokenStorage, websocket } from "@/api/icpClient";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
-const AUTO_REFRESH_MS = 10000;
+const AUTO_REFRESH_MS = 30000;
 const getUpdateIcon = type => {
   const normalized = String(type || "").toLowerCase();
   if (normalized === "arrival") return <PlaneLanding className="h-5 w-5 text-blue-500" />;
@@ -93,11 +93,8 @@ export default function Updates() {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     try {
-      if (refreshZoho) {
-        await fetch(`${API_BASE}/api/zoho/my-deals?refresh=true&_=${Date.now()}`, {
-          cache: "no-store", headers: { Authorization: `Bearer ${token}` }
-        }).catch(() => null);
-      }
+      // Zoho refresh is handled by backend background synchronization.
+      // Never block the Updates page on a live Zoho request.
       const response = await fetch(`${API_BASE}/api/updates?limit=100&_=${Date.now()}`, {
         cache: "no-store", headers: { Authorization: `Bearer ${token}` }
       });

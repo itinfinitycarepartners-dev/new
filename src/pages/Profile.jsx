@@ -182,6 +182,7 @@ function Section({
 export default function Profile() {
   const { user } = useAuth();
   const [profileData, setProfileData] = useState(null);
+  const [showAllImmigration, setShowAllImmigration] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [currentEmployer, setCurrentEmployer] = useState("");
@@ -422,7 +423,7 @@ export default function Profile() {
     window.addEventListener("crm-recruit-updated", refresh);
     window.addEventListener("pipeline-updated", refresh);
 
-    const profileRefreshTimer = window.setInterval(fetchProfile, 10 * 60 * 1000);
+    const profileRefreshTimer = window.setInterval(fetchProfile, 2 * 60 * 1000);
 
     return () => {
       cancelled = true;
@@ -528,7 +529,7 @@ export default function Profile() {
     window.addEventListener("candidate-data-updated", refresh);
     window.addEventListener("crm-recruit-updated", refresh);
     window.addEventListener("pipeline-updated", refresh);
-    const timer = window.setInterval(fetchRecruitData, 10 * 60 * 1000);
+    const timer = window.setInterval(fetchRecruitData, 2 * 60 * 1000);
 
     return () => {
       cancelled = true;
@@ -682,12 +683,15 @@ export default function Profile() {
       "candidate-data-updated",
       refresh
     );
+    const onProfileVisibility = () => { if (!document.hidden) loadExtendedProfile(); };
+    document.addEventListener("visibilitychange", onProfileVisibility);
 
     return () => {
       window.removeEventListener(
         "candidate-data-updated",
         refresh
       );
+      document.removeEventListener("visibilitychange", onProfileVisibility);
     };
   }, [user?.email]);
 
@@ -879,8 +883,7 @@ export default function Profile() {
       ];
 
       const bankingFields = [
-        "finalBankingPlan",
-        "finalBankNameCity"
+        "finalBankingPlan"
       ];
 
       const fields =
@@ -949,12 +952,13 @@ export default function Profile() {
             ? "Banking plan saved permanently."
             : "Travel and arrival planning saved permanently.";
 
+      const crmOk = data.crmSync?.attempted !== true || data.crmSync?.success === true;
       if (isBanking) {
         setBankingPlanningMessage(message);
-        setBankingSaved(true);
+        setBankingSaved(crmOk);
       } else {
         setTravelPlanningMessage(message);
-        setTravelSaved(true);
+        setTravelSaved(crmOk);
       }
 
       window.dispatchEvent(
@@ -1956,9 +1960,10 @@ export default function Profile() {
             </div>
             <button
               type="button"
+              onClick={() => setShowAllImmigration(value => !value)}
               className="rounded-[7px] border border-[#e7ddf8] bg-white px-[10px] py-[5px] text-[9.5px] font-semibold text-[#8b5bd5] shadow-[0_1px_3px_rgba(92,54,160,0.04)] transition hover:bg-[#faf7ff]"
             >
-              View All
+              {showAllImmigration ? "Show Less" : "View All"}
             </button>
           </div>
 
@@ -2071,6 +2076,10 @@ export default function Profile() {
                   icon={UserCheck}
                   alwaysVisible
                 />
+                {showAllImmigration && (<>
+                  <InfoRow label="Embassy Interview Date" value={getFirstFormattedDate("Embassy_Interview") || "—"} icon={Calendar} alwaysVisible />
+                  <InfoRow label="Visa Status" value={formatEligibilityValue(getFirstValue("Visa_Status")) || "—"} icon={BadgeCheck} alwaysVisible />
+                </>)}
                 <InfoRow
                   label="Embassy Location"
                   value={
@@ -2445,28 +2454,6 @@ export default function Profile() {
                 ))}
               </select>
             </label>
-
-            <label className="block">
-                <span className="text-xs font-medium text-muted-foreground">
-                  Bank Name and City
-                </span>
-                <input
-                  type="text"
-                  value={travelPlanning.finalBankNameCity || ""}
-                  onChange={event =>
-                    {
-                      setTravelPlanning(previous => ({
-                        ...previous,
-                        finalBankNameCity: event.target.value
-                      }));
-                      setBankingSaved(false);
-                      setBankingPlanningMessage("");
-                    }
-                  }
-                  placeholder="e.g. Chase Bank, Nashville"
-                  className="mt-1 w-full rounded-lg border border-[#e6def1] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
-                />
-              </label>
           </div>
 
           <p className="mt-3 text-xs font-medium text-amber-700">

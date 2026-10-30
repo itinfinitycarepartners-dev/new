@@ -47,7 +47,13 @@ const readAdminDocumentCache = email => {
     const raw = localStorage.getItem(`${ADMIN_DOC_CACHE_PREFIX}${String(email || "").trim().toLowerCase()}`);
     const parsed = raw ? JSON.parse(raw) : null;
     if (!parsed?.documents || Date.now() - Number(parsed.savedAt || 0) > ADMIN_DOC_CACHE_MAX_AGE_MS) return null;
-    return parsed.documents;
+
+    // An empty array is not proof that a candidate has no documents. It often
+    // means the durable/provider inventory had not finished when the cache was
+    // written. Treat it as a cold cache so Admin keeps showing Loading documents.
+    return Array.isArray(parsed.documents) && parsed.documents.length
+      ? parsed.documents
+      : null;
   } catch (_) { return null; }
 };
 const writeAdminDocumentCache = (email, documents) => {
@@ -80,7 +86,9 @@ const preloadAdminDocumentIndex = () => {
       const data = await response.json().catch(() => ({}));
       const inventories = data?.inventories || {};
       for (const [email, documents] of Object.entries(inventories)) {
-        if (Array.isArray(documents)) writeAdminDocumentCache(email, documents);
+        if (Array.isArray(documents) && documents.length) {
+          writeAdminDocumentCache(email, documents);
+        }
       }
     })
     .catch(error => {
@@ -872,10 +880,9 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       setDocuments(cachedDocuments);
       setDocumentsLoading(false);
     } else {
-      // Cold candidate: never flash a false "No documents" state while the
-      // local PostgreSQL inventory is arriving. The modal itself still opens instantly.
+      // Cold/empty cache is never a terminal "no documents" state.
       setDocuments([]);
-      setDocumentsLoading(false);
+      setDocumentsLoading(true);
     }
 
     setLoading(false);
@@ -974,10 +981,11 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
           setDocuments(warmDocs);
           setDocumentsLoading(false);
         } else {
-          // No spinner. The server hot index normally resolves in a few milliseconds.
-          // Keep the panel interactive while the first metadata snapshot arrives.
+          // Cold candidate: keep only this panel in a lightweight spinner until
+          // the first durable/provider snapshot completes. Never paint a false
+          // "No documents found" state while synchronization is still running.
           setDocuments([]);
-          setDocumentsLoading(false);
+          setDocumentsLoading(true);
         }
 
         // FIRST request is PostgreSQL/cache only. It must never wait for Zoho.
@@ -985,9 +993,9 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
           `${API_BASE}/api/admin/documents/${email}?snapshot=1&_=${Date.now()}`,
           { headers, credentials: 'include', cache: 'no-store' }
         )
-          .then(async response => {
-            if (!response.ok) throw new Error(`Document list returned ${response.status}`);
-            const data = await response.json();
+          .then(async result => {
+            if (!result?.ok) throw new Error(`Document list returned ${result?.status || 0}`);
+            const data = result.data || {};
             const allDocs = Array.isArray(data.documents)
               ? data.documents.filter(document => {
                   const source = String(document?.source || '').toLowerCase();
@@ -1002,76 +1010,56 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
               new Date(a.uploaded_at || a.Created_Time || 0)
             );
             setDocuments(allDocs);
-            if (allDocs.length || data.complete === true) setDocumentsLoading(false);
-
-            // Empty snapshot must not become a dead end. Pull the proactively
-            // materialized global index once more in the background.
-            if (!allDocs.length) {
-              void refreshAdminDocumentIndex();
+            if (allDocs.length || data.complete === true) {
+              setDocumentsLoading(false);
+            } else {
+              setDocumentsLoading(true);
             }
-            // Backend now returns the complete merged inventory (local + CRM +
-            // Recruit + CustomModule1), so this snapshot is safe to paint
-            // instantly the next time this candidate is opened.
+
             if (allDocs.length) writeAdminDocumentCache(user.email, allDocs);
 
-            // The backend returns PostgreSQL/persisted snapshot immediately and
-            // refreshes Zoho in the background. Re-read the lightweight endpoint
-            // without blocking the modal so newly discovered provider documents
-            // appear during the same open session.
-            // Trigger one provider sync without blocking the tab, then repaint from
-            // the lightweight persisted snapshot. CRM/Recruit latency never owns the UI.
-            // Provider synchronization can legitimately take several seconds for a
-            // candidate with records in CRM + Recruit + CustomModule1. Poll only the
-            // cheap PostgreSQL snapshot until the backend marks it complete. The
-            // candidate modal and the rest of Admin remain fully interactive.
-            // If the snapshot is empty/stale, launch ONE provider refresh in the
-            // background. Never await this request in the UI.
-            void safeAdminDocumentFetch(
-              `${API_BASE}/api/admin/documents/${email}?refresh=1&_=${Date.now()}`,
-              { headers, credentials: 'include', cache: 'no-store' }
-            );
+            // Start at most one candidate-specific stale-while-revalidate sync.
+            // The backend deduplicates concurrent work and refuses to re-query Zoho
+            // while the durable snapshot is younger than 10 minutes. The response
+            // itself remains local-first and immediate.
+            if (data.complete !== true || allDocs.length === 0) {
+              void safeAdminDocumentFetch(
+                `${API_BASE}/api/admin/documents/${email}?refresh=1&_=${Date.now()}`,
+                { headers, credentials: 'include', cache: 'no-store' }
+              );
+            }
 
-            const pollDelays = [500, 1500, 3500, 7000];
-            let providerSyncComplete = false;
-            pollDelays.forEach(delay => {
+            // Bounded polling only: repaint when the background sync finishes.
+            [400, 900, 1800, 3500, 6000, 9500].forEach(delay => {
               window.setTimeout(async () => {
-                if (providerSyncComplete) return;
-                try {
-                  const refreshed = await fetch(`${API_BASE}/api/admin/documents/${email}?snapshot=1&_=${Date.now()}`, {
-                    headers, credentials:'include', cache:'no-store'
-                  });
-                  if (!refreshed.ok) return;
-                  const refreshedData = await refreshed.json().catch(() => ({}));
-                  if (!Array.isArray(refreshedData.documents)) return;
-                  const nextDocs = refreshedData.documents.filter(document => {
-                    const source = String(document?.source || '').toLowerCase();
-                    return source !== 'recruit_field' || Boolean(
-                      document?.attachment_id || document?.recruit_attachment_id ||
-                      document?.crm_attachment_id || document?.document_id
-                    );
-                  });
-                  nextDocs.sort((a,b) => new Date(b.uploaded_at || b.Created_Time || 0) - new Date(a.uploaded_at || a.Created_Time || 0));
-
-                  // Never replace a populated list with a transient empty snapshot.
-                  // This is especially important while Zoho synchronization is still
-                  // running or one provider is temporarily unavailable.
-                  setDocuments(current => nextDocs.length || !Array.isArray(current) || current.length === 0 ? nextDocs : current);
-                  if (nextDocs.length) {
-                    writeAdminDocumentCache(user.email, nextDocs);
-                    setDocumentsLoading(false);
-                  }
-                  providerSyncComplete = refreshedData.complete === true;
-                  if (providerSyncComplete) setDocumentsLoading(false);
-                } catch (_) {}
+                const refreshed = await safeAdminDocumentFetch(
+                  `${API_BASE}/api/admin/documents/${email}?snapshot=1&_=${Date.now()}`,
+                  { headers, credentials: 'include', cache: 'no-store' }
+                );
+                const next = Array.isArray(refreshed?.data?.documents) ? refreshed.data.documents : [];
+                if (next.length) {
+                  next.sort((a,b) => new Date(b.uploaded_at || b.Created_Time || 0) - new Date(a.uploaded_at || a.Created_Time || 0));
+                  setDocuments(next);
+                  writeAdminDocumentCache(user.email, next);
+                  setDocumentsLoading(false);
+                } else if (refreshed?.data?.complete === true) {
+                  setDocuments([]);
+                  setDocumentsLoading(false);
+                }
               }, delay);
             });
           })
           .catch(error => {
             console.warn('Unable to refresh candidate documents:', error);
-            // Keep the last successful snapshot visible. A transient Zoho/API
-            // failure must never blank the candidate's document section.
+
+            // Never convert a provider/network failure into "No documents found".
+            // If we already have documents show them; otherwise remain in the
+            // explicit loading/synchronizing state requested for Admin.
+            setDocumentsLoading(current =>
+              documents.length > 0 ? false : true
+            );
           })
-          .finally(() => setDocumentsLoading(false));
+          .finally(() => {});
 
         // The admin endpoint is the source of truth for the candidate's full
         // profile, MongoDB pipeline, submitted aftercare dates, and login history.
@@ -1193,11 +1181,21 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
         // of the pipeline request, so slow pipeline data cannot hold the list.
         const [, sharedPipelineRes] = await Promise.allSettled([
           documentsLoadPromise,
-          fetch(`${API_BASE}/api/pipeline/get?email=${email}&_=${Date.now()}`, {
-            headers,
-            credentials: 'include',
-            cache: 'no-store'
-          })
+          (async () => {
+            const requestPipeline = () =>
+              fetch(`${API_BASE}/api/pipeline/get?email=${email}&_=${Date.now()}`, {
+                headers,
+                credentials:'include',
+                cache:'no-store'
+              });
+
+            let response = await requestPipeline();
+            if (!response.ok) {
+              await new Promise(resolve => window.setTimeout(resolve, 500));
+              response = await requestPipeline();
+            }
+            return response;
+          })()
         ]);
 
         if (sharedPipelineRes.status === 'fulfilled' && sharedPipelineRes.value.ok) {
@@ -1515,7 +1513,9 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     } else {
       setDocuments([]);
     }
-    setDocumentsLoading(false);
+    // The notification can identify a target row, but the complete inventory
+    // still needs to hydrate. Keep the loading state active until documents arrive.
+    setDocumentsLoading(true);
   }, [user?.email, user?._notificationDocument]);
 
   const updateDocumentApproval = async (
@@ -1717,22 +1717,12 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   };
 
   useEffect(() => {
-    if (activeTab !== "expense-report" || !user?.email) return;
-    let cancelled = false;
-    setCandidateExpenseReportLoading(true);
-    const { adminToken } = getTokens();
-    fetch(`${API_BASE}/api/admin/reimbursement/expense-report?email=${encodeURIComponent(user.email)}&_=${Date.now()}`, {
-      cache: "no-store", credentials: "include",
-      headers: { Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken }
-    })
-      .then(async response => {
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok || data.success !== true) throw new Error(data.error || "Unable to load expense report.");
-        if (!cancelled) setCandidateExpenseReport(data.report || null);
-      })
-      .catch(error => { if (!cancelled) setDocActionError(error.message || "Unable to load expense report."); })
-      .finally(() => { if (!cancelled) setCandidateExpenseReportLoading(false); });
-    return () => { cancelled = true; };
+    // ReimbursementExpensesView uses the same candidate endpoint in Admin mode,
+    // which guarantees exact parity with what the candidate sees.
+    if (activeTab !== "expense-report") {
+      setCandidateExpenseReport(null);
+      setCandidateExpenseReportLoading(false);
+    }
   }, [activeTab, user?.email]);
 
   if (!user) return null;
@@ -1857,11 +1847,15 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
               </button>
               <button
                 type="button"
-                disabled={!rejectionReason}
+                disabled={!rejectionReason || Boolean(approvalBusyKey)}
                 onClick={() => updateDocumentApproval(rejectingDocument, "reject", rejectionReason)}
                 className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
               >
-                Reject document
+                {approvalBusyKey ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Processing…
+                  </span>
+                ) : "Reject document"}
               </button>
             </div>
           </div>
@@ -2306,20 +2300,12 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                       <AlertTriangle className="w-4 h-4 shrink-0" /> {docActionError}
                     </div>
                   )}
-                  {documentsLoading ? (
-                    <div className="flex items-center justify-center gap-3 rounded-xl border bg-white py-12 text-sm font-medium text-gray-600">
-                      <Loader2 className="h-5 w-5 animate-spin text-purple-600" /> Loading candidate documents…
-                    </div>
-                  ) : documents.length === 0 && !documentIndexReady ? (
-                    <div className="flex items-center justify-center gap-3 rounded-xl border bg-white py-12 text-sm font-medium text-gray-600">
-                      <Loader2 className="h-5 w-5 animate-spin text-purple-600" />
-                      Preparing candidate documents…
-                    </div>
-                  ) : documents.length === 0 ? (
-                    <div className="text-center py-12 bg-white rounded-xl border border-dashed border-gray-300">
-                      <FolderOpen className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                      <p className="text-gray-600 font-medium text-lg">No documents found.</p>
-                      <p className="text-sm text-gray-400 mt-1">The synchronized document index contains no documents for this candidate.</p>
+                  {documentsLoading || documents.length === 0 ? (
+                    <div className="flex min-h-[190px] items-center justify-center rounded-xl border bg-white">
+                      <div className="flex flex-col items-center gap-3 text-sm font-medium text-gray-600">
+                        <Loader2 className="h-8 w-8 animate-spin text-purple-600" />
+                        <span>Loading documents…</span>
+                      </div>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2414,7 +2400,11 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                     disabled={approvalBusyKey === doc.approval_key}
                                     className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
                                   >
-                                    {approvalBusyKey === doc.approval_key ? "Approving…" : "Approve"}
+                                    {approvalBusyKey === doc.approval_key ? (
+                                      <span className="inline-flex items-center gap-1.5">
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Approving…
+                                      </span>
+                                    ) : "Approve"}
                                   </button>
                                   <button
                                     type="button"
@@ -2422,7 +2412,11 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                     disabled={approvalBusyKey === doc.approval_key}
                                     className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
                                   >
-                                    Reject
+                                    {approvalBusyKey === doc.approval_key ? (
+                                      <span className="inline-flex items-center gap-1.5">
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Processing…
+                                      </span>
+                                    ) : "Reject"}
                                   </button>
                                 </>
                               )}
@@ -5533,12 +5527,6 @@ const AdminPanel = () => {
       await preloadAdminDocumentIndex();
       if (!cancelled) setDocumentIndexReady(true);
 
-      // Backend proactively materializes all candidates after boot. Pull that
-      // completed index once more without tying it to any candidate click.
-      window.setTimeout(async () => {
-        await refreshAdminDocumentIndex();
-        if (!cancelled) setDocumentIndexReady(true);
-      }, 4000);
     };
 
     void warm();

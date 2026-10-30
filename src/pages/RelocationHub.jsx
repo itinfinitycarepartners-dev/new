@@ -1,12 +1,15 @@
 // @ts-nocheck
 import { useQuery } from "@tanstack/react-query";
-import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
 import { useState, useEffect } from "react";
 import { MapPin, Cloud, CloudSun, CloudRain, Snowflake, Sun, ExternalLink, Building2, GraduationCap, ShoppingBag, Heart, Bus, Utensils, Loader2, Wifi, Info, Plane, Calendar, Phone, Mail, Thermometer, Wind } from "lucide-react";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
+
+const API_BASE =
+  (import.meta.env.VITE_API_BASE_URL || "")
+    .replace(/\/$/, "");
 
 // Fix Leaflet icon issue
 delete L.Icon.Default.prototype._getIconUrl;
@@ -262,14 +265,30 @@ export default function RelocationHub() {
   const [loadingInfo, setLoadingInfo] = useState(false);
   const [error, setError] = useState(null);
 
-  const { data: profiles = [] } = useQuery({
-    queryKey: ["candidateProfile", user?.email],
-    queryFn: () => base44.entities.CandidateProfile.filter({ email: user?.email }),
+  const { data: relocationProfile = null } = useQuery({
+    queryKey: ["relocationHubProfile", user?.email],
+    queryFn: async () => {
+      const token = localStorage.getItem("icp_auth_token");
+      const response = await fetch(`${API_BASE}/api/relocation-hub/data?_=${Date.now()}`, {
+        cache: "no-store",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json"
+        }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || "Unable to load relocation destination.");
+      }
+      return data.profile || null;
+    },
     enabled: !!user?.email,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: true
   });
 
-  // Extract the profile intelligently, falling back to auth context if needed
-  const profile = profiles[0] || candidateData || user;
+  // Server CRM data is authoritative; auth context remains the instant fallback.
+  const profile = relocationProfile || candidateData || user;
 
   // Helper to discard em-dash and empty spaces returned by CRM / Recruit.
   const getValidField = (fieldValue) => {
@@ -339,12 +358,18 @@ export default function RelocationHub() {
   const destinationState = getProfileField(
     "destination_state",
     "Destination_State",
+    "Hospital_State",
+    "hospitalState",
     "state"
   );
 
   const fallbackDestination = getProfileField(
     "destination_city",
     "Destination_City",
+    "Final_Destination_City",
+    "Final_Destination",
+    "Hospital_City",
+    "hospitalCity",
     "hiredlocation",
     "Hired_Location"
   );

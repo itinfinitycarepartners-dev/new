@@ -2,7 +2,7 @@
 // src/pages/Messages.jsx
 import React, { useState } from "react";
 import ConversationList from "../components/messaging/ConversationList";
-import { messaging } from "@/api/icpClient";
+import { tokenStorage } from "@/api/icpClient";
 import { Megaphone, Loader2, X, CheckCircle2 } from "lucide-react";
 
 const API_BASE =
@@ -18,14 +18,12 @@ export default function Messages() {
 
   const sendBroadcast = async event => {
     event.preventDefault();
-
     const message = content.trim();
 
     if (!message) {
       setError("Enter a community message.");
       return;
     }
-
     if (sending) return;
 
     setSending(true);
@@ -33,9 +31,23 @@ export default function Messages() {
     setSuccess("");
 
     try {
-      const data = await messaging.sendUserBroadcast(message);
+      const token = tokenStorage.get();
+      if (!token) throw new Error("Your session has expired. Please sign in again.");
 
-      if (!data || data.success !== true) {
+      const response = await fetch(`${API_BASE}/api/messaging/user-broadcast`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ content: message })
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || data.success !== true) {
         throw new Error(
           data?.error ||
           data?.message ||
@@ -50,10 +62,7 @@ export default function Messages() {
       window.dispatchEvent(
         new CustomEvent("messaging-updated", {
           detail: {
-            conversationId:
-              data.conversation?._id ||
-              data.conversation?.id ||
-              "community",
+            conversationId: "community",
             type: "broadcast"
           }
         })
@@ -75,7 +84,7 @@ export default function Messages() {
           <div>
             <h1 className="text-lg font-bold text-slate-900">Messages</h1>
             <p className="text-xs text-slate-500">
-              You have two message spaces: Admin Messages and Community Messages.
+              Message Admin, IT, Recruitment, Immigration, Deployment, Aftercare, or the Public community.
             </p>
           </div>
 
@@ -108,7 +117,7 @@ export default function Messages() {
       )}
 
       <ConversationList
-        allowDirectMessaging={false}
+        allowDirectMessaging={true}
         allowBroadcastMessaging={true}
         hideStartChat
       />
@@ -125,7 +134,7 @@ export default function Messages() {
                   New Community Message
                 </h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  Post a message to the shared Community Messages thread.
+                  Post a message to the shared Public Messages thread.
                 </p>
               </div>
               <button
@@ -146,7 +155,7 @@ export default function Messages() {
                 <textarea
                   value={content}
                   onChange={e => setContent(e.target.value)}
-                  placeholder="Write your broadcast message..."
+                  placeholder="Write your community message..."
                   rows={7}
                   required
                   className="mt-1 w-full resize-y rounded-lg border px-3 py-2 text-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200"

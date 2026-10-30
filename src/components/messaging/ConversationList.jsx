@@ -13,6 +13,104 @@ import {
   Users
 } from 'lucide-react';
 
+const CANDIDATE_MESSAGE_DEPARTMENTS = [
+  { id: "admin-direct", department: "admin", label: "Admin", type: "direct" },
+  { id: "community", department: "public", label: "Public", type: "community" },
+  { id: "it", department: "it", label: "IT", type: "direct" },
+  { id: "recruitment", department: "recruitment", label: "Recruitment", type: "direct" },
+  { id: "immigration", department: "immigration", label: "Immigration", type: "direct" },
+  { id: "deployment", department: "deployment", label: "Deployment", type: "direct" },
+  { id: "aftercare", department: "aftercare", label: "Aftercare", type: "direct" }
+];
+
+const normalizeDepartmentId = value => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "admin" || raw === "admin-direct") return "admin";
+  if (raw === "community" || raw === "public" || raw === "broadcast") return "public";
+  if (raw === "recruit" || raw === "recruiting" || raw === "recruitment") return "recruitment";
+  if (raw === "immigration") return "immigration";
+  if (raw === "deployment") return "deployment";
+  if (raw === "aftercare" || raw === "after-care") return "aftercare";
+  if (raw === "it" || raw === "information technology") return "it";
+  return raw || "admin";
+};
+
+const virtualConversationIdForDepartment = department => {
+  const normalized = normalizeDepartmentId(department);
+  if (normalized === "admin") return "admin-direct";
+  if (normalized === "public") return "community";
+  return normalized;
+};
+
+const mergeRequiredCandidateConversations = conversations => {
+  const rows = Array.isArray(conversations) ? conversations : [];
+  const byDepartment = new Map();
+
+  for (const row of rows) {
+    const department = normalizeDepartmentId(
+      row?.department ||
+      row?._id ||
+      (row?.type === "community" ? "public" : "")
+    );
+    const existing = byDepartment.get(department);
+    if (!existing || new Date(row?.lastMessageAt || 0) > new Date(existing?.lastMessageAt || 0)) {
+      byDepartment.set(department, row);
+    }
+  }
+
+  return CANDIDATE_MESSAGE_DEPARTMENTS.map(definition => {
+    const existing = byDepartment.get(definition.department);
+    if (existing) {
+      return {
+        ...existing,
+        _id: definition.id,
+        virtual: true,
+        type: definition.type,
+        department: definition.department,
+        groupName: existing.groupName || `${definition.label} Messages`
+      };
+    }
+
+    return {
+      _id: definition.id,
+      virtual: true,
+      type: definition.type,
+      department: definition.department,
+      groupName: `${definition.label} Messages`,
+      participants: [],
+      unreadCount: 0,
+      lastMessage: null,
+      lastMessageAt: null
+    };
+  });
+};
+
+const candidateMessagingRequest = async (path, options = {}) => {
+  const token = tokenStorage.get();
+  if (!token) throw new Error("Your session has expired. Please sign in again.");
+
+  const response = await fetch(
+    `${import.meta.env.VITE_API_BASE_URL || "http://localhost:4000"}${path}`,
+    {
+      ...options,
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+        ...(options.headers || {})
+      }
+    }
+  );
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.success === false) {
+    throw new Error(data.error || data.message || `Messaging request failed (${response.status}).`);
+  }
+  return data;
+};
+
+
 export default function ConversationList({
   allowDirectMessaging = false,
   allowBroadcastMessaging = false,
@@ -110,7 +208,11 @@ export default function ConversationList({
       loadingMessagesRef.current = true;
       setLoadingMessages(true);
       
-      const response = await messaging.getMessages(conversationId, { limit: 50, before: before });
+      const query = new URLSearchParams({ limit: "100" });
+      if (before) query.set("before", before);
+      const response = await candidateMessagingRequest(
+        `/api/messaging/messages/${encodeURIComponent(conversationId)}?${query.toString()}`
+      );
       
       if (response.success) {
         const newMessages = response.messages || [];
@@ -145,11 +247,16 @@ export default function ConversationList({
           }
         });
         
-        messaging.markAsRead(conversationId).then((res) => {
-          if (res.success) {
-            setConversations(prev => prev.map(conv => conv._id === conversationId ? { ...conv, unreadCount: 0 } : conv));
-          }
-        }).catch(err => console.error('Mark read error:', err));
+        candidateMessagingRequest(
+          `/api/messaging/read/${encodeURIComponent(conversationId)}`,
+          { method: "POST" }
+        ).then(() => {
+          setConversations(prev =>
+            prev.map(conv =>
+              conv._id === conversationId ? { ...conv, unreadCount: 0 } : conv
+            )
+          );
+        }).catch(err => console.error("Mark read error:", err));
       }
     } catch (error) {
       console.error('Load messages error:', error);
@@ -164,9 +271,9 @@ export default function ConversationList({
     const fetchConversations = async () => {
       try {
         setLoading(true);
-        const response = await messaging.getConversations();
+        const response = await candidateMessagingRequest("/api/messaging/conversations");
         if (isMounted && response.success) {
-          const convs = response.conversations || [];
+          const convs = mergeRequiredCandidateConversations(response.conversations || []);
           setConversations(convs);
           const totalUnread = convs.reduce((sum, conv) => sum + (conv.unreadCount || 0), 0);
           setUnreadCount(totalUnread);
@@ -186,9 +293,9 @@ export default function ConversationList({
   useEffect(() => {
     const handleMessagingUpdated = async (event) => {
       try {
-        const response = await messaging.getConversations();
+        const response = await candidateMessagingRequest("/api/messaging/conversations");
         if (response.success) {
-          const convs = response.conversations || [];
+          const convs = mergeRequiredCandidateConversations(response.conversations || []);
           setConversations(convs);
           setUnreadCount(convs.reduce((sum, item) => sum + (item.unreadCount || 0), 0));
           // Keep the full conversation list visible after a broadcast.
@@ -230,7 +337,17 @@ export default function ConversationList({
     if (!content.trim() || !parentMessageId || !selectedId) return;
     setSendingReply(true);
     try {
-      const response = await messaging.sendReply(selectedId, parentMessageId, content);
+      const response = await candidateMessagingRequest(
+        "/api/messaging/reply",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            conversationId: selectedId,
+            parentMessageId,
+            content
+          })
+        }
+      );
       if (response.success) {
         const newMessage = response.message;
         const userName = response.message?.senderName || getUserName();
@@ -261,7 +378,21 @@ const sendMessage = useCallback(async () => {
   try {
     // `messageType` describes the content format, not the conversation type.
     // Department messages are still normal text messages in a direct thread.
-    const response = await messaging.sendMessage(selectedId, newMessageContent, 'text');
+    const selectedDepartment = normalizeDepartmentId(
+      selectedConversation?.department || selectedId
+    );
+    const response = await candidateMessagingRequest(
+      "/api/messaging/send",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          conversationId: virtualConversationIdForDepartment(selectedDepartment),
+          department: selectedDepartment,
+          content: newMessageContent.trim(),
+          messageType: "text"
+        })
+      }
+    );
     
     if (response.success) {
       const userName = response.message?.senderName || getUserName();
@@ -278,6 +409,15 @@ const sendMessage = useCallback(async () => {
         return updated.sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
       });
       setTimeout(scrollToBottom, 50);
+      candidateMessagingRequest("/api/messaging/conversations")
+        .then(data => {
+          if (data.success) {
+            setConversations(
+              mergeRequiredCandidateConversations(data.conversations || [])
+            );
+          }
+        })
+        .catch(() => {});
     }
   } catch (error) {
     console.error('Send message error:', error);
@@ -333,7 +473,8 @@ const sendMessage = useCallback(async () => {
   ];
 
   const getDepartmentProfile = (departmentId) =>
-    messageDepartments.find(department => department.id === departmentId) || messageDepartments[0];
+    messageDepartments.find(department => department.id === departmentId) ||
+    messageDepartments[0];
 
   const getConversationDepartment = conversation => {
     if (
@@ -343,7 +484,9 @@ const sendMessage = useCallback(async () => {
     ) {
       return "public";
     }
-    return String(conversation?.department || "admin").toLowerCase();
+    return normalizeDepartmentId(
+      conversation?.department || conversation?._id || "admin"
+    );
   };
 
   // Candidates must be able to see:
@@ -391,9 +534,13 @@ const sendMessage = useCallback(async () => {
     navigate(`/messages/${conversationId}`);
   };
 
+  const selectedMessagingDepartment = getConversationDepartment(
+    selectedConversation || { _id:selectedId, department:selectedId }
+  );
+
   const canMessageSelectedConversation =
-    selectedId === "it" ||
-    String(selectedConversation?.department || "").toLowerCase() === "it";
+    ["admin", "it", "recruitment", "immigration", "deployment", "aftercare"]
+      .includes(selectedMessagingDepartment);
   const selectedDepartmentProfile = getDepartmentProfile(
     getConversationDepartment(selectedConversation || { _id: selectedId, department: selectedId })
   );
@@ -407,7 +554,9 @@ const sendMessage = useCallback(async () => {
       const incomingConversationId =
         message.broadcast === true
           ? "community"
-          : message.conversationId;
+          : virtualConversationIdForDepartment(
+              message.department || message.conversationId
+            );
 
       const isCurrentlyViewed =
         selectedId &&
@@ -424,9 +573,11 @@ const sendMessage = useCallback(async () => {
         
         // If Admin initiates a BRAND NEW conversation, dynamically fetch it
         if (!conversationExists) {
-          messaging.getConversations().then(res => {
+          candidateMessagingRequest("/api/messaging/conversations").then(res => {
             if (res.success) {
-              setConversations(res.conversations);
+              setConversations(
+                mergeRequiredCandidateConversations(res.conversations || [])
+              );
               const totalUnread = res.conversations.reduce((sum, conv) => sum + (conv.unreadCount || 0), 0);
               setUnreadCount(totalUnread);
             }
@@ -456,7 +607,12 @@ const sendMessage = useCallback(async () => {
       }
       
       if (isCurrentlyViewed) {
-        if (!isOwn) messaging.markAsRead(selectedId);
+        if (!isOwn) {
+          candidateMessagingRequest(
+            `/api/messaging/read/${encodeURIComponent(selectedId)}`,
+            { method:"POST" }
+          ).catch(() => {});
+        }
         
         const wasAtBottom = isAtBottomRef.current;
         setMessages(prev => {
@@ -792,20 +948,22 @@ const sendMessage = useCallback(async () => {
                     <span>{department.label}</span>
                   </div>
                   {departmentConversations.length === 0 ? (
-                    department.id === "it" ? (
-                      <button
-                        type="button"
-                        onClick={() => handleConversationClick("it")}
-                        className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium text-purple-700 transition-colors hover:bg-purple-50"
-                      >
-                        <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${department.avatarClass}`}>
-                          <department.Icon className="h-6 w-6" aria-hidden="true" />
-                        </span>
-                        Contact IT support
-                      </button>
-                    ) : (
-                      <div className="px-4 py-3 text-sm text-slate-400">No messages yet</div>
-                    )
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleConversationClick(
+                          virtualConversationIdForDepartment(department.id)
+                        )
+                      }
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium text-purple-700 transition-colors hover:bg-purple-50"
+                    >
+                      <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${department.avatarClass}`}>
+                        <department.Icon className="h-6 w-6" aria-hidden="true" />
+                      </span>
+                      {department.id === "public"
+                        ? "Open Public Messages"
+                        : `Message ${department.label}`}
+                    </button>
                   ) : departmentConversations.map((conversation) => {
                 const name = getConversationName(conversation);
                 const preview = getLastMessagePreview(conversation);
@@ -880,8 +1038,8 @@ const sendMessage = useCallback(async () => {
                       {selectedConversation?._id === "community"
                         ? "Shared candidate community"
                         : canMessageSelectedConversation
-                          ? "Send a private message to the IT department"
-                          : "Direct messages from Admin"}
+                          ? `Send a private message to ${selectedDepartmentProfile.label || selectedMessagingDepartment}`
+                          : "Shared public messages"}
                     </p>
                   </div>
                 </div>
@@ -907,7 +1065,7 @@ const sendMessage = useCallback(async () => {
                   <div className="flex items-center gap-2">
                     <input
                       type="text"
-                      placeholder="Write a message to IT..."
+                      placeholder={`Write a message to ${selectedDepartmentProfile.label}...`}
                       value={newMessageContent}
                       onChange={(e) =>
                         setNewMessageContent(e.target.value)
@@ -947,7 +1105,7 @@ const sendMessage = useCallback(async () => {
                 <div className="border-t border-slate-200 bg-white p-4 text-center text-sm text-slate-500">
                   {selectedConversation?._id === "community"
                     ? "Use New Public Message above to post to the public thread."
-                    : "Messages for this department are read-only for candidate accounts."}
+                    : "Use New Community Message above to post to Public Messages."}
                 </div>
               )}
             </>

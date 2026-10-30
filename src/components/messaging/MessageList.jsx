@@ -13,6 +13,104 @@ import {
   Users
 } from 'lucide-react';
 
+const CANDIDATE_MESSAGE_DEPARTMENTS = [
+  { id: "admin-direct", department: "admin", label: "Admin", type: "direct" },
+  { id: "community", department: "public", label: "Public", type: "community" },
+  { id: "it", department: "it", label: "IT", type: "direct" },
+  { id: "recruitment", department: "recruitment", label: "Recruitment", type: "direct" },
+  { id: "immigration", department: "immigration", label: "Immigration", type: "direct" },
+  { id: "deployment", department: "deployment", label: "Deployment", type: "direct" },
+  { id: "aftercare", department: "aftercare", label: "Aftercare", type: "direct" }
+];
+
+const normalizeDepartmentId = value => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "admin" || raw === "admin-direct") return "admin";
+  if (raw === "community" || raw === "public" || raw === "broadcast") return "public";
+  if (raw === "recruit" || raw === "recruiting" || raw === "recruitment") return "recruitment";
+  if (raw === "immigration") return "immigration";
+  if (raw === "deployment") return "deployment";
+  if (raw === "aftercare" || raw === "after-care") return "aftercare";
+  if (raw === "it" || raw === "information technology") return "it";
+  return raw || "admin";
+};
+
+const virtualConversationIdForDepartment = department => {
+  const normalized = normalizeDepartmentId(department);
+  if (normalized === "admin") return "admin-direct";
+  if (normalized === "public") return "community";
+  return normalized;
+};
+
+const mergeRequiredCandidateConversations = conversations => {
+  const rows = Array.isArray(conversations) ? conversations : [];
+  const byDepartment = new Map();
+
+  for (const row of rows) {
+    const department = normalizeDepartmentId(
+      row?.department ||
+      row?._id ||
+      (row?.type === "community" ? "public" : "")
+    );
+    const existing = byDepartment.get(department);
+    if (!existing || new Date(row?.lastMessageAt || 0) > new Date(existing?.lastMessageAt || 0)) {
+      byDepartment.set(department, row);
+    }
+  }
+
+  return CANDIDATE_MESSAGE_DEPARTMENTS.map(definition => {
+    const existing = byDepartment.get(definition.department);
+    if (existing) {
+      return {
+        ...existing,
+        _id: definition.id,
+        virtual: true,
+        type: definition.type,
+        department: definition.department,
+        groupName: existing.groupName || `${definition.label} Messages`
+      };
+    }
+
+    return {
+      _id: definition.id,
+      virtual: true,
+      type: definition.type,
+      department: definition.department,
+      groupName: `${definition.label} Messages`,
+      participants: [],
+      unreadCount: 0,
+      lastMessage: null,
+      lastMessageAt: null
+    };
+  });
+};
+
+const candidateMessagingRequest = async (path, options = {}) => {
+  const token = tokenStorage.get();
+  if (!token) throw new Error("Your session has expired. Please sign in again.");
+
+  const response = await fetch(
+    `${import.meta.env.VITE_API_BASE_URL || "http://localhost:4000"}${path}`,
+    {
+      ...options,
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+        ...(options.headers || {})
+      }
+    }
+  );
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.success === false) {
+    throw new Error(data.error || data.message || `Messaging request failed (${response.status}).`);
+  }
+  return data;
+};
+
+
 const DEPARTMENT_PROFILES = {
   admin: { Icon: ShieldCheck, avatarClass: 'bg-violet-600 text-white' },
   community: { Icon: Megaphone, avatarClass: 'bg-emerald-600 text-white' },
@@ -44,7 +142,12 @@ export default function MessageList() {
     deployment:"Deployment",
     aftercare:"Aftercare"
   };
-  const activeSection=MESSAGE_SECTIONS[conversationId]?conversationId:"admin";
+  const activeSection =
+    conversationId === "admin-direct"
+      ? "admin"
+      : (conversationId === "community"
+          ? "public"
+          : (MESSAGE_SECTIONS[conversationId] ? conversationId : "admin"));
   const departmentProfile = DEPARTMENT_PROFILES[activeSection] || DEPARTMENT_PROFILES.admin;
   const DepartmentIcon = departmentProfile.Icon;
   const isCommunityConversation=conversationId === "community" || conversationId === "public";
@@ -126,10 +229,10 @@ export default function MessageList() {
         params.before = messages[0]?._id;
       }
 
-      const response = await messaging.getMessages(
-        conversationId,
-        params.limit,
-        params.before
+      const query = new URLSearchParams({ limit:String(params.limit) });
+      if (params.before) query.set("before", params.before);
+      const response = await candidateMessagingRequest(
+        `/api/messaging/messages/${encodeURIComponent(conversationId)}?${query.toString()}`
       );
       
       if (response.success) {
@@ -168,9 +271,14 @@ export default function MessageList() {
     if (!conversationId) return;
     
     try {
-      const response = await messaging.getConversations(1);
+      const response = await candidateMessagingRequest("/api/messaging/conversations");
       if (response.success) {
-        const found=response.conversations?.find(c=>c._id===conversationId||(conversationId==="community"&&c._id==="public"));
+        const rows = mergeRequiredCandidateConversations(response.conversations || []);
+        const found = rows.find(c =>
+          c._id === conversationId ||
+          (conversationId === "admin" && c._id === "admin-direct") ||
+          (conversationId === "public" && c._id === "community")
+        );
         if (found) {
           setConversation(found);
         }
@@ -184,7 +292,10 @@ export default function MessageList() {
     if (!conversationId) return;
     
     try {
-      const response = await messaging.markAsRead(conversationId);
+      const response = await candidateMessagingRequest(
+        `/api/messaging/read/${encodeURIComponent(conversationId)}`,
+        { method:"POST" }
+      );
       if (response.success) {
         setConversation(prev => prev ? { ...prev, unreadCount: 0 } : prev);
         window.dispatchEvent(new CustomEvent('messaging-read'));
@@ -257,8 +368,12 @@ export default function MessageList() {
         }
 
         const response =
-          await messaging.sendUserBroadcast(
-            text
+          await candidateMessagingRequest(
+            "/api/messaging/user-broadcast",
+            {
+              method:"POST",
+              body:JSON.stringify({ content:text })
+            }
           );
 
         if (
@@ -360,11 +475,20 @@ export default function MessageList() {
           );
 
         const imageResponse =
-          await messaging.sendMessage(
-            conversationId,
-            base64Image,
-            "image",
-            finalReplyTo
+          await candidateMessagingRequest(
+            "/api/messaging/send",
+            {
+              method:"POST",
+              body:JSON.stringify({
+                conversationId:
+                  conversationId === "admin"
+                    ? "admin-direct"
+                    : conversationId,
+                content:base64Image,
+                messageType:"image",
+                department:normalizeDepartmentId(activeSection)
+              })
+            }
           );
 
         if (
@@ -404,11 +528,20 @@ export default function MessageList() {
 
       if (text) {
         const textResponse =
-          await messaging.sendMessage(
-            conversationId,
-            text,
-            "text",
-            finalReplyTo
+          await candidateMessagingRequest(
+            "/api/messaging/send",
+            {
+              method:"POST",
+              body:JSON.stringify({
+                conversationId:
+                  conversationId === "admin"
+                    ? "admin-direct"
+                    : conversationId,
+                content:text,
+                messageType:"text",
+                department:normalizeDepartmentId(activeSection)
+              })
+            }
           );
 
         if (
@@ -484,11 +617,20 @@ export default function MessageList() {
       // 1. Send image reply if attached
       if (selectedImage) {
         const base64Image = await fileToBase64(selectedImage);
-        const imageResponse = await messaging.sendMessage(
-          conversationId,
-          base64Image,
-          'image',
-          replyingTo._id
+        const imageResponse = await candidateMessagingRequest(
+          "/api/messaging/send",
+          {
+            method:"POST",
+            body:JSON.stringify({
+              conversationId:
+                conversationId === "admin"
+                  ? "admin-direct"
+                  : conversationId,
+              content:base64Image,
+              messageType:"image",
+              department:normalizeDepartmentId(activeSection)
+            })
+          }
         );
         
         if (imageResponse.success) {
@@ -509,11 +651,19 @@ export default function MessageList() {
 
       // 2. Send text reply if attached
       if (replyContent.trim()) {
-        const textResponse = await messaging.sendMessage(
-          conversationId,
-          replyContent.trim(),
-          'text',
-          replyingTo._id
+        const textResponse = await candidateMessagingRequest(
+          "/api/messaging/reply",
+          {
+            method:"POST",
+            body:JSON.stringify({
+              conversationId:
+                conversationId === "admin"
+                  ? "admin-direct"
+                  : conversationId,
+              parentMessageId:replyingTo._id,
+              content:replyContent.trim()
+            })
+          }
         );
         
         if (textResponse.success) {
@@ -554,7 +704,16 @@ export default function MessageList() {
     markConversationAsRead();
 
     const onNewMessage = (message) => {
-      if (message.conversationId === conversationId) {
+      const incomingId =
+        message.broadcast === true
+          ? "community"
+          : virtualConversationIdForDepartment(
+              message.department || message.conversationId
+            );
+      if (
+        incomingId === conversationId ||
+        message.conversationId === conversationId
+      ) {
         setMessages(prev => {
           const exists = prev.some(m => m._id === message._id);
           if (exists) return prev;

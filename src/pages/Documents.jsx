@@ -714,15 +714,15 @@ export default function Documents() {
       Boolean(
         user?.email
       ),
-    staleTime: 0,
+    staleTime: 5 * 60 * 1000,
     gcTime:
       5 * 60 * 1000,
     retry: 2,
     retryDelay:
       attempt => Math.min(500 * 2 ** attempt, 2000),
-    refetchOnMount: "always",
-    refetchOnWindowFocus: true,
-    refetchInterval: 10000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchInterval: false,
     refetchIntervalInBackground: false,
     queryFn:
       async () => {
@@ -739,11 +739,10 @@ export default function Documents() {
             {
               method:
                 "GET",
-              cache: "no-store",
+              cache: "default",
               headers: {
                 Authorization:
-                  `Bearer ${token}`,
-                "Cache-Control": "no-cache"
+                  `Bearer ${token}`
               }
             }
           );
@@ -1924,4 +1923,3 @@ export default function Documents() {
     </div>
   );
 }
-

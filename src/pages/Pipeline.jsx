@@ -3912,7 +3912,7 @@ const ContractView = ({ onClose, user, setStages }) => {
     setFileName("");
   };
 
-  if (loading) {
+  if (loading && !adminMode) {
     return (
       <div className="space-y-4">
         <div className="bg-muted/30 rounded-lg p-4">
@@ -6497,7 +6497,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   });
 
   const welcomePacketCacheKey = user?.email
-    ? `icp_welcome_packet_v16:${String(user.email).trim().toLowerCase()}`
+    ? `icp_welcome_packet_v18:${String(user.email).trim().toLowerCase()}`
     : "";
 
   const readWelcomePacketCache = () => {
@@ -6527,6 +6527,28 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     } catch {
       // Cache is an optimization only.
     }
+  };
+
+  const welcomePacketHasUsefulData = value => {
+    const candidate = value || {};
+    const fields = [
+      candidate.employerName,
+      candidate.employerAddress,
+      candidate.employerPhone,
+      candidate.employerEmail,
+      candidate.housingAddress,
+      candidate.propertyManager,
+      candidate.moveInDate,
+      candidate.rentCost,
+      candidate.stateLicenseRequired,
+      candidate.endorsementState,
+      candidate.portOfEntry,
+      candidate.arrivalDate
+    ];
+
+    return fields.filter(item =>
+      normalizePacketValue(item) !== ""
+    ).length >= 2;
   };
 
   const normalizePacketValue = value => {
@@ -6584,7 +6606,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       if (!token) return;
 
       const response = await fetch(
-        `${API_BASE}/api/welcome-packet/facility?refresh=1`,
+        adminMode ? `${API_BASE}/api/welcome-packet/facility?email=${encodeURIComponent(user?.email || "")}` : `${API_BASE}/api/welcome-packet/facility?refresh=1`,
         {
           method: "GET",
           cache: "no-store",
@@ -6629,6 +6651,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             current.employerName,
           employerAddress:
             normalizePacketValue(facility.address) ||
+            normalizePacketValue(facility.employerAddress) ||
             current.employerAddress,
           employerContact:
             normalizePacketValue(facility.contact) ||
@@ -6746,6 +6769,8 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   };
 
   useEffect(() => {
+    if (adminMode) return undefined;
+
     let cancelled = false;
     const loadFinalBankingPlan = async () => {
       try {
@@ -6778,7 +6803,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       cancelled = true;
       window.removeEventListener("candidate-data-updated", loadFinalBankingPlan);
     };
-  }, [user?.email]);
+  }, [user?.email, adminMode, adminToken]);
 
   useEffect(() => {
     if (!isLocalBankPlan) return;
@@ -6805,7 +6830,10 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     let cancelled = false;
     const cached = readWelcomePacketCache();
 
-    if (cached?.packet) {
+    if (
+      cached?.packet &&
+      (!adminMode || welcomePacketHasUsefulData(cached.packet))
+    ) {
       setPacket(current => ({
         ...current,
         ...cached.packet
@@ -6819,8 +6847,14 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       setLoading(false);
     }
 
-    const loadPacket = async () => {
-      if (!cached?.packet) setLoading(true);
+    const loadPacket = async (forceRefresh = false) => {
+      if (
+        !cached?.packet ||
+        (adminMode && !welcomePacketHasUsefulData(cached.packet)) ||
+        forceRefresh
+      ) {
+        setLoading(true);
+      }
       setError("");
 
       try {
@@ -6830,18 +6864,33 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         }
 
         let response;
+        let data = {};
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(
+          () => controller.abort(),
+          adminMode ? 12000 : 15000
+        );
+
         try {
           response = await fetch(
-            `${API_BASE}/api/welcome-packet/data?deferServices=1`,
+            adminMode
+              ? `${API_BASE}/api/admin/welcome-packet/data?email=${encodeURIComponent(user?.email || "")}${forceRefresh ? "&refresh=1" : ""}`
+              : `${API_BASE}/api/welcome-packet/data?deferServices=1`,
             {
-              method: "GET",
-              cache: "no-store",
-              headers: {
-                Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`, ...(adminMode ? { "x-candidate-email": user?.email || "" } : {}),
-                Accept: "application/json"
+              method:"GET",
+              cache:"no-store",
+              credentials:"include",
+              signal:controller.signal,
+              headers:{
+                Authorization:adminMode ? `AdminBearer ${token}` : `Bearer ${token}`,
+                ...(adminMode ? { "x-candidate-email":user?.email || "" } : {}),
+                Accept:"application/json"
               }
             }
           );
+
+          // Keep the timeout active until the response body is fully received.
+          data = await response.json().catch(() => ({}));
         } catch (networkError) {
           console.error("[Welcome Packet] Backend request failed", {
             apiBase: API_BASE,
@@ -6856,12 +6905,43 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             }
             return;
           }
+          // Admin should keep the selected candidate view usable even if the
+          // network drops. Candidate/user data is a valid temporary packet shell.
+          if (adminMode && user?.email) {
+            if (!cancelled) {
+              setPacket(current => ({
+                ...current,
+                recipientName:
+                  current.recipientName ||
+                  user?.candidateName ||
+                  user?.name ||
+                  user?.Full_Name ||
+                  user?.email ||
+                  "",
+                preferredName:
+                  current.preferredName ||
+                  user?.First_Name ||
+                  user?.firstName ||
+                  "",
+                lastName:
+                  current.lastName ||
+                  user?.Last_Name ||
+                  user?.lastName ||
+                  ""
+              }));
+              setError("");
+              setLoading(false);
+            }
+            return;
+          }
+
           throw new Error(
             "Unable to reach the ICP backend. Please refresh and try again."
           );
+        } finally {
+          window.clearTimeout(timeoutId);
         }
 
-        const data = await response.json().catch(() => ({}));
         if (!response.ok) {
           throw new Error(
             data.error ||
@@ -6871,12 +6951,82 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         }
 
         const packetResponse = data.data || {};
-        const deal =
-          packetResponse.candidate ||
-          packetResponse.deal ||
-          packetResponse ||
-          data.user ||
-          {};
+
+        // Admin receives a fully normalized packet from one backend request.
+        // Do not immediately launch separate Facility/location requests that can
+        // race with it or overwrite complete values with sparse responses.
+        if (adminMode && packetResponse.packet) {
+          const normalizedPacket = {
+            ...packetResponse.packet,
+            welcomeDate:
+              formatPacketDate(
+                packetResponse.packet.welcomeDate ||
+                new Date()
+              ),
+            departureDate:
+              formatPacketDate(packetResponse.packet.departureDate),
+            arrivalDate:
+              formatPacketDate(packetResponse.packet.arrivalDate),
+            moveInDate:
+              formatPacketDate(packetResponse.packet.moveInDate)
+          };
+
+          if (
+            !forceRefresh &&
+            !welcomePacketHasUsefulData(normalizedPacket)
+          ) {
+            // Do not accept a sparse Admin packet as final. Ask the backend for
+            // one controlled live repair before displaying rows as unavailable.
+            await loadPacket(true);
+            return;
+          }
+
+          if (!cancelled) {
+            setPacket(current => ({
+              ...current,
+              ...normalizedPacket
+            }));
+
+            setLocationServices(current => ({
+              ...current,
+              ...(packetResponse.locationServices || {})
+            }));
+
+            setFinalBankingPlan(
+              normalizePacketValue(packetResponse.finalBankingPlan) || ""
+            );
+            setFinalTransportationPlan(
+              normalizePacketValue(packetResponse.finalTransportationPlan) || ""
+            );
+
+            writeWelcomePacketCache(
+              {
+                ...packet,
+                ...normalizedPacket
+              },
+              packetResponse.locationServices || null
+            );
+
+            setError("");
+            setLoading(false);
+          }
+          return;
+        }
+
+        const deal = {
+          ...(adminMode && user ? user : {}),
+          ...(packetResponse.deal || {}),
+          ...(packetResponse.candidate || {}),
+          ...(
+            !packetResponse.candidate &&
+            !packetResponse.deal &&
+            packetResponse &&
+            typeof packetResponse === "object"
+              ? packetResponse
+              : {}
+          ),
+          ...(data.user || {})
+        };
 
         if (packetResponse.locationServices) {
           setLocationServices({
@@ -7288,7 +7438,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     return () => {
       cancelled = true;
     };
-  }, [user?.email]);
+  }, [user?.email, adminMode, adminToken]);
 
   useEffect(() => {
     const loadAcknowledgementStatus = async () => {
@@ -7630,27 +7780,6 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           </p>
         </div>
       </section>
-
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <div className="rounded-xl border border-purple-200 bg-purple-50 p-3 text-center">
-          <Building className="mx-auto h-5 w-5 text-purple-700" />
-          <p className="mt-1 text-xs font-bold text-purple-900">Facility Information</p>
-        </div>
-        <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-center">
-          <Banknote className="mx-auto h-5 w-5 text-cyan-700" />
-          <p className="mt-1 text-xs font-bold text-cyan-900">Banking Information</p>
-        </div>
-        <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-center">
-          <DollarSign className="mx-auto h-5 w-5 text-blue-700" />
-          <p className="mt-1 text-xs font-bold text-blue-900">The 50 / 30 / 20 Budget Rule</p>
-        </div>
-        <div className="rounded-xl border border-pink-200 bg-pink-50 p-3 text-center">
-          <CreditCard className="mx-auto h-5 w-5 text-pink-700" />
-          <p className="mt-1 text-xs font-bold text-pink-900">Social Security Information</p>
-        </div>
-      </div>
-
-      
 
       <section className="rounded-xl border bg-white p-5">
         <h3 className="mb-3 flex items-center gap-2 rounded-lg bg-purple-100 px-3 py-2 font-bold text-purple-900">
@@ -10289,9 +10418,31 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
   const [expenseReportAcknowledging, setExpenseReportAcknowledging] = useState(false);
 
   useEffect(() => {
-    fetchPaymentData();
+    // Admin views do not need the candidate bank/payment bootstrap before the
+    // Expense Report can render. The old loading state started true and was
+    // never cleared because Admin intentionally skipped fetchPaymentData().
+    if (adminMode) {
+      setLoading(false);
+    } else {
+      fetchPaymentData();
+    }
+
     fetchExpenseReport();
-  }, []);
+  }, [adminMode, adminToken, user?.email]);
+
+  useEffect(() => {
+    if (!adminMode || !expenseReportLoading) return undefined;
+
+    const watchdog = window.setTimeout(() => {
+      setExpenseReportLoading(false);
+      setSubmitError(previous =>
+        previous ||
+        "Expense Report could not be refreshed right now. Displaying the latest available report data."
+      );
+    }, 10000);
+
+    return () => window.clearTimeout(watchdog);
+  }, [adminMode, expenseReportLoading, user?.email]);
 
   const buildPaymentRecord = (userData, n) => ({
     date: ga(userData, `Payment_${n}`, `Payment${n}`, `Payment_${n}_Date`, `Payment${n}Date`) || "",
@@ -10369,8 +10520,10 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
 
     } catch (error) {
       console.error("Error fetching payment data:", error);
-      setSubmitError(error.message);
-      toast.error("Failed to load payment data");
+      if (!adminMode) {
+        setSubmitError(error.message);
+        toast.error("Failed to load payment data");
+      }
     } finally {
       setLoading(false);
     }
@@ -10393,28 +10546,38 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
         );
       }
 
-      const response =
-        await fetch(
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(
+        () => controller.abort(),
+        adminMode ? 8000 : 12000
+      );
+
+      let response;
+      let data = {};
+      try {
+        response = await fetch(
           adminMode
             ? `${API_BASE}/api/admin/reimbursement/expense-report?email=${encodeURIComponent(user?.email || "")}`
             : `${API_BASE}/api/reimbursement/expense-report`,
           {
-            cache:
-              "no-store",
-            headers: {
+            cache:"no-store",
+            credentials:"include",
+            signal:controller.signal,
+            headers:{
               Authorization:
                 adminMode ? `AdminBearer ${token}` : `Bearer ${token}`,
-              ...(adminMode ? { "x-candidate-email": user?.email || "" } : {})
+              ...(adminMode ? { "x-candidate-email":user?.email || "" } : {}),
+              Accept:"application/json"
             }
           }
         );
 
-      const data =
-        await response
-          .json()
-          .catch(
-            () => ({})
-          );
+        // Do not clear the timeout when only the headers arrive. Azure can
+        // occasionally leave a response body open; body parsing must also be bounded.
+        data = await response.json().catch(() => ({}));
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
 
       if (
         !response.ok ||
@@ -10434,14 +10597,17 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
         "[Reimbursement/Expenses] Expense Report load failed:",
         error
       );
-      setSubmitError(
-        error?.message ||
-        "Unable to load Expense Report."
-      );
-      toast.error(
-        error?.message ||
-        "Unable to load Expense Report."
-      );
+
+      const message =
+        error?.name === "AbortError"
+          ? "Expense Report took too long to respond."
+          : (error?.message || "Unable to load Expense Report.");
+
+      setSubmitError(message);
+
+      if (!adminMode) {
+        toast.error(message);
+      }
     } finally {
       setExpenseReportLoading(
         false
@@ -10510,9 +10676,9 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
 
       try {
         const token =
-          localStorage.getItem(
-            "icp_auth_token"
-          );
+          adminMode
+            ? adminToken
+            : localStorage.getItem("icp_auth_token");
 
         if (!token) {
           throw new Error(
@@ -10613,9 +10779,9 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
 
       try {
         const token =
-          localStorage.getItem(
-            "icp_auth_token"
-          );
+          adminMode
+            ? adminToken
+            : localStorage.getItem("icp_auth_token");
 
         if (!token) {
           throw new Error(
@@ -10929,8 +11095,11 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
         </div>
 
         {expenseReportLoading ? (
-          <div className="py-6 text-center text-sm text-muted-foreground">
-            Loading Expense Report...
+          <div className="flex min-h-[220px] items-center justify-center">
+            <div className="flex flex-col items-center gap-3 text-sm text-muted-foreground">
+              <Loader2 className="h-7 w-7 animate-spin text-purple-600" />
+              <span>Loading Expense Report…</span>
+            </div>
           </div>
         ) : expenseReport ? (
           <>
