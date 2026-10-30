@@ -6496,6 +6496,25 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     destinationZip: ""
   });
 
+  const adminSummaryWelcome =
+    adminMode
+      ? user?._adminSummary?.welcomePacket || null
+      : null;
+
+  const adminSummaryWelcomeUseful =
+    Boolean(
+      adminSummaryWelcome?.packet &&
+      Object.values(adminSummaryWelcome.packet).some(value =>
+        value !== undefined &&
+        value !== null &&
+        String(
+          typeof value === "object"
+            ? (value?.name || value?.value || "")
+            : value
+        ).trim() !== ""
+      )
+    );
+
   const welcomePacketCacheKey = user?.email
     ? `icp_welcome_packet_v18:${String(user.email).trim().toLowerCase()}`
     : "";
@@ -6803,7 +6822,12 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       cancelled = true;
       window.removeEventListener("candidate-data-updated", loadFinalBankingPlan);
     };
-  }, [user?.email, adminMode, adminToken]);
+  }, [
+    user?.email,
+    adminMode,
+    adminToken,
+    adminSummaryWelcome
+  ]);
 
   useEffect(() => {
     if (!isLocalBankPlan) return;
@@ -6829,6 +6853,66 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   useEffect(() => {
     let cancelled = false;
     const cached = readWelcomePacketCache();
+
+    // Admin already fetched a PostgreSQL-only candidate summary when the modal
+    // opened. Render that immediately and do NOT make a second synchronous
+    // Welcome Packet request unless the summary has no usable packet at all.
+    if (
+      adminMode &&
+      adminSummaryWelcome?.packet &&
+      adminSummaryWelcomeUseful
+    ) {
+      const summaryPacket = {
+        ...adminSummaryWelcome.packet,
+        welcomeDate:formatPacketDate(
+          adminSummaryWelcome.packet.welcomeDate ||
+          new Date()
+        ),
+        departureDate:formatPacketDate(
+          adminSummaryWelcome.packet.departureDate
+        ),
+        arrivalDate:formatPacketDate(
+          adminSummaryWelcome.packet.arrivalDate
+        ),
+        moveInDate:formatPacketDate(
+          adminSummaryWelcome.packet.moveInDate
+        )
+      };
+
+      setPacket(current => ({
+        ...current,
+        ...summaryPacket
+      }));
+
+      setLocationServices(current => ({
+        ...current,
+        ...(adminSummaryWelcome.locationServices || {})
+      }));
+
+      setFinalBankingPlan(
+        normalizePacketValue(
+          adminSummaryWelcome.finalBankingPlan
+        ) || ""
+      );
+
+      setFinalTransportationPlan(
+        normalizePacketValue(
+          adminSummaryWelcome.finalTransportationPlan
+        ) || ""
+      );
+
+      setLoading(false);
+      setError("");
+
+      writeWelcomePacketCache(
+        summaryPacket,
+        adminSummaryWelcome.locationServices || null
+      );
+
+      return () => {
+        cancelled = true;
+      };
+    }
 
     if (
       cached?.packet &&
@@ -10418,17 +10502,35 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
   const [expenseReportAcknowledging, setExpenseReportAcknowledging] = useState(false);
 
   useEffect(() => {
-    // Admin views do not need the candidate bank/payment bootstrap before the
-    // Expense Report can render. The old loading state started true and was
-    // never cleared because Admin intentionally skipped fetchPaymentData().
+    // Admin modal already loaded the exact PostgreSQL-backed candidate summary.
+    // If that summary contains an Expense Report, render it immediately and
+    // avoid another synchronous request entirely.
+    const summaryReport =
+      adminMode
+        ? user?._adminSummary?.expenseReport || null
+        : null;
+
     if (adminMode) {
       setLoading(false);
+
+      if (summaryReport) {
+        setExpenseReport(summaryReport);
+        setExpenseReportLoading(false);
+        setSubmitError(null);
+        return;
+      }
     } else {
       fetchPaymentData();
     }
 
+    // Fallback only when PostgreSQL summary has no saved report yet.
     fetchExpenseReport();
-  }, [adminMode, adminToken, user?.email]);
+  }, [
+    adminMode,
+    adminToken,
+    user?.email,
+    user?._adminSummary?.expenseReport
+  ]);
 
   useEffect(() => {
     if (!adminMode || !expenseReportLoading) return undefined;

@@ -803,7 +803,10 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   const [rejectionReason, setRejectionReason] = useState("");
   const [candidateExpenseReport, setCandidateExpenseReport] = useState(null);
   const [candidateExpenseReportLoading, setCandidateExpenseReportLoading] = useState(false);
+  const [adminSummary, setAdminSummary] = useState(null);
   const notificationDocumentOpenedRef = useRef("");
+  const documentSyncRequestedRef = useRef("");
+  const summaryRefreshTimerRef = useRef(null);
 
   useEffect(() => {
     setActiveTab(user?._initialTab || "profile");
@@ -855,412 +858,466 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
         )
       : [];
 
-  useEffect(() => {
-    if (!user) return;
+  const loadAdminSummary = useCallback(async ({ silent = false } = {}) => {
+    if (!user?.email) return null;
 
-    // Paint the candidate immediately from the already-loaded admin list.
-    // Full Zoho/Mongo data hydrates in the background and never blocks the modal.
-    setAdminDetails(prev => ({
-      ...prev,
-      name: prev?.name || user?.name || user?.email || "",
-      email: prev?.email || user?.email || "",
-      status: prev?.status || user?.status || null,
-      lastLogin: prev?.lastLogin || user?.lastLogin || null
-    }));
-    setProfile(prev => ({
-      ...prev,
-      email: prev?.email || user?.email || "",
-      candidateName: prev?.candidateName || user?.name || ""
-    }));
-    // Paint cached document metadata at the exact moment the candidate modal opens.
-    // File bytes are still fetched only when a document is viewed.
+    if (!silent) {
+      // The modal already has the Users-table row and cached fields. Keep it
+      // interactive while the PostgreSQL summary fills richer sections.
+      setLoading(false);
+      setDocActionError(null);
+    }
+
+    const { adminToken, userToken } = getTokens();
+    const token = adminToken || userToken;
+
+    if (!token) {
+      if (!silent) {
+        setLoading(false);
+        setDocActionError("Admin session is unavailable. Please sign in again.");
+      }
+      return null;
+    }
+
+    const headers = {
+      Accept:"application/json",
+      ...(adminToken
+        ? {
+            Authorization:`AdminBearer ${adminToken}`,
+            "x-admin-token":adminToken
+          }
+        : {
+            Authorization:`Bearer ${userToken}`
+          })
+    };
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(
+      () => controller.abort(),
+      4500
+    );
+
+    try {
+      const email = encodeURIComponent(user.email);
+      const response = await fetch(
+        `${API_BASE}/api/admin/candidate/${email}/summary?_=${Date.now()}`,
+        {
+          headers,
+          credentials:"include",
+          cache:"no-store",
+          signal:controller.signal
+        }
+      );
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || data.success !== true) {
+        throw new Error(
+          data.error ||
+          `Candidate summary returned ${response.status}`
+        );
+      }
+
+      const summary = data.summary || {};
+      const summaryProfile = summary.profile || {};
+      const summaryDetails = summary.adminDetails || {};
+      const summaryPortal = summary.portalProfile || {};
+      const summaryDocuments =
+        Array.isArray(summary.documents)
+          ? summary.documents
+          : [];
+      const summaryPipeline =
+        Array.isArray(summary.pipeline)
+          ? summary.pipeline
+          : [];
+
+      setAdminSummary(summary);
+
+      setAdminDetails(previous => ({
+        ...(previous || {}),
+        ...summaryDetails,
+        name:
+          summaryDetails.name ||
+          previous?.name ||
+          user?.name ||
+          user?.email ||
+          "",
+        email:user?.email || summaryDetails.email || previous?.email || ""
+      }));
+
+      setProfile(previous => ({
+        ...(previous || {}),
+        ...summaryProfile,
+        candidateName:
+          summaryProfile.candidateName ||
+          summaryProfile.Candidate_Name ||
+          summaryProfile.Full_Name ||
+          summaryDetails.name ||
+          user?.name ||
+          previous?.candidateName ||
+          "",
+        email:
+          summaryProfile.email ||
+          summaryProfile.Email ||
+          user?.email ||
+          previous?.email ||
+          "",
+        orientationStartDate:
+          summaryDetails?.submittedDates?.orientationStartDate ||
+          user?.orientationStartDate ||
+          previous?.orientationStartDate ||
+          null,
+        independentFloorStartDate:
+          summaryDetails?.submittedDates?.independentFloorStartDate ||
+          user?.independentFloorStartDate ||
+          previous?.independentFloorStartDate ||
+          null
+      }));
+
+      setPortalProfile({
+        ...summaryPortal,
+        travelSummary:summaryPortal.travelSummary || {},
+        travelDependants:
+          Array.isArray(summaryPortal.travelDependants)
+            ? summaryPortal.travelDependants
+            : [],
+        dependants:
+          Array.isArray(summaryPortal.dependants)
+            ? summaryPortal.dependants
+            : []
+      });
+      setPortalProfileLoading(false);
+
+      setPipeline(summaryPipeline);
+
+      setDocuments(summaryDocuments);
+      if (summaryDocuments.length) {
+        writeAdminDocumentCache(user.email, summaryDocuments);
+        setDocumentsLoading(false);
+      } else {
+        // User requirement: never show a terminal "No documents" state.
+        setDocumentsLoading(true);
+      }
+
+      setCandidateExpenseReport(summary.expenseReport || null);
+      setCandidateExpenseReportLoading(false);
+
+      // Sparse candidates render immediately from local data. If the backend has
+      // queued a single background enrichment, re-read PostgreSQL/cache quietly.
+      if (
+        Number(summary.profileCompleteness || 0) < 5 &&
+        summary.enrichmentScheduled === true
+      ) {
+        [2200, 6500].forEach(delay => {
+          window.setTimeout(
+            () => void loadAdminSummary({ silent:true }),
+            delay
+          );
+        });
+      }
+
+      setLoading(false);
+      return summary;
+    } catch (error) {
+      console.warn("[Admin Summary] Failed:", error);
+
+      // Keep the modal usable with the already-loaded Users-row data.
+      setAdminDetails(previous => ({
+        ...(previous || {}),
+        name:previous?.name || user?.name || user?.email || "",
+        email:previous?.email || user?.email || "",
+        status:previous?.status || user?.status || null,
+        lastLogin:previous?.lastLogin || user?.lastLogin || null
+      }));
+
+      setProfile(previous => ({
+        ...(previous || {}),
+        email:previous?.email || user?.email || "",
+        candidateName:
+          previous?.candidateName ||
+          user?.name ||
+          user?.email ||
+          ""
+      }));
+
+      if (!silent) {
+        // The Admin modal already has the Users-row fallback. Do not make a
+        // transient local DB slowdown look like a hard candidate failure.
+        setDocActionError(
+          error?.name === "AbortError"
+            ? "Refreshing candidate details in the background."
+            : (error?.message || "Unable to refresh candidate summary.")
+        );
+
+        window.setTimeout(
+          () => void loadAdminSummary({ silent:true }),
+          1200
+        );
+      }
+
+      setLoading(false);
+      return null;
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }, [user?.email, user?.name, user?.status, user?.lastLogin]);
+
+  // One local PostgreSQL request is the only automatic candidate-open request.
+  useEffect(() => {
+    if (!user?.email) return undefined;
+
+    setActiveTab(user?._initialTab || "profile");
+    notificationDocumentOpenedRef.current = "";
+    documentSyncRequestedRef.current = "";
+    setAdminSummary(null);
+
     const cachedDocuments = readAdminDocumentCache(user.email);
-    if (Array.isArray(cachedDocuments)) {
-      // Warm candidate: paint every cached document immediately.
+    if (Array.isArray(cachedDocuments) && cachedDocuments.length) {
       setDocuments(cachedDocuments);
       setDocumentsLoading(false);
     } else {
-      // Cold/empty cache is never a terminal "no documents" state.
       setDocuments([]);
       setDocumentsLoading(true);
     }
 
-    setLoading(false);
+    setAdminDetails(previous => ({
+      ...(previous || {}),
+      name:previous?.name || user?.name || user?.email || "",
+      email:user?.email || previous?.email || "",
+      status:user?.status ?? previous?.status ?? null,
+      lastLogin:user?.lastLogin ?? previous?.lastLogin ?? null
+    }));
 
-    const fetchAuditData = async () => {
-      setAuditLoading(true);
-      try {
-        const { adminToken, userToken } = getTokens();
-        const headers = {
-          'Accept': 'application/json',
-          ...(adminToken ? {
-            'Authorization': `AdminBearer ${adminToken}`,
-            'x-admin-token': adminToken
-          } : {}),
-          ...(!adminToken && userToken ? { 'Authorization': `Bearer ${userToken}` } : {})
-        };
+    setProfile(previous => ({
+      ...(previous || {}),
+      email:user?.email || previous?.email || "",
+      candidateName:user?.name || previous?.candidateName || ""
+    }));
 
-        const email = encodeURIComponent(user.email);
-        const response = await fetch(`${API_BASE}/api/admin/candidate/${email}/audit?limit=250`, {
-          headers,
-          credentials: 'include',
-          cache: 'no-store'
-        });
+    void loadAdminSummary({ silent:false });
 
-        if (!response.ok) {
-          throw new Error(`Audit endpoint returned ${response.status}`);
-        }
-
-        const data = await response.json();
-        setAuditEvents(Array.isArray(data?.events) ? data.events : []);
-        setAuditSummary(data?.summary || { total: 0, recruit: 0, crm: 0, fields: 0 });
-      } catch (error) {
-        console.warn('Unable to load candidate field audit:', error);
-        setAuditEvents([]);
-        setAuditSummary({ total: 0, recruit: 0, crm: 0, fields: 0 });
-      } finally {
-        setAuditLoading(false);
+    const refreshSummary = () => {
+      if (summaryRefreshTimerRef.current) {
+        window.clearTimeout(summaryRefreshTimerRef.current);
       }
+
+      summaryRefreshTimerRef.current =
+        window.setTimeout(
+          () => void loadAdminSummary({ silent:true }),
+          250
+        );
     };
 
-    const fetchDetailedData = async (silent = false) => {
-      if (!silent) {
-        setLoading(false);
-        setDocActionError(null);
+    window.addEventListener("documents-updated", refreshSummary);
+    window.addEventListener("pipeline-updated", refreshSummary);
+    window.addEventListener("admin-data-updated", refreshSummary);
+    window.addEventListener("candidate-data-updated", refreshSummary);
+
+    return () => {
+      if (summaryRefreshTimerRef.current) {
+        window.clearTimeout(summaryRefreshTimerRef.current);
+      }
+      window.removeEventListener("documents-updated", refreshSummary);
+      window.removeEventListener("pipeline-updated", refreshSummary);
+      window.removeEventListener("admin-data-updated", refreshSummary);
+      window.removeEventListener("candidate-data-updated", refreshSummary);
+    };
+  }, [user?.email, user?._initialTab, loadAdminSummary]);
+
+  // Candidate Documents: paint PostgreSQL metadata first, then refresh providers
+  // strictly in the background. Never wait for CRM/Recruit before showing rows.
+  useEffect(() => {
+    if (
+      activeTab !== "documents" ||
+      !user?.email
+    ) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const key = String(user.email).trim().toLowerCase();
+
+    const { adminToken, userToken } = getTokens();
+    const headers = {
+      Accept:"application/json",
+      ...(adminToken
+        ? {
+            Authorization:`AdminBearer ${adminToken}`,
+            "x-admin-token":adminToken
+          }
+        : userToken
+          ? { Authorization:`Bearer ${userToken}` }
+          : {})
+    };
+
+    const email = encodeURIComponent(user.email);
+
+    const applyDocuments = result => {
+      if (
+        cancelled ||
+        !result?.ok ||
+        !Array.isArray(result?.data?.documents)
+      ) {
+        return false;
       }
 
-      try {
-        const { adminToken, userToken } = getTokens();
-        const headers = {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          ...(adminToken ? {
-            'Authorization': `AdminBearer ${adminToken}`,
-            'x-admin-token': adminToken
-          } : {}),
-          ...(!adminToken && userToken ? { 'Authorization': `Bearer ${userToken}` } : {})
-        };
+      const rows = result.data.documents;
 
-        const email = encodeURIComponent(user.email);
-        const emailParam = `?email=${email}`;
+      if (rows.length) {
+        setDocuments(rows);
+        writeAdminDocumentCache(user.email, rows);
+        setDocumentsLoading(false);
+        return true;
+      }
 
-        // Candidate-entered transport, banking and approved dependant data live
-        // in candidate_extended_profiles. Load that durable PostgreSQL record
-        // independently from Zoho so it remains visible after refresh/browser changes.
-        setPortalProfileLoading(true);
-        fetch(`${API_BASE}/api/admin/candidate/${email}/profile`, {
+      return false;
+    };
+
+    const pollSnapshot = async () => {
+      const result = await safeAdminDocumentFetch(
+        `${API_BASE}/api/admin/documents/${email}?snapshot=1&_=${Date.now()}`,
+        {
           headers,
-          credentials: "include",
-          cache: "no-store"
-        })
-          .then(async response => {
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok || data.success !== true) {
-              throw new Error(data.error || "Unable to load portal profile.");
-            }
-            setPortalProfile({
-              travelSummary: data.profile?.travelSummary || {},
-              travelDependants: Array.isArray(data.profile?.travelDependants)
-                ? data.profile.travelDependants
-                : [],
-              dependants: Array.isArray(data.profile?.dependants)
-                ? data.profile.dependants
-                : []
-            });
-          })
-          .catch(error => {
-            console.warn("[Admin Profile] Portal profile unavailable:", error);
-          })
-          .finally(() => setPortalProfileLoading(false));
-        // INSTANT DOCUMENT PAINT:
-        // Candidate-specific document metadata is painted from the local admin cache
-        // immediately when the user is selected. Never replace the modal with a
-        // document spinner while the fresh server snapshot is loading.
-        const warmDocs = readAdminDocumentCache(user.email);
-        if (Array.isArray(warmDocs)) {
-          setDocuments(warmDocs);
-          setDocumentsLoading(false);
-        } else {
-          // Cold candidate: keep only this panel in a lightweight spinner until
-          // the first durable/provider snapshot completes. Never paint a false
-          // "No documents found" state while synchronization is still running.
-          setDocuments([]);
-          setDocumentsLoading(true);
+          credentials:"include",
+          cache:"no-store"
         }
+      );
+      return applyDocuments(result);
+    };
 
-        // FIRST request is PostgreSQL/cache only. It must never wait for Zoho.
-        const documentsLoadPromise = safeAdminDocumentFetch(
-          `${API_BASE}/api/admin/documents/${email}?snapshot=1&_=${Date.now()}`,
-          { headers, credentials: 'include', cache: 'no-store' }
-        )
-          .then(async result => {
-            if (!result?.ok) throw new Error(`Document list returned ${result?.status || 0}`);
-            const data = result.data || {};
-            const allDocs = Array.isArray(data.documents)
-              ? data.documents.filter(document => {
-                  const source = String(document?.source || '').toLowerCase();
-                  return source !== 'recruit_field' || Boolean(
-                    document?.attachment_id || document?.recruit_attachment_id ||
-                    document?.crm_attachment_id || document?.document_id
-                  );
-                })
-              : [];
-            allDocs.sort((a, b) =>
-              new Date(b.uploaded_at || b.Created_Time || 0) -
-              new Date(a.uploaded_at || a.Created_Time || 0)
-            );
-            setDocuments(allDocs);
-            if (allDocs.length || data.complete === true) {
-              setDocumentsLoading(false);
-            } else {
-              setDocumentsLoading(true);
-            }
+    const start = async () => {
+      // 1) Show every document already known to PostgreSQL immediately.
+      if (!documents.length) {
+        setDocumentsLoading(true);
 
-            if (allDocs.length) writeAdminDocumentCache(user.email, allDocs);
-
-            // Start at most one candidate-specific stale-while-revalidate sync.
-            // The backend deduplicates concurrent work and refuses to re-query Zoho
-            // while the durable snapshot is younger than 10 minutes. The response
-            // itself remains local-first and immediate.
-            if (data.complete !== true || allDocs.length === 0) {
-              void safeAdminDocumentFetch(
-                `${API_BASE}/api/admin/documents/${email}?refresh=1&_=${Date.now()}`,
-                { headers, credentials: 'include', cache: 'no-store' }
-              );
-            }
-
-            // Bounded polling only: repaint when the background sync finishes.
-            [400, 900, 1800, 3500, 6000, 9500].forEach(delay => {
-              window.setTimeout(async () => {
-                const refreshed = await safeAdminDocumentFetch(
-                  `${API_BASE}/api/admin/documents/${email}?snapshot=1&_=${Date.now()}`,
-                  { headers, credentials: 'include', cache: 'no-store' }
-                );
-                const next = Array.isArray(refreshed?.data?.documents) ? refreshed.data.documents : [];
-                if (next.length) {
-                  next.sort((a,b) => new Date(b.uploaded_at || b.Created_Time || 0) - new Date(a.uploaded_at || a.Created_Time || 0));
-                  setDocuments(next);
-                  writeAdminDocumentCache(user.email, next);
-                  setDocumentsLoading(false);
-                } else if (refreshed?.data?.complete === true) {
-                  setDocuments([]);
-                  setDocumentsLoading(false);
-                }
-              }, delay);
-            });
-          })
-          .catch(error => {
-            console.warn('Unable to refresh candidate documents:', error);
-
-            // Never convert a provider/network failure into "No documents found".
-            // If we already have documents show them; otherwise remain in the
-            // explicit loading/synchronizing state requested for Admin.
-            setDocumentsLoading(current =>
-              documents.length > 0 ? false : true
-            );
-          })
-          .finally(() => {});
-
-        // The admin endpoint is the source of truth for the candidate's full
-        // profile, MongoDB pipeline, submitted aftercare dates, and login history.
-        // Profile is the critical path. Fetch it first so candidate details
-        // appear as soon as the admin record is available. Documents and the
-        // shared pipeline are independent and hydrate afterward.
-        const adminResponse = await fetch(
-          `${API_BASE}/api/admin/user/${email}?fast=true`,
+        const local = await safeAdminDocumentFetch(
+          `${API_BASE}/api/admin/documents/${email}?local=1&_=${Date.now()}`,
           {
             headers,
-            credentials: 'include',
-            cache: 'no-store'
+            credentials:"include",
+            cache:"no-store"
           }
         );
 
-        if (adminResponse.ok) {
-          const adminPayload = await adminResponse.json();
-          const detail = adminPayload?.user || {};
-          setAdminDetails(detail);
+        applyDocuments(local);
+      }
 
-          const zoho = detail?.zohoData || {};
+      // 2) Start at most one provider refresh. We intentionally do not await it.
+      if (documentSyncRequestedRef.current !== key) {
+        documentSyncRequestedRef.current = key;
 
-          // If the fast endpoint is hydrating Zoho in the background, poll only
-          // the lightweight admin endpoint. Do not refetch documents/pipeline.
-          if (detail?.zohoLoading === true) {
-            const hydrateAdminProfile = async (attempt = 0) => {
-              if (attempt >= 3) return;
-              try {
-                const retryResponse = await fetch(
-                  `${API_BASE}/api/admin/user/${email}?fast=true`,
-                  { headers, credentials: 'include', cache: 'no-store' }
-                );
-                if (!retryResponse.ok) return;
-                const retryPayload = await retryResponse.json();
-                const retryUser = retryPayload?.user || {};
-                const retryZoho = retryUser?.zohoData || {};
-                if (!retryUser?.zohoLoading && Object.keys(retryZoho).length) {
-                  setAdminDetails(retryUser);
-                  setProfile(prev => ({
-                    ...prev,
-                    ...retryZoho,
-                    candidateName:
-                      retryZoho.candidateName ||
-                      retryUser.name ||
-                      prev.candidateName,
-                    email:
-                      retryZoho.email ||
-                      retryUser.email ||
-                      prev.email
-                  }));
-                  return;
-                }
-              } catch (retryError) {
-                console.warn('[Admin Fast] Profile hydration retry failed:', retryError);
-              }
-              window.setTimeout(() => hydrateAdminProfile(attempt + 1), 700 * (attempt + 1));
-            };
-            window.setTimeout(() => hydrateAdminProfile(0), 500);
+        void safeAdminDocumentFetch(
+          `${API_BASE}/api/admin/documents/${email}?refresh=1&_=${Date.now()}`,
+          {
+            headers,
+            credentials:"include",
+            cache:"no-store"
           }
-          const latestDeal =
-            zoho?.latestDeal ||
-            zoho?.deal ||
-            (Array.isArray(zoho?.allDeals) ? zoho.allDeals[0] : {}) ||
-            {};
+        ).then(result => {
+          // The refresh request itself already includes local rows; use them too.
+          applyDocuments(result);
+        });
+      }
 
-          const candidate =
-            zoho?.candidate ||
-            zoho?.recruitCandidate ||
-            zoho?.candidateRecord ||
-            {};
-
-          // Merge every known source so the admin can see all available user data.
-          setProfile({
-            ...zoho,
-            ...latestDeal,
-            ...candidate,
-
-            // NCLEX / ICP USRN values are owned by Recruit CustomModule1.
-            // Restore the canonical comprehensive values AFTER Candidate/Deal
-            // spreads so blank same-named fields in those modules cannot erase
-            // the exact progress the candidate sees in My Pipeline.
-            NCLEX_Pre_Exam: zoho.NCLEX_Pre_Exam,
-            Prescreen_Status: zoho.Prescreen_Status,
-            Documents_Submitted: zoho.Documents_Submitted,
-            Sponsorship_Agreement: zoho.Sponsorship_Agreement,
-            Program_Status: zoho.Program_Status,
-            Credential_Service: zoho.Credential_Service,
-            Credentialing_Status: zoho.Credentialing_Status,
-            Credential_Registration_Date: zoho.Credential_Registration_Date,
-            Date_Report_Issued: zoho.Date_Report_Issued,
-            State_License_Board_of_Registration: zoho.State_License_Board_of_Registration,
-            Board_Username: zoho.Board_Username,
-            Pearson_Vue_Status: zoho.Pearson_Vue_Status,
-            Assessments_Completed: zoho.Assessments_Completed,
-            Assignments_Completed: zoho.Assignments_Completed,
-            Performance_Rating: zoho.Performance_Rating,
-            ATT_Received_Date: zoho.ATT_Received_Date,
-            NCLEX_Exam_Date: zoho.NCLEX_Exam_Date,
-            NCLEX_Status: zoho.NCLEX_Status,
-            customModule1Found: zoho.customModule1Found,
-            customModule1RecordId: zoho.customModule1RecordId,
-            candidateName: zoho.candidateName || candidate.Full_Name || candidate.Candidate_Name || detail.name,
-            email: zoho.email || candidate.Email || detail.email,
-            orientationStartDate:
-              detail?.submittedDates?.orientationStartDate ||
-              user.orientationStartDate ||
-              null,
-            independentFloorStartDate:
-              detail?.submittedDates?.independentFloorStartDate ||
-              user.independentFloorStartDate ||
-              null,
-          });
-
-        } else {
-          throw new Error(`Unable to load the complete admin record (${adminResponse.status}).`);
-        }
-
-        // Hydrate documents as soon as their request completes, independently
-        // of the pipeline request, so slow pipeline data cannot hold the list.
-        const [, sharedPipelineRes] = await Promise.allSettled([
-          documentsLoadPromise,
-          (async () => {
-            const requestPipeline = () =>
-              fetch(`${API_BASE}/api/pipeline/get?email=${email}&_=${Date.now()}`, {
-                headers,
-                credentials:'include',
-                cache:'no-store'
-              });
-
-            let response = await requestPipeline();
-            if (!response.ok) {
-              await new Promise(resolve => window.setTimeout(resolve, 500));
-              response = await requestPipeline();
-            }
-            return response;
-          })()
-        ]);
-
-        if (sharedPipelineRes.status === 'fulfilled' && sharedPipelineRes.value.ok) {
-          const sharedPayload = await sharedPipelineRes.value.json();
-          const exactStages = Array.isArray(sharedPayload?.stages)
-            ? sharedPayload.stages.map(stage => ({ ...stage, _shared_snapshot: true }))
-            : [];
-          setPipeline(exactStages);
-          const visibleStages = exactStages.filter(stage =>
-            stage?.is_gate !== true &&
-            stage?.non_counted_section !== true &&
-            stage?.hidden_from_main_flow !== true
-          );
-          const completedStages = visibleStages.filter(stage =>
-            String(stage?.status || '').trim().toLowerCase() === 'completed' ||
-            stage?.completed === true ||
-            stage?.is_completed === true ||
-            Boolean(stage?.completed_date || stage?.completed_at)
-          ).length;
-          const authoritativeCurrent = sharedPayload?.authoritativeCurrentStage || null;
-          const authoritativeNext = sharedPayload?.authoritativeNextStage || null;
-          setAdminDetails(previous => ({
-            ...(previous || {}),
-            pipelineProgress: {
-              completed: completedStages,
-              total: visibleStages.length,
-              percentage: visibleStages.length ? Math.round((completedStages / visibleStages.length) * 100) : 0,
-              currentStage: authoritativeCurrent?.stage_name || null,
-              nextStage: authoritativeNext?.stage_name || null
-            },
-            pipelineCurrentStage: authoritativeCurrent,
-            pipelineNextStage: authoritativeNext
-          }));
-        }
-
-      } catch (error) {
-        setDocumentsLoading(false);
-        console.error('Error fetching detailed candidate data:', error);
-        setDocActionError(error.message || 'Unable to load the candidate details.');
-      } finally {
-        if (!silent) {
-          setLoading(false);
-        }
+      // 3) Cheap snapshot checks update the screen as soon as background provider
+      // synchronization publishes fresh metadata. No full candidate summary needed.
+      for (const delay of [450, 1200, 2600, 5000]) {
+        window.setTimeout(
+          () => {
+            if (!cancelled) void pollSnapshot();
+          },
+          delay
+        );
       }
     };
 
-    fetchDetailedData(false);
-    fetchAuditData();
-
-    // Cross-page changes are pushed through lightweight browser events instead
-    // of repeatedly refetching the entire candidate from Zoho every 10 seconds.
-    const refreshCandidate = () => {
-      fetchDetailedData(true);
-      fetchAuditData();
-    };
-    window.addEventListener("documents-updated", refreshCandidate);
-    window.addEventListener("pipeline-updated", refreshCandidate);
-    window.addEventListener("admin-data-updated", refreshCandidate);
+    void start();
 
     return () => {
-      window.removeEventListener("documents-updated", refreshCandidate);
-      window.removeEventListener("pipeline-updated", refreshCandidate);
-      window.removeEventListener("admin-data-updated", refreshCandidate);
+      cancelled = true;
     };
-  }, [user]);
+  }, [
+    activeTab,
+    user?.email
+  ]);
+
+  // Audit history is potentially hundreds of rows. Load it only when Admin
+  // actually opens the Field Audit tab.
+  useEffect(() => {
+    if (activeTab !== "audit" || !user?.email) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    setAuditLoading(true);
+
+    const loadAudit = async () => {
+      try {
+        const { adminToken, userToken } = getTokens();
+        const headers = {
+          Accept:"application/json",
+          ...(adminToken
+            ? {
+                Authorization:`AdminBearer ${adminToken}`,
+                "x-admin-token":adminToken
+              }
+            : userToken
+              ? { Authorization:`Bearer ${userToken}` }
+              : {})
+        };
+
+        const response = await fetch(
+          `${API_BASE}/api/admin/candidate/${encodeURIComponent(user.email)}/audit?limit=250`,
+          {
+            headers,
+            credentials:"include",
+            cache:"no-store"
+          }
+        );
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(
+            data.error ||
+            `Audit endpoint returned ${response.status}`
+          );
+        }
+
+        if (!cancelled) {
+          setAuditEvents(
+            Array.isArray(data?.events)
+              ? data.events
+              : []
+          );
+          setAuditSummary(
+            data?.summary ||
+            { total:0, recruit:0, crm:0, fields:0 }
+          );
+        }
+      } catch (error) {
+        console.warn("Unable to load candidate field audit:", error);
+        if (!cancelled) {
+          setAuditEvents([]);
+          setAuditSummary({
+            total:0,
+            recruit:0,
+            crm:0,
+            fields:0
+          });
+        }
+      } finally {
+        if (!cancelled) setAuditLoading(false);
+      }
+    };
+
+    void loadAudit();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, user?.email]);
+
 
   const handleViewDocument = async (doc) => {
     // Prefer the portal's staged copy whenever it exists. It opens immediately
@@ -2130,7 +2187,11 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
               {activeTab === 'welcome-packet' && (
                 <div className="rounded-xl border bg-white p-2">
                   <WelcomePacketView
-                    user={{ ...(user || {}), email: user?.email }}
+                    user={{
+                      ...(user || {}),
+                      email:user?.email,
+                      _adminSummary:adminSummary
+                    }}
                     adminMode={true}
                     adminToken={getTokens().adminToken || ""}
                     onClose={() => setActiveTab('profile')}
@@ -2143,7 +2204,11 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
               {activeTab === 'expense-report' && (
                 <div className="rounded-xl border bg-white p-2">
                   <ReimbursementExpensesView
-                    user={{ ...(user || {}), email: user?.email }}
+                    user={{
+                      ...(user || {}),
+                      email:user?.email,
+                      _adminSummary:adminSummary
+                    }}
                     adminMode={true}
                     adminToken={getTokens().adminToken || ""}
                     onClose={() => setActiveTab('profile')}
