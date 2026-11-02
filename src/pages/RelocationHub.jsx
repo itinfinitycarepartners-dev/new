@@ -293,8 +293,12 @@ export default function RelocationHub() {
   // Helper to discard em-dash and empty spaces returned by CRM / Recruit.
   const getValidField = (fieldValue) => {
     if (!fieldValue) return "";
-    const cleanStr = String(fieldValue).trim();
-    if (cleanStr === "—" || cleanStr === "-" || cleanStr === "") return "";
+    const raw =
+      typeof fieldValue === "object"
+        ? (fieldValue.name ?? fieldValue.display_value ?? fieldValue.value ?? "")
+        : fieldValue;
+    const cleanStr = String(raw || "").trim();
+    if (cleanStr === "—" || cleanStr === "-" || cleanStr === "" || cleanStr === "[object Object]") return "";
     return cleanStr;
   };
 
@@ -374,6 +378,13 @@ export default function RelocationHub() {
     "Hired_Location"
   );
 
+  const hospitalName = getProfileField(
+    "hospital_name",
+    "Account_Name",
+    "Hospital_Name",
+    "Facility_Name"
+  );
+
   const [selectedLocation, setSelectedLocation] = useState({ city: "", state: "" });
 
   // Resolve the relocation city from the candidate's actual travel sequence.
@@ -433,7 +444,7 @@ export default function RelocationHub() {
 
       // Preserve the existing destination fallback when flight routing is not yet populated.
       if (!chosenCity) {
-        chosenCity = portOfEntry || fallbackDestination || "";
+        chosenCity = portOfEntry || fallbackDestination || hospitalName || "";
       }
 
       if (!chosenCity) {
@@ -498,7 +509,8 @@ export default function RelocationHub() {
     layover3,
     portOfEntry,
     destinationState,
-    fallbackDestination
+    fallbackDestination,
+    hospitalName
   ]);
 
   const rawCity = selectedLocation.city;

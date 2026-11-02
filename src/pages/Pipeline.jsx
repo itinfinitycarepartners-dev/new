@@ -10484,7 +10484,7 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
       { id: "medical_exam", label: "Medical Exam", side: "credit", reviewed: false, amount: null },
       { id: "dependent_visa_fee", label: "Dependent VISA Fee Bill", side: "deduction", reviewed: false, amount: null },
       { id: "dependents_after_i140", label: "Dependents Added after I-140", side: "deduction", reviewed: false, amount: null },
-      { id: "housing_stipend", label: "One Time Housing Stipend", side: "deduction", reviewed: false, amount: null },
+      { id: "housing_stipend", label: "One Time Housing Stipend", side: "credit", reviewed: false, amount: null },
       { id: "housing_deposit", label: "Breakdown of Housing and Relocation Expenses", side: "deduction", reviewed: false, amount: null, display_value: "" },
       { id: "housing_app_admin", label: "Total Housing and Relocation Expenses", side: "deduction", reviewed: false, amount: null }
     ],
@@ -10509,6 +10509,49 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
     { value:"Single Metropolitan", amount:1200 },
     { value:"Family Metropolitan", amount:1500 }
   ];
+
+  const normalizeExpenseReportForUi = report => {
+    if (!report || typeof report !== "object") return report;
+
+    const rows = Array.isArray(report.rows)
+      ? report.rows.map(row =>
+          row?.id === "housing_stipend"
+            ? { ...row, side:"credit" }
+            : row
+        )
+      : [];
+
+    const credits = rows.reduce(
+      (total, row) =>
+        row?.side === "credit" && Number.isFinite(Number(row?.amount))
+          ? total + Number(row.amount)
+          : total,
+      0
+    );
+
+    const deductions = rows.reduce(
+      (total, row) =>
+        row?.side === "deduction" && Number.isFinite(Number(row?.amount))
+          ? total + Number(row.amount)
+          : total,
+      0
+    );
+
+    const net = credits - deductions;
+
+    return {
+      ...report,
+      rows,
+      totals:{
+        ...(report.totals || {}),
+        credits,
+        deductions,
+        net,
+        due_to:net > 0 ? "RN" : net < 0 ? "ICP" : "Neither",
+        amount_due:Math.abs(net)
+      }
+    };
+  };
 
   const hasUsablePaymentData = value => {
     if (!value || typeof value !== "object") return false;
@@ -10631,17 +10674,17 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
       }
 
       if (summaryReport) {
-        setExpenseReport(summaryReport);
+        setExpenseReport(normalizeExpenseReportForUi(summaryReport));
         setExpenseReportLoading(false);
         setSubmitError(null);
-        void fetchExpenseReport();
+        void fetchExpenseReport(true);
         return;
       }
     } else {
       void fetchPaymentData(false);
     }
 
-    void fetchExpenseReport();
+    void fetchExpenseReport(true);
   }, [
     adminMode,
     adminToken,
@@ -10663,9 +10706,7 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
         ""
       ).trim();
 
-    if (selected) {
-      setHousingStipendSelection(selected);
-    }
+    setHousingStipendSelection(selected);
   }, [expenseReport]);
 
   const saveHousingStipend = async nextSelection => {
@@ -10716,7 +10757,7 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
       setHousingStipendSelection(data.selection || nextSelection);
 
       if (data.report) {
-        setExpenseReport(data.report);
+        setExpenseReport(normalizeExpenseReportForUi(data.report));
         setExpenseReportLoading(false);
       }
 
@@ -10729,6 +10770,16 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
           detail:{
             email:user.email,
             source:"housing-stipend",
+            selection:data.selection,
+            amount:data.amount
+          }
+        })
+      );
+
+      window.dispatchEvent(
+        new CustomEvent("expense-report-updated", {
+          detail:{
+            email:user.email,
             selection:data.selection,
             amount:data.amount
           }
@@ -10849,7 +10900,7 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
     }
   };
 
-  const fetchExpenseReport = async () => {
+  const fetchExpenseReport = async (forceRefresh = false) => {
     setExpenseReportLoading(
       true
     );
@@ -10877,8 +10928,8 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
       try {
         response = await fetch(
           adminMode
-            ? `${API_BASE}/api/admin/reimbursement/expense-report?email=${encodeURIComponent(user?.email || "")}`
-            : `${API_BASE}/api/reimbursement/expense-report`,
+            ? `${API_BASE}/api/admin/reimbursement/expense-report?email=${encodeURIComponent(user?.email || "")}${forceRefresh ? "&refresh=1" : ""}`
+            : `${API_BASE}/api/reimbursement/expense-report${forceRefresh ? "?refresh=1" : ""}`,
           {
             cache:"no-store",
             credentials:"include",
@@ -10910,7 +10961,7 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
       }
 
       if (data.report) {
-        setExpenseReport(data.report);
+        setExpenseReport(normalizeExpenseReportForUi(data.report));
       }
     } catch (error) {
       console.warn(
@@ -11441,7 +11492,7 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
                       One Time Housing Stipend
                     </label>
                     <p className="mt-1 text-xs text-purple-700">
-                      CRM Deals field: English_Exam_Needed. The selected option is saved to CRM and becomes the candidate's deduction amount.
+                      CRM Deals field: English_Exam_Needed. The selected option is saved to CRM and becomes the candidate's credit amount.
                     </p>
                     <select
                       value={housingStipendSelection}
@@ -11471,7 +11522,7 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
                         Saving to CRM…
                       </span>
                     ) : housingStipendSelection ? (
-                      <>Deduction: ${Number(
+                      <>Credit: ${Number(
                         HOUSING_STIPEND_OPTIONS.find(option => option.value === housingStipendSelection)?.amount || 0
                       ).toFixed(2)}</>
                     ) : (
@@ -12268,12 +12319,21 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
         "candidate-data-updated",
         refresh
       );
+      window.addEventListener(
+        "expense-report-updated",
+        refresh
+      );
 
-      return () =>
+      return () => {
         window.removeEventListener(
           "candidate-data-updated",
           refresh
         );
+        window.removeEventListener(
+          "expense-report-updated",
+          refresh
+        );
+      };
     },
     [adminMode, adminToken, user?.email]
   );
@@ -21345,3 +21405,5 @@ export default function Pipeline() {
     </div>
   );
 }
+
+

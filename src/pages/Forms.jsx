@@ -33,7 +33,10 @@ import { tokenStorage } from "@/api/icpClient";
 import { toast } from "sonner";
 import { HousingDetailsForm } from "./Pipeline";
 import BehavioralAssessmentForm from "./BehavioralAssessmentForm";
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
+const API_BASE =
+  (import.meta.env.VITE_API_BASE_URL ||
+    "https://icpcandidateportal-bve7d5bpdnftfbbc.centralus-01.azurewebsites.net")
+    .replace(/\/+$/, "");
 const FORMS = [
   {
     key: "behavioral",
@@ -124,12 +127,19 @@ export default function Forms() {
   ] =
     useState([]);
 
-  // Forms are available to every authenticated candidate at every pipeline stage.
-  // Individual electronic-signature forms still require the document to be opened
-  // before the acknowledgement/sign action is enabled.
-  const [formsAccessLoading] = useState(false);
+  const [formsAccessLoading, setFormsAccessLoading] = useState(true);
   const [formsAccessAllowed] = useState(true);
   const [formsAccessStage] = useState("");
+  const [formAccess, setFormAccess] = useState({
+    behavioral:{ available:false, triggerValue:null },
+    preDeployment:{ available:false, triggerValue:null },
+    statementOfTruth:{ available:false, triggerValue:null },
+    housing:{ available:true }
+  });
+  const [formSubmissionStatus, setFormSubmissionStatus] = useState({
+    behavioral:null,
+    housing:null
+  });
 
   const policyAcknowledgementKey = user?.email
     ? `icp_policy_acknowledgements:${String(user.email).trim().toLowerCase()}`
@@ -141,22 +151,89 @@ export default function Forms() {
   const [loadingAcknowledgements, setLoadingAcknowledgements] = useState(true);
   const [savingAcknowledgement, setSavingAcknowledgement] = useState(null);
   const [submissionSuccess, setSubmissionSuccess] = useState(null);
- const showFormSubmissionSuccess = (formTitle, submittedAt = null) => {
-  const timestamp = submittedAt || new Date().toISOString();
-  const formattedTimestamp = new Date(timestamp).toLocaleString("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short"
-  });
-  const message = `${formTitle} was submitted successfully on ${formattedTimestamp}.`;
-  toast.success(message);
-  setSubmissionSuccess({ title: formTitle, message });
-};
+ const showFormSubmissionSuccess = (
+   formTitle,
+   submittedAt = null,
+   extra = {}
+ ) => {
+   const timestamp = submittedAt || new Date().toISOString();
+   const formattedTimestamp = new Date(timestamp).toLocaleString("en-US", {
+     dateStyle:"medium",
+     timeStyle:"short"
+   });
+
+   toast.success(`${formTitle} was submitted successfully on ${formattedTimestamp}.`);
+
+   if (formTitle === "Behavioral Assessment") {
+     setFormSubmissionStatus(previous => ({
+       ...previous,
+       behavioral:{
+         submitted_at:timestamp,
+         status:"Submitted"
+       }
+     }));
+   }
+
+   if (formTitle === "Housing & Transportation Form") {
+     setFormSubmissionStatus(previous => ({
+       ...previous,
+       housing:{
+         submitted_at:timestamp,
+         status:"Submitted"
+       }
+     }));
+   }
+ };
+
+  useEffect(() => {
+    const token = tokenStorage.get();
+
+    if (!token) {
+      setFormsAccessLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    fetch(`${API_BASE}/api/forms/access`, {
+      headers:{ Authorization:`Bearer ${token}`, Accept:"application/json" },
+      cache:"no-store"
+    })
+      .then(response => response.json().then(data => ({ ok:response.ok, data })))
+      .then(({ ok, data }) => {
+        if (cancelled) return;
+
+        if (!ok || data?.success !== true) {
+          throw new Error(data?.error || "Unable to load form access.");
+        }
+
+        setFormAccess(previous => ({
+          ...previous,
+          ...(data.access || {})
+        }));
+
+        setFormSubmissionStatus(previous => ({
+          ...previous,
+          behavioral:data.submissions?.behavioral || previous.behavioral,
+          housing:data.submissions?.housing || previous.housing
+        }));
+      })
+      .catch(error => {
+        console.warn("[Forms] Access unavailable:", error?.message || error);
+      })
+      .finally(() => {
+        if (!cancelled) setFormsAccessLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [user?.email]);
+
   useEffect(() => {
     const token = tokenStorage.get();
     if (!token) return setPreDeployment(p => ({...p, loading:false}));
     fetch(`${API_BASE}/api/forms/pre-deployment`, { headers:{Authorization:`Bearer ${token}`}, cache:"no-store" })
       .then(r => r.json().then(data => ({ok:r.ok,data})))
-      .then(({ok,data}) => setPreDeployment(p => ({...p, loading:false, due:ok && data?.due===true, embassyInterviewDate:data?.embassyInterviewDate||null, visaStatus:data?.visaStatus||null, submission:data?.submission||null})))
+      .then(({ok,data}) => setPreDeployment(p => ({...p, loading:false, due:ok && data?.due===true, priorityDate:data?.priorityDate||null, visaStatus:data?.visaStatus||null, submission:data?.submission||null})))
       .catch(() => setPreDeployment(p => ({...p, loading:false, due:false})));
   }, [user?.email]);
 
@@ -978,70 +1055,6 @@ export default function Forms() {
   if (activeForm) {
     return (
       <div className="min-h-screen space-y-4 bg-[#F3F4F6] p-4 lg:p-6">
-        {submissionSuccess && (
-          <div
-            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/55 p-4"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="active-form-submission-success-title"
-          >
-            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-              <div className="flex items-start gap-4">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-emerald-100">
-                  <CheckCircle2 className="h-7 w-7 text-emerald-600" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h2
-                    id="active-form-submission-success-title"
-                    className="text-xl font-bold text-gray-900"
-                  >
-                    {submissionSuccess.title === "Pre-Deployment Questionnaire"
-                      ? "Recording submitted successfully"
-                      : "Submission successful"}
-                  </h2>
-                  <p className="mt-2 text-sm leading-6 text-gray-600">
-                    {submissionSuccess.message}
-                  </p>
-                  {submissionSuccess.receiptId && (
-                    <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
-                        Submission receipt
-                      </p>
-                      <p className="mt-1 font-mono text-sm font-bold text-blue-900">
-                        {submissionSuccess.receiptId}
-                      </p>
-                      <p className="mt-1 text-xs text-blue-700">
-                        {new Date(submissionSuccess.timestamp).toLocaleString()}
-                      </p>
-                    </div>
-                  )}
-
-                  {submissionSuccess.title === "Pre-Deployment Questionnaire" && (
-                    <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-                      <p className="text-sm font-semibold text-emerald-800">
-                        Your recording has been received by ICP.
-                      </p>
-                      <p className="mt-1 text-sm text-emerald-700">
-                        It is now pending administrator review and approval. You do not need to submit it again.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setSubmissionSuccess(null);
-                  setActiveForm(null);
-                }}
-                className="mt-6 w-full rounded-lg bg-emerald-600 px-5 py-3 text-sm font-semibold text-white hover:bg-emerald-700"
-              >
-                Return to Forms
-              </button>
-            </div>
-          </div>
-        )}
         <button
           type="button"
           onClick={() =>
@@ -1059,11 +1072,11 @@ export default function Forms() {
   <BehavioralAssessmentForm
     user={user}
     onClose={(result) => {
-      setActiveForm(null);
       showFormSubmissionSuccess(
         "Behavioral Assessment",
-        result?.submittedAt || null
+        result?.submittedAt || new Date().toISOString()
       );
+      setActiveForm(null);
     }}
   />
 )}
@@ -1360,7 +1373,7 @@ export default function Forms() {
           <div className="mx-auto max-w-3xl rounded-2xl bg-white p-6 shadow-xl">
             <div className="flex items-center justify-between"><h2 className="text-xl font-bold">Pre-Deployment Questionnaire</h2><button onClick={()=>setActiveForm(null)}><X /></button></div>
             <p className="mt-3 text-sm text-gray-600">This task becomes due once your Embassy interview date is confirmed. Review all eight questions, then record your responses directly in the portal as audio or video and submit them here.</p>
-            {preDeployment.embassyInterviewDate && <p className="mt-2 text-sm font-medium">Embassy Interview: {new Date(preDeployment.embassyInterviewDate).toLocaleDateString()}</p>}
+            {preDeployment.priorityDate && <p className="mt-2 text-sm font-medium">I-140 Priority Date: {new Date(preDeployment.priorityDate).toLocaleDateString()}</p>}
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {[['fullLegalName','Full legal name'],['nursingSpecialty','Nursing specialty'],['usEmployer','U.S. employer'],['departmentUnit','Department / unit']].map(([key,label])=><label key={key} className="text-sm">{label}<input className="mt-1 w-full rounded-lg border p-2" value={preDeployment[key]} onChange={e=>setPreDeployment(p=>({...p,[key]:e.target.value}))}/></label>)}
             </div>
@@ -1414,6 +1427,11 @@ export default function Forms() {
                           ? "Please record and submit a new response."
                           : "Your recording has been received and is pending ICP review. You do not need to submit it again."}
                     </p>
+                    {preDeployment.submission.submitted_at && (
+                      <p className="mt-2 text-xs font-semibold opacity-80">
+                        Submitted {new Date(preDeployment.submission.submitted_at).toLocaleString()}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1425,9 +1443,12 @@ export default function Forms() {
   <HousingDetailsForm
     user={user}
     setStages={setLocalStages}
-    onClose={() => {
+    onClose={(result) => {
+      showFormSubmissionSuccess(
+        "Housing & Transportation Form",
+        result?.submittedAt || new Date().toISOString()
+      );
       setActiveForm(null);
-      showFormSubmissionSuccess("Housing & Transportation Form");
     }}
   />
 )}
@@ -1437,94 +1458,6 @@ export default function Forms() {
   }
   return (
     <>
-      {statementTruth.submission && (
-        <div className="mx-auto mb-4 max-w-5xl rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-          <div className="flex items-start gap-3">
-            <FileText className="mt-0.5 h-5 w-5 shrink-0 text-blue-700" />
-            <div>
-              <p className="font-semibold">
-                Statement of Truth submission
-              </p>
-              <p className="mt-1">
-                {statementTruth.submission.status || "Pending ICP Review"}
-                {statementTruth.submission.receipt_id
-                  ? ` • Receipt ${statementTruth.submission.receipt_id}`
-                  : ""}
-              </p>
-              {statementTruth.submission.submitted_at && (
-                <p className="mt-1 text-xs text-blue-700">
-                  Submitted{" "}
-                  {new Date(
-                    statementTruth.submission.submitted_at
-                  ).toLocaleString()}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {preDeployment.submission && preDeployment.submission.approval_status !== "rejected" && (
-        <div className="mx-auto mb-4 max-w-5xl rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-          <div className="flex items-start gap-3">
-            <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
-            <div>
-              <p className="font-semibold">
-                Pre-Deployment Questionnaire recording received
-              </p>
-              <p className="mt-1">
-                {preDeployment.submission.approval_status === "approved"
-                  ? "Your recording has been approved by ICP."
-                  : "Your recording was submitted successfully and is pending ICP review."}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {submissionSuccess && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="submission-success-title"
-        >
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100">
-                  <CheckCircle2 className="h-7 w-7 text-emerald-600" />
-                </div>
-                <div>
-                  <h2 id="submission-success-title" className="text-xl font-bold text-gray-900">
-                    Submission successful
-                  </h2>
-                  <p className="mt-1 text-sm text-gray-600">
-                    {submissionSuccess.message}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSubmissionSuccess(null)}
-                className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
-                aria-label="Close success message"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="mt-6 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setSubmissionSuccess(null)}
-                className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground"
-              >
-                Continue
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       <div className="min-h-screen space-y-6 bg-[#F3F4F6] p-4 lg:p-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">
@@ -1552,8 +1485,28 @@ export default function Forms() {
       </div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {FORMS.map(item => {
-          const Icon =
-            item.icon;
+          const Icon = item.icon;
+          const accessRule = formAccess?.[item.key] || { available:true };
+          const gated = ["behavioral", "preDeployment", "statementOfTruth"].includes(item.key);
+          const available = !gated || accessRule.available === true;
+          const triggerLabel =
+            item.key === "behavioral"
+              ? "Stage 3 Intro Call"
+              : item.key === "preDeployment"
+                ? "I-140 Priority Date"
+                : item.key === "statementOfTruth"
+                  ? "Embassy Interview Date"
+                  : "";
+          const submission =
+            item.key === "behavioral"
+              ? formSubmissionStatus.behavioral
+              : item.key === "preDeployment"
+                ? preDeployment.submission
+                : item.key === "statementOfTruth"
+                  ? statementTruth.submission
+                  : item.key === "housing"
+                    ? formSubmissionStatus.housing
+                    : null;
           if (item.documentUrl) {
             return (
               <div key={item.key} className="rounded-xl border bg-card p-5 transition hover:border-primary/40 hover:shadow-md">
@@ -1581,12 +1534,13 @@ export default function Forms() {
             <button
               key={item.key}
               type="button"
-              onClick={() =>
-                setActiveForm(
-                  item.key
-                )
-              }
-              className="rounded-xl border bg-card p-5 text-left transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
+              disabled={!available || formsAccessLoading}
+              onClick={() => available && setActiveForm(item.key)}
+              className={`rounded-xl border bg-card p-5 text-left transition ${
+                available
+                  ? "hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
+                  : "cursor-not-allowed opacity-65"
+              }`}
             >
               <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-primary/10">
                 <Icon className="h-8 w-8 text-primary" />
@@ -1597,9 +1551,34 @@ export default function Forms() {
               <p className="mt-2 text-base text-muted-foreground">
                 {item.description}
               </p>
-              <div className="mt-5 text-sm font-semibold text-primary">
-                Open form
+              <div className={`mt-5 text-sm font-semibold ${available ? "text-primary" : "text-amber-700"}`}>
+                {formsAccessLoading
+                  ? "Checking availability…"
+                  : available
+                    ? "Open form"
+                    : `${triggerLabel} must be completed before this form is available.`}
               </div>
+
+              {!available && accessRule?.triggerValue ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  CRM trigger: {new Date(accessRule.triggerValue).toLocaleString()}
+                </p>
+              ) : null}
+
+              {submission && (submission.submitted_at || submission.created_at) ? (
+                <div className="mt-4 border-t pt-4">
+                  <p className="text-sm font-semibold text-emerald-700">
+                    Submitted successfully on {new Date(
+                      submission.submitted_at || submission.created_at
+                    ).toLocaleString()}.
+                  </p>
+                  {submission.receipt_id ? (
+                    <p className="mt-1 text-xs font-mono text-emerald-700">
+                      Receipt: {submission.receipt_id}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
             </button>
           );
         })}

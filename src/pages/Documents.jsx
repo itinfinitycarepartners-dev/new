@@ -26,7 +26,8 @@ import {
   ClipboardPenLine,
   CheckCircle,
   Plane,
-  Building2
+  Building2,
+  Trash2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -47,7 +48,7 @@ const API_BASE = (() => {
     }
   } catch {
   }
-  return "http\://localhost:4000";
+  return "https://icpcandidateportal-bve7d5bpdnftfbbc.centralus-01.azurewebsites.net";
 })();
 const WORKFLOW_SECTION_ICONS = {
   Recruiting: ClipboardPenLine,
@@ -647,6 +648,36 @@ function DocumentViewerModal({
     </div>
   );
 }
+
+const DOCUMENT_LIBRARY_BROWSER_CACHE_PREFIX = "icp_document_library_v31:";
+const DOCUMENT_LIBRARY_BROWSER_CACHE_MS = 10 * 60 * 1000;
+
+const readDocumentLibraryBrowserCache = email => {
+  if (!email) return undefined;
+  try {
+    const raw = sessionStorage.getItem(
+      `${DOCUMENT_LIBRARY_BROWSER_CACHE_PREFIX}${String(email).trim().toLowerCase()}`
+    );
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.data || !parsed?.savedAt) return undefined;
+    if (Date.now() - Number(parsed.savedAt) > DOCUMENT_LIBRARY_BROWSER_CACHE_MS) return undefined;
+    return parsed.data;
+  } catch {
+    return undefined;
+  }
+};
+
+const writeDocumentLibraryBrowserCache = (email, data) => {
+  if (!email || !data) return;
+  try {
+    sessionStorage.setItem(
+      `${DOCUMENT_LIBRARY_BROWSER_CACHE_PREFIX}${String(email).trim().toLowerCase()}`,
+      JSON.stringify({ data, savedAt:Date.now() })
+    );
+  } catch {}
+};
+
 export default function Documents() {
   const { user } =
     useAuth();
@@ -699,6 +730,7 @@ export default function Documents() {
   const [submittedDocumentCount, setSubmittedDocumentCount] = useState(0);
   const pendingCountRequestRef = useRef(false);
   const [submissionPopup, setSubmissionPopup] = useState(null);
+  const [removingDocumentKey, setRemovingDocumentKey] = useState("");
   const {
     data: documentData,
     isLoading,
@@ -720,7 +752,7 @@ export default function Documents() {
     retry: 2,
     retryDelay:
       attempt => Math.min(500 * 2 ** attempt, 2000),
-    refetchOnMount: false,
+    refetchOnMount: true,
     refetchOnWindowFocus: false,
     refetchInterval: false,
     refetchIntervalInBackground: false,
@@ -776,12 +808,16 @@ export default function Documents() {
                   )
               )
             : [];
-        return {
+        const result = {
           ...payload,
           documents,
           categories: visibleCategories
         };
-      }
+        writeDocumentLibraryBrowserCache(user?.email, result);
+        return result;
+      },
+    initialData:() => readDocumentLibraryBrowserCache(user?.email),
+    initialDataUpdatedAt:() => 0
   });
   useEffect(() => {
     const handleDocumentsUpdated = event => {
@@ -846,7 +882,7 @@ export default function Documents() {
     };
 
     refreshPendingCount();
-    const timer = window.setInterval(refreshPendingCount, 3000);
+    const timer = window.setInterval(refreshPendingCount, 10000);
     const handleFocus = () => refreshPendingCount();
     const handleApprovalUpdate = () => refreshPendingCount();
 
@@ -1373,6 +1409,78 @@ export default function Documents() {
         );
       }
     };
+  const removeDocument = async document => {
+    const key = getDocumentKey(document);
+    if (!key || removingDocumentKey) return;
+
+    const confirmed = window.confirm(
+      `Remove "${document.document_name || "this document"}" from your Document Library section?`
+    );
+    if (!confirmed) return;
+
+    const token = getAuthToken();
+    if (!token) {
+      toast.error("Your session has expired.");
+      return;
+    }
+
+    setRemovingDocumentKey(key);
+
+    try {
+      const response = await fetch(`${API_BASE}/api/documents/remove`, {
+        method:"POST",
+        credentials:"include",
+        headers:{
+          Authorization:`Bearer ${token}`,
+          "Content-Type":"application/json",
+          Accept:"application/json"
+        },
+        body:JSON.stringify({
+          documentKey:key,
+          attachmentId:
+            document.attachment_id ||
+            document.crm_attachment_id ||
+            document.recruit_attachment_id ||
+            "",
+          pendingUploadId:document.pending_upload_id || "",
+          approvalKey:document.approval_key || "",
+          documentName:document.document_name || "",
+          category:document.document_category || "",
+          source:document.source || ""
+        })
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || "Unable to remove document.");
+      }
+
+      queryClient.setQueryData(
+        ["document-library", user?.email],
+        previous => {
+          if (!previous) return previous;
+          const next = {
+            ...previous,
+            documents:(previous.documents || []).filter(
+              item => getDocumentKey(item) !== key
+            )
+          };
+          writeDocumentLibraryBrowserCache(user?.email, next);
+          return next;
+        }
+      );
+
+      toast.success("Document removed from your library.");
+      window.dispatchEvent(new CustomEvent("documents-updated", {
+        detail:{ source:"candidate-remove" }
+      }));
+    } catch (error) {
+      toast.error(error?.message || "Unable to remove document.");
+    } finally {
+      setRemovingDocumentKey("");
+    }
+  };
+
   const renderDocumentItem =
     document => {
       const DocumentIcon =
@@ -1433,23 +1541,32 @@ export default function Documents() {
               )}
             </div>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              openViewer(
-                document
-              )
-            }
-            className="shrink-0 gap-1.5"
-            disabled={
-              !document.attachment_id
-            }
-          >
-            <Eye className="h-3.5 w-3.5" />
-            View
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => openViewer(document)}
+              className="gap-1.5"
+              disabled={!document.attachment_id}
+            >
+              <Eye className="h-3.5 w-3.5" />
+              View
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => removeDocument(document)}
+              disabled={removingDocumentKey === getDocumentKey(document)}
+              className="gap-1.5 border-red-200 text-red-700 hover:bg-red-50"
+            >
+              {removingDocumentKey === getDocumentKey(document)
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <Trash2 className="h-3.5 w-3.5" />}
+              Remove
+            </Button>
+          </div>
         </div>
       );
     };

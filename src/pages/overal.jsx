@@ -3450,7 +3450,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
     "";
 
   return (
-    <div className="h-[680px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-200/50 flex">
+    <div className="h-[680px] min-h-[680px] max-h-[680px] w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-200/50 flex">
       <div className="w-[340px] shrink-0 border-r border-slate-200 bg-slate-50/70 overflow-y-auto">
         <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur">
           <div className="flex items-center justify-between gap-3">
@@ -3608,7 +3608,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
           );
         })}
       </div>
-      <div className="min-w-0 flex-1 flex flex-col bg-slate-50/50">
+      <div className="min-h-0 min-w-0 flex-1 flex flex-col bg-slate-50/50">
         {department === "public" ? (
           <>
             <div className="border-b px-5 py-4 bg-white shadow-sm">
@@ -3708,7 +3708,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
               ) : (
                 chat.map((msg) => (
                   <div key={msg._id || msg.id} className={`flex ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[75%] rounded-2xl text-sm shadow-sm ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'text-white rounded-br-sm' : 'border border-slate-200 bg-white text-slate-800 rounded-bl-sm'}`} style={{ background: msg.senderEmail === 'admin' || msg.from === 'admin' ? THEME.brand : '' }}>
+                    <div className={`w-full max-w-[78%] rounded-2xl text-sm shadow-sm ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'text-white rounded-br-sm' : 'border border-slate-200 bg-white text-slate-800 rounded-bl-sm'}`} style={{ background: msg.senderEmail === 'admin' || msg.from === 'admin' ? THEME.brand : '' }}>
                       <div className="px-4 pt-2.5">
                         {msg.content || msg.text}
                       </div>
@@ -4113,19 +4113,40 @@ const AdminRequestsPanel = ({ onOpenUser, notificationTarget = null, onReturnToN
                       ))}
 
                     {request.request_type === "add_dependant" &&
-                      details.passport_attachment_id && (
+                      (details.passport_pending_upload_id || details.passport_attachment_id) && (
                         <div className="mt-3 flex flex-wrap gap-2">
                           <button
                             type="button"
-                            onClick={() => setRequestAttachment({
-                              attachment_id: details.passport_pending_upload_id || details.passport_attachment_id,
-                              pending_upload_id: details.passport_pending_upload_id || details.passport_attachment_id,
-                              candidate_email: request.candidate_email,
-                              source: details.passport_pending_upload_id ? "pending" : (details.passport_source || "crm"),
-                              crm_record_id: details.passport_deal_id || "",
-                              document_name: details.passport || details.passportDocumentName || "Dependent evidence",
-                              file_type: details.passport_mime_type || ""
-                            })}
+                            onClick={() => {
+                              const pendingId = String(
+                                details.passport_pending_upload_id || ""
+                              ).trim();
+                              const attachmentId = String(
+                                details.passport_attachment_id || ""
+                              ).trim();
+
+                              setRequestAttachment({
+                                attachment_id: pendingId || attachmentId,
+                                pending_upload_id: pendingId,
+                                crm_attachment_id: attachmentId,
+                                candidate_email: request.candidate_email,
+                                source: pendingId
+                                  ? "pending"
+                                  : (details.passport_source || "crm"),
+                                crm_record_id:
+                                  details.passport_deal_id ||
+                                  details.passport_crm_record_id ||
+                                  "",
+                                document_name:
+                                  details.passport ||
+                                  details.passportDocumentName ||
+                                  details.passport_file_name ||
+                                  "Dependent passport evidence",
+                                file_type:
+                                  details.passport_mime_type ||
+                                  ""
+                              });
+                            }}
                             className="rounded-lg border border-purple-200 px-3 py-2 text-xs font-semibold text-purple-700"
                           >
                             View Dependent Evidence

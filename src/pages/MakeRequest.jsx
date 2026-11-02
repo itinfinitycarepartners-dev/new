@@ -19,12 +19,36 @@ import {
   MessageSquareText
 } from "lucide-react";
 import {
-  tokenStorage,
-  documentLibrary
+  tokenStorage
 } from "@/api/icpClient";
+
+const AZURE_API_BASE =
+  "https://icpcandidateportal-bve7d5bpdnftfbbc.centralus-01.azurewebsites.net";
+
+const configuredApiBase =
+  String(
+    import.meta.env.VITE_API_BASE_URL ||
+    ""
+  )
+    .trim()
+    .replace(/\/+$/, "");
+
+const isLocalBrowser =
+  typeof window !== "undefined" &&
+  ["localhost", "127.0.0.1"].includes(
+    window.location.hostname
+  );
+
 const API_BASE =
-  import.meta.env.VITE_API_BASE_URL ||
-  "http://localhost:4000";
+  configuredApiBase &&
+  (
+    isLocalBrowser ||
+    !/^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/i.test(
+      configuredApiBase
+    )
+  )
+    ? configuredApiBase
+    : AZURE_API_BASE;
 const emptyDependant = () => ({
   name: "",
   age: "",
@@ -239,10 +263,17 @@ export default function MakeRequest() {
           additionalEvidencePreview
         );
       }
+
+      if (dependant.passportPreview) {
+        URL.revokeObjectURL(
+          dependant.passportPreview
+        );
+      }
     };
   }, [
     embassyEvidencePreview,
-    additionalEvidencePreview
+    additionalEvidencePreview,
+    dependant.passportPreview
   ]);
   const fetchWithTimeout = async (
     url,
@@ -271,6 +302,135 @@ export default function MakeRequest() {
       );
     }
   };
+  const uploadRequestEvidence = async ({
+    file,
+    category,
+    destination = "crm",
+    documentType,
+    pipelineSection,
+    requirementKey,
+    department = "Immigration"
+  }) => {
+    if (!file) {
+      throw new Error(
+        "Select an evidence file before submitting."
+      );
+    }
+
+    const token =
+      tokenStorage.get();
+
+    if (!token) {
+      throw new Error(
+        "Your session has expired. Please sign in again."
+      );
+    }
+
+    const form =
+      new FormData();
+
+    form.append(
+      "file",
+      file,
+      file.name
+    );
+    form.append(
+      "document_name",
+      file.name
+    );
+    form.append(
+      "document_type",
+      documentType ||
+      file.name ||
+      "Request Evidence"
+    );
+    form.append(
+      "document_library_upload",
+      "true"
+    );
+    form.append(
+      "document_department",
+      department
+    );
+    form.append(
+      "document_category",
+      category
+    );
+    form.append(
+      "library_category",
+      category
+    );
+    form.append(
+      "pipeline_section",
+      pipelineSection || "Requests"
+    );
+    form.append(
+      "requirement_key",
+      requirementKey || category
+    );
+    form.append(
+      "destination",
+      destination
+    );
+
+    let response;
+
+    try {
+      response =
+        await fetchWithTimeout(
+          `${API_BASE}/api/documents/upload`,
+          {
+            method:"POST",
+            credentials:"include",
+            cache:"no-store",
+            headers:{
+              Authorization:`Bearer ${token}`,
+              Accept:"application/json"
+            },
+            body:form
+          },
+          45000
+        );
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        throw new Error(
+          "The evidence upload took too long. Please try once more."
+        );
+      }
+
+      if (
+        error instanceof TypeError ||
+        /failed to fetch|networkerror|network request failed/i.test(
+          String(error?.message || "")
+        )
+      ) {
+        throw new Error(
+          "Unable to reach the ICP upload service. Please check your connection and try again."
+        );
+      }
+
+      throw error;
+    }
+
+    const data =
+      await response
+        .json()
+        .catch(() => ({}));
+
+    if (
+      !response.ok ||
+      data.success !== true
+    ) {
+      throw new Error(
+        data.error ||
+        data.message ||
+        `Evidence upload failed (${response.status}).`
+      );
+    }
+
+    return data;
+  };
+
   const submitEmbassyChange =
     async () => {
       if (
@@ -302,7 +462,7 @@ export default function MakeRequest() {
       setNotice("");
       try {
         const uploadResult =
-          await documentLibrary.upload({
+          await uploadRequestEvidence({
             file:
               embassyEvidenceFile,
             category:
@@ -314,7 +474,9 @@ export default function MakeRequest() {
             pipelineSection:
               "Embassy Transfer",
             requirementKey:
-              "embassy-transfer-evidence"
+              "embassy-transfer-evidence",
+            department:
+              "Immigration"
           });
         if (
           !uploadResult ||
@@ -675,153 +837,99 @@ export default function MakeRequest() {
   };
   const submitDependant = async () => {
     if (submitting) return;
-    const name =
-      dependant.name.trim();
-    const age =
-      String(
-        dependant.age
-      ).trim();
-    const relationship =
-      dependant.relationship.trim();
-    const arrivalPlan =
-      dependant.arrivalPlan.trim();
-    const passportFile =
-      dependant.passportFile;
-    if (
-      !name ||
-      !age ||
-      !relationship ||
-      !arrivalPlan ||
-      !passportFile
-    ) {
+
+    const name = dependant.name.trim();
+    const age = String(dependant.age).trim();
+    const relationship = dependant.relationship.trim();
+    const arrivalPlan = dependant.arrivalPlan.trim();
+    const passportFile = dependant.passportFile;
+
+    if (!name || !age || !relationship || !arrivalPlan || !passportFile) {
       setNotice(
-        "Full name, age, relationship, travel timing and a passport image are required."
+        "Full name, age, relationship, travel timing and a passport image or PDF are required."
       );
       return;
     }
-    setSubmitting(
-      "add_dependant"
-    );
+
+    const token = tokenStorage.get();
+    if (!token) {
+      setNotice("Your session has expired. Please sign in again.");
+      return;
+    }
+
+    setSubmitting("add_dependant");
     setNotice("");
+
     try {
-      const uploadResult =
-        await documentLibrary.upload({
-          file:
-            passportFile,
-          category:
-            "dependant-passport",
-          destination:
-            "crm",
-          documentType:
-            `Dependant Passport - ${name}`,
-          pipelineSection:
-            "Dependants",
-          requirementKey:
-            "dependant-passport"
-        });
-      if (
-        !uploadResult ||
-        uploadResult.success !== true
-      ) {
-        throw new Error(
-          uploadResult?.error ||
-          uploadResult?.message ||
-          "The passport image could not be uploaded."
-        );
-      }
-      const passportMetadata = getUploadMetadata(
-        uploadResult,
-        passportFile
+      const body = new FormData();
+      body.append("name", name);
+      body.append("age", age);
+      body.append("relationship", relationship);
+      body.append("arrivalPlan", arrivalPlan);
+      body.append("passport", passportFile, passportFile.name);
+
+      const response = await fetchWithTimeout(
+        `${API_BASE}/api/requests/dependant`,
+        {
+          method:"POST",
+          credentials:"include",
+          cache:"no-store",
+          headers:{
+            Authorization:`Bearer ${token}`,
+            Accept:"application/json"
+          },
+          body
+        },
+        60000
       );
-      const response =
-        await fetch(
-          `${API_BASE}/api/requests`,
-          {
-            method:
-              "POST",
-            cache: "no-store",
-            credentials: "include",
-            headers: {
-              ...getHeaders(),
-              "Content-Type":
-                "application/json",
-              Accept: "application/json",
-              "Cache-Control": "no-cache",
-              Pragma: "no-cache"
-            },
-            body:
-              JSON.stringify({
-                requestType:
-                  "add_dependant",
-                request_type:
-                  "add_dependant",
-                details: {
-                  name,
-                  age,
-                  relationship,
-                  arrivalPlan,
-                  travelPlan:
-                    arrivalPlan,
-                  passport:
-                    passportFile.name,
-                  passportDocumentName:
-                    passportFile.name,
-                  passportUploaded:
-                    true,
-                  passportSource:
-                    passportMetadata.evidenceSource,
-                  passportAttachmentId:
-                    passportMetadata.evidenceAttachmentId,
-                  passportDealId:
-                    passportMetadata.evidenceDealId,
-                  passportMimeType:
-                    passportMetadata.evidenceMimeType
-                }
-              })
-          }
-        );
-      const data =
-        await response
-          .json()
-          .catch(() => ({}));
-      if (
-        !response.ok ||
-        data.success !== true
-      ) {
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || data.success !== true) {
         throw new Error(
           data.error ||
           data.message ||
           "The dependant approval request could not be submitted."
         );
       }
-      if (
-        dependant.passportPreview
-      ) {
-        URL.revokeObjectURL(
-          dependant.passportPreview
-        );
+
+      if (dependant.passportPreview) {
+        URL.revokeObjectURL(dependant.passportPreview);
       }
-      setDependant(
-        emptyDependant()
-      );
+
+      setDependant(emptyDependant());
       setNotice(
-        "Your dependant request and passport image were submitted successfully and are awaiting admin approval."
+        data.message ||
+        "Your dependant request and passport evidence were submitted successfully and are awaiting Admin approval."
       );
-      await load();
+
+      if (data.request) {
+        setRequests(previous => [data.request, ...previous]);
+      }
+
+      void load({ background:true }).catch(() => null);
+
       window.dispatchEvent(
-        new CustomEvent(
-          "candidate-data-updated"
-        )
+        new CustomEvent("candidate-data-updated", {
+          detail:{
+            event:"dependant-request-submitted",
+            requestId:data.requestId,
+            pendingUploadId:data.pending_upload_id || null
+          }
+        })
       );
     } catch (error) {
+      console.error("[MakeRequest] Dependant submission failed:", error);
       setNotice(
-        error.message ||
-        "The dependant approval request could not be submitted."
+        error?.name === "AbortError"
+          ? "The dependant request took too long to confirm. Please check your Requests list before trying again."
+          : (error?.message || "The dependant approval request could not be submitted.")
       );
     } finally {
       setSubmitting("");
     }
   };
+
   const submitAdditionalInquiry = async () => {
     if (submitting) return;
     const inquiryType =
@@ -859,7 +967,7 @@ export default function MakeRequest() {
       };
       if (additionalEvidenceFile) {
         const uploadResult =
-          await documentLibrary.upload({
+          await uploadRequestEvidence({
             file:
               additionalEvidenceFile,
             category:
@@ -871,7 +979,9 @@ export default function MakeRequest() {
             pipelineSection:
               "Additional Inquiries",
             requirementKey:
-              "additional-inquiry-evidence"
+              "additional-inquiry-evidence",
+            department:
+              "Admin"
           });
         if (
           !uploadResult ||
