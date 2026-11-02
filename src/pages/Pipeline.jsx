@@ -8029,7 +8029,6 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         />
       </section>
 
-      {isLocalBankPlan ? (
       <section className="rounded-2xl border border-cyan-200 bg-cyan-50/60 p-5 shadow-sm">
         <h3 className="mb-3 flex items-center gap-2 rounded-lg bg-cyan-100 px-3 py-2 font-bold text-cyan-900">
           <Banknote className="h-5 w-5" />
@@ -8038,31 +8037,45 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
 
         <InfoRow
           label="Final Banking Plan"
-          value={finalBankingPlan}
+          value={
+            finalBankingPlan ||
+            "Complete your Final Banking Plan in My Profile."
+          }
         />
-        <InfoRow
-          label="Local Bank Name"
-          value={locationServices.bank?.name}
-        />
-        <InfoRow
-          label="Address"
-          value={locationServices.bank?.address}
-        />
-        <InfoRow
-          label="Phone"
-          value={locationServices.bank?.phone}
-        />
-        {locationServices.bank?.directoryCity ? (
-          <InfoRow
-            label="Reference Location"
-            value={locationServices.bank.directoryCity}
-          />
-        ) : null}
-        {lookupLoading && (
-          <p className="mt-2 text-xs text-gray-500">
-            Updating the closest bank for your relocation address...
-          </p>
-        )}
+
+        {isLocalBankPlan ? (
+          <>
+            <InfoRow
+              label="Local Bank Name"
+              value={locationServices.bank?.name}
+            />
+            <InfoRow
+              label="Address"
+              value={locationServices.bank?.address}
+            />
+            <InfoRow
+              label="Phone"
+              value={locationServices.bank?.phone}
+            />
+            {locationServices.bank?.directoryCity ? (
+              <InfoRow
+                label="Reference Location"
+                value={locationServices.bank.directoryCity}
+              />
+            ) : null}
+            {lookupLoading && (
+              <p className="mt-2 text-xs text-gray-500">
+                Updating the closest bank for your relocation address...
+              </p>
+            )}
+          </>
+        ) : finalBankingPlan === "Already Have an Account – Provide Bank Name and City" &&
+          finalBankNameCity ? (
+            <InfoRow
+              label="Bank Name and City"
+              value={finalBankNameCity}
+            />
+          ) : null}
 
         <h4 className="mt-5 font-bold">Setting Up Your Account</h4>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-700">
@@ -8080,37 +8093,24 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         <div className="mt-2 grid gap-3 md:grid-cols-3">
           <div className="rounded-lg bg-gray-50 p-3 text-sm">
             <strong>50% Needs</strong>
-            <p className="mt-1">Rent, utilities, groceries, insurance, and minimum debt payments.</p>
+            <p className="mt-1">
+              Rent, utilities, groceries, insurance, and minimum debt payments.
+            </p>
           </div>
           <div className="rounded-lg bg-gray-50 p-3 text-sm">
             <strong>30% Wants</strong>
-            <p className="mt-1">Dining, hobbies, entertainment, subscriptions, and leisure.</p>
+            <p className="mt-1">
+              Dining, hobbies, entertainment, subscriptions, and leisure.
+            </p>
           </div>
           <div className="rounded-lg bg-gray-50 p-3 text-sm">
             <strong>20% Savings</strong>
-            <p className="mt-1">Emergency funds, retirement, investments, and extra debt payments.</p>
+            <p className="mt-1">
+              Emergency funds, retirement, investments, and extra debt payments.
+            </p>
           </div>
         </div>
       </section>
-      ) : (
-        <section className="rounded-2xl border border-cyan-200 bg-cyan-50/60 p-5 shadow-sm">
-          <h3 className="mb-3 flex items-center gap-2 rounded-lg bg-cyan-100 px-3 py-2 font-bold text-cyan-900">
-            <Banknote className="h-5 w-5" />
-            Banking Information
-          </h3>
-          <InfoRow
-            label="Final Banking Plan"
-            value={
-              finalBankingPlan ||
-              "Complete your Final Banking Plan in My Profile."
-            }
-          />
-          {finalBankingPlan === "Already Have an Account – Provide Bank Name and City" &&
-            finalBankNameCity ? (
-              <InfoRow label="Bank Name and City" value={finalBankNameCity} />
-            ) : null}
-        </section>
-      )}
 
       <section className="rounded-2xl border border-pink-200 bg-pink-50/60 p-5 shadow-sm">
         <h3 className="mb-3 flex items-center gap-2 rounded-lg bg-pink-100 px-3 py-2 font-bold text-pink-900">
@@ -10483,7 +10483,7 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
       { id: "medical_exam", label: "Medical Exam", side: "credit", reviewed: false, amount: null },
       { id: "dependent_visa_fee", label: "Dependent VISA Fee Bill", side: "deduction", reviewed: false, amount: null },
       { id: "dependents_after_i140", label: "Dependents Added after I-140", side: "deduction", reviewed: false, amount: null },
-      { id: "housing_stipend", label: "One-time Housing Stipend", side: "credit", reviewed: false, amount: null },
+      { id: "housing_stipend", label: "One Time Housing Stipend", side: "deduction", reviewed: false, amount: null },
       { id: "housing_deposit", label: "Breakdown of Housing and Relocation Expenses", side: "deduction", reviewed: false, amount: null, display_value: "" },
       { id: "housing_app_admin", label: "Total Housing and Relocation Expenses", side: "deduction", reviewed: false, amount: null }
     ],
@@ -10500,6 +10500,14 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
   const [expenseReportAcknowledgedAt, setExpenseReportAcknowledgedAt] = useState(null);
   const [bankSubmittedAt, setBankSubmittedAt] = useState(null);
   const [expenseReportAcknowledging, setExpenseReportAcknowledging] = useState(false);
+  const [housingStipendSelection, setHousingStipendSelection] = useState("");
+  const [housingStipendSaving, setHousingStipendSaving] = useState(false);
+  const HOUSING_STIPEND_OPTIONS = [
+    { value:"Single Non-metropolitan", amount:1000 },
+    { value:"Family Non-metropolitan", amount:1200 },
+    { value:"Single Metropolitan", amount:1200 },
+    { value:"Family Metropolitan", amount:1500 }
+  ];
 
   useEffect(() => {
     // Admin modal already loaded the exact PostgreSQL-backed candidate summary.
@@ -10513,24 +10521,131 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
     if (adminMode) {
       setLoading(false);
 
+      // Payment Type / Payment 1-4 / totals / acknowledgement state come from
+      // the reimbursement-data endpoint. Load them in the background without
+      // blocking the Expense Report itself.
+      void fetchPaymentData();
+
       if (summaryReport) {
         setExpenseReport(summaryReport);
         setExpenseReportLoading(false);
         setSubmitError(null);
+
+        // Paint the cached summary immediately, then refresh quietly so newly
+        // synchronized facility / housing-stipend / receipt values replace any
+        // stale summary without blocking the Admin tab.
+        void fetchExpenseReport();
         return;
       }
     } else {
-      fetchPaymentData();
+      void fetchPaymentData();
     }
 
     // Fallback only when PostgreSQL summary has no saved report yet.
-    fetchExpenseReport();
+    void fetchExpenseReport();
   }, [
     adminMode,
     adminToken,
     user?.email,
     user?._adminSummary?.expenseReport
   ]);
+
+  useEffect(() => {
+    const housingRow =
+      Array.isArray(expenseReport?.rows)
+        ? expenseReport.rows.find(row => row?.id === "housing_stipend")
+        : null;
+
+    const selected =
+      String(
+        housingRow?.housing_stipend_option ||
+        ""
+      ).trim();
+
+    if (selected) {
+      setHousingStipendSelection(selected);
+    }
+  }, [expenseReport]);
+
+  const saveHousingStipend = async nextSelection => {
+    if (!adminMode || !user?.email || !nextSelection) return;
+
+    setHousingStipendSaving(true);
+    setSubmitError(null);
+
+    try {
+      const token =
+        adminToken ||
+        localStorage.getItem("icp_admin_token") ||
+        localStorage.getItem("admin_token") ||
+        "";
+
+      if (!token) {
+        throw new Error("Admin session is unavailable.");
+      }
+
+      const response = await fetch(
+        `${API_BASE}/api/admin/reimbursement/housing-stipend`,
+        {
+          method:"POST",
+          credentials:"include",
+          headers:{
+            Authorization:`AdminBearer ${token}`,
+            "x-admin-token":token,
+            "x-candidate-email":user.email,
+            "Content-Type":"application/json",
+            Accept:"application/json"
+          },
+          body:JSON.stringify({
+            email:user.email,
+            selection:nextSelection
+          })
+        }
+      );
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || data.success !== true) {
+        throw new Error(
+          data.error ||
+          "Unable to update One Time Housing Stipend."
+        );
+      }
+
+      setHousingStipendSelection(data.selection || nextSelection);
+
+      if (data.report) {
+        setExpenseReport(data.report);
+        setExpenseReportLoading(false);
+      }
+
+      toast.success(
+        `One Time Housing Stipend set to ${data.selection} — $${Number(data.amount || 0).toFixed(2)}.`
+      );
+
+      window.dispatchEvent(
+        new CustomEvent("candidate-data-updated", {
+          detail:{
+            email:user.email,
+            source:"housing-stipend",
+            selection:data.selection,
+            amount:data.amount
+          }
+        })
+      );
+    } catch (error) {
+      setSubmitError(
+        error?.message ||
+        "Unable to update One Time Housing Stipend."
+      );
+      toast.error(
+        error?.message ||
+        "Unable to update One Time Housing Stipend."
+      );
+    } finally {
+      setHousingStipendSaving(false);
+    }
+  };
 
   useEffect(() => {
     if (!adminMode || !expenseReportLoading) return undefined;
@@ -10893,22 +11008,36 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
 
         const response =
           await fetch(
-            `${API_BASE}/api/reimbursement/acknowledge-expense-report`,
+            adminMode
+              ? `${API_BASE}/api/admin/reimbursement/acknowledge-expense-report`
+              : `${API_BASE}/api/reimbursement/acknowledge-expense-report`,
             {
-              method:
-                "POST",
-              cache:
-                "no-store",
+              method:"POST",
+              cache:"no-store",
+              credentials:"include",
               headers: {
                 Authorization:
-                  `Bearer ${token}`,
-                "Content-Type":
-                  "application/json"
+                  adminMode
+                    ? `AdminBearer ${token}`
+                    : `Bearer ${token}`,
+                ...(adminMode
+                  ? {
+                      "x-admin-token":token,
+                      "x-candidate-email":user?.email || ""
+                    }
+                  : {}),
+                "Content-Type":"application/json",
+                Accept:"application/json"
               },
               body:
                 JSON.stringify({
-                  acknowledged:
-                    true
+                  acknowledged:true,
+                  ...(adminMode
+                    ? {
+                        email:user?.email || "",
+                        trigger:"admin_expense_report_acknowledgement"
+                      }
+                    : {})
                 })
             }
           );
@@ -11108,7 +11237,11 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
     }
   };
 
-  if (loading) {
+  // Candidates may still use the full payment-data loading screen, but Admin
+  // must never hide the Expense Report/dropdown while the auxiliary CRM payment
+  // request is running. Admin paints cached/local report data immediately and
+  // payment fields fill in asynchronously.
+  if (loading && !adminMode) {
     return (
       <div className="space-y-4">
         <div className="bg-rose-50 rounded-lg p-4 border border-rose-200">
@@ -11195,6 +11328,56 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
             </p>
           </div>
         </div>
+
+
+            {adminMode && (
+              <div className="mb-4 mt-4 rounded-xl border-2 border-purple-300 bg-purple-50 p-4 shadow-sm">
+                <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                  <div className="flex-1">
+                    <label className="text-sm font-semibold text-purple-950">
+                      One Time Housing Stipend
+                    </label>
+                    <p className="mt-1 text-xs text-purple-700">
+                      CRM Deals field: English_Exam_Needed. The selected option is saved to CRM and becomes the candidate's deduction amount.
+                    </p>
+                    <select
+                      value={housingStipendSelection}
+                      disabled={housingStipendSaving}
+                      onChange={event => {
+                        const nextSelection = event.target.value;
+                        setHousingStipendSelection(nextSelection);
+                        if (nextSelection) {
+                          void saveHousingStipend(nextSelection);
+                        }
+                      }}
+                      className="mt-3 w-full rounded-lg border border-purple-300 bg-white px-3 py-2.5 text-sm text-slate-900 disabled:opacity-60"
+                    >
+                      <option value="">Select housing stipend</option>
+                      {HOUSING_STIPEND_OPTIONS.map(option => (
+                        <option key={option.value} value={option.value}>
+                          {option.value} — ${option.amount.toLocaleString("en-US")}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="min-w-[180px] rounded-lg bg-white px-3 py-2 text-sm font-semibold text-purple-900 shadow-sm">
+                    {housingStipendSaving ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Saving to CRM…
+                      </span>
+                    ) : housingStipendSelection ? (
+                      <>Deduction: ${Number(
+                        HOUSING_STIPEND_OPTIONS.find(option => option.value === housingStipendSelection)?.amount || 0
+                      ).toFixed(2)}</>
+                    ) : (
+                      "No stipend selected"
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
         {expenseReportLoading ? (
           <div className="flex min-h-[220px] items-center justify-center">
@@ -11420,7 +11603,9 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
               Expense Report Acknowledgement
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              The Expense Report stage checks off when a total amount is available and you click the Expense Report section. You can also acknowledge it here.
+              {adminMode
+                ? "Acknowledge this candidate’s Expense Report after reviewing the final total. This also completes the candidate’s Receipt Submission stage."
+                : "The Expense Report stage checks off when a total amount is available and you click the Expense Report section. You can also acknowledge it here."}
             </p>
           </div>
 
@@ -11444,8 +11629,8 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
                 <>
                   <CheckCircle2 className="h-4 w-4" />
                   {expenseReportAcknowledged
-                    ? "Re-acknowledge Expense Report"
-                    : "Acknowledge Expense Report"}
+                    ? (adminMode ? "Re-acknowledge for Candidate" : "Re-acknowledge Expense Report")
+                    : (adminMode ? "Acknowledge for Candidate" : "Acknowledge Expense Report")}
                 </>
               )}
             </Button>
@@ -21011,5 +21196,3 @@ export default function Pipeline() {
     </div>
   );
 }
-
-

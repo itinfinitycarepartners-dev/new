@@ -15,6 +15,7 @@ import { STAGES_CONFIG } from '@/constants/stagesConfig';
 import { ADMIN_NCLEX_PROGRAM_FLOW } from '@/constants/nclex';
 import { THEME, DOCUMENT_REJECTION_REASONS, PIPELINE_CATEGORIES, PIPELINE_STATUS } from '@/constants/theme';
 import { WelcomePacketView, ReimbursementExpensesView } from './Pipeline';
+import { toast } from "sonner";
 
 const API_BASE = String(
   import.meta.env.VITE_API_BASE_URL ||
@@ -799,6 +800,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   const [docxBlob, setDocxBlob] = useState(null);
   const docxPreviewRef = useRef(null);
   const [approvalBusyKey, setApprovalBusyKey] = useState(null);
+  const [approvalBusyAction, setApprovalBusyAction] = useState(null);
   const [rejectingDocument, setRejectingDocument] = useState(null);
   const [rejectionReason, setRejectionReason] = useState("");
   const [candidateExpenseReport, setCandidateExpenseReport] = useState(null);
@@ -1575,21 +1577,26 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     setDocumentsLoading(true);
   }, [user?.email, user?._notificationDocument]);
 
+  const getDocumentApprovalKey = doc =>
+    String(
+      doc?.approval_key ||
+      [
+        doc?.source || "unknown",
+        doc?.crm_field_api_name || "",
+        doc?.pending_upload_id ||
+          doc?.attachment_id ||
+          doc?.id ||
+          doc?.document_id ||
+          ""
+      ].join(":")
+    ).trim();
+
   const updateDocumentApproval = async (
     doc,
     action,
     selectedReason = ""
   ) => {
-    const approvalKey =
-      doc.approval_key ||
-      [
-        doc.source || "unknown",
-        doc.crm_field_api_name || "",
-        doc.attachment_id ||
-          doc.id ||
-          doc.document_id ||
-          ""
-      ].join(":");
+    const approvalKey = getDocumentApprovalKey(doc);
 
     if (!approvalKey) {
       setDocActionError(
@@ -1614,29 +1621,39 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     }
 
     setApprovalBusyKey(approvalKey);
+    setApprovalBusyAction(action);
     setDocActionError(null);
 
     try {
       const { adminToken } = getTokens();
 
-      const response = await fetch(
-        `${API_BASE}/api/admin/documents/${encodeURIComponent(
-          user.email
-        )}/${encodeURIComponent(
-          approvalKey
-        )}/approval`,
-        {
-          method: "POST",
-          headers: {
-            Authorization:
-              `AdminBearer ${adminToken}`,
-            "x-admin-token":
-              adminToken,
-            "Content-Type":
-              "application/json"
-          },
-          credentials: "include",
-          body: JSON.stringify({
+      const controller = new AbortController();
+      const approvalTimeout = window.setTimeout(
+        () => controller.abort(),
+        75000
+      );
+
+      let response;
+      try {
+        response = await fetch(
+          `${API_BASE}/api/admin/documents/${encodeURIComponent(
+            user.email
+          )}/${encodeURIComponent(
+            approvalKey
+          )}/approval`,
+          {
+            method: "POST",
+            signal:controller.signal,
+            headers: {
+              Authorization:
+                `AdminBearer ${adminToken}`,
+              "x-admin-token":
+                adminToken,
+              "Content-Type":
+                "application/json"
+            },
+            credentials: "include",
+            body: JSON.stringify({
             action,
             reason,
             document: {
@@ -1680,19 +1697,42 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                 doc.crm_attachment_id || null,
               crm_record_id:
                 doc.crm_record_id || doc.deal_id || null
-            }
-          })
-        }
-      );
+              }
+            })
+          }
+        );
+      } finally {
+        window.clearTimeout(approvalTimeout);
+      }
 
       const data = await response
         .json()
         .catch(() => ({}));
 
-      if (!response.ok) {
+      if (!response.ok || data.success !== true) {
         throw new Error(
           data.error ||
           "Unable to update document approval."
+        );
+      }
+
+      if (
+        action === "approve" &&
+        String(data.approval_status || "").toLowerCase() !== "approved"
+      ) {
+        throw new Error(
+          data.error ||
+          "The approval was not confirmed."
+        );
+      }
+
+      if (
+        action === "reject" &&
+        String(data.approval_status || "").toLowerCase() !== "rejected"
+      ) {
+        throw new Error(
+          data.error ||
+          "The rejection was not confirmed."
         );
       }
 
@@ -1763,13 +1803,54 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
           }
         })
       );
+
+      toast.success(
+        action === "approve"
+          ? "Document approved successfully."
+          : "Document rejected successfully."
+      );
+
+      // Confirm the durable state from the fast snapshot without starting a new
+      // CRM/Recruit refresh.
+      window.setTimeout(async () => {
+        try {
+          const { adminToken: freshAdminToken } = getTokens();
+          const snapshotResponse = await fetch(
+            `${API_BASE}/api/admin/documents/${encodeURIComponent(user.email)}?snapshot=1&_=${Date.now()}`,
+            {
+              cache:"no-store",
+              credentials:"include",
+              headers:{
+                Authorization:`AdminBearer ${freshAdminToken}`,
+                "x-admin-token":freshAdminToken,
+                Accept:"application/json"
+              }
+            }
+          );
+          const snapshotData = await snapshotResponse.json().catch(() => ({}));
+          if (
+            snapshotResponse.ok &&
+            snapshotData.success === true &&
+            Array.isArray(snapshotData.documents) &&
+            snapshotData.documents.length
+          ) {
+            setDocuments(snapshotData.documents);
+            writeAdminDocumentCache(user.email, snapshotData.documents);
+          }
+        } catch (_) {}
+      }, 250);
     } catch (error) {
       setDocActionError(
-        error.message ||
-        "Unable to update document approval."
+        error?.name === "AbortError"
+          ? "The approval request took too long. The document status will refresh automatically; do not click repeatedly."
+          : (
+              error.message ||
+              "Unable to update document approval."
+            )
       );
     } finally {
       setApprovalBusyKey(null);
+      setApprovalBusyAction(null);
     }
   };
 
@@ -1908,9 +1989,9 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                 onClick={() => updateDocumentApproval(rejectingDocument, "reject", rejectionReason)}
                 className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
               >
-                {approvalBusyKey ? (
+                {approvalBusyKey && approvalBusyAction === "reject" ? (
                   <span className="inline-flex items-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin" /> Processing…
+                    <Loader2 className="h-4 w-4 animate-spin" /> Rejecting…
                   </span>
                 ) : "Reject document"}
               </button>
@@ -2462,10 +2543,10 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                   <button
                                     type="button"
                                     onClick={() => updateDocumentApproval(doc, "approve")}
-                                    disabled={approvalBusyKey === doc.approval_key}
+                                    disabled={Boolean(approvalBusyKey)}
                                     className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
                                   >
-                                    {approvalBusyKey === doc.approval_key ? (
+                                    {approvalBusyKey === getDocumentApprovalKey(doc) && approvalBusyAction === "approve" ? (
                                       <span className="inline-flex items-center gap-1.5">
                                         <Loader2 className="h-3.5 w-3.5 animate-spin" /> Approving…
                                       </span>
@@ -2474,12 +2555,12 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                   <button
                                     type="button"
                                     onClick={() => updateDocumentApproval(doc, "reject")}
-                                    disabled={approvalBusyKey === doc.approval_key}
+                                    disabled={Boolean(approvalBusyKey)}
                                     className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
                                   >
-                                    {approvalBusyKey === doc.approval_key ? (
+                                    {approvalBusyKey === getDocumentApprovalKey(doc) && approvalBusyAction === "reject" ? (
                                       <span className="inline-flex items-center gap-1.5">
-                                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Processing…
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Rejecting…
                                       </span>
                                     ) : "Reject"}
                                   </button>
