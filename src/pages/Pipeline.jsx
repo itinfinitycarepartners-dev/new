@@ -10503,6 +10503,14 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
   const [expenseReportAcknowledging, setExpenseReportAcknowledging] = useState(false);
   const [housingStipendSelection, setHousingStipendSelection] = useState("");
   const [housingStipendSaving, setHousingStipendSaving] = useState(false);
+  const [housingStipendSync, setHousingStipendSync] = useState({
+    success:false,
+    error:"",
+    dealId:"",
+    crmRawValue:"",
+    selection:"",
+    amount:null
+  });
   const HOUSING_STIPEND_OPTIONS = [
     { value:"Single Non-metropolitan", amount:1000 },
     { value:"Family Non-metropolitan", amount:1200 },
@@ -10513,12 +10521,61 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
   const normalizeExpenseReportForUi = report => {
     if (!report || typeof report !== "object") return report;
 
+    const reportHousingOption =
+      String(
+        report?.housing_stipend_option ||
+        ""
+      ).trim();
+
+    const reportHousingAmount =
+      Number(
+        report?.housing_stipend_amount
+      );
+
     const rows = Array.isArray(report.rows)
-      ? report.rows.map(row =>
-          row?.id === "housing_stipend"
-            ? { ...row, side:"credit" }
-            : row
-        )
+      ? report.rows.map(row => {
+          if (row?.id !== "housing_stipend") {
+            return row;
+          }
+
+          const option =
+            String(
+              row?.housing_stipend_option ||
+              reportHousingOption ||
+              ""
+            ).trim();
+
+          const mapped =
+            HOUSING_STIPEND_OPTIONS.find(
+              item =>
+                item.value === option
+            );
+
+          const existingAmount =
+            Number(row?.amount);
+
+          const amount =
+            Number.isFinite(existingAmount)
+              ? existingAmount
+              : Number.isFinite(reportHousingAmount)
+                ? reportHousingAmount
+                : Number(mapped?.amount);
+
+          return {
+            ...row,
+            side:"credit",
+            housing_stipend_option:
+              option || null,
+            amount:
+              Number.isFinite(amount)
+                ? amount
+                : null,
+            reviewed:
+              Number.isFinite(amount)
+                ? true
+                : row?.reviewed
+          };
+        })
       : [];
 
     const credits = rows.reduce(
@@ -10740,7 +10797,10 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
           },
           body:JSON.stringify({
             email:user.email,
-            selection:nextSelection
+            selection:nextSelection,
+            dealId:
+              expenseReport?.crm_deal_id ||
+              null
           })
         }
       );
@@ -10748,21 +10808,69 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok || data.success !== true) {
+        const detail =
+          data?.details?.message ||
+          data?.details?.code ||
+          data?.crmRawValue ||
+          "";
+
         throw new Error(
-          data.error ||
-          "Unable to update One Time Housing Stipend."
+          [
+            data.error ||
+              "Unable to update One Time Housing Stipend.",
+            detail
+              ? `CRM detail: ${detail}`
+              : ""
+          ]
+            .filter(Boolean)
+            .join(" ")
         );
       }
 
-      setHousingStipendSelection(data.selection || nextSelection);
+      const confirmedSelection =
+        data.selection ||
+        nextSelection;
+
+      setHousingStipendSelection(
+        confirmedSelection
+      );
+
+      setHousingStipendSync({
+        success:true,
+        error:"",
+        dealId:
+          String(
+            data.dealId ||
+            expenseReport?.crm_deal_id ||
+            ""
+          ),
+        crmRawValue:
+          String(
+            data.crmRawValue ||
+            ""
+          ),
+        selection:
+          confirmedSelection,
+        amount:
+          data.amount ?? null
+      });
 
       if (data.report) {
-        setExpenseReport(normalizeExpenseReportForUi(data.report));
+        setExpenseReport(
+          normalizeExpenseReportForUi(
+            data.report
+          )
+        );
         setExpenseReportLoading(false);
       }
 
+      // Backend only returns success after CRM read-back verification.
+      // Pull the fresh report once more so the dropdown and the table are
+      // guaranteed to render from the same confirmed value.
+      await fetchExpenseReport(true);
+
       toast.success(
-        `One Time Housing Stipend set to ${data.selection} — $${Number(data.amount || 0).toFixed(2)}.`
+        `One Time Housing Stipend synced with CRM: ${confirmedSelection} — $${Number(data.amount || 0).toFixed(2)}.`
       );
 
       window.dispatchEvent(
@@ -10786,18 +10894,64 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
         })
       );
     } catch (error) {
-      setSubmitError(
+      const message =
         error?.message ||
-        "Unable to update One Time Housing Stipend."
-      );
-      toast.error(
-        error?.message ||
-        "Unable to update One Time Housing Stipend."
-      );
+        "Unable to update One Time Housing Stipend.";
+
+      setHousingStipendSync(previous => ({
+        ...previous,
+        success:false,
+        error:message
+      }));
+
+      setSubmitError(message);
+      toast.error(message);
     } finally {
       setHousingStipendSaving(false);
     }
   };
+
+  useEffect(() => {
+    if (!user?.email) {
+      return undefined;
+    }
+
+    const refreshFromCrm = () => {
+      if (document.hidden) return;
+      void fetchExpenseReport(true);
+    };
+
+    const intervalMs =
+      adminMode
+        ? 15000
+        : 30000;
+
+    const timer =
+      window.setInterval(
+        refreshFromCrm,
+        intervalMs
+      );
+
+    const onFocus = () =>
+      refreshFromCrm();
+
+    window.addEventListener(
+      "focus",
+      onFocus
+    );
+
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener(
+        "focus",
+        onFocus
+      );
+    };
+  }, [
+    adminMode,
+    user?.email,
+    expenseReport?.crm_deal_id
+  ]);
 
   useEffect(() => {
     if (!adminMode || !expenseReportLoading) return undefined;
@@ -10920,7 +11074,7 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
       const controller = new AbortController();
       const timeoutId = window.setTimeout(
         () => controller.abort(),
-        adminMode ? 8000 : 12000
+        adminMode ? 20000 : 20000
       );
 
       let response;
@@ -10928,8 +11082,8 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
       try {
         response = await fetch(
           adminMode
-            ? `${API_BASE}/api/admin/reimbursement/expense-report?email=${encodeURIComponent(user?.email || "")}${forceRefresh ? "&refresh=1" : ""}`
-            : `${API_BASE}/api/reimbursement/expense-report${forceRefresh ? "?refresh=1" : ""}`,
+            ? `${API_BASE}/api/admin/reimbursement/expense-report?email=${encodeURIComponent(user?.email || "")}${forceRefresh ? "&refresh=1" : ""}${expenseReport?.crm_deal_id ? `&dealId=${encodeURIComponent(expenseReport.crm_deal_id)}` : ""}`
+            : `${API_BASE}/api/reimbursement/expense-report${forceRefresh ? "?refresh=1" : ""}${expenseReport?.crm_deal_id ? `${forceRefresh ? "&" : "?"}dealId=${encodeURIComponent(expenseReport.crm_deal_id)}` : ""}`,
           {
             cache:"no-store",
             credentials:"include",
@@ -10961,7 +11115,85 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
       }
 
       if (data.report) {
-        setExpenseReport(normalizeExpenseReportForUi(data.report));
+        setExpenseReport(
+          normalizeExpenseReportForUi(
+            data.report
+          )
+        );
+      }
+
+      if (
+        data.housingStipendSync &&
+        typeof data.housingStipendSync === "object"
+      ) {
+        const syncSelection =
+          String(
+            data.housingStipendSync.selection ||
+            ""
+          ).trim();
+
+        const syncAmount =
+          Number(
+            data.housingStipendSync.amount
+          );
+
+        setHousingStipendSync({
+          success:
+            data.housingStipendSync.success === true,
+          error:
+            String(
+              data.housingStipendSync.error ||
+              ""
+            ),
+          dealId:
+            String(
+              data.housingStipendSync.dealId ||
+              data.report?.crm_deal_id ||
+              ""
+            ),
+          crmRawValue:
+            String(
+              data.housingStipendSync.crmRawValue ||
+              ""
+            ),
+          selection:
+            syncSelection,
+          amount:
+            Number.isFinite(syncAmount)
+              ? syncAmount
+              : null
+        });
+
+        if (
+          syncSelection &&
+          Number.isFinite(syncAmount)
+        ) {
+          setExpenseReport(previous =>
+            normalizeExpenseReportForUi({
+              ...(previous || {}),
+              ...(data.report || {}),
+              housing_stipend_option:
+                syncSelection,
+              housing_stipend_amount:
+                syncAmount,
+              rows:
+                Array.isArray(
+                  data.report?.rows
+                )
+                  ? data.report.rows
+                  : previous?.rows
+            })
+          );
+        }
+
+        if (
+          adminMode &&
+          data.housingStipendSync.error
+        ) {
+          setSubmitError(
+            `CRM housing stipend sync: ${data.housingStipendSync.error}`
+          );
+        }
       }
     } catch (error) {
       console.warn(
@@ -11493,7 +11725,38 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
                     </label>
                     <p className="mt-1 text-xs text-purple-700">
                       CRM Deals field: English_Exam_Needed. The selected option is saved to CRM and becomes the candidate's credit amount.
+                      {expenseReport?.crm_deal_id ? (
+                        <span className="ml-1 font-medium">
+                          Deal: {expenseReport.crm_deal_id}
+                        </span>
+                      ) : null}
                     </p>
+
+                    <div
+                      className={`mt-2 rounded-md border px-2.5 py-2 text-xs ${
+                        housingStipendSync.success
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : housingStipendSync.error
+                            ? "border-red-200 bg-red-50 text-red-700"
+                            : "border-slate-200 bg-slate-50 text-slate-600"
+                      }`}
+                    >
+                      {housingStipendSync.success ? (
+                        <>
+                          CRM synced
+                          {housingStipendSync.crmRawValue
+                            ? ` · CRM value: ${housingStipendSync.crmRawValue}`
+                            : ""}
+                          {housingStipendSync.dealId
+                            ? ` · Deal ${housingStipendSync.dealId}`
+                            : ""}
+                        </>
+                      ) : housingStipendSync.error ? (
+                        <>CRM sync error: {housingStipendSync.error}</>
+                      ) : (
+                        <>Checking current CRM value…</>
+                      )}
+                    </div>
                     <select
                       value={housingStipendSelection}
                       disabled={housingStipendSaving}
