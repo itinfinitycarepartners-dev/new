@@ -10465,6 +10465,7 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState(null);
+  const [paymentDataError, setPaymentDataError] = useState("");
   const [expenseReport, setExpenseReport] = useState(() => ({
     candidate_email: "",
     candidate_name: "",
@@ -10509,45 +10510,145 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
     { value:"Family Metropolitan", amount:1500 }
   ];
 
+  const hasUsablePaymentData = value => {
+    if (!value || typeof value !== "object") return false;
+
+    const numberValue = raw => {
+      const parsed = Number.parseFloat(
+        String(
+          raw?.value ??
+          raw ??
+          ""
+        )
+          .replace(/[$,]/g, "")
+          .trim()
+      );
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    if (String(value.nursePaymentType || "").trim()) return true;
+    if (numberValue(value.totalReimbursement) > 0) return true;
+
+    return [
+      value.initialPayment,
+      value.payment1,
+      value.payment2,
+      value.payment3,
+      value.payment4
+    ].some(payment =>
+      Boolean(
+        String(payment?.date || "").trim() ||
+        payment?.paid === true ||
+        numberValue(payment?.total) > 0
+      )
+    );
+  };
+
+  const applyPaymentData = reimbursementData => {
+    if (!reimbursementData || typeof reimbursementData !== "object") {
+      return false;
+    }
+
+    setPaymentData({
+      nursePaymentType:
+        reimbursementData.nursePaymentType || "",
+      initialPayment:
+        reimbursementData.initialPayment ||
+        { date:"", paid:false, total:1000 },
+      payment1:
+        reimbursementData.payment1 ||
+        { date:"", paid:false, total:0 },
+      payment2:
+        reimbursementData.payment2 ||
+        { date:"", paid:false, total:0 },
+      payment3:
+        reimbursementData.payment3 ||
+        { date:"", paid:false, total:0 },
+      payment4:
+        reimbursementData.payment4 ||
+        { date:"", paid:false, total:0 },
+      totalReimbursement:
+        Number.parseFloat(
+          reimbursementData.totalReimbursement
+        ) || 0,
+      advanceAgreementTotal:
+        Number.parseFloat(
+          reimbursementData.advanceAgreementTotal
+        ) || 0
+    });
+
+    setIsSubmitted(
+      reimbursementData.submitted === true
+    );
+    setAdvanceAgreementReviewed(
+      reimbursementData.advanceAgreementReviewed === true
+    );
+    setAdvanceAgreementAcknowledged(
+      reimbursementData.advanceAgreementAcknowledged === true
+    );
+    setAdvanceAgreementPersisted(
+      reimbursementData.advanceAgreementAcknowledged === true
+    );
+    setExpenseReportAcknowledged(
+      reimbursementData.expenseReportAcknowledged === true
+    );
+    setExpenseReportAcknowledgedAt(
+      reimbursementData.expenseReportAcknowledgedAt || null
+    );
+    setBankSubmittedAt(
+      reimbursementData.submittedAt || null
+    );
+
+    return hasUsablePaymentData(reimbursementData);
+  };
+
+  const adminSummaryPaymentData =
+    adminMode
+      ? (
+          user?._adminPaymentData ||
+          user?._adminSummary?.reimbursementData ||
+          null
+        )
+      : null;
+
   useEffect(() => {
-    // Admin modal already loaded the exact PostgreSQL-backed candidate summary.
-    // If that summary contains an Expense Report, render it immediately and
-    // avoid another synchronous request entirely.
     const summaryReport =
       adminMode
         ? user?._adminSummary?.expenseReport || null
         : null;
 
     if (adminMode) {
-      setLoading(false);
-
-      // Payment Type / Payment 1-4 / totals / acknowledgement state come from
-      // the reimbursement-data endpoint. Load them in the background without
-      // blocking the Expense Report itself.
-      void fetchPaymentData();
+      // Paint the exact persisted candidate payment snapshot immediately.
+      // A live CRM call is no longer required just to open Admin Expense Report.
+      if (hasUsablePaymentData(adminSummaryPaymentData)) {
+        applyPaymentData(adminSummaryPaymentData);
+        setPaymentDataError("");
+        setLoading(false);
+      } else {
+        // Only candidates without a persisted/local payment snapshot need the
+        // reimbursement endpoint during initial Admin load.
+        void fetchPaymentData(false);
+      }
 
       if (summaryReport) {
         setExpenseReport(summaryReport);
         setExpenseReportLoading(false);
         setSubmitError(null);
-
-        // Paint the cached summary immediately, then refresh quietly so newly
-        // synchronized facility / housing-stipend / receipt values replace any
-        // stale summary without blocking the Admin tab.
         void fetchExpenseReport();
         return;
       }
     } else {
-      void fetchPaymentData();
+      void fetchPaymentData(false);
     }
 
-    // Fallback only when PostgreSQL summary has no saved report yet.
     void fetchExpenseReport();
   }, [
     adminMode,
     adminToken,
     user?.email,
-    user?._adminSummary?.expenseReport
+    user?._adminSummary?.expenseReport,
+    user?._adminPaymentData,
+    user?._adminSummary?.reimbursementData
   ]);
 
   useEffect(() => {
@@ -10667,9 +10768,10 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
     total: parseFloat(ga(userData, `Payment_${n}_Total`, `Payment${n}Total`, `Payment_${n}_total`)) || 0
   });
 
-  const fetchPaymentData = async () => {
+  const fetchPaymentData = async (forceRefresh = false) => {
     setLoading(true);
-    setSubmitError(null);
+    setPaymentDataError("");
+    if (!adminMode) setSubmitError(null);
     try {
       const token = (adminMode ? adminToken : localStorage.getItem("icp_auth_token"));
       if (!token) {
@@ -10678,9 +10780,10 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
 
       // Fetch from the reimbursement endpoint, which maps directly to the
       // exact Zoho CRM Deals reimbursement and bank-detail API fields.
+      const refreshQuery = forceRefresh ? "&refresh=1" : "";
       const reimbursementUrl = adminMode
-        ? `${API_BASE}/api/admin/crm/reimbursement-data?email=${encodeURIComponent(user?.email || "")}`
-        : `${API_BASE}/api/crm/reimbursement-data`;
+        ? `${API_BASE}/api/admin/crm/reimbursement-data?email=${encodeURIComponent(user?.email || "")}${refreshQuery}`
+        : `${API_BASE}/api/crm/reimbursement-data${forceRefresh ? "?refresh=1" : ""}`;
       const response = await fetch(reimbursementUrl, {
         method: "GET",
         headers: {
@@ -10693,50 +10796,50 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
         throw new Error("Failed to fetch payment data");
       }
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
+
+      if (data.success !== true) {
+        throw new Error(
+          data.error ||
+          "Payment data could not be loaded."
+        );
+      }
+
       const reimbursementData = data.data || {};
 
-      setPaymentData({
-        nursePaymentType: reimbursementData.nursePaymentType || "",
-        initialPayment: reimbursementData.initialPayment || { date: "", paid: false, total: 1000 },
-        payment1: reimbursementData.payment1 || { date: "", paid: false, total: 0 },
-        payment2: reimbursementData.payment2 || { date: "", paid: false, total: 0 },
-        payment3: reimbursementData.payment3 || { date: "", paid: false, total: 0 },
-        payment4: reimbursementData.payment4 || { date: "", paid: false, total: 0 },
-        totalReimbursement:
-          parseFloat(
-            reimbursementData.totalReimbursement
-          ) ||
-          0,
-        advanceAgreementTotal:
-          parseFloat(
-            reimbursementData.advanceAgreementTotal
-          ) ||
-          0
-      });
+      applyPaymentData(reimbursementData);
 
-      setIsSubmitted(reimbursementData.submitted === true);
-      setAdvanceAgreementReviewed(
-        reimbursementData.advanceAgreementReviewed === true
-      );
-      setAdvanceAgreementAcknowledged(
-        reimbursementData.advanceAgreementAcknowledged === true
-      );
-      setAdvanceAgreementPersisted(
-        reimbursementData.advanceAgreementAcknowledged === true
-      );
-      setExpenseReportAcknowledged(
-        reimbursementData.expenseReportAcknowledged === true
-      );
-      setExpenseReportAcknowledgedAt(
-        reimbursementData.expenseReportAcknowledgedAt || null
-      );
-      setBankSubmittedAt(
-        reimbursementData.submittedAt || null
-      );
+      if (data.degraded === true && data.warning) {
+        setPaymentDataError(
+          hasUsablePaymentData(reimbursementData)
+            ? data.warning
+            : "Payment details are not available yet."
+        );
+      } else {
+        setPaymentDataError("");
+      }
 
     } catch (error) {
       console.error("Error fetching payment data:", error);
+
+      const fallback =
+        adminMode &&
+        hasUsablePaymentData(adminSummaryPaymentData)
+          ? adminSummaryPaymentData
+          : null;
+
+      if (fallback) {
+        applyPaymentData(fallback);
+        setPaymentDataError(
+          "Live CRM refresh is temporarily unavailable. Showing the candidate’s last saved payment details."
+        );
+      } else {
+        setPaymentDataError(
+          error?.message ||
+          "Unable to load payment data."
+        );
+      }
+
       if (!adminMode) {
         setSubmitError(error.message);
         toast.error("Failed to load payment data");
@@ -11645,7 +11748,16 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
 
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <p className="text-xs text-blue-700">
-          <strong>Payment Type:</strong> {String(unwrapPipelineFieldValue(paymentData.nursePaymentType) || paymentData.nursePaymentType || "")}
+          <strong>Payment Type:</strong>{" "}
+          {loading
+            ? "Loading…"
+            : (
+                String(
+                  unwrapPipelineFieldValue(paymentData.nursePaymentType) ||
+                  paymentData.nursePaymentType ||
+                  ""
+                ) || "Not available"
+              )}
         </p>
       </div>
 
@@ -11759,7 +11871,7 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
             Payment Details
           </h3>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={fetchPaymentData} className="h-8 px-2 text-xs text-green-700 hover:text-green-900">
+            <Button variant="ghost" size="sm" onClick={() => fetchPaymentData(true)} className="h-8 px-2 text-xs text-green-700 hover:text-green-900">
               <RefreshCw className="h-3 w-3 mr-1" />
               Refresh
             </Button>
@@ -11774,6 +11886,41 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
           </div>
         </div>
         
+        {loading ? (
+          <div className="flex min-h-[180px] items-center justify-center rounded-lg border border-green-100 bg-white">
+            <div className="text-center">
+              <Loader2 className="mx-auto h-7 w-7 animate-spin text-green-600" />
+              <p className="mt-2 text-sm font-medium text-green-800">
+                Loading payment details…
+              </p>
+            </div>
+          </div>
+        ) : paymentDataError && !hasUsablePaymentData(paymentData) ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+            <p className="font-semibold">
+              Payment details could not be refreshed.
+            </p>
+            <p className="mt-1">
+              {paymentDataError}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => fetchPaymentData(true)}
+              className="mt-3"
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Retry payment details
+            </Button>
+          </div>
+        ) : (
+        <>
+          {paymentDataError && hasUsablePaymentData(paymentData) ? (
+            <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+              {paymentDataError}
+            </div>
+          ) : null}
         <div className="bg-white rounded-lg border border-green-100 overflow-hidden">
           <div className="grid grid-cols-4 gap-2 p-3 bg-green-50 border-b border-green-100 text-xs font-semibold text-green-700">
             <div>Payment</div>
@@ -11829,6 +11976,8 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
             </div>
           </div>
         </div>
+        </>
+        )}
 
         </div>
 

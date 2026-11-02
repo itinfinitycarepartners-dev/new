@@ -20,7 +20,11 @@ import {
   Video,
   Square,
   Play,
-  RotateCcw
+  RotateCcw,
+  Loader2,
+  Eraser,
+  PenLine,
+  ExternalLink
 } from "lucide-react";
 import {
   useAuth
@@ -44,6 +48,13 @@ const FORMS = [
     title: "Pre-Deployment Questionnaire",
     description: "Review the questionnaire, record your answers directly in the portal, and submit.",
     icon: ClipboardList
+  },
+  {
+    key: "statementOfTruth",
+    title: "Statement of Truth",
+    description:
+      "Complete the labeled fields, electronically sign, and submit the completed Statement of Truth.",
+    icon: FileText
   },
   {
     key: "housing",
@@ -81,6 +92,24 @@ export default function Forms() {
   ] =
     useState(null);
   const [preDeployment, setPreDeployment] = useState({ loading:true, due:false, submission:null, fullLegalName:"", nursingSpecialty:"", usEmployer:"", departmentUnit:"", file:null, submitting:false });
+
+  const [statementTruth, setStatementTruth] = useState({
+    loading:true,
+    submission:null,
+    legalName:user?.name || "",
+    currentAddress:"",
+    employer:"",
+    workAddress:"",
+    position:"",
+    consent:false,
+    submitting:false
+  });
+
+  const statementSignatureCanvasRef = useRef(null);
+  const statementSignatureDrawingRef = useRef(false);
+  const statementSignatureLastPointRef = useRef(null);
+  const [statementSignatureHasInk, setStatementSignatureHasInk] = useState(false);
+
   const [recordingMode, setRecordingMode] = useState("audio");
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -130,6 +159,77 @@ export default function Forms() {
       .then(({ok,data}) => setPreDeployment(p => ({...p, loading:false, due:ok && data?.due===true, embassyInterviewDate:data?.embassyInterviewDate||null, visaStatus:data?.visaStatus||null, submission:data?.submission||null})))
       .catch(() => setPreDeployment(p => ({...p, loading:false, due:false})));
   }, [user?.email]);
+
+  useEffect(() => {
+    const token = tokenStorage.get();
+
+    if (!token) {
+      setStatementTruth(previous => ({
+        ...previous,
+        loading:false
+      }));
+      return;
+    }
+
+    fetch(
+      `${API_BASE}/api/forms/statement-of-truth`,
+      {
+        headers:{
+          Authorization:`Bearer ${token}`,
+          Accept:"application/json"
+        },
+        cache:"no-store"
+      }
+    )
+      .then(response =>
+        response
+          .json()
+          .then(data => ({
+            ok:response.ok,
+            data
+          }))
+      )
+      .then(({ok,data}) => {
+        const submission =
+          ok && data?.success === true
+            ? data.submission || null
+            : null;
+
+        setStatementTruth(previous => ({
+          ...previous,
+          loading:false,
+          submission,
+          legalName:
+            submission?.legal_name ||
+            previous.legalName ||
+            user?.name ||
+            "",
+          currentAddress:
+            submission?.current_address ||
+            previous.currentAddress ||
+            "",
+          employer:
+            submission?.employer ||
+            previous.employer ||
+            "",
+          workAddress:
+            submission?.work_address ||
+            previous.workAddress ||
+            "",
+          position:
+            submission?.position ||
+            previous.position ||
+            ""
+        }));
+      })
+      .catch(() => {
+        setStatementTruth(previous => ({
+          ...previous,
+          loading:false
+        }));
+      });
+  }, [user?.email, user?.name]);
+
   const stopMediaTracks = () => {
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach(track => track.stop());
@@ -346,6 +446,418 @@ export default function Forms() {
     }
   };
 
+  const getStatementSignaturePoint = event => {
+    const canvas = statementSignatureCanvasRef.current;
+    if (!canvas) return null;
+
+    const rect = canvas.getBoundingClientRect();
+
+    return {
+      x:
+        (event.clientX - rect.left) *
+        (canvas.width / Math.max(rect.width, 1)),
+      y:
+        (event.clientY - rect.top) *
+        (canvas.height / Math.max(rect.height, 1))
+    };
+  };
+
+  const beginStatementSignature = event => {
+    const canvas = statementSignatureCanvasRef.current;
+    const point = getStatementSignaturePoint(event);
+
+    if (!canvas || !point) return;
+
+    event.preventDefault();
+
+    try {
+      canvas.setPointerCapture?.(event.pointerId);
+    } catch (_) {}
+
+    statementSignatureDrawingRef.current = true;
+    statementSignatureLastPointRef.current = point;
+
+    const context = canvas.getContext("2d");
+    if (!context) return;
+
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.strokeStyle = "#111827";
+    context.lineWidth = 4;
+
+    // Draw a tiny dot so a tap without movement still counts as ink.
+    context.beginPath();
+    context.arc(point.x, point.y, 1.8, 0, Math.PI * 2);
+    context.fillStyle = "#111827";
+    context.fill();
+
+    setStatementSignatureHasInk(true);
+  };
+
+  const moveStatementSignature = event => {
+    if (!statementSignatureDrawingRef.current) return;
+
+    const canvas = statementSignatureCanvasRef.current;
+    const point = getStatementSignaturePoint(event);
+    const previous = statementSignatureLastPointRef.current;
+
+    if (!canvas || !point || !previous) return;
+
+    event.preventDefault();
+
+    const context = canvas.getContext("2d");
+    if (!context) return;
+
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.strokeStyle = "#111827";
+    context.lineWidth = 4;
+
+    context.beginPath();
+    context.moveTo(previous.x, previous.y);
+    context.lineTo(point.x, point.y);
+    context.stroke();
+
+    statementSignatureLastPointRef.current = point;
+    setStatementSignatureHasInk(true);
+  };
+
+  const endStatementSignature = event => {
+    if (!statementSignatureDrawingRef.current) return;
+
+    event?.preventDefault?.();
+
+    statementSignatureDrawingRef.current = false;
+    statementSignatureLastPointRef.current = null;
+
+    try {
+      statementSignatureCanvasRef.current?.releasePointerCapture?.(
+        event?.pointerId
+      );
+    } catch (_) {}
+  };
+
+  const clearStatementSignature = () => {
+    const canvas = statementSignatureCanvasRef.current;
+    if (!canvas) return;
+
+    const context = canvas.getContext("2d");
+    context?.clearRect(0, 0, canvas.width, canvas.height);
+
+    statementSignatureDrawingRef.current = false;
+    statementSignatureLastPointRef.current = null;
+    setStatementSignatureHasInk(false);
+  };
+
+  const getStatementSignaturePngBase64 = () => {
+    const canvas = statementSignatureCanvasRef.current;
+
+    if (!canvas || !statementSignatureHasInk) {
+      return "";
+    }
+
+    const context = canvas.getContext("2d");
+    if (!context) return "";
+
+    const imageData =
+      context.getImageData(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+      );
+
+    const { data, width, height } = imageData;
+
+    let minX = width;
+    let minY = height;
+    let maxX = -1;
+    let maxY = -1;
+
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const alpha =
+          data[(y * width + x) * 4 + 3];
+
+        if (alpha > 8) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+
+    if (maxX < minX || maxY < minY) {
+      return "";
+    }
+
+    const padding = 14;
+    const cropX = Math.max(0, minX - padding);
+    const cropY = Math.max(0, minY - padding);
+    const cropWidth =
+      Math.min(width - cropX, maxX - minX + 1 + padding * 2);
+    const cropHeight =
+      Math.min(height - cropY, maxY - minY + 1 + padding * 2);
+
+    const cropped = document.createElement("canvas");
+    cropped.width = cropWidth;
+    cropped.height = cropHeight;
+
+    const croppedContext = cropped.getContext("2d");
+
+    croppedContext?.drawImage(
+      canvas,
+      cropX,
+      cropY,
+      cropWidth,
+      cropHeight,
+      0,
+      0,
+      cropWidth,
+      cropHeight
+    );
+
+    return String(
+      cropped.toDataURL("image/png") || ""
+    )
+      .split(",")[1] ||
+      "";
+  };
+
+  const submitStatementOfTruth = async () => {
+    const token = tokenStorage.get();
+
+    if (!token) {
+      return toast.error(
+        "Your session has expired. Please sign in again."
+      );
+    }
+
+    const required = [
+      ["legalName", "Legal Name"],
+      ["currentAddress", "Candidate Current Address"],
+      ["employer", "Visa Petitioner (Employer)"],
+      ["workAddress", "Visa Petitioner Work Address"],
+      ["position", "Position"]
+    ];
+
+    const missing =
+      required.find(
+        ([key]) =>
+          !String(statementTruth[key] || "").trim()
+      );
+
+    if (missing) {
+      return toast.error(
+        `${missing[1]} is required.`
+      );
+    }
+
+    if (!statementSignatureHasInk) {
+      return toast.error(
+        "Please draw your signature in the signature box before submitting."
+      );
+    }
+
+    if (!statementTruth.consent) {
+      return toast.error(
+        "Confirm the electronic-signature acknowledgement before submitting."
+      );
+    }
+
+    setStatementTruth(previous => ({
+      ...previous,
+      submitting:true
+    }));
+
+    try {
+      // The master Statement of Truth lives in the frontend public folder.
+      // Send the exact displayed PDF to the backend so the backend does not
+      // need a second physical copy of the template.
+      const templateResponse =
+        await fetch(
+          "/documents/Statement-of-Truth.pdf",
+          {
+            cache:"no-store"
+          }
+        );
+
+      if (!templateResponse.ok) {
+        throw new Error(
+          "Statement of Truth PDF could not be loaded from the frontend."
+        );
+      }
+
+      const templateBlob =
+        await templateResponse.blob();
+
+      const templateDataUrl =
+        await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () =>
+            reject(
+              new Error(
+                "Unable to read the Statement of Truth PDF."
+              )
+            );
+          reader.readAsDataURL(templateBlob);
+        });
+
+      const templatePdfBase64 =
+        String(templateDataUrl || "")
+          .split(",")[1] ||
+        "";
+
+      if (!templatePdfBase64) {
+        throw new Error(
+          "Statement of Truth PDF could not be prepared for submission."
+        );
+      }
+
+      const signatureImageBase64 =
+        getStatementSignaturePngBase64();
+
+      if (!signatureImageBase64) {
+        throw new Error(
+          "Your drawn signature could not be prepared. Please clear the box and sign again."
+        );
+      }
+
+      const controller =
+        new AbortController();
+
+      const timeoutId =
+        window.setTimeout(
+          () => controller.abort(),
+          45000
+        );
+
+      let response;
+
+      try {
+        response =
+          await fetch(
+            `${API_BASE}/api/forms/statement-of-truth`,
+            {
+              method:"POST",
+              credentials:"include",
+              signal:controller.signal,
+              headers:{
+                Authorization:`Bearer ${token}`,
+                "Content-Type":"application/json",
+                Accept:"application/json"
+              },
+              body:JSON.stringify({
+              legalName:
+                String(statementTruth.legalName || "").trim(),
+              currentAddress:
+                String(statementTruth.currentAddress || "").trim(),
+              employer:
+                String(statementTruth.employer || "").trim(),
+              workAddress:
+                String(statementTruth.workAddress || "").trim(),
+              position:
+                String(statementTruth.position || "").trim(),
+              signatureImageBase64,
+              signatureMethod:"drawn",
+              signerName:
+                String(statementTruth.legalName || "").trim(),
+              consent:true,
+              date:new Date().toLocaleDateString("en-US"),
+                templatePdfBase64
+              })
+            }
+          );
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+
+      const data =
+        await response
+          .json()
+          .catch(() => ({}));
+
+      if (
+        !response.ok ||
+        data.success !== true
+      ) {
+        throw new Error(
+          data.error ||
+          data.message ||
+          "Unable to submit Statement of Truth."
+        );
+      }
+
+      const submission =
+        data.submission || null;
+
+      setStatementTruth(previous => ({
+        ...previous,
+        submitting:false,
+        submission,
+        consent:false
+      }));
+
+      clearStatementSignature();
+
+      showFormSubmissionSuccess(
+        "Statement of Truth",
+        submission?.submitted_at ||
+        data.receipt?.submittedAt ||
+        new Date().toISOString(),
+        {
+          receiptId:
+            submission?.receipt_id ||
+            data.receipt?.id ||
+            null
+        }
+      );
+
+      toast.success(
+        "Statement of Truth submitted successfully."
+      );
+
+      window.dispatchEvent(
+        new CustomEvent(
+          "candidate-data-updated",
+          {
+            detail:{
+              event:"statement-of-truth-submitted",
+              pendingUploadId:
+                data.pending_upload_id || null,
+              receiptId:
+                submission?.receipt_id ||
+                data.receipt?.id ||
+                null
+            }
+          }
+        )
+      );
+    } catch (error) {
+      console.error(
+        "[Statement of Truth] Submission failed:",
+        error
+      );
+
+      toast.error(
+        error?.name === "AbortError"
+          ? "Statement of Truth submission took too long. Please try once more; an already-received submission will remain in the Admin document queue."
+          : (
+              error?.message ||
+              "Unable to submit Statement of Truth."
+            ),
+        { duration:8000 }
+      );
+    } finally {
+      setStatementTruth(previous => ({
+        ...previous,
+        submitting:false
+      }));
+    }
+  };
+
   useEffect(() => {
     const loadAcknowledgements = async () => {
       const token = tokenStorage.get();
@@ -483,11 +995,27 @@ export default function Forms() {
                     id="active-form-submission-success-title"
                     className="text-xl font-bold text-gray-900"
                   >
-                    Recording submitted successfully
+                    {submissionSuccess.title === "Pre-Deployment Questionnaire"
+                      ? "Recording submitted successfully"
+                      : "Submission successful"}
                   </h2>
                   <p className="mt-2 text-sm leading-6 text-gray-600">
                     {submissionSuccess.message}
                   </p>
+                  {submissionSuccess.receiptId && (
+                    <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+                        Submission receipt
+                      </p>
+                      <p className="mt-1 font-mono text-sm font-bold text-blue-900">
+                        {submissionSuccess.receiptId}
+                      </p>
+                      <p className="mt-1 text-xs text-blue-700">
+                        {new Date(submissionSuccess.timestamp).toLocaleString()}
+                      </p>
+                    </div>
+                  )}
+
                   {submissionSuccess.title === "Pre-Deployment Questionnaire" && (
                     <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
                       <p className="text-sm font-semibold text-emerald-800">
@@ -540,6 +1068,293 @@ export default function Forms() {
   />
 )}
           
+      {activeForm === "statementOfTruth" && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-2 lg:p-4">
+          <div className="mx-auto w-[98vw] max-w-[1800px] rounded-2xl bg-white p-4 shadow-2xl lg:p-6">
+            <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-4">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">
+                  Statement of Truth
+                </h2>
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-gray-600">
+                  Complete the labeled fields below. When you submit, ICP will place
+                  your answers into the corresponding blank sections of the official
+                  Statement of Truth PDF and stage the completed document for review.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveForm(null)}
+                className="rounded-lg border p-2 text-gray-500 hover:bg-gray-50"
+                aria-label="Close Statement of Truth"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(380px,0.75fr)]">
+              <div className="overflow-hidden rounded-xl border bg-gray-50">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-white px-4 py-3">
+                  <div>
+                    <p className="font-semibold text-gray-900">
+                      Official Statement of Truth
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Your submitted values and drawn signature are stamped into these open lines.
+                    </p>
+                  </div>
+                  <a
+                    href="/documents/Statement-of-Truth.pdf"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold text-purple-700 hover:bg-purple-50"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    Open full-size PDF
+                  </a>
+                </div>
+                <iframe
+                  title="Statement of Truth PDF"
+                  src="/documents/Statement-of-Truth.pdf"
+                  className="h-[82vh] min-h-[760px] w-full bg-white"
+                />
+              </div>
+
+              <div className="space-y-4 xl:max-h-[82vh] xl:overflow-y-auto xl:pr-2">
+                {statementTruth.loading ? (
+                  <div className="flex min-h-[220px] items-center justify-center rounded-xl border">
+                    <div className="text-center">
+                      <Loader2 className="mx-auto h-7 w-7 animate-spin text-purple-700" />
+                      <p className="mt-2 text-sm text-gray-600">
+                        Loading Statement of Truth…
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <label className="block text-sm font-medium text-gray-800">
+                      Legal Name (Visa Recipient)
+                      <input
+                        value={statementTruth.legalName}
+                        onChange={event =>
+                          setStatementTruth(previous => ({
+                            ...previous,
+                            legalName:event.target.value
+                          }))
+                        }
+                        className="mt-1 w-full rounded-lg border px-3 py-2.5"
+                        placeholder="Full legal name"
+                      />
+                    </label>
+
+                    <label className="block text-sm font-medium text-gray-800">
+                      Candidate Current Address
+                      <textarea
+                        value={statementTruth.currentAddress}
+                        onChange={event =>
+                          setStatementTruth(previous => ({
+                            ...previous,
+                            currentAddress:event.target.value
+                          }))
+                        }
+                        className="mt-1 min-h-[76px] w-full rounded-lg border px-3 py-2.5"
+                        placeholder="Current residential address"
+                      />
+                    </label>
+
+                    <label className="block text-sm font-medium text-gray-800">
+                      Visa Petitioner (Employer)
+                      <input
+                        value={statementTruth.employer}
+                        onChange={event =>
+                          setStatementTruth(previous => ({
+                            ...previous,
+                            employer:event.target.value
+                          }))
+                        }
+                        className="mt-1 w-full rounded-lg border px-3 py-2.5"
+                        placeholder="Employer / visa petitioner"
+                      />
+                    </label>
+
+                    <label className="block text-sm font-medium text-gray-800">
+                      Visa Petitioner Work Address
+                      <textarea
+                        value={statementTruth.workAddress}
+                        onChange={event =>
+                          setStatementTruth(previous => ({
+                            ...previous,
+                            workAddress:event.target.value
+                          }))
+                        }
+                        className="mt-1 min-h-[76px] w-full rounded-lg border px-3 py-2.5"
+                        placeholder="Employer work address"
+                      />
+                    </label>
+
+                    <label className="block text-sm font-medium text-gray-800">
+                      Position
+                      <input
+                        value={statementTruth.position}
+                        onChange={event =>
+                          setStatementTruth(previous => ({
+                            ...previous,
+                            position:event.target.value
+                          }))
+                        }
+                        className="mt-1 w-full rounded-lg border px-3 py-2.5"
+                        placeholder="e.g. Registered Nurse"
+                      />
+                      <span className="mt-1 block text-xs text-gray-500">
+                        This fills the blank in “requirements of this position as a…”
+                      </span>
+                    </label>
+
+                    <div className="rounded-xl border border-purple-200 bg-purple-50 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <h3 className="flex items-center gap-2 font-semibold text-purple-950">
+                            <PenLine className="h-5 w-5" />
+                            Electronic Signature
+                          </h3>
+                          <p className="mt-1 text-sm leading-6 text-purple-800">
+                            Draw your signature below using your mouse, finger, or stylus.
+                            This handwritten signature will be placed directly on the
+                            signature line of the submitted PDF.
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={clearStatementSignature}
+                          disabled={!statementSignatureHasInk || statementTruth.submitting}
+                          className="inline-flex items-center gap-2 rounded-lg border border-purple-300 bg-white px-3 py-2 text-sm font-semibold text-purple-800 disabled:opacity-50"
+                        >
+                          <Eraser className="h-4 w-4" />
+                          Clear signature
+                        </button>
+                      </div>
+
+                      <div className="mt-4 rounded-xl border-2 border-dashed border-purple-300 bg-white p-2">
+                        <canvas
+                          ref={statementSignatureCanvasRef}
+                          width={900}
+                          height={220}
+                          onPointerDown={beginStatementSignature}
+                          onPointerMove={moveStatementSignature}
+                          onPointerUp={endStatementSignature}
+                          onPointerCancel={endStatementSignature}
+                          onPointerLeave={endStatementSignature}
+                          className="h-44 w-full touch-none cursor-crosshair rounded-lg bg-white"
+                          aria-label="Draw electronic signature"
+                        />
+                        <div className="border-t px-2 pt-2 text-xs text-gray-500">
+                          Sign above this line
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex items-center gap-2 text-xs font-medium">
+                        <span
+                          className={`inline-flex h-2.5 w-2.5 rounded-full ${
+                            statementSignatureHasInk
+                              ? "bg-emerald-500"
+                              : "bg-gray-300"
+                          }`}
+                        />
+                        <span
+                          className={
+                            statementSignatureHasInk
+                              ? "text-emerald-700"
+                              : "text-gray-500"
+                          }
+                        >
+                          {statementSignatureHasInk
+                            ? "Signature captured"
+                            : "Signature required"}
+                        </span>
+                      </div>
+
+                      <label className="mt-4 flex items-start gap-3 text-sm text-purple-950">
+                        <input
+                          type="checkbox"
+                          checked={statementTruth.consent}
+                          onChange={event =>
+                            setStatementTruth(previous => ({
+                              ...previous,
+                              consent:event.target.checked
+                            }))
+                          }
+                          className="mt-1 h-4 w-4"
+                        />
+                        <span>
+                          I confirm that I have reviewed the Statement of Truth and
+                          consent to use the handwritten signature drawn above as my
+                          electronic signature.
+                        </span>
+                      </label>
+                    </div>
+
+                    {statementTruth.submission && (
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                        <div className="flex items-start gap-3">
+                          <CheckCircle2 className="mt-0.5 h-5 w-5 text-emerald-700" />
+                          <div>
+                            <p className="font-semibold text-emerald-900">
+                              Statement of Truth submitted
+                            </p>
+                            <p className="mt-1 text-sm text-emerald-800">
+                              Status: {statementTruth.submission.status || "Pending ICP Review"}
+                            </p>
+                            {statementTruth.submission.receipt_id && (
+                              <p className="mt-2 text-sm text-emerald-900">
+                                Receipt:{" "}
+                                <span className="font-mono font-bold">
+                                  {statementTruth.submission.receipt_id}
+                                </span>
+                              </p>
+                            )}
+                            {statementTruth.submission.submitted_at && (
+                              <p className="mt-1 text-xs text-emerald-700">
+                                Submitted:{" "}
+                                {new Date(
+                                  statementTruth.submission.submitted_at
+                                ).toLocaleString()}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      disabled={
+                        statementTruth.submitting ||
+                        !statementTruth.consent ||
+                        !statementSignatureHasInk
+                      }
+                      onClick={submitStatementOfTruth}
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-purple-700 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      {statementTruth.submitting ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Submitting Statement of Truth…
+                        </>
+                      ) : (
+                        statementTruth.submission
+                          ? "Submit Updated Statement of Truth"
+                          : "Electronically Sign & Submit"
+                      )}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeForm === "preDeployment" && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/40 p-4">
           <div className="mx-auto max-w-3xl rounded-2xl bg-white p-6 shadow-xl">
@@ -622,6 +1437,33 @@ export default function Forms() {
   }
   return (
     <>
+      {statementTruth.submission && (
+        <div className="mx-auto mb-4 max-w-5xl rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+          <div className="flex items-start gap-3">
+            <FileText className="mt-0.5 h-5 w-5 shrink-0 text-blue-700" />
+            <div>
+              <p className="font-semibold">
+                Statement of Truth submission
+              </p>
+              <p className="mt-1">
+                {statementTruth.submission.status || "Pending ICP Review"}
+                {statementTruth.submission.receipt_id
+                  ? ` • Receipt ${statementTruth.submission.receipt_id}`
+                  : ""}
+              </p>
+              {statementTruth.submission.submitted_at && (
+                <p className="mt-1 text-xs text-blue-700">
+                  Submitted{" "}
+                  {new Date(
+                    statementTruth.submission.submitted_at
+                  ).toLocaleString()}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {preDeployment.submission && preDeployment.submission.approval_status !== "rejected" && (
         <div className="mx-auto mb-4 max-w-5xl rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
           <div className="flex items-start gap-3">

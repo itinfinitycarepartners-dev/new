@@ -2271,7 +2271,9 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                     user={{
                       ...(user || {}),
                       email:user?.email,
-                      _adminSummary:adminSummary
+                      _adminSummary:adminSummary,
+                      _adminPaymentData:
+                        adminSummary?.reimbursementData || null
                     }}
                     adminMode={true}
                     adminToken={getTokens().adminToken || ""}
