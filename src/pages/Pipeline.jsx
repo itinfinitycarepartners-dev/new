@@ -10441,7 +10441,14 @@ const HousingDetails = ({ onClose, user, setStages }) => {
 
 // ============= Reimbursement/Expenses Component (Aftercare) =============
 // Loads the payment schedule and submission status securely.
-export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode = false, adminToken = "" }) => {
+export const ReimbursementExpensesView = ({
+  onClose,
+  user,
+  setStages,
+  adminMode = false,
+  adminToken = "",
+  forceDirectCrmStipendSync = false
+}) => {
   const [loading, setLoading] = useState(true);
   const [paymentData, setPaymentData] = useState({
     nursePaymentType: "",
@@ -10512,11 +10519,56 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
     amount:null
   });
   const HOUSING_STIPEND_OPTIONS = [
-    { value:"Single Non-metropolitan", amount:1000 },
-    { value:"Family Non-metropolitan", amount:1200 },
-    { value:"Single Metropolitan", amount:1200 },
-    { value:"Family Metropolitan", amount:1500 }
+    {
+      value:"Single Non-metropolitan",
+      crmLabel:"Single - Non-Metropolitan",
+      amount:1000
+    },
+    {
+      value:"Family Non-metropolitan",
+      crmLabel:"Family - Non-Metropolitan",
+      amount:1200
+    },
+    {
+      value:"Single Metropolitan",
+      crmLabel:"Single - Metropolitan",
+      amount:1200
+    },
+    {
+      value:"Family Metropolitan",
+      crmLabel:"Family - Metropolitan",
+      amount:1500
+    }
   ];
+
+  const normalizeHousingStipendUiKey = value =>
+    String(value || "")
+      .normalize("NFKC")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "")
+      .trim();
+
+  const findHousingStipendOption = value => {
+    const key =
+      normalizeHousingStipendUiKey(
+        value
+      );
+
+    if (!key) return null;
+
+    return (
+      HOUSING_STIPEND_OPTIONS.find(
+        option =>
+          normalizeHousingStipendUiKey(
+            option.value
+          ) === key ||
+          normalizeHousingStipendUiKey(
+            option.crmLabel
+          ) === key
+      ) ||
+      null
+    );
+  };
 
   const normalizeExpenseReportForUi = report => {
     if (!report || typeof report !== "object") return report;
@@ -10546,9 +10598,8 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
             ).trim();
 
           const mapped =
-            HOUSING_STIPEND_OPTIONS.find(
-              item =>
-                item.value === option
+            findHousingStipendOption(
+              option
             );
 
           const existingAmount =
@@ -10565,7 +10616,9 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
             ...row,
             side:"credit",
             housing_stipend_option:
-              option || null,
+              mapped?.value ||
+              option ||
+              null,
             amount:
               Number.isFinite(amount)
                 ? amount
@@ -10745,6 +10798,7 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
   }, [
     adminMode,
     adminToken,
+    forceDirectCrmStipendSync,
     user?.email,
     user?._adminSummary?.expenseReport,
     user?._adminPaymentData,
@@ -10757,13 +10811,23 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
         ? expenseReport.rows.find(row => row?.id === "housing_stipend")
         : null;
 
-    const selected =
+    const selectedRaw =
       String(
         housingRow?.housing_stipend_option ||
+        expenseReport?.housing_stipend_option ||
+        expenseReport?.crm_housing_stipend_value ||
         ""
       ).trim();
 
-    setHousingStipendSelection(selected);
+    const selected =
+      findHousingStipendOption(
+        selectedRaw
+      );
+
+    setHousingStipendSelection(
+      selected?.value ||
+      ""
+    );
   }, [expenseReport]);
 
   const saveHousingStipend = async nextSelection => {
@@ -11126,11 +11190,17 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
         data.housingStipendSync &&
         typeof data.housingStipendSync === "object"
       ) {
-        const syncSelection =
+        const syncSelectionRaw =
           String(
             data.housingStipendSync.selection ||
+            data.housingStipendSync.crmRawValue ||
             ""
           ).trim();
+
+        const syncSelection =
+          findHousingStipendOption(
+            syncSelectionRaw
+          )?.value || "";
 
         const syncAmount =
           Number(
@@ -11163,6 +11233,26 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
               ? syncAmount
               : null
         });
+
+        if (
+          data.housingStipendSync.success === true
+        ) {
+          setSubmitError(previous => {
+            const text =
+              String(
+                previous ||
+                ""
+              );
+
+            return (
+              /crm.*housing stipend|english_exam_needed/i.test(
+                text
+              )
+                ? ""
+                : previous
+            );
+          });
+        }
 
         if (
           syncSelection &&
@@ -11771,8 +11861,11 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
                     >
                       <option value="">Select housing stipend</option>
                       {HOUSING_STIPEND_OPTIONS.map(option => (
-                        <option key={option.value} value={option.value}>
-                          {option.value} — ${option.amount.toLocaleString("en-US")}
+                        <option
+                          key={option.value}
+                          value={option.value}
+                        >
+                          {option.crmLabel} — ${option.amount.toLocaleString("en-US")}
                         </option>
                       ))}
                     </select>
@@ -11786,7 +11879,7 @@ export const ReimbursementExpensesView = ({ onClose, user, setStages, adminMode 
                       </span>
                     ) : housingStipendSelection ? (
                       <>Credit: ${Number(
-                        HOUSING_STIPEND_OPTIONS.find(option => option.value === housingStipendSelection)?.amount || 0
+                        findHousingStipendOption(housingStipendSelection)?.amount || 0
                       ).toFixed(2)}</>
                     ) : (
                       "No stipend selected"

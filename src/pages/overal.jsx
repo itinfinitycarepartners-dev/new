@@ -2287,6 +2287,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
               {activeTab === 'expense-report' && (
                 <div className="rounded-xl border bg-white p-2">
                   <ReimbursementExpensesView
+                    key={`expense-report-${String(user?.email || "candidate").toLowerCase()}`}
                     user={{
                       ...(user || {}),
                       email:user?.email,
@@ -2294,6 +2295,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                     }}
                     adminMode={true}
                     adminToken={getTokens().adminToken || ""}
+                    forceDirectCrmStipendSync={true}
                     onClose={() => setActiveTab('profile')}
                     setStages={setPipeline}
                   />
