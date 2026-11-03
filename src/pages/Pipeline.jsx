@@ -10500,6 +10500,9 @@ export const ReimbursementExpensesView = ({
     updated_at: null
   }));
   const [expenseReportLoading, setExpenseReportLoading] = useState(true);
+  const expenseReportRefreshInFlightRef = useRef(false);
+  const expenseReportHasLoadedRef = useRef(false);
+  const [expenseReportBackgroundRefreshing, setExpenseReportBackgroundRefreshing] = useState(false);
   const [advanceAgreementReviewed, setAdvanceAgreementReviewed] = useState(false);
   const [advanceAgreementAcknowledged, setAdvanceAgreementAcknowledged] = useState(false);
   const [advanceAgreementSaving, setAdvanceAgreementSaving] = useState(false);
@@ -10569,6 +10572,11 @@ export const ReimbursementExpensesView = ({
       null
     );
   };
+
+  const getHousingStipendCrmLabel = value =>
+    findHousingStipendOption(
+      value
+    )?.crmLabel || "";
 
   const normalizeExpenseReportForUi = report => {
     if (!report || typeof report !== "object") return report;
@@ -10765,6 +10773,16 @@ export const ReimbursementExpensesView = ({
       : null;
 
   useEffect(() => {
+    expenseReportRefreshInFlightRef.current =
+      false;
+    expenseReportHasLoadedRef.current =
+      false;
+    setExpenseReportBackgroundRefreshing(
+      false
+    );
+  }, [user?.email]);
+
+  useEffect(() => {
     const summaryReport =
       adminMode
         ? user?._adminSummary?.expenseReport || null
@@ -10784,17 +10802,31 @@ export const ReimbursementExpensesView = ({
       }
 
       if (summaryReport) {
-        setExpenseReport(normalizeExpenseReportForUi(summaryReport));
+        setExpenseReport(
+          normalizeExpenseReportForUi(
+            summaryReport
+          )
+        );
+        expenseReportHasLoadedRef.current = true;
         setExpenseReportLoading(false);
         setSubmitError(null);
-        void fetchExpenseReport(true);
+
+        // Keep the visible persisted report on screen while CRM reconciles
+        // quietly in the background.
+        void fetchExpenseReport(
+          true,
+          { silent:true }
+        );
         return;
       }
     } else {
       void fetchPaymentData(false);
     }
 
-    void fetchExpenseReport(true);
+    void fetchExpenseReport(
+      true,
+      { silent:false }
+    );
   }, [
     adminMode,
     adminToken,
@@ -10862,8 +10894,13 @@ export const ReimbursementExpensesView = ({
           body:JSON.stringify({
             email:user.email,
             selection:nextSelection,
+            crmSelection:
+              getHousingStipendCrmLabel(
+                nextSelection
+              ),
             dealId:
               expenseReport?.crm_deal_id ||
+              housingStipendSync?.dealId ||
               null
           })
         }
@@ -10928,13 +10965,15 @@ export const ReimbursementExpensesView = ({
         setExpenseReportLoading(false);
       }
 
-      // Backend only returns success after CRM read-back verification.
-      // Pull the fresh report once more so the dropdown and the table are
-      // guaranteed to render from the same confirmed value.
-      await fetchExpenseReport(true);
+      // Backend already returned the verified report. Reconcile once more
+      // silently; never blank the Admin Expense Report after a successful save.
+      await fetchExpenseReport(
+        true,
+        { silent:true }
+      );
 
       toast.success(
-        `One Time Housing Stipend synced with CRM: ${confirmedSelection} — $${Number(data.amount || 0).toFixed(2)}.`
+        `CRM updated: ${data.crmRawValue || getHousingStipendCrmLabel(confirmedSelection)} — $${Number(data.amount || 0).toFixed(2)} credit.`
       );
 
       window.dispatchEvent(
@@ -10962,6 +11001,20 @@ export const ReimbursementExpensesView = ({
         error?.message ||
         "Unable to update One Time Housing Stipend.";
 
+      const currentCrmOption =
+        findHousingStipendOption(
+          housingStipendSync?.crmRawValue ||
+          expenseReport?.crm_housing_stipend_value ||
+          expenseReport?.housing_stipend_option ||
+          ""
+        );
+
+      if (currentCrmOption?.value) {
+        setHousingStipendSelection(
+          currentCrmOption.value
+        );
+      }
+
       setHousingStipendSync(previous => ({
         ...previous,
         success:false,
@@ -10981,14 +11034,26 @@ export const ReimbursementExpensesView = ({
     }
 
     const refreshFromCrm = () => {
-      if (document.hidden) return;
-      void fetchExpenseReport(true);
+      if (
+        document.hidden ||
+        expenseReportRefreshInFlightRef.current
+      ) {
+        return;
+      }
+
+      void fetchExpenseReport(
+        true,
+        { silent:true }
+      );
     };
 
+    // CRM reconciliation must never interrupt an Admin reviewing the report.
+    // A slower silent cadence is enough because focus and manual/save actions
+    // also refresh immediately.
     const intervalMs =
       adminMode
-        ? 15000
-        : 30000;
+        ? 60000
+        : 90000;
 
     const timer =
       window.setInterval(
@@ -11018,18 +11083,34 @@ export const ReimbursementExpensesView = ({
   ]);
 
   useEffect(() => {
-    if (!adminMode || !expenseReportLoading) return undefined;
+    if (
+      !adminMode ||
+      !expenseReportLoading ||
+      expenseReportHasLoadedRef.current
+    ) {
+      return undefined;
+    }
 
-    const watchdog = window.setTimeout(() => {
-      setExpenseReportLoading(false);
-      setSubmitError(previous =>
-        previous ||
-        "Expense Report could not be refreshed right now. Displaying the latest available report data."
+    const watchdog =
+      window.setTimeout(() => {
+        // Only stop an initial cold-load spinner. Background CRM refreshes
+        // never use expenseReportLoading and therefore never hide the report.
+        setExpenseReportLoading(false);
+        setSubmitError(previous =>
+          previous ||
+          "Live refresh is temporarily unavailable. Showing the latest saved Expense Report."
+        );
+      }, 20000);
+
+    return () =>
+      window.clearTimeout(
+        watchdog
       );
-    }, 10000);
-
-    return () => window.clearTimeout(watchdog);
-  }, [adminMode, expenseReportLoading, user?.email]);
+  }, [
+    adminMode,
+    expenseReportLoading,
+    user?.email
+  ]);
 
   const buildPaymentRecord = (userData, n) => ({
     date: ga(userData, `Payment_${n}`, `Payment${n}`, `Payment_${n}_Date`, `Payment${n}Date`) || "",
@@ -11118,10 +11199,34 @@ export const ReimbursementExpensesView = ({
     }
   };
 
-  const fetchExpenseReport = async (forceRefresh = false) => {
-    setExpenseReportLoading(
-      true
-    );
+  const fetchExpenseReport = async (
+    forceRefresh = false,
+    {
+      silent = false
+    } = {}
+  ) => {
+    const backgroundRefresh =
+      silent === true ||
+      expenseReportHasLoadedRef.current;
+
+    if (
+      expenseReportRefreshInFlightRef.current
+    ) {
+      return null;
+    }
+
+    expenseReportRefreshInFlightRef.current =
+      true;
+
+    if (backgroundRefresh) {
+      setExpenseReportBackgroundRefreshing(
+        true
+      );
+    } else {
+      setExpenseReportLoading(
+        true
+      );
+    }
 
     try {
       const token =
@@ -11136,10 +11241,13 @@ export const ReimbursementExpensesView = ({
       }
 
       const controller = new AbortController();
-      const timeoutId = window.setTimeout(
-        () => controller.abort(),
-        adminMode ? 20000 : 20000
-      );
+      const timeoutId =
+        window.setTimeout(
+          () => controller.abort(),
+          backgroundRefresh
+            ? 12000
+            : 25000
+        );
 
       let response;
       let data = {};
@@ -11184,6 +11292,8 @@ export const ReimbursementExpensesView = ({
             data.report
           )
         );
+        expenseReportHasLoadedRef.current =
+          true;
       }
 
       if (
@@ -11293,19 +11403,42 @@ export const ReimbursementExpensesView = ({
 
       const message =
         error?.name === "AbortError"
-          ? "Expense Report took too long to respond."
-          : (error?.message || "Unable to load Expense Report.");
+          ? "Expense Report background refresh timed out."
+          : (
+              error?.message ||
+              "Unable to refresh Expense Report."
+            );
 
-      setSubmitError(message);
+      if (backgroundRefresh) {
+        // Preserve the currently displayed report. A transient CRM/Azure
+        // timeout must never interrupt an admin reviewing or acknowledging it.
+        console.warn(
+          "[Reimbursement/Expenses] Keeping last loaded report after background refresh failure:",
+          message
+        );
+      } else {
+        setSubmitError(message);
 
-      if (!adminMode) {
-        toast.error(message);
+        if (!adminMode) {
+          toast.error(message);
+        }
       }
     } finally {
-      setExpenseReportLoading(
-        false
-      );
+      expenseReportRefreshInFlightRef.current =
+        false;
+
+      if (backgroundRefresh) {
+        setExpenseReportBackgroundRefreshing(
+          false
+        );
+      } else {
+        setExpenseReportLoading(
+          false
+        );
+      }
     }
+
+    return null;
   };
 
   const handleBankChange = (e) => {
@@ -11831,7 +11964,12 @@ export const ReimbursementExpensesView = ({
                             : "border-slate-200 bg-slate-50 text-slate-600"
                       }`}
                     >
-                      {housingStipendSync.success ? (
+                      {housingStipendSaving ? (
+                        <>
+                          <Loader2 className="mr-1 inline h-3.5 w-3.5 animate-spin" />
+                          Saving selection to CRM…
+                        </>
+                      ) : housingStipendSync.success ? (
                         <>
                           CRM synced
                           {housingStipendSync.crmRawValue
@@ -11843,18 +11981,45 @@ export const ReimbursementExpensesView = ({
                         </>
                       ) : housingStipendSync.error ? (
                         <>CRM sync error: {housingStipendSync.error}</>
+                      ) : expenseReportBackgroundRefreshing ? (
+                        <>
+                          Refreshing CRM quietly…
+                        </>
                       ) : (
-                        <>Checking current CRM value…</>
+                        <>Using latest loaded CRM value</>
                       )}
                     </div>
+
+                    <div className="mt-2 flex justify-end">
+                      <button
+                        type="button"
+                        disabled={
+                          housingStipendSaving ||
+                          expenseReportBackgroundRefreshing
+                        }
+                        onClick={() =>
+                          void fetchExpenseReport(
+                            true,
+                            { silent:true }
+                          )
+                        }
+                        className="text-[11px] font-semibold text-purple-700 underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Refresh from CRM
+                      </button>
+                    </div>
+
                     <select
                       value={housingStipendSelection}
                       disabled={housingStipendSaving}
                       onChange={event => {
-                        const nextSelection = event.target.value;
-                        setHousingStipendSelection(nextSelection);
+                        const nextSelection =
+                          event.target.value;
+
                         if (nextSelection) {
-                          void saveHousingStipend(nextSelection);
+                          void saveHousingStipend(
+                            nextSelection
+                          );
                         }
                       }}
                       className="mt-3 w-full rounded-lg border border-purple-300 bg-white px-3 py-2.5 text-sm text-slate-900 disabled:opacity-60"
@@ -11889,7 +12054,7 @@ export const ReimbursementExpensesView = ({
               </div>
             )}
 
-        {expenseReportLoading ? (
+        {expenseReportLoading && !expenseReportHasLoadedRef.current ? (
           <div className="flex min-h-[220px] items-center justify-center">
             <div className="flex flex-col items-center gap-3 text-sm text-muted-foreground">
               <Loader2 className="h-7 w-7 animate-spin text-purple-600" />
@@ -21761,5 +21926,3 @@ export default function Pipeline() {
     </div>
   );
 }
-
-
