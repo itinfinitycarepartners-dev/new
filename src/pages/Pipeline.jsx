@@ -6442,8 +6442,16 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   })();
   const [finalBankNameCity, setFinalBankNameCity] = useState("");
   const [acknowledging, setAcknowledging] = useState(false);
+  const [welcomePacketRefreshSeq, setWelcomePacketRefreshSeq] = useState(0);
+  const [welcomePacketRefreshBusy, setWelcomePacketRefreshBusy] = useState(false);
   const [acknowledgedAt, setAcknowledgedAt] = useState(null);
   const [error, setError] = useState("");
+  const [welcomeDataDiagnostics, setWelcomeDataDiagnostics] = useState(null);
+  // An independently refreshed CRM Account must win over a slower packet
+  // response containing an older hospital/phone snapshot.
+  const authoritativeFacilityRef = useRef(null);
+  const authoritativeLicensureRef = useRef(null);
+  const [licensureLiveError, setLicensureLiveError] = useState("");
   const [locationServices, setLocationServices] = useState({
     destination: "",
     bank: null,
@@ -6516,7 +6524,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     );
 
   const welcomePacketCacheKey = user?.email
-    ? `icp_welcome_packet_v18:${String(user.email).trim().toLowerCase()}`
+    ? `${adminMode ? "icp_admin_welcome_packet_v46" : "icp_welcome_packet_v46"}:${String(user.email).trim().toLowerCase()}`
     : "";
 
   const readWelcomePacketCache = () => {
@@ -6619,13 +6627,89 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     });
   };
 
+  const fetchLicensureInformation = async () => {
+    const token = adminMode ? adminToken : localStorage.getItem("icp_auth_token");
+    if (!token || !user?.email) return;
+    try {
+      const endpoint = adminMode
+        ? `${API_BASE}/api/admin/welcome-packet/licensure?email=${encodeURIComponent(user.email)}`
+        : `${API_BASE}/api/welcome-packet/licensure`;
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 19000);
+      let response, payload;
+      try {
+        response = await fetch(endpoint, {
+          cache:"no-store",
+          credentials:"include",
+          signal:controller.signal,
+          headers:{
+            Authorization:adminMode ? `AdminBearer ${token}` : `Bearer ${token}`,
+            ...(adminMode ? {"x-candidate-email":user.email} : {}),
+            Accept:"application/json"
+          }
+        });
+        payload = await response.json().catch(() => ({}));
+      } finally {
+        window.clearTimeout(timeout);
+      }
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || "Unable to refresh licensure from CRM.");
+      }
+
+      const info = payload.data || {};
+      setLicensureLiveError(info.reason || "");
+      const state = String(info.state || "").trim();
+      if (!state) {
+        // Never reuse a different candidate's board or invent a state when
+        // the current candidate has no Endorsement State (NVC_DS_260_Status) in CRM.
+        authoritativeLicensureRef.current = { state:"", licensure:null };
+        setPacket(previous => ({
+          ...previous,
+          stateLicenseRequired:"",
+          endorsementState:"",
+          boardOfNursing:"",
+          boardAddress:"",
+          boardPhone:""
+        }));
+        setLocationServices(previous => ({
+          ...previous,
+          licensure:null,
+          licensureSearchUrl:info.licensureSearchUrl || "https://www.ncsbn.org/about/contact.page"
+        }));
+        return;
+      }
+      const board = info.licensure || null;
+      authoritativeLicensureRef.current = {state, licensure:board};
+      setPacket(previous => ({
+        ...previous,
+        stateLicenseRequired:state,
+        endorsementState:state,
+        boardOfNursing:`${state} Board of Nursing`,
+        boardAddress:board?.address || "",
+        boardPhone:board?.phone || ""
+      }));
+      setLocationServices(previous => ({
+        ...previous,
+        licensure:board,
+        licensureSearchUrl:info.licensureSearchUrl || "https://www.ncsbn.org/about/contact.page"
+      }));
+    } catch (error) {
+      // Keep the last successful CRM-backed board visible if Azure/NCSBN is
+      // briefly offline, but make the refresh failure visible to Admin.
+      console.warn("[Welcome Packet] Live licensure check:", error?.message || error);
+      if (adminMode) setLicensureLiveError(error?.message || "Licensure lookup unavailable.");
+    }
+  };
+
   const fetchFacilityInformation = async (retryCount = 0) => {
     try {
       const token = (adminMode ? adminToken : localStorage.getItem("icp_auth_token"));
       if (!token) return;
 
       const response = await fetch(
-        adminMode ? `${API_BASE}/api/welcome-packet/facility?email=${encodeURIComponent(user?.email || "")}` : `${API_BASE}/api/welcome-packet/facility?refresh=1`,
+        adminMode
+          ? `${API_BASE}/api/welcome-packet/facility?email=${encodeURIComponent(user?.email || "")}&refresh=1`
+          : `${API_BASE}/api/welcome-packet/facility?refresh=1`,
         {
           method: "GET",
           cache: "no-store",
@@ -6662,6 +6746,16 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         normalizePacketValue(value) !== ""
       );
 
+      const freshFacility = {
+        employerName: normalizePacketValue(facility.employerName),
+        employerAddress: normalizePacketValue(facility.address || facility.employerAddress),
+        employerContact: normalizePacketValue(facility.contact),
+        employerPhone: normalizePacketValue(facility.phone),
+        employerEmail: normalizePacketValue(facility.email),
+        employerWebsite: normalizePacketValue(facility.website)
+      };
+      authoritativeFacilityRef.current = freshFacility;
+
       setPacket(current => {
         const updated = {
           ...current,
@@ -6675,9 +6769,10 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           employerContact:
             normalizePacketValue(facility.contact) ||
             current.employerContact,
+          // An empty hospital Account phone means "not available".
+          // Never preserve a stale candidate mobile number in that cell.
           employerPhone:
-            normalizePacketValue(facility.phone) ||
-            current.employerPhone,
+            normalizePacketValue(facility.phone),
           employerEmail:
             normalizePacketValue(facility.email) ||
             current.employerEmail,
@@ -6753,10 +6848,11 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             socialSecurity:
               data.socialSecurity || current.socialSecurity,
             licensure:
-              data.licensure?.name &&
-              data.licensure?.address
-                ? data.licensure
-                : current.licensure,
+              authoritativeLicensureRef.current
+                ? authoritativeLicensureRef.current.licensure
+                : (data.licensure?.name && data.licensure?.address
+                    ? data.licensure
+                    : current.licensure),
             bankSearchUrl:
               data.bankSearchUrl ||
               current.bankSearchUrl ||
@@ -6766,9 +6862,10 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
               current.socialSecuritySearchUrl ||
               "",
             licensureSearchUrl:
-              data.licensureSearchUrl ||
-              current.licensureSearchUrl ||
-              "",
+              authoritativeLicensureRef.current
+                ? (authoritativeLicensureRef.current.licensure?.url ||
+                    "https://www.ncsbn.org/about/contact.page")
+                : (data.licensureSearchUrl || current.licensureSearchUrl || ""),
             source: data.source || current.source || ""
           };
 
@@ -6854,9 +6951,9 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     let cancelled = false;
     const cached = readWelcomePacketCache();
 
-    // Admin already fetched a PostgreSQL-only candidate summary when the modal
-    // opened. Render that immediately and do NOT make a second synchronous
-    // Welcome Packet request unless the summary has no usable packet at all.
+    // Paint the PostgreSQL-only Admin summary immediately, then quietly refresh
+    // the authoritative CRM Deal/Accounts/NCSBN data. Do not return early from
+    // this effect: the summary can have a different/older hospital or board.
     if (
       adminMode &&
       adminSummaryWelcome?.packet &&
@@ -6864,6 +6961,9 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     ) {
       const summaryPacket = {
         ...adminSummaryWelcome.packet,
+        // Summary may have been built before hospital Account was updated;
+        // avoid showing an unverified candidate/mobile number as the facility.
+        employerPhone:"",
         welcomeDate:formatPacketDate(
           adminSummaryWelcome.packet.welcomeDate ||
           new Date()
@@ -6909,9 +7009,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         adminSummaryWelcome.locationServices || null
       );
 
-      return () => {
-        cancelled = true;
-      };
+      // Continue into authoritative refresh while keeping this summary visible.
     }
 
     if (
@@ -6931,14 +7029,26 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       setLoading(false);
     }
 
+    authoritativeLicensureRef.current = null;
+    setLicensureLiveError("");
+    void fetchLicensureInformation();
+
+    if (adminMode) {
+      authoritativeFacilityRef.current = null;
+      // The hospital Account lookup runs independently from the much larger
+      // relocation/bank/licensure packet, so Admin sees updated facility info
+      // even when a full Welcome Packet CRM refresh is slow.
+      void fetchFacilityInformation();
+    }
+
     const loadPacket = async (forceRefresh = false) => {
-      if (
-        !cached?.packet ||
-        (adminMode && !welcomePacketHasUsefulData(cached.packet)) ||
-        forceRefresh
-      ) {
+      const hasInstantPacket = Boolean(
+        cached?.packet || (adminMode && adminSummaryWelcomeUseful)
+      );
+      if (!hasInstantPacket) {
         setLoading(true);
       }
+      if (forceRefresh) setWelcomePacketRefreshBusy(true);
       setError("");
 
       try {
@@ -6952,14 +7062,14 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         const controller = new AbortController();
         const timeoutId = window.setTimeout(
           () => controller.abort(),
-          adminMode ? 12000 : 15000
+          adminMode ? 25000 : 25000
         );
 
         try {
           response = await fetch(
             adminMode
               ? `${API_BASE}/api/admin/welcome-packet/data?email=${encodeURIComponent(user?.email || "")}${forceRefresh ? "&refresh=1" : ""}`
-              : `${API_BASE}/api/welcome-packet/data?deferServices=1`,
+              : `${API_BASE}/api/welcome-packet/data?full=1${forceRefresh ? "&refresh=1" : ""}`,
             {
               method:"GET",
               cache:"no-store",
@@ -7039,7 +7149,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         // Admin receives a fully normalized packet from one backend request.
         // Do not immediately launch separate Facility/location requests that can
         // race with it or overwrite complete values with sparse responses.
-        if (adminMode && packetResponse.packet) {
+        if (packetResponse.packet) {
           const normalizedPacket = {
             ...packetResponse.packet,
             welcomeDate:
@@ -7066,14 +7176,35 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           }
 
           if (!cancelled) {
+            setWelcomeDataDiagnostics(packetResponse.diagnostics || null);
             setPacket(current => ({
               ...current,
-              ...normalizedPacket
+              ...normalizedPacket,
+              ...(adminMode && authoritativeFacilityRef.current
+                ? authoritativeFacilityRef.current
+                : {}),
+              ...(authoritativeLicensureRef.current
+                ? {
+                    stateLicenseRequired:authoritativeLicensureRef.current.state,
+                    endorsementState:authoritativeLicensureRef.current.state,
+                    boardOfNursing:authoritativeLicensureRef.current.licensure?.displayName ||
+                      authoritativeLicensureRef.current.licensure?.name || "",
+                    boardAddress:authoritativeLicensureRef.current.licensure?.address || "",
+                    boardPhone:authoritativeLicensureRef.current.licensure?.phone || ""
+                  }
+                : {})
             }));
 
             setLocationServices(current => ({
               ...current,
-              ...(packetResponse.locationServices || {})
+              ...(packetResponse.locationServices || {}),
+              ...(authoritativeLicensureRef.current
+                ? {
+                    licensure:authoritativeLicensureRef.current.licensure,
+                    licensureSearchUrl:authoritativeLicensureRef.current.licensure?.url ||
+                      "https://www.ncsbn.org/about/contact.page"
+                  }
+                : {})
             }));
 
             setFinalBankingPlan(
@@ -7084,16 +7215,16 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             );
 
             writeWelcomePacketCache(
-              {
-                ...packet,
-                ...normalizedPacket
-              },
+              normalizedPacket,
               packetResponse.locationServices || null
             );
 
             setError("");
             setLoading(false);
           }
+
+          // The facility is refreshed independently on opening; the latest
+          // Account result is retained when this full packet response arrives.
           return;
         }
 
@@ -7398,8 +7529,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           ),
           stateLicenseRequired: pick(
             deal,
-            "stateLicenseRequired",
-            "NVC_DS_260_Status", "Endorsement_State"
+            "NVC_DS_260_Status"
           ),
           boardOfNursing: pick(
             deal,
@@ -7470,9 +7600,29 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
 
         if (cancelled) return;
 
-        setPacket(nextPacket);
+        setPacket({
+          ...nextPacket,
+          ...(adminMode && authoritativeFacilityRef.current
+            ? authoritativeFacilityRef.current
+            : {}),
+          ...(authoritativeLicensureRef.current
+            ? {
+                stateLicenseRequired:authoritativeLicensureRef.current.state,
+                endorsementState:authoritativeLicensureRef.current.state,
+                boardOfNursing:authoritativeLicensureRef.current.licensure?.displayName ||
+                  authoritativeLicensureRef.current.licensure?.name || "",
+                boardAddress:authoritativeLicensureRef.current.licensure?.address || "",
+                boardPhone:authoritativeLicensureRef.current.licensure?.phone || ""
+              }
+            : {})
+        });
         writeWelcomePacketCache(
-          nextPacket,
+          {
+            ...nextPacket,
+            ...(adminMode && authoritativeFacilityRef.current
+              ? authoritativeFacilityRef.current
+              : {})
+          },
           packetResponse.locationServices || null
         );
 
@@ -7513,16 +7663,25 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           );
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setWelcomePacketRefreshBusy(false);
+        }
       }
     };
 
-    loadPacket();
+    // An Admin opening another candidate's packet must read the current CRM
+    // Deal/Account rather than accept a warm-but-outdated PostgreSQL packet.
+    // The cached/summary packet remains visible during the background refresh.
+    // Do not run a heavy forced CRM snapshot on every Admin tab open.
+    // Facility/licensure still refresh through their independent live lookups;
+    // explicit Refresh CRM Data asks for a complete fresh packet.
+    void loadPacket(welcomePacketRefreshSeq > 0);
 
     return () => {
       cancelled = true;
     };
-  }, [user?.email, adminMode, adminToken]);
+  }, [user?.email, adminMode, adminToken, welcomePacketRefreshSeq]);
 
   useEffect(() => {
     const loadAcknowledgementStatus = async () => {
@@ -7553,20 +7712,53 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       const token = (adminMode ? adminToken : localStorage.getItem("icp_auth_token"));
       if (!token) throw new Error("Your session has expired. Please sign in again.");
 
-      const response = await fetch(
-        `${API_BASE}/api/pipeline/acknowledge-welcome-packet`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`, ...(adminMode ? { "x-candidate-email": user?.email || "" } : {}),
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ email: user?.email })
+      const ackController=new AbortController();
+      const ackTimer=window.setTimeout(()=>ackController.abort(),18000);
+      let response;
+      let data={};
+      try {
+        response=await fetch(
+          `${API_BASE}/api/pipeline/acknowledge-welcome-packet`,
+          {
+            method:"POST",credentials:"include",signal:ackController.signal,
+            headers:{
+              Authorization:adminMode?`AdminBearer ${token}`:`Bearer ${token}`,
+              ...(adminMode?{"x-candidate-email":user?.email||""}:{}),
+              "Content-Type":"application/json"
+            },
+            body:JSON.stringify({email:user?.email})
+          }
+        );
+        data=await response.json().catch(()=>({}));
+      } catch (saveError) {
+        if(saveError?.name!=="AbortError" && !(saveError instanceof TypeError)) {
+          throw saveError;
         }
-      );
+        // Saving the stage may already have succeeded in PostgreSQL even when
+        // an intermediary interrupted the HTTP response. Confirm the durable
+        // stage before displaying a failure or inviting duplicate submissions.
+        const verifyController=new AbortController();
+        const verifyTimer=window.setTimeout(()=>verifyController.abort(),5000);
+        try {
+          const verify=await fetch(`${API_BASE}/api/welcome-packet/acknowledgement-status`,{
+            cache:"no-store",credentials:"include",signal:verifyController.signal,
+            headers:{Authorization:adminMode?`AdminBearer ${token}`:`Bearer ${token}`,
+              ...(adminMode?{"x-candidate-email":user?.email||""}:{})}
+          });
+          const status=await verify.json().catch(()=>({}));
+          if(verify.ok && status.success && status.acknowledged){
+            response={ok:true};
+            data={success:true,acknowledged_at:status.acknowledgedAt,
+              stage:{completed:true,completed_date:status.acknowledgedAt}};
+          } else {
+            throw new Error("The acknowledgement response timed out. Please check the status before resubmitting.");
+          }
+        } catch (verifyError) {
+          throw new Error("The save response was interrupted and its status could not be confirmed. Check the Welcome Packet status before trying again.");
+        } finally {window.clearTimeout(verifyTimer);}
+      } finally {window.clearTimeout(ackTimer);}
 
-      const data = await response.json().catch(() => ({}));
-      console.log("[Housing] Parsed server response", data);
+      console.log("[Welcome Packet] Acknowledgement response", data?.success);
 
       if (!response.ok || data.success !== true) {
         throw new Error(data.error || "Unable to acknowledge the Welcome Packet.");
@@ -7644,6 +7836,21 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     }
   };
 
+  const licenseStateLabel = [
+    packet.endorsementState,
+    packet.stateLicenseRequired,
+    locationServices.licensure?.state
+  ].map(item => normalizePacketValue(item)).find(item =>
+    item && !/^(?:undefined|null|unknown|not available|n\/?a)$/i.test(item)
+  ) || "";
+
+  const validLicenseBoard = locationServices.licensure && (
+    !licenseStateLabel ||
+    !locationServices.licensure.state ||
+    String(locationServices.licensure.state).trim().toLowerCase() ===
+      licenseStateLabel.trim().toLowerCase()
+  ) ? locationServices.licensure : null;
+
   const printPacket = () => {
     const root = document.getElementById("welcome-packet-print-root");
     if (!root) {
@@ -7651,30 +7858,152 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       return;
     }
 
-    const ancestors = [];
-    let node = root.parentElement;
-    while (node && node !== document.body) {
-      node.classList.add("welcome-print-ancestor");
-      ancestors.push(node);
-      node = node.parentElement;
-    }
+    // Render a completely independent document. The Admin portal uses
+    // overflow/scrolling/fixed modal containers; printing its DOM directly
+    // could result in a blank page even though the packet is visible.
+    const frame = document.createElement("iframe");
+    frame.title = "Welcome Packet Print Document";
+    frame.setAttribute("aria-hidden", "true");
+    Object.assign(frame.style, {
+      position:"fixed", left:"0", bottom:"0",
+      width:"1px", height:"1px", border:"0",
+      opacity:"0", pointerEvents:"none", zIndex:"-1"
+    });
+    document.body.appendChild(frame);
 
-    document.body.classList.add("printing-welcome-packet");
-
+    let cleanedUp = false;
     const cleanup = () => {
-      document.body.classList.remove("printing-welcome-packet");
-      ancestors.forEach(item => item.classList.remove("welcome-print-ancestor"));
-      window.removeEventListener("afterprint", cleanup);
+      if (cleanedUp) return;
+      cleanedUp = true;
+      window.setTimeout(() => frame.remove(), 1000);
     };
 
-    window.addEventListener("afterprint", cleanup, { once: true });
-
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        window.print();
-        window.setTimeout(cleanup, 1800);
+    try {
+      const printDoc = frame.contentDocument;
+      const packetCopy = root.cloneNode(true);
+      packetCopy.removeAttribute("id");
+      // The printed PDF is a clean, static document: no clickable links,
+      // trailing link URLs, external-link icons or generated timestamps.
+      packetCopy.querySelectorAll("a").forEach(link => {
+        const label = printDoc.createElement("span");
+        label.className = link.className || "";
+        // Keep the visible link text, not the anchor/href or external-link icon.
+        label.textContent = link.textContent?.trim() || "";
+        link.replaceWith(label);
       });
-    });
+      packetCopy.querySelectorAll('[data-welcome-print-timestamp="true"], time').forEach(node => node.remove());
+      packetCopy.querySelectorAll("*").forEach(element => {
+        if (
+          element.classList?.contains("print:hidden") ||
+          element.getAttribute("data-welcome-no-print") === "true"
+        ) element.remove();
+      });
+
+      const styles = [...document.querySelectorAll('link[rel="stylesheet"], style')]
+        .filter(element => !root.contains(element))
+        .map(element => element.outerHTML)
+        .join("\n");
+      const extraPrintStyles = `
+        @page { size: A4; margin: 10mm; }
+        html, body { display:block!important; overflow:visible!important;
+          height:auto!important; width:auto!important; margin:0!important;
+          padding:0!important; background:white!important; color:#111!important; }
+        body { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+        .welcome-packet-print-copy { display:block!important; width:100%!important;
+          max-width:none!important; overflow:visible!important; padding:0!important;
+          margin:0!important; height:auto!important; }
+        .welcome-packet-print-copy > section {
+          margin-top:0!important; margin-bottom:0!important;
+          break-inside:auto; page-break-inside:auto;
+          overflow:visible!important;
+        }
+        /* Explicit booklet order (same for Admin and candidate print):
+           1 cover, 2 welcome message, 3 facility, 4 licensure. */
+        #welcome-packet-welcome-page,
+        #welcome-packet-facility-page,
+        #welcome-packet-licensure-page,
+        #welcome-packet-housing-page,
+        #welcome-packet-social-security-page {
+          break-before:page!important;
+          page-break-before:always!important;
+          break-inside:avoid-page!important;
+          page-break-inside:avoid!important;
+          min-height:0!important;
+        }
+        .welcome-packet-print-copy img { max-width:100%!important; height:auto!important; }
+        #welcome-packet-cover-page {
+          display:flex!important; align-items:center!important; justify-content:center!important;
+          width:100%!important; height:260mm!important; min-height:260mm!important;
+          max-height:260mm!important; margin:0!important; padding:0!important;
+          overflow:hidden!important; border:0!important; box-shadow:none!important;
+          break-after:auto!important; page-break-after:auto!important;
+          break-inside:avoid!important; page-break-inside:avoid!important;
+        }
+        #welcome-packet-cover-page img {
+          display:block!important; object-fit:contain!important;
+          width:100%!important; max-height:250mm!important; height:auto!important;
+        }
+        #welcome-packet-social-security-page {
+          /* This is the last content section; no trailing blank page. */
+          break-after:auto!important;
+          page-break-after:auto!important;
+        }
+        .welcome-packet-print-copy section:not(#welcome-packet-cover-page):not(#welcome-packet-welcome-page):not(#welcome-packet-facility-page):not(#welcome-packet-licensure-page):not(#welcome-packet-housing-page):not(#welcome-packet-social-security-page) {
+          break-before:auto; page-break-before:auto;
+        }
+        .welcome-packet-print-copy a { overflow-wrap:anywhere; }
+        .welcome-packet-print-copy a::after,
+        .welcome-packet-print-copy a::before { content:none!important; }
+        .welcome-packet-print-copy [data-welcome-print-timestamp="true"],
+        .welcome-packet-print-copy time { display:none!important; }
+        .welcome-packet-print-copy [class*="overflow-"] { overflow:visible!important; }
+        .welcome-packet-print-copy [class*="max-h-"] { max-height:none!important; }
+        .print\:hidden, [data-welcome-no-print="true"] { display:none!important; }
+      `;
+      printDoc.open();
+      printDoc.write(`<!doctype html><html><head><meta charset="utf-8" />
+        <base href="${document.baseURI}" />
+        <title>ICP Welcome Packet</title>${styles}
+        <style>${extraPrintStyles}</style></head><body>
+        <main class="welcome-packet-print-copy">${packetCopy.innerHTML}</main>
+        </body></html>`);
+      printDoc.close();
+
+      let printed = false;
+      const sendToPrinter = async () => {
+        if (printed || cleanedUp) return;
+        printed = true;
+        // Do not print until external styles and the welcome-cover image have
+        // had time to finish loading. Missing assets cannot blank other pages.
+        try {
+          const images = [...printDoc.images];
+          await Promise.race([
+            Promise.all([
+              printDoc.fonts?.ready || Promise.resolve(),
+              ...images.map(img => img.complete
+                ? Promise.resolve()
+                : new Promise(resolve => {
+                    img.addEventListener("load", resolve, {once:true});
+                    img.addEventListener("error", resolve, {once:true});
+                  }))
+            ]),
+            new Promise(resolve => window.setTimeout(resolve, 8000))
+          ]);
+        } catch (_) { /* Print the available packet text anyway. */ }
+        frame.contentWindow?.addEventListener("afterprint", cleanup, {once:true});
+        frame.contentWindow?.focus();
+        frame.contentWindow?.print();
+        // Some browsers omit afterprint for iframe printing.
+        window.setTimeout(cleanup, 60000);
+      };
+      frame.addEventListener("load", () => { void sendToPrinter(); }, {once:true});
+      // A document.write iframe may have completed loading before this handler.
+      window.setTimeout(() => { void sendToPrinter(); }, 1200);
+    } catch (error) {
+      cleanup();
+      console.error("[Welcome Packet] Print failed:", error);
+      toast.error("Could not create the print document. Please try again.");
+    }
   };
 
   const DisplayValue = ({ value }) => {
@@ -7832,7 +8161,26 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           }
         }
       `}</style>
-      <section className="overflow-hidden rounded-2xl border border-purple-200 bg-white shadow-sm">
+      {adminMode && welcomeDataDiagnostics?.missingAccountFields?.length > 0 && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 print:hidden">
+          Some CRM Account fields are empty: {welcomeDataDiagnostics.missingAccountFields.join(", ")}.
+          {welcomeDataDiagnostics?.accountId ? ` Account ${welcomeDataDiagnostics.accountId}.` : ""}
+          Edit the CRM Account if these values are required in the packet.
+        </p>
+      )}
+      {adminMode && (
+        <div className="sticky top-0 z-20 flex justify-end gap-2 rounded-lg border border-purple-100 bg-white/95 p-2 shadow-sm print:hidden">
+          <Button type="button" variant="outline" disabled={welcomePacketRefreshBusy}
+            onClick={() => setWelcomePacketRefreshSeq(n => n + 1)} className="gap-2">
+            <RefreshCw className={`h-4 w-4 ${welcomePacketRefreshBusy ? "animate-spin" : ""}`} />
+            Refresh CRM Data
+          </Button>
+          <Button type="button" variant="outline" onClick={printPacket} className="gap-2">
+            <Printer className="h-4 w-4" /> Print Welcome Packet
+          </Button>
+        </div>
+      )}
+      <section id="welcome-packet-cover-page" className="overflow-hidden rounded-2xl border border-purple-200 bg-white shadow-sm">
         <img
           src="/welcome-packet-banner-clean.png"
           alt="Infinity Care Partners - Welcome to the USA"
@@ -7840,11 +8188,11 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         />
       </section>
 
-      <section className="rounded-2xl border border-purple-200 bg-purple-50/70 p-5 shadow-sm">
+      <section id="welcome-packet-welcome-page" className="rounded-2xl border border-purple-200 bg-purple-50/70 p-5 shadow-sm">
         <h3 className="text-xl font-bold text-purple-800">
           Your Journey to America Begins Soon! 🇺🇸
         </h3>
-        <p className="mt-3 text-sm text-gray-600">{packet.welcomeDate}</p>
+        <p data-welcome-print-timestamp="true" className="mt-3 text-sm text-gray-600">{packet.welcomeDate}</p>
         <div className="mt-4 space-y-3 text-sm leading-6 text-gray-700">
           <p>
             Dear {packet.preferredName || packet.recipientName || "Nurse"},
@@ -7865,7 +8213,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         </div>
       </section>
 
-      <section className="rounded-xl border bg-white p-5">
+      <section id="welcome-packet-facility-page" className="rounded-xl border bg-white p-5">
         <h3 className="mb-3 flex items-center gap-2 rounded-lg bg-purple-100 px-3 py-2 font-bold text-purple-900">
           <Building className="h-5 w-5" />
           Facility Information
@@ -7900,50 +8248,57 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         </ul>
       </section>
 
-      <section className="rounded-2xl border border-violet-200 bg-violet-50/50 p-5 shadow-sm">
+      <section id="welcome-packet-licensure-page" className="rounded-2xl border border-violet-200 bg-violet-50/50 p-5 shadow-sm">
         <h3 className="mb-3 flex items-center gap-2 rounded-lg bg-violet-100 px-3 py-2 font-bold text-violet-900">
           <Award className="h-5 w-5" />
           Licensure
         </h3>
         <InfoRow
-          label="State of License Required"
+          label="Endorsement State"
           value={
-            packet.endorsementState ||
-            locationServices.licensure?.state ||
-            packet.stateLicenseRequired
+            licenseStateLabel
           }
         />
         <div className="grid grid-cols-[240px_minmax(0,1fr)] items-start gap-x-8 border-b border-gray-100 py-3 text-sm last:border-b-0 max-md:grid-cols-[minmax(130px,38%)_minmax(0,1fr)] max-md:gap-x-4">
           <span className="font-semibold text-gray-600">Board of Nursing</span>
           <span className="min-w-0 text-gray-900">
-            {locationServices.licensureSearchUrl && (
+            {licenseStateLabel ? (
               <a
-                href={locationServices.licensureSearchUrl}
+                href={locationServices.licensureSearchUrl || validLicenseBoard?.url || "https://www.ncsbn.org/about/contact.page"}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 font-semibold text-violet-700 hover:text-violet-900 hover:underline"
               >
-                {locationServices.licensure?.displayName ||
-                  `${packet.stateOfLicenseRequired} Board of Nursing`}
+                {`${licenseStateLabel} Board of Nursing`}
                 <ExternalLink className="h-3.5 w-3.5 shrink-0" />
               </a>
+            ) : (
+              <span className="text-amber-700">
+                Not available — set Endorsement State in CRM Deals
+              </span>
             )}
           </span>
         </div>
         <InfoRow
           label="Address"
           value={
-            locationServices.licensure?.address ||
-            packet.boardAddress
+            validLicenseBoard?.address ||
+            (licenseStateLabel ? packet.boardAddress : "")
           }
         />
         <InfoRow
           label="Phone"
           value={
-            locationServices.licensure?.phone ||
-            packet.boardPhone
+            validLicenseBoard?.phone ||
+            (licenseStateLabel ? packet.boardPhone : "")
           }
         />
+
+        {licensureLiveError && adminMode && (
+          <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800 print:hidden">
+            CRM licensure: {licensureLiveError}
+          </p>
+        )}
 
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <div className="rounded-lg bg-gray-50 p-3">
@@ -7970,7 +8325,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         </div>
       </section>
 
-      <section className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-5 shadow-sm">
+      <section id="welcome-packet-housing-page" className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-5 shadow-sm">
         <h3 className="mb-3 flex items-center gap-2 rounded-lg bg-indigo-100 px-3 py-2 font-bold text-indigo-900">
           <Home className="h-5 w-5" />
           Housing Information
@@ -8112,7 +8467,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         </div>
       </section>
 
-      <section className="rounded-2xl border border-pink-200 bg-pink-50/60 p-5 shadow-sm">
+      <section id="welcome-packet-social-security-page" className="rounded-2xl border border-pink-200 bg-pink-50/60 p-5 shadow-sm">
         <h3 className="mb-3 flex items-center gap-2 rounded-lg bg-pink-100 px-3 py-2 font-bold text-pink-900">
           <CreditCard className="h-5 w-5" />
           Social Security Information
@@ -10502,6 +10857,7 @@ export const ReimbursementExpensesView = ({
   const [expenseReportLoading, setExpenseReportLoading] = useState(true);
   const expenseReportRefreshInFlightRef = useRef(false);
   const expenseReportHasLoadedRef = useRef(false);
+  const pendingExpenseRowEditsRef = useRef(new Map());
   const [expenseReportBackgroundRefreshing, setExpenseReportBackgroundRefreshing] = useState(false);
   const [advanceAgreementReviewed, setAdvanceAgreementReviewed] = useState(false);
   const [advanceAgreementAcknowledged, setAdvanceAgreementAcknowledged] = useState(false);
@@ -10511,6 +10867,16 @@ export const ReimbursementExpensesView = ({
   const [expenseReportAcknowledgedAt, setExpenseReportAcknowledgedAt] = useState(null);
   const [bankSubmittedAt, setBankSubmittedAt] = useState(null);
   const [expenseReportAcknowledging, setExpenseReportAcknowledging] = useState(false);
+  const EXPENSE_AUTOMATIC_ROW_IDS = new Set([
+    "dependent_visa_fee", "dependents_after_i140", "housing_stipend",
+    "housing_deposit", "housing_app_admin"
+  ]);
+  const [expenseRowEditor, setExpenseRowEditor] = useState(null);
+  const [expenseRowDraft, setExpenseRowDraft] = useState({
+    amount:"", side:"credit", note:"", evidenceReference:"", displayValue:""
+  });
+  const [expenseRowSaving, setExpenseRowSaving] = useState(false);
+  const [expenseRowSaveMessage, setExpenseRowSaveMessage] = useState("");
   const [housingStipendSelection, setHousingStipendSelection] = useState("");
   const [housingStipendSaving, setHousingStipendSaving] = useState(false);
   const [housingStipendSync, setHousingStipendSync] = useState({
@@ -10594,7 +10960,7 @@ export const ReimbursementExpensesView = ({
 
     const rows = Array.isArray(report.rows)
       ? report.rows.map(row => {
-          if (row?.id !== "housing_stipend") {
+          if (row?.id !== "housing_stipend" || row?.is_admin_override === true) {
             return row;
           }
 
@@ -10611,7 +10977,9 @@ export const ReimbursementExpensesView = ({
             );
 
           const existingAmount =
-            Number(row?.amount);
+            row?.amount === null || row?.amount === undefined || row?.amount === ""
+              ? NaN
+              : Number(row.amount);
 
           const amount =
             Number.isFinite(existingAmount)
@@ -10777,6 +11145,7 @@ export const ReimbursementExpensesView = ({
       false;
     expenseReportHasLoadedRef.current =
       false;
+    pendingExpenseRowEditsRef.current.clear();
     setExpenseReportBackgroundRefreshing(
       false
     );
@@ -11036,7 +11405,8 @@ export const ReimbursementExpensesView = ({
     const refreshFromCrm = () => {
       if (
         document.hidden ||
-        expenseReportRefreshInFlightRef.current
+        expenseReportRefreshInFlightRef.current ||
+        (adminMode && (expenseRowEditor !== null || expenseRowSaving))
       ) {
         return;
       }
@@ -11079,7 +11449,9 @@ export const ReimbursementExpensesView = ({
   }, [
     adminMode,
     user?.email,
-    expenseReport?.crm_deal_id
+    expenseReport?.crm_deal_id,
+    expenseRowEditor,
+    expenseRowSaving
   ]);
 
   useEffect(() => {
@@ -11199,6 +11571,50 @@ export const ReimbursementExpensesView = ({
     }
   };
 
+  const recalculateExpenseReportTotals = report => {
+    if(!report || !Array.isArray(report.rows)) return report;
+    const credits=report.rows.reduce((total,row)=>
+      row?.side==="credit" && Number.isFinite(Number(row?.amount)) && row?.amount!==null
+        ? total+Number(row.amount) : total,0);
+    const deductions=report.rows.reduce((total,row)=>
+      row?.side==="deduction" && Number.isFinite(Number(row?.amount)) && row?.amount!==null
+        ? total+Number(row.amount) : total,0);
+    const net=credits-deductions;
+    return {...report,totals:{...(report.totals||{}),credits,deductions,net,
+      due_to:net>0?"RN":net<0?"ICP":"Neither",amount_due:Math.abs(net)}};
+  };
+
+  const applySavedExpenseRow = (report,rowId,saved) => {
+    if(!report || !saved || !Array.isArray(report.rows)) return report;
+    const amount=Number(saved.amount);
+    if(!Number.isFinite(amount)) return report;
+    const rows=report.rows.map(row=>row.id===rowId?{
+      ...row,amount,side:saved.side,reviewed:true,
+      is_admin_override:true,admin_verified:saved,
+      display_value:String(saved.display_value ?? row.display_value ?? ""),
+      note:saved.note || row.note
+    }:row);
+    return recalculateExpenseReportTotals({...report,rows,updated_at:saved.verified_at});
+  };
+
+  const mergePendingSavedExpenseRows = report => {
+    let result=report;
+    for(const [rowId,pending] of pendingExpenseRowEditsRef.current.entries()) {
+      if(Date.now()-pending.recordedAt>120000) {
+        pendingExpenseRowEditsRef.current.delete(rowId);
+        continue;
+      }
+      const row=result?.rows?.find(r=>r.id===rowId);
+      const serverSavedAt=Date.parse(row?.admin_verified?.verified_at||"")||0;
+      if(row?.is_admin_override && serverSavedAt>=Date.parse(pending.saved.verified_at||"")) {
+        pendingExpenseRowEditsRef.current.delete(rowId);
+      } else {
+        result=applySavedExpenseRow(result,rowId,pending.saved);
+      }
+    }
+    return result;
+  };
+
   const fetchExpenseReport = async (
     forceRefresh = false,
     {
@@ -11288,8 +11704,8 @@ export const ReimbursementExpensesView = ({
 
       if (data.report) {
         setExpenseReport(
-          normalizeExpenseReportForUi(
-            data.report
+          mergePendingSavedExpenseRows(
+            normalizeExpenseReportForUi(data.report)
           )
         );
         expenseReportHasLoadedRef.current =
@@ -11742,6 +12158,150 @@ export const ReimbursementExpensesView = ({
       }
     };
 
+  const openExpenseRowEditor = row => {
+    setExpenseRowEditor(row.id);
+    setExpenseRowSaveMessage("");
+    setExpenseRowDraft({
+      amount:row.amount !== null && row.amount !== undefined &&
+        row.amount !== "" && Number.isFinite(Number(row.amount))
+        ? String(row.amount) : "",
+      side:row.side === "deduction" ? "deduction" : "credit",
+      note:String(row.admin_verified?.note || ""),
+      evidenceReference:String(row.admin_verified?.evidence_reference || row.receipt_name || ""),
+      displayValue:String(row.display_value || "")
+    });
+  };
+
+  const saveAdminVerifiedExpenseRow = async rowId => {
+    if(!adminMode || !user?.email || !adminToken || expenseRowSaving) return;
+    const amount=Number(expenseRowDraft.amount);
+    if(expenseRowDraft.amount==="" || !Number.isFinite(amount) || amount<0 || amount>1000000){
+      setExpenseRowSaveMessage("Enter a valid USD amount between 0 and 1,000,000.");
+      return;
+    }
+    if(String(expenseRowDraft.note||"").trim().length<4){
+      setExpenseRowSaveMessage("Add a verification note (at least four characters).");
+      return;
+    }
+    const submitted={email:user.email,rowId,amount,side:expenseRowDraft.side,
+      note:String(expenseRowDraft.note||"").trim(),
+      evidenceReference:String(expenseRowDraft.evidenceReference||"").trim(),
+      displayValue:String(expenseRowDraft.displayValue||"")};
+    setExpenseRowSaving(true);
+    setExpenseRowSaveMessage("");
+    const token=adminToken;
+    let timeoutId=null;
+    try {
+      const controller=new AbortController();
+      timeoutId=window.setTimeout(()=>controller.abort(),15000);
+      const response=await fetch(`${API_BASE}/api/admin/reimbursement/expense-report/row`,{
+        method:"PUT",credentials:"include",cache:"no-store",signal:controller.signal,
+        headers:{"Content-Type":"application/json",Accept:"application/json",
+          Authorization:`AdminBearer ${token}`,"x-admin-token":token},
+        body:JSON.stringify(submitted)
+      });
+      const result=await response.json().catch(()=>({}));
+      if(!response.ok || result.success!==true || result.persisted!==true){
+        throw new Error(result.error || `Expense Report save failed (${response.status}).`);
+      }
+      const saved=result.saved;
+      if(saved){
+        pendingExpenseRowEditsRef.current.set(rowId,{saved,recordedAt:Date.now()});
+        setExpenseReport(previous=>applySavedExpenseRow(previous,rowId,saved));
+        expenseReportHasLoadedRef.current=true;
+        setExpenseReportLoading(false);
+      } else if(result.report) {
+        setExpenseReport(normalizeExpenseReportForUi(result.report));
+      }
+      setExpenseRowEditor(null);
+      setExpenseRowSaveMessage("");
+      toast.success("Expense Report correction saved in PostgreSQL.");
+      window.dispatchEvent(new CustomEvent("expense-report-updated",{
+        detail:{email:user.email,rowId,source:"admin-verified"}
+      }));
+    } catch(error){
+      let confirmed=null;
+      // An aborted browser request can happen after PostgreSQL committed. Do
+      // not ask Admin to submit the same amount twice before verifying state.
+      if(error?.name==="AbortError" || error instanceof TypeError) {
+        const check=new AbortController();
+        const checkTimer=window.setTimeout(()=>check.abort(),5000);
+        try{
+          const response=await fetch(`${API_BASE}/api/admin/reimbursement/expense-report/row/status?email=${encodeURIComponent(user.email)}&rowId=${encodeURIComponent(rowId)}`,{
+            cache:"no-store",credentials:"include",signal:check.signal,
+            headers:{Authorization:`AdminBearer ${token}`,"x-admin-token":token}
+          });
+          const status=await response.json().catch(()=>({}));
+          if(response.ok && status?.is_admin_override &&
+             Number(status.amount)===Math.round(amount*100)/100 &&
+             status.side===submitted.side &&
+             status.saved?.note===submitted.note) confirmed=status.saved;
+        } catch(_){} finally {window.clearTimeout(checkTimer);}
+      }
+      if(confirmed){
+        pendingExpenseRowEditsRef.current.set(rowId,{saved:confirmed,recordedAt:Date.now()});
+        setExpenseReport(previous=>applySavedExpenseRow(previous,rowId,confirmed));
+        setExpenseRowEditor(null);
+        toast.success("Expense Report saved; PostgreSQL confirmed the update.");
+      } else {
+        const message=error?.name==="AbortError"
+          ? "The save response timed out. Your entry may have been saved. Use Refresh or check it before submitting again."
+          : (error?.message||"Could not confirm the saved amount.");
+        setExpenseRowSaveMessage(message);
+        toast.error(message);
+      }
+    } finally {
+      if(timeoutId!==null) window.clearTimeout(timeoutId);
+      setExpenseRowSaving(false);
+    }
+  };
+
+  const restoreAdminExpenseRow = async rowId => {
+    if (!adminMode || !user?.email || !adminToken || expenseRowSaving) return;
+    setExpenseRowSaving(true);
+    setExpenseRowSaveMessage("");
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/admin/reimbursement/expense-report/row`,
+        {
+          method:"DELETE", credentials:"include", cache:"no-store",
+          headers:{
+            "Content-Type":"application/json",
+            Authorization:`AdminBearer ${adminToken}`,
+            "x-admin-token":adminToken
+          },
+          body:JSON.stringify({email:user.email, rowId})
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || "Could not restore source value.");
+      pendingExpenseRowEditsRef.current.delete(rowId);
+      if (data.report) {
+        setExpenseReport(normalizeExpenseReportForUi(data.report));
+      } else {
+        // Remove the local override marker; the exact calculated amount comes
+        // from the next CRM-backed refresh, which must not blank this view.
+        setExpenseReport(previous=>previous
+          ? recalculateExpenseReportTotals({
+              ...previous,
+              rows:previous.rows.map(row=>row.id===rowId?{
+                ...row,is_admin_override:false,admin_verified:null,
+                amount:null,reviewed:false
+              }:row)
+            })
+          : previous);
+      }
+      setExpenseRowEditor(null);
+      toast.success("Override removed. The calculated value will refresh from CRM/receipts.");
+      void fetchExpenseReport(true,{silent:true});
+    } catch (error) {
+      setExpenseRowSaveMessage(error?.message || "Unable to restore amount.");
+      toast.error(error?.message || "Unable to restore amount.");
+    } finally {
+      setExpenseRowSaving(false);
+    }
+  };
+
   const handleSubmitBankDetails = async (e) => {
     e.preventDefault();
     setSubmitError(null);
@@ -11933,7 +12493,7 @@ export const ReimbursementExpensesView = ({
               Reimbursement Expense Report
             </h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              Amounts below are populated from receipts after ICP administration verifies the amount and marks it as a Credit or Deduction.
+              Receipt-driven amounts are verified by ICP administration (from uploaded receipts or documented manual review). Automatic CRM/calculated amounts cannot be edited here.
             </p>
           </div>
         </div>
@@ -12139,15 +12699,95 @@ export const ReimbursementExpensesView = ({
                             </div>
                           )}
 
+                          {row.is_admin_override && (
+                            <div className="mt-1 text-[11px] font-semibold text-indigo-700">
+                              
+                            </div>
+                          )}
                           {row.note && (
                             <div className="mt-1 text-xs text-slate-500">
                               {row.note}
                             </div>
                           )}
+
+                          {adminMode && (
+                            <div className="mt-2 print:hidden">
+                              {row.admin_verified?.verified_at && (
+                                <p className="text-[11px] text-slate-500">
+                                  Admin verified: {new Date(row.admin_verified.verified_at).toLocaleString()}
+                                </p>
+                              )}
+                              {expenseRowEditor !== row.id ? (
+                                <button type="button"
+                                  className="text-xs font-semibold text-purple-700 hover:underline"
+                                  onClick={() => openExpenseRowEditor(row)}>
+                                  {row.is_admin_override ? "Edit Admin correction" : "Edit amount / Credit / Deduction"}
+                                </button>
+                              ) : (
+                                <div className="mt-2 space-y-2 rounded-lg border border-purple-200 bg-purple-50 p-2.5">
+                                  <label className="block text-[11px] font-semibold">Verified USD amount
+                                    <input type="number" min="0" max="1000000" step="0.01"
+                                      value={expenseRowDraft.amount}
+                                      onChange={e => setExpenseRowDraft(v => ({...v, amount:e.target.value}))}
+                                      className="mt-1 w-full rounded border bg-white px-2 py-1.5 text-xs" />
+                                  </label>
+                                  <label className="block text-[11px] font-semibold">Classification
+                                    <select value={expenseRowDraft.side}
+                                      onChange={e => setExpenseRowDraft(v => ({...v, side:e.target.value}))}
+                                      className="mt-1 w-full rounded border bg-white px-2 py-1.5 text-xs">
+                                      <option value="credit">Credit</option>
+                                      <option value="deduction">Debit / Deduction</option>
+                                    </select>
+                                  </label>
+                                  <label className="block text-[11px] font-semibold">Verification note (required)
+                                    <textarea rows={2} maxLength={1200}
+                                      value={expenseRowDraft.note}
+                                      onChange={e => setExpenseRowDraft(v => ({...v, note:e.target.value}))}
+                                      className="mt-1 w-full rounded border bg-white px-2 py-1.5 text-xs"
+                                      placeholder="Receipt checked, amount verified, or supporting reason" />
+                                  </label>
+                                  <label className="block text-[11px] font-semibold">Receipt/evidence reference (optional)
+                                    <input type="text" maxLength={250}
+                                      value={expenseRowDraft.evidenceReference}
+                                      onChange={e => setExpenseRowDraft(v => ({...v, evidenceReference:e.target.value}))}
+                                      className="mt-1 w-full rounded border bg-white px-2 py-1.5 text-xs" />
+                                  </label>
+                                  {row.display_value || row.id === "housing_deposit" ? (
+                                    <label className="block text-[11px] font-semibold">Explanation / Breakdown (editable)
+                                      <textarea rows={3} maxLength={5000}
+                                        value={expenseRowDraft.displayValue}
+                                        onChange={e => setExpenseRowDraft(v => ({...v, displayValue:e.target.value}))}
+                                        className="mt-1 w-full rounded border bg-white px-2 py-1.5 text-xs" />
+                                    </label>
+                                  ) : null}
+                                  {expenseRowSaveMessage && (
+                                    <p role="alert" className="text-xs text-red-700">{expenseRowSaveMessage}</p>
+                                  )}
+                                  <div className="flex flex-wrap gap-2">
+                                    <button type="button" disabled={expenseRowSaving}
+                                      onClick={() => void saveAdminVerifiedExpenseRow(row.id)}
+                                      className="rounded bg-purple-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+                                      {expenseRowSaving ? "Saving…" : "Save correction"}
+                                    </button>
+                                    <button type="button" disabled={expenseRowSaving}
+                                      onClick={() => {setExpenseRowEditor(null);setExpenseRowSaveMessage("");}}
+                                      className="rounded border bg-white px-3 py-1.5 text-xs">Cancel</button>
+                                    {row.is_admin_override && (
+                                      <button type="button" disabled={expenseRowSaving}
+                                        onClick={() => void restoreAdminExpenseRow(row.id)}
+                                        className="rounded border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900">
+                                        Restore calculated value
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </td>
 
                         <td className="border-r px-2.5 py-2 text-right align-top">
-                          {row.display_value ? (
+                          {row.display_value && !row.is_admin_override ? (
                             <span className="text-slate-300">—</span>
                           ) : row.side === "credit" ? (
                             row.reviewed ? (
@@ -12172,7 +12812,7 @@ export const ReimbursementExpensesView = ({
                         </td>
 
                         <td className="px-2.5 py-2 text-right align-top">
-                          {row.display_value ? (
+                          {row.display_value && !row.is_admin_override ? (
                             <span className="text-slate-300">—</span>
                           ) : row.side === "deduction" ? (
                             row.reviewed ? (
@@ -21926,3 +22566,5 @@ export default function Pipeline() {
     </div>
   );
 }
+
+

@@ -809,6 +809,22 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   const notificationDocumentOpenedRef = useRef("");
   const documentSyncRequestedRef = useRef("");
   const summaryRefreshTimerRef = useRef(null);
+  const summaryRequestRef = useRef({
+    controller:null,
+    inFlight:false,
+    lastStartedAt:0,
+    email:""
+  });
+
+  useEffect(() => {
+    return () => {
+      summaryRequestRef.current.controller?.abort();
+      summaryRequestRef.current.inFlight = false;
+      if (summaryRefreshTimerRef.current) {
+        window.clearTimeout(summaryRefreshTimerRef.current);
+      }
+    };
+  }, [user?.email]);
 
   useEffect(() => {
     setActiveTab(user?._initialTab || "profile");
@@ -860,8 +876,17 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
         )
       : [];
 
-  const loadAdminSummary = useCallback(async ({ silent = false } = {}) => {
+  const loadAdminSummary = useCallback(async ({ silent = false, force = false } = {}) => {
     if (!user?.email) return null;
+
+    const requestState = summaryRequestRef.current;
+    const emailKey = String(user.email).trim().toLowerCase();
+    if (requestState.inFlight) return null;
+    if (
+      silent && !force &&
+      requestState.email === emailKey &&
+      Date.now() - requestState.lastStartedAt < 12_000
+    ) return null;
 
     if (!silent) {
       // The modal already has the Users-table row and cached fields. Keep it
@@ -894,15 +919,21 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     };
 
     const controller = new AbortController();
+    requestState.controller = controller;
+    requestState.inFlight = true;
+    requestState.email = emailKey;
+    requestState.lastStartedAt = Date.now();
+    // Azure + PostgreSQL can occasionally need longer than 4.5 seconds.
+    // The local Users-row snapshot stays visible during this bounded read.
     const timeout = window.setTimeout(
       () => controller.abort(),
-      4500
+      16_000
     );
 
     try {
       const email = encodeURIComponent(user.email);
       const response = await fetch(
-        `${API_BASE}/api/admin/candidate/${email}/summary?_=${Date.now()}`,
+        `${API_BASE}/api/admin/candidate/${email}/summary?_=${Date.now()}${force ? "&refresh=1" : ""}`,
         {
           headers,
           credentials:"include",
@@ -912,6 +943,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       );
 
       const data = await response.json().catch(() => ({}));
+      if (controller.signal.aborted) return null;
 
       if (!response.ok || data.success !== true) {
         throw new Error(
@@ -1004,23 +1036,20 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       setCandidateExpenseReport(summary.expenseReport || null);
       setCandidateExpenseReportLoading(false);
 
-      // Sparse candidates render immediately from local data. If the backend has
-      // queued a single background enrichment, re-read PostgreSQL/cache quietly.
-      if (
-        Number(summary.profileCompleteness || 0) < 5 &&
-        summary.enrichmentScheduled === true
-      ) {
-        [2200, 6500].forEach(delay => {
-          window.setTimeout(
-            () => void loadAdminSummary({ silent:true }),
-            delay
-          );
-        });
-      }
+      // Candidate-open is a single PostgreSQL/cache request. Do not schedule
+      // two more summary fetches when Zoho enrichment runs in the background.
+      // The operator can explicitly refresh from the modal toolbar.
 
       setLoading(false);
       return summary;
     } catch (error) {
+      if (controller.signal.aborted) {
+        // Navigation or a bounded timeout must not trigger more network calls.
+        if (error?.name !== "AbortError") {
+          console.warn("[Admin Summary] Request cancelled:", error);
+        }
+        return null;
+      }
       console.warn("[Admin Summary] Failed:", error);
 
       // Keep the modal usable with the already-loaded Users-row data.
@@ -1042,18 +1071,9 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
           ""
       }));
 
-      if (!silent) {
-        // The Admin modal already has the Users-row fallback. Do not make a
-        // transient local DB slowdown look like a hard candidate failure.
+      if (!silent || force) {
         setDocActionError(
-          error?.name === "AbortError"
-            ? "Refreshing candidate details in the background."
-            : (error?.message || "Unable to refresh candidate summary.")
-        );
-
-        window.setTimeout(
-          () => void loadAdminSummary({ silent:true }),
-          1200
+          error?.message || "Candidate details could not be refreshed. Existing data remains visible."
         );
       }
 
@@ -1061,6 +1081,10 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       return null;
     } finally {
       window.clearTimeout(timeout);
+      if (summaryRequestRef.current.controller === controller) {
+        summaryRequestRef.current.inFlight = false;
+        summaryRequestRef.current.controller = null;
+      }
     }
   }, [user?.email, user?.name, user?.status, user?.lastLogin]);
 
@@ -1098,15 +1122,19 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
     void loadAdminSummary({ silent:false });
 
-    const refreshSummary = () => {
+    const refreshSummary = event => {
+      const updatedEmail = String(event?.detail?.email || "").trim().toLowerCase();
+      if (updatedEmail && updatedEmail !== String(user.email).trim().toLowerCase()) return;
+      // Global admin notifications often occur for other candidates. Without a
+      // candidate email they must not trigger a fresh detail fetch here.
+      if (event?.type === "admin-data-updated" && !updatedEmail) return;
       if (summaryRefreshTimerRef.current) {
         window.clearTimeout(summaryRefreshTimerRef.current);
       }
-
       summaryRefreshTimerRef.current =
         window.setTimeout(
           () => void loadAdminSummary({ silent:true }),
-          250
+          900
         );
     };
 
@@ -2032,6 +2060,15 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
             </div>
             
             <div className="flex w-full items-center gap-2 sm:w-auto sm:gap-3">
+              <button
+                type="button"
+                onClick={() => void loadAdminSummary({ silent:true, force:true })}
+                disabled={summaryRequestRef.current.inFlight}
+                title="Refresh candidate details from saved portal data"
+                className="flex items-center justify-center gap-1.5 rounded-xl border border-purple-200 bg-purple-50 px-3 py-2.5 text-xs font-bold text-purple-700 hover:bg-purple-100 disabled:opacity-50"
+              >
+                <RefreshCw className="h-4 w-4" /> Refresh details
+              </button>
               <button onClick={() => { onMessage(user); onClose(); }} className="flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:opacity-90 sm:flex-none sm:px-5" style={{ background: THEME.brand }}>
                 <MessageSquare className="w-4 h-4" /> Message
               </button>
@@ -2274,7 +2311,12 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
               {activeTab === 'welcome-packet' && (
                 <div className="rounded-xl border bg-white p-2">
+                  <div className="mb-2 flex items-center justify-between rounded-lg border border-purple-100 bg-purple-50 px-3 py-2 print:hidden">
+                    <span className="text-sm font-semibold text-purple-900">Candidate Welcome Packet</span>
+                    <span className="text-xs text-purple-700">Print pages: 1 Cover image · 2 Welcome message · 3 Facility · 4 Licensure.</span>
+                  </div>
                   <WelcomePacketView
+                    key={`welcome-packet-${String(user?.email || "candidate").trim().toLowerCase()}`}
                     user={{
                       ...(user || {}),
                       email:user?.email,
@@ -4682,7 +4724,7 @@ const AdminReceiptsPanel = () => {
       <div>
         <h2 className="text-xl font-bold">Receipts</h2>
         <p className="text-sm text-gray-500">
-          Review each receipt, enter the verified amount, then classify it as a Credit or Deduction for the Expense Report.
+          Review submitted receipt evidence and classify approved amounts. For a report line without an uploaded receipt, open Users → Candidate → Expense Report → Verify amount. Automatic CRM/calculated rows remain locked.
         </p>
       </div>
       {saveMessage && (
@@ -5707,18 +5749,18 @@ const AdminPanel = () => {
   const notificationState = useAdminNotifications();
   const [documentIndexReady, setDocumentIndexReady] = useState(false);
 
-  // Preload the complete persisted document metadata index once per Admin session.
-  // This makes candidate switches and notification clicks localStorage/RAM reads.
+  // The entire document index can be huge. Do not transfer all candidates'
+  // documents on every Admin mount unless explicitly opted in. The Documents
+  // tab still uses its local-first, per-candidate snapshot endpoint.
   useEffect(() => {
+    if (import.meta.env.VITE_ADMIN_PRELOAD_DOCUMENT_INDEX !== "true") {
+      setDocumentIndexReady(true);
+      return undefined;
+    }
     let cancelled = false;
-
-    const warm = async () => {
-      await preloadAdminDocumentIndex();
+    void preloadAdminDocumentIndex().then(() => {
       if (!cancelled) setDocumentIndexReady(true);
-
-    };
-
-    void warm();
+    });
     return () => { cancelled = true; };
   }, []);
   const [tab, setTab] = useState('overview');
@@ -5730,6 +5772,10 @@ const AdminPanel = () => {
   const [error, setError] = useState(null);
   const [crossOriginBlock, setCrossOriginBlock] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
+  const selectedUserOpenRef = useRef(false);
+  useEffect(() => {
+    selectedUserOpenRef.current = Boolean(selectedUser);
+  }, [selectedUser]);
   const [notificationRequestTarget, setNotificationRequestTarget] = useState(null);
   const [msgTarget, setMsgTarget] = useState(null);
   const initialCachedStats = readAdminFastCache("stats") || null;
@@ -5777,6 +5823,7 @@ const AdminPanel = () => {
   }, []);
 
   const fetchOverview = useCallback(async () => {
+    if (selectedUserOpenRef.current) return;
     try {
       const { userToken, adminToken } = getTokens();
       const response = await fetch(`${API_BASE}/api/admin/overview`, {
@@ -5802,7 +5849,11 @@ const AdminPanel = () => {
       });
       setLogs(data.logs || []);
     } catch (err) {
-      setError(err.message || 'Failed to connect to the backend server.');
+      if (!Array.isArray(departmentUsersCacheRef.current.all) || !departmentUsersCacheRef.current.all.length) {
+        setError(err.message || 'Admin overview is temporarily unavailable.');
+      } else {
+        console.warn('[Admin Overview] Keeping cached data after transient failure:', err?.message || err);
+      }
     }
   }, []);
 
@@ -5866,6 +5917,7 @@ const AdminPanel = () => {
   }, [departmentsReady]);
 
   const fetchUsers = useCallback(async (department = '', options = {}) => {
+    if (selectedUserOpenRef.current && options.force !== true) return;
     const key = department || 'all';
     const force = options.force === true;
     const cached = departmentUsersCacheRef.current[key];
@@ -6009,7 +6061,12 @@ const AdminPanel = () => {
       }
       if (hData.success) setLogs(hData.logs || []);
     } catch (err) {
-      setError(err.message || 'Failed to connect to the backend server.');
+      const cachedUsers = departmentUsersCacheRef.current.all;
+      if (!Array.isArray(cachedUsers) || !cachedUsers.length) {
+        setError(err.message || 'Candidate list is temporarily unavailable.');
+      } else {
+        console.warn('[Admin Users] Keeping cached users after transient request failure:', err?.message || err);
+      }
     } finally {
       if (requestId === departmentRequestRef.current) setLoading(false);
     }
@@ -6024,6 +6081,9 @@ const AdminPanel = () => {
       if (document.visibilityState === 'visible') fetchOverview();
     }, 60000);
     const onAdminDataUpdated = () => {
+      // Do not fan out another users+department refresh while reviewing a user.
+      // The overview/list can refresh after the modal is closed.
+      if (selectedUserOpenRef.current) return;
       fetchOverview();
       if (usersLoaded) { departmentUsersCacheRef.current = { all:null, recruiting:null, immigration:null, deployment:null, aftercare:null }; fetchUsers('', { force:true }); }
     };
@@ -6097,6 +6157,7 @@ const AdminPanel = () => {
     let timer;
 
     const checkZoho = async () => {
+      if (selectedUserOpenRef.current) return;
       try {
         const { adminToken, userToken } = getTokens();
         const headers = {
@@ -6135,6 +6196,7 @@ const AdminPanel = () => {
     let active = true;
 
     const refreshAdminQueues = async () => {
+      if (selectedUserOpenRef.current) return;
       try {
         const { adminToken, userToken } = getTokens();
         const headers = {
@@ -6225,6 +6287,7 @@ const AdminPanel = () => {
     let active = true;
 
     const loadUnreadMessages = async () => {
+      if (selectedUserOpenRef.current) return;
       try {
         const { adminToken, userToken } = getTokens();
         const response = await fetch(`${API_BASE}/api/admin/messaging/conversations`, {
@@ -6444,6 +6507,7 @@ const AdminPanel = () => {
       </div>
       {selectedUser && (
         <UserDetailModal
+          key={String(selectedUser.email || "").trim().toLowerCase()}
           user={selectedUser}
           onClose={() => {
             const returnTo = selectedUser?._returnToTab;
