@@ -2335,6 +2335,18 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
               {activeTab === 'expense-report' && (
                 <div className="rounded-xl border bg-white p-2">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-purple-200 bg-purple-50 px-4 py-3 print:hidden">
+                    <span className="text-sm font-semibold text-purple-900">Candidate Expense Report</span>
+                    <button type="button"
+                      onClick={() => {
+                        const printButton = document.querySelector('[data-icp-expense-print="true"]');
+                        if (printButton) printButton.click();
+                        else toast.error('Expense Report is still loading. Open the report and try again.');
+                      }}
+                      className="rounded-lg bg-purple-700 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-800">
+                      Print Expense Report
+                    </button>
+                  </div>
                   <ReimbursementExpensesView
                     key={`expense-report-${String(user?.email || "candidate").toLowerCase()}`}
                     user={{
@@ -5803,7 +5815,7 @@ const AdminPanel = () => {
   });
   const departmentRequestRef = useRef(0);
 
-  const [backendHealth, setBackendHealth] = useState({ zoho: false, zohoError: null, db: false });
+  const [backendHealth, setBackendHealth] = useState({ zoho: null, zohoError: null, db: null, checking: true, recovering: false });
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [receiptCount, setReceiptCount] = useState(0);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
@@ -5838,10 +5850,8 @@ const AdminPanel = () => {
       if (!response.ok || data.success !== true) throw new Error(data.message || 'Failed to load the admin overview.');
       setError(null);
       setCrossOriginBlock(false);
-      setBackendHealth(previous => ({
-        ...previous,
-        db: data.databaseConnected === true
-      }));
+      // Overview uses a cached snapshot; never treat it as live database health.
+
       setStats(previous => {
         const next = { ...previous, total: data.totalUsers || 0, active: data.activeUsers || 0, expired: data.expiredUsers || 0 };
         writeAdminFastCache("stats", next);
@@ -6152,44 +6162,46 @@ const AdminPanel = () => {
     }
   };
 
+  // Single non-overlapping lightweight status poll. Network failures are
+  // "unknown", not proof that either dependency has disconnected.
   useEffect(() => {
     let active = true;
-    let timer;
-
-    const checkZoho = async () => {
-      if (selectedUserOpenRef.current) return;
+    let inFlight = false;
+    const checkConnectivity = async () => {
+      if (inFlight || selectedUserOpenRef.current || !active) return;
+      inFlight = true;
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 8000);
       try {
-        const { adminToken, userToken } = getTokens();
-        const headers = {
-          Accept: 'application/json',
-          ...(adminToken ? { Authorization: `AdminBearer ${adminToken}`, 'x-admin-token': adminToken } : {}),
-          ...(!adminToken && userToken ? { Authorization: `Bearer ${userToken}` } : {})
-        };
-        const response = await fetch(`${API_BASE}/api/zoho/status`, { headers, credentials:'include' });
-        const data = await response.json().catch(() => ({}));
-        if (active) {
-          setBackendHealth(previous => ({
-            ...previous,
-            zoho: data?.oauthReady === true || data?.connected === true,
-            zohoError: (data?.oauthReady === true || data?.connected === true)
-              ? null
-              : (data?.error || data?.crmError || 'Zoho OAuth is not ready.')
-          }));
-        }
-      } catch (error) {
-        // A failed health-check request means the status could not be checked;
-        // it does NOT prove that Zoho OAuth disconnected. Preserve last state.
+        const response = await fetch(`${API_BASE}/api/runtime/connectivity`, {
+          credentials: 'include', signal: controller.signal,
+          headers: { Accept: 'application/json' }, cache: 'no-store'
+        });
+        if (!response.ok) throw new Error(`Status HTTP ${response.status}`);
+        const data = await response.json();
         if (active) setBackendHealth(previous => ({
           ...previous,
-          zoho: previous.zoho,
-          zohoError: error?.message || 'Unable to check Zoho status right now.'
+          zoho: data.zoho?.connected === true ? true :
+            (data.zoho?.reconnecting ? null : false),
+          db: typeof data.database?.connected === 'boolean' ? (data.database.connected && data.database.storeReady === true) : null,
+          recovering: Boolean(data.zoho?.reconnecting),
+          checking: false,
+          zohoError: data.zoho?.configured === false ? 'Zoho credentials are missing.' :
+            data.zoho?.refreshTokenAvailable === false ? 'Zoho refresh token unavailable.' : null
         }));
+      } catch (error) {
+        if (active) setBackendHealth(previous => ({
+          ...previous, zoho: null, db: null, checking: true,
+          zohoError: 'Status check temporarily unavailable; retrying automatically.'
+        }));
+      } finally {
+        window.clearTimeout(timeout);
+        inFlight = false;
       }
     };
-
-    checkZoho();
-    timer = setInterval(checkZoho, 30000);
-    return () => { active = false; clearInterval(timer); };
+    void checkConnectivity();
+    const timer = window.setInterval(checkConnectivity, 20000);
+    return () => { active = false; window.clearInterval(timer); };
   }, []);
 
   useEffect(() => {
@@ -6361,9 +6373,9 @@ const AdminPanel = () => {
               title={backendHealth.zoho ? 'Zoho CRM connected' : (backendHealth.zohoError || 'Zoho CRM is not connected')}
               className="flex items-center gap-1.5"
             >
-              <span className={`w-2 h-2 rounded-full shadow-sm ${backendHealth.zoho ? 'bg-green-500' : 'bg-red-500'}`} /> Zoho API
+              <span className={`w-2 h-2 rounded-full shadow-sm ${backendHealth.zoho === true ? 'bg-green-500' : backendHealth.zoho === null ? 'bg-amber-400' : 'bg-red-500'}`} /> Zoho API
             </span>
-            {!backendHealth.zoho && (
+            {backendHealth.zoho === false && (
               <button
                 type="button"
                 onClick={async () => {
@@ -6391,7 +6403,7 @@ const AdminPanel = () => {
                 className="ml-2 rounded border px-2 py-0.5 text-xs font-medium hover:bg-gray-50"
               >Reconnect</button>
             )}
-            <span className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full shadow-sm ${backendHealth.db ? 'bg-green-500' : 'bg-red-500'}`} /> Database</span>
+            <span title={backendHealth.db === null ? 'Checking database / temporary status failure' : backendHealth.db ? 'PostgreSQL responding to queries' : 'PostgreSQL unreachable; automatic retry active'} className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full shadow-sm ${backendHealth.db === true ? 'bg-green-500' : backendHealth.db === null ? 'bg-amber-400' : 'bg-red-500'}`} /> Database</span>
             <button onClick={downloadPolicySignatureReport} className="rounded-md border px-2 py-1 text-[10px] font-bold text-purple-700 hover:bg-purple-50">Signature report</button>
             <button onClick={() => { fetchOverview(); if (usersLoaded) fetchUsers(); }} disabled={loading} className="p-2 ml-2 rounded-lg hover:bg-gray-100 transition border border-transparent hover:border-gray-200 text-purple-700 shadow-sm">
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />

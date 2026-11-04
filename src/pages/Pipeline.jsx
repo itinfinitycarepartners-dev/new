@@ -6481,6 +6481,8 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     conciergeEmail: "",
     employerAddress: "",
     employerContact: "",
+    facilityContactDetails: "",
+    onboardingNotes: "",
     employerPhone: "",
     employerEmail: "",
     employerWebsite: "",
@@ -6660,8 +6662,10 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       setLicensureLiveError(info.reason || "");
       const state = String(info.state || "").trim();
       if (!state) {
-        // Never reuse a different candidate's board or invent a state when
-        // the current candidate has no Endorsement State (NVC_DS_260_Status) in CRM.
+        // CRM did not provide a verifiable state. Keep existing packet fields
+        // visible as stale data rather than unexpectedly blanking a valid packet.
+        if (info.reason) return;
+        // Do not invent a state when CRM explicitly returns empty.
         authoritativeLicensureRef.current = { state:"", licensure:null };
         setPacket(previous => ({
           ...previous,
@@ -7031,6 +7035,8 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
 
     authoritativeLicensureRef.current = null;
     setLicensureLiveError("");
+    // v53: refresh licensure separately for both Candidate and Admin, without
+    // blocking the rest of the Welcome Packet. Backend v53 supplies this route.
     void fetchLicensureInformation();
 
     if (adminMode) {
@@ -7492,6 +7498,12 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
               "Facility_Contact",
               "Contact_Person"
             ) || packet.employerContact,
+          facilityContactDetails:
+            pick(deal, "Candidate_Questions_during_Interview", "facilityContactDetails") ||
+            packet.facilityContactDetails,
+          onboardingNotes:
+            pick(deal, "Concierge_Bio", "onboardingNotes") ||
+            packet.onboardingNotes,
           employerPhone:
             pick(
               deal,
@@ -7626,9 +7638,8 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           packetResponse.locationServices || null
         );
 
-        // Facility details come from the Deal's Account_Name -> CRM Accounts.
-        // Load them independently so they never delay opening the packet.
-        void fetchFacilityInformation();
+        // The facility request was already started once when the packet opened.
+        // Do not submit a second identical CRM request during the same view.
 
         const destination =
           packetResponse.locationServices?.destination ||
@@ -8182,29 +8193,32 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       )}
       <section id="welcome-packet-cover-page" className="overflow-hidden rounded-2xl border border-purple-200 bg-white shadow-sm">
         <img
-          src="/welcome-packet-banner-clean.png"
-          alt="Infinity Care Partners - Welcome to the USA"
+          src="/welcome-packet-your-future.jpg"
+          alt="Infinity Care Partners - Your Future Starts Now"
           className="block h-auto w-full object-contain"
         />
       </section>
 
       <section id="welcome-packet-welcome-page" className="rounded-2xl border border-purple-200 bg-purple-50/70 p-5 shadow-sm">
         <h3 className="text-xl font-bold text-purple-800">
-          Your Journey to America Begins Soon! 🇺🇸
+          Your Skills Crossed Borders. Your Dreams Found a Home.
         </h3>
-        <p data-welcome-print-timestamp="true" className="mt-3 text-sm text-gray-600">{packet.welcomeDate}</p>
+        <p data-welcome-print-timestamp="true" className="mt-3 text-sm text-gray-600">November 3, 2026</p>
         <div className="mt-4 space-y-3 text-sm leading-6 text-gray-700">
           <p>
             Dear {packet.preferredName || packet.recipientName || "Nurse"},
           </p>
           <p>
-            You've worked incredibly hard to reach this milestone, and you're now one step closer to beginning your new chapter in the United States! We know the dedication, patience, and perseverance it has taken to get here, and we're so excited for what lies ahead.
+            Your journey to building a new life in the United States is finally becoming a reality! After all your hard work, dedication, patience, and perseverance, you are about to begin an exciting new chapter—one filled with new opportunities, experiences, and milestones as you establish your home and nursing career in America.
           </p>
           <p>
-            As you prepare for your arrival, you'll find helpful information below about your facility, housing, banking, and other essential resources to help make your transition as smooth as possible.
+            We recognize that relocating to a new country is a significant life transition, and we are honored to be part of this important milestone. Our goal is to help you feel welcomed, informed, and supported as you settle into your new community and begin building your future here.
+          </p>
+          <p>
+            Below, you'll find helpful information about your healthcare facility, housing, banking, and other essential resources to assist you as you establish your new home in the United States.
           </p>
           <p className="font-bold text-purple-900">
-            Your next chapter is just around the corner, and we're so excited to welcome you! 
+            This is more than the beginning of a new career—it's the beginning of a new life in America, and we couldn't be more excited to welcome you home!
           </p>
           <p className="font-medium">
             Warm regards,<br />
@@ -8220,10 +8234,16 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         </h3>
         <InfoRow label="Employer Name" value={packet.employerName} />
         <InfoRow label="Address" value={packet.employerAddress} />
-        <InfoRow label="Contact Person: Name and Title" value={packet.employerContact} />
         <InfoRow label="Phone" value={packet.employerPhone} />
-        <InfoRow label="Email" value={packet.employerEmail} />
         <InfoRow label="Website" value={packet.employerWebsite} />
+        <InfoRow
+          label="Facility contact details"
+          value={packet.facilityContactDetails || packet.employerContact}
+        />
+        <InfoRow
+          label="Onboarding notes"
+          value={packet.onboardingNotes}
+        />
 
         <h4 className="mt-5 font-bold text-gray-900">Work Expectations</h4>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-700">
@@ -10858,6 +10878,7 @@ export const ReimbursementExpensesView = ({
   const expenseReportRefreshInFlightRef = useRef(false);
   const expenseReportHasLoadedRef = useRef(false);
   const pendingExpenseRowEditsRef = useRef(new Map());
+  const expenseReportPrintRef = useRef(null);
   const [expenseReportBackgroundRefreshing, setExpenseReportBackgroundRefreshing] = useState(false);
   const [advanceAgreementReviewed, setAdvanceAgreementReviewed] = useState(false);
   const [advanceAgreementAcknowledged, setAdvanceAgreementAcknowledged] = useState(false);
@@ -12475,8 +12496,114 @@ export const ReimbursementExpensesView = ({
     paymentRows.every(row => row.payment?.paid === true) ||
     balanceAmount === 0;
 
+  const printExpenseReport = () => {
+    const root = expenseReportPrintRef.current;
+
+    if (!root) {
+      toast.error("Expense Report is not ready to print.");
+      return;
+    }
+
+    const frame = document.createElement("iframe");
+    frame.style.position = "fixed";
+    frame.style.right = "0";
+    frame.style.bottom = "0";
+    frame.style.width = "0";
+    frame.style.height = "0";
+    frame.style.border = "0";
+    frame.setAttribute("aria-hidden", "true");
+    document.body.appendChild(frame);
+
+    try {
+      const printDoc = frame.contentDocument;
+      if (!printDoc) throw new Error("Unable to open print document.");
+
+      const copy = root.cloneNode(true);
+      copy.querySelectorAll('[data-expense-no-print="true"]').forEach(node => node.remove());
+      copy.querySelectorAll('button').forEach(node => node.remove());
+      copy.querySelectorAll('input, textarea').forEach(node => {
+        const value = node.value || node.getAttribute('value') || '';
+        const span = printDoc.createElement('div');
+        span.textContent = value;
+        span.style.whiteSpace = 'pre-wrap';
+        span.style.minHeight = '1.25rem';
+        span.style.padding = '0.125rem 0';
+        node.replaceWith(span);
+      });
+      copy.querySelectorAll('select').forEach(node => {
+        const span = printDoc.createElement('div');
+        const selected = node.options?.[node.selectedIndex];
+        span.textContent = selected?.text || '';
+        span.style.whiteSpace = 'pre-wrap';
+        span.style.minHeight = '1.25rem';
+        span.style.padding = '0.125rem 0';
+        node.replaceWith(span);
+      });
+
+      const styles = [...document.querySelectorAll('style, link[rel="stylesheet"]')]
+        .map(node => node.outerHTML)
+        .join('\n');
+
+      printDoc.open();
+      printDoc.write(`<!doctype html><html><head><meta charset="utf-8" />
+        <title>ICP Expense Report</title>
+        ${styles}
+        <style>
+          body { margin:0; padding:24px; background:#fff; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+          .expense-report-print-copy { display:block; width:100%; }
+          .expense-report-print-copy [class*="overflow-"] { overflow:visible !important; }
+          .expense-report-print-copy [class*="max-h-"] { max-height:none !important; }
+          .expense-report-print-copy table { width:100%; border-collapse:collapse; }
+          .expense-report-print-copy th, .expense-report-print-copy td { vertical-align:top; }
+          .expense-report-print-copy a { color:inherit; text-decoration:none; }
+          @page { size:auto; margin:12mm; }
+        </style>
+      </head><body><main class="expense-report-print-copy">${copy.innerHTML}</main></body></html>`);
+      printDoc.close();
+
+      const cleanup = () => {
+        try { frame.remove(); } catch (_) {}
+      };
+
+      const doPrint = async () => {
+        // Stylesheets and fonts are asynchronous in an isolated iframe.
+        // Printing before they load can produce a blank or unstyled report.
+        try {
+          const linkedStyles = [...printDoc.querySelectorAll('link[rel="stylesheet"]')];
+          await Promise.race([
+            Promise.all([
+              printDoc.fonts?.ready || Promise.resolve(),
+              ...linkedStyles.map(link => link.sheet
+                ? Promise.resolve()
+                : new Promise(resolve => {
+                    link.addEventListener('load', resolve, { once:true });
+                    link.addEventListener('error', resolve, { once:true });
+                  }))
+            ]),
+            new Promise(resolve => window.setTimeout(resolve, 2500))
+          ]);
+        } catch (_) {
+          // Use the available styles even if one external stylesheet fails.
+        }
+        if (!frame.isConnected) return;
+        frame.contentWindow?.addEventListener('afterprint', cleanup, { once:true });
+        frame.contentWindow?.focus();
+        frame.contentWindow?.print();
+        // Keep the iframe alive while the print dialog is open. The short
+        // 1.5-second cleanup in the previous version could print a blank page.
+        window.setTimeout(cleanup, 60000);
+      };
+
+      void doPrint();
+    } catch (error) {
+      try { frame.remove(); } catch (_) {}
+      console.error('[Expense Report] Print failed:', error);
+      toast.error('Could not create the print document. Please try again.');
+    }
+  };
+
   return (
-    <div className="space-y-6 max-h-[calc(90vh-80px)] overflow-y-auto pr-2">
+    <div ref={expenseReportPrintRef} className="space-y-6 max-h-[calc(90vh-80px)] overflow-y-auto pr-2">
       {submitError && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3">
           <p className="text-xs text-red-700">⚠️ {submitError}</p>
@@ -12496,6 +12623,14 @@ export const ReimbursementExpensesView = ({
               Receipt-driven amounts are verified by ICP administration (from uploaded receipts or documented manual review). Automatic CRM/calculated amounts cannot be edited here.
             </p>
           </div>
+
+          {adminMode && (
+            <div data-expense-no-print="true" className="flex items-center gap-2">
+              <Button type="button" data-icp-expense-print="true" variant="outline" onClick={printExpenseReport} className="gap-2">
+                <Printer className="h-4 w-4" /> Print Expense Report
+              </Button>
+            </div>
+          )}
         </div>
 
 
@@ -12701,7 +12836,7 @@ export const ReimbursementExpensesView = ({
 
                           {row.is_admin_override && (
                             <div className="mt-1 text-[11px] font-semibold text-indigo-700">
-                              
+                              Admin-adjusted value (does not change CRM)
                             </div>
                           )}
                           {row.note && (
