@@ -6440,6 +6440,14 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       value.startsWith("local bank")
     );
   })();
+  // v69: never show a bank left over from another facility, even with
+  // stale browser cache or responses arriving out of order.
+  const bankStates = {AL:"Alabama",AK:"Alaska",AZ:"Arizona",AR:"Arkansas",CA:"California",CO:"Colorado",CT:"Connecticut",DE:"Delaware",DC:"District of Columbia",FL:"Florida",GA:"Georgia",HI:"Hawaii",ID:"Idaho",IL:"Illinois",IN:"Indiana",IA:"Iowa",KS:"Kansas",KY:"Kentucky",LA:"Louisiana",ME:"Maine",MD:"Maryland",MA:"Massachusetts",MI:"Michigan",MN:"Minnesota",MS:"Mississippi",MO:"Missouri",MT:"Montana",NE:"Nebraska",NV:"Nevada",NH:"New Hampshire",NJ:"New Jersey",NM:"New Mexico",NY:"New York",NC:"North Carolina",ND:"North Dakota",OH:"Ohio",OK:"Oklahoma",OR:"Oregon",PA:"Pennsylvania",RI:"Rhode Island",SC:"South Carolina",SD:"South Dakota",TN:"Tennessee",TX:"Texas",UT:"Utah",VT:"Vermont",VA:"Virginia",WA:"Washington",WV:"West Virginia",WI:"Wisconsin",WY:"Wyoming"};
+  const bankCityKey = value => String(value||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+  const bankStateKey = value => {
+    const raw=String(value||"").trim();
+    return bankCityKey(bankStates[raw.toUpperCase()] || raw);
+  };
   const [finalBankNameCity, setFinalBankNameCity] = useState("");
   const [acknowledging, setAcknowledging] = useState(false);
   const [welcomePacketRefreshSeq, setWelcomePacketRefreshSeq] = useState(0);
@@ -6450,8 +6458,17 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   // An independently refreshed CRM Account must win over a slower packet
   // response containing an older hospital/phone snapshot.
   const authoritativeFacilityRef = useRef(null);
+  const facilityRequestSequenceRef = useRef(0);
+  const [facilityChecking, setFacilityChecking] = useState(true);
+  // A cached packet is never treated as confirmation of the current employer.
+  const [facilityVerified, setFacilityVerified] = useState(false);
+  const [facilityError, setFacilityError] = useState("");
+  const [navigatorLoading, setNavigatorLoading] = useState(false);
+  const verifiedNavigatorFastLinks = { "forsyth|georgia":"https://linktr.ee/ICPForsythGA" };
   const authoritativeLicensureRef = useRef(null);
   const [licensureLiveError, setLicensureLiveError] = useState("");
+  const [bankLookupReason, setBankLookupReason] = useState("checking");
+  const [bankLookupLocation, setBankLookupLocation] = useState("");
   const [locationServices, setLocationServices] = useState({
     destination: "",
     bank: null,
@@ -6536,6 +6553,8 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       if (!raw) return null;
       const parsed = JSON.parse(raw);
       if (!parsed?.packet || typeof parsed.packet !== "object") return null;
+      // Old facility data must not persist between CRM Account transfers.
+      if (!parsed.savedAt || Date.now() - Number(parsed.savedAt) > 30_000) return null;
       return parsed;
     } catch {
       return null;
@@ -6673,12 +6692,13 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           endorsementState:"",
           boardOfNursing:"",
           boardAddress:"",
-          boardPhone:""
+          boardPhone:"",
+          boardWebsite:""
         }));
         setLocationServices(previous => ({
           ...previous,
           licensure:null,
-          licensureSearchUrl:info.licensureSearchUrl || "https://www.ncsbn.org/about/contact.page"
+          licensureSearchUrl:info.licensureSearchUrl || ""
         }));
         return;
       }
@@ -6690,12 +6710,13 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         endorsementState:state,
         boardOfNursing:`${state} Board of Nursing`,
         boardAddress:board?.address || "",
-        boardPhone:board?.phone || ""
+        boardPhone:"",
+        boardWebsite:info.boardWebsite || info.licensureSearchUrl || ""
       }));
       setLocationServices(previous => ({
         ...previous,
         licensure:board,
-        licensureSearchUrl:info.licensureSearchUrl || "https://www.ncsbn.org/about/contact.page"
+        licensureSearchUrl:info.licensureSearchUrl || ""
       }));
     } catch (error) {
       // Keep the last successful CRM-backed board visible if Azure/NCSBN is
@@ -6706,13 +6727,15 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   };
 
   const fetchFacilityInformation = async (retryCount = 0) => {
+    const requestSequence = ++facilityRequestSequenceRef.current;
+    if (retryCount === 0) setFacilityChecking(true);
     try {
       const token = (adminMode ? adminToken : localStorage.getItem("icp_auth_token"));
       if (!token) return;
 
       const response = await fetch(
         adminMode
-          ? `${API_BASE}/api/welcome-packet/facility?email=${encodeURIComponent(user?.email || "")}&refresh=1`
+          ? `${API_BASE}/api/admin/welcome-packet/facility?email=${encodeURIComponent(user?.email || "")}&refresh=1`
           : `${API_BASE}/api/welcome-packet/facility?refresh=1`,
         {
           method: "GET",
@@ -6727,8 +6750,12 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
 
       const data =
         await response.json().catch(() => ({}));
+      // Ignore an old response if a newer request has already started.
+      if (requestSequence !== facilityRequestSequenceRef.current) return;
 
       if (!response.ok || !data?.facility) {
+        setFacilityError(data?.error || "Current CRM facility could not be verified.");
+        setFacilityVerified(false);
         if (retryCount < 1) {
           window.setTimeout(
             () => void fetchFacilityInformation(retryCount + 1),
@@ -6742,6 +6769,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
 
       const hydrated = [
         facility.address,
+        facility.facilityAdministrator,
         facility.contact,
         facility.phone,
         facility.email,
@@ -6756,33 +6784,57 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         employerContact: normalizePacketValue(facility.contact),
         employerPhone: normalizePacketValue(facility.phone),
         employerEmail: normalizePacketValue(facility.email),
-        employerWebsite: normalizePacketValue(facility.website)
+        employerWebsite: normalizePacketValue(facility.website),
+        employerCity: normalizePacketValue(facility.employerCity),
+        employerState: normalizePacketValue(facility.employerState),
+        destinationGuide: facility.destinationGuide?.match === "city" ? facility.destinationGuide : (bankCityKey(authoritativeFacilityRef.current?.employerCity) === bankCityKey(facility.employerCity) && bankStateKey(authoritativeFacilityRef.current?.employerState) === bankStateKey(facility.employerState) ? authoritativeFacilityRef.current?.destinationGuide || null : null),
+        facilityAdministrator: normalizePacketValue(facility.facilityAdministrator),
+        facilityAdministratorEmail: normalizePacketValue(facility.facilityAdministratorEmail),
+        clinicalManager: normalizePacketValue(facility.clinicalManager),
+        clinicalManagerEmail: normalizePacketValue(facility.clinicalManagerEmail),
+        employeeRelations: normalizePacketValue(facility.employeeRelations),
+        employeeRelationsEmail: normalizePacketValue(facility.employeeRelationsEmail)
       };
+      const previousFacility = authoritativeFacilityRef.current;
       authoritativeFacilityRef.current = freshFacility;
+      setFacilityError("");
+      setFacilityVerified(true);
+      // Never show a bank selected for a previous employer Account.
+      if (previousFacility && (
+        previousFacility.employerName !== freshFacility.employerName ||
+        previousFacility.employerCity !== freshFacility.employerCity ||
+        previousFacility.employerState !== freshFacility.employerState
+      )) {
+        setLocationServices(current => ({...current,bank:null}));
+      }
 
       setPacket(current => {
         const updated = {
           ...current,
           employerName:
-            normalizePacketValue(facility.employerName) ||
-            current.employerName,
+            normalizePacketValue(facility.employerName),
           employerAddress:
             normalizePacketValue(facility.address) ||
-            normalizePacketValue(facility.employerAddress) ||
-            current.employerAddress,
+            normalizePacketValue(facility.employerAddress),
           employerContact:
-            normalizePacketValue(facility.contact) ||
-            current.employerContact,
+            normalizePacketValue(facility.contact),
           // An empty hospital Account phone means "not available".
           // Never preserve a stale candidate mobile number in that cell.
           employerPhone:
             normalizePacketValue(facility.phone),
           employerEmail:
-            normalizePacketValue(facility.email) ||
-            current.employerEmail,
+            normalizePacketValue(facility.email),
           employerWebsite:
-            normalizePacketValue(facility.website) ||
-            current.employerWebsite,
+            normalizePacketValue(facility.website),
+          employerCity: normalizePacketValue(facility.employerCity),
+          employerState: normalizePacketValue(facility.employerState),
+          destinationGuide:facility.destinationGuide?.match === "city" ? facility.destinationGuide : (bankCityKey(current.employerCity) === bankCityKey(facility.employerCity) && bankStateKey(current.employerState) === bankStateKey(facility.employerState) ? current.destinationGuide : null),
+          facilityAdministrator:normalizePacketValue(facility.facilityAdministrator),
+          facilityAdministratorEmail:normalizePacketValue(facility.facilityAdministratorEmail),
+          clinicalManager:normalizePacketValue(facility.clinicalManager),
+          clinicalManagerEmail:normalizePacketValue(facility.clinicalManagerEmail),
+          employeeRelations:normalizePacketValue(facility.employeeRelations),
+          employeeRelationsEmail:normalizePacketValue(facility.employeeRelationsEmail),
           uniformRequirement:
             normalizePacketValue(facility.uniformRequirement) ||
             current.uniformRequirement
@@ -6805,6 +6857,8 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         "[Welcome Packet] Facility lookup failed:",
         error
       );
+      setFacilityError(error?.message || "Current CRM facility could not be verified.");
+      setFacilityVerified(false);
 
       if (retryCount < 1) {
         window.setTimeout(
@@ -6812,17 +6866,100 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           900
         );
       }
+    } finally {
+      if (requestSequence === facilityRequestSequenceRef.current) setFacilityChecking(false);
     }
   };
 
-  const fetchLocationServices = async (destination, endorsementState = "") => {
-    if (!destination) return;
+  // Lightweight authoritative CRM Account refresh while packet remains open.
+  // Avoid fetching entire Zoho packet every cycle; don't poll in hidden tabs.
+  useEffect(() => {
+    let active = true;
+    let inFlight = false;
+    const refreshFacility = async () => {
+      if (!active || inFlight || (typeof document !== "undefined" && document.hidden)) return;
+      inFlight = true;
+      try { await fetchFacilityInformation(1); }
+      finally { inFlight = false; }
+    };
+    void refreshFacility();
+    const intervalId = window.setInterval(refreshFacility, 12000);
+    window.addEventListener("focus", refreshFacility);
+    window.addEventListener("candidate-data-updated", refreshFacility);
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshFacility);
+      window.removeEventListener("candidate-data-updated", refreshFacility);
+    };
+  }, [user?.email, adminMode, adminToken]);
+
+
+  // v71: Navigator derives ONLY from the refreshed employer Account location.
+  // It cannot inherit the previously displayed Raleigh city or a flight city.
+  useEffect(() => {
+    const city = facilityVerified ? String(authoritativeFacilityRef.current?.employerCity || "").trim() : "";
+    const state = facilityVerified ? String(authoritativeFacilityRef.current?.employerState || "").trim() : "";
+    let cancelled = false;
+    const controller = new AbortController();
+    if (!city || !state) {
+      setPacket(current => ({...current,destinationGuide:null}));
+      return () => controller.abort();
+    }
+    // Preverified guide is available instantly; don't trigger an external lookup.
+    const fastLink = verifiedNavigatorFastLinks[`${city.toLowerCase()}|${bankStateKey(state)}`];
+    if (fastLink) {
+      setNavigatorLoading(false);
+      setPacket(current => ({
+        ...current,
+        destinationGuide: {city,state,url:fastLink,match:"city",label:`Explore ${city}, ${state}`}
+      }));
+      return () => controller.abort();
+    }
+    // Keep an already-verified guide for the same city during revalidation.
+    setPacket(current => {
+      const old = current.destinationGuide;
+      return old?.match === "city" && bankCityKey(old.city) === bankCityKey(city) &&
+        bankStateKey(old.state) === bankStateKey(state)
+        ? current : {...current,destinationGuide:null};
+    });
+    setNavigatorLoading(true);
+    const token = adminMode ? adminToken : localStorage.getItem("icp_auth_token");
+    const url = adminMode
+      ? `${API_BASE}/api/admin/welcome-packet/destination-guide?city=${encodeURIComponent(city)}&state=${encodeURIComponent(state)}`
+      : `${API_BASE}/api/welcome-packet/destination-guide?city=${encodeURIComponent(city)}&state=${encodeURIComponent(state)}`;
+    const timer=window.setTimeout(()=>controller.abort(),8000);
+    fetch(url,{cache:"no-store",signal:controller.signal,headers:{
+      Authorization:adminMode?`AdminBearer ${token}`:`Bearer ${token}`,
+      ...(adminMode?{"x-candidate-email":user?.email||""}:{})
+    }}).then(r=>r.json().catch(()=>({}))).then(data=>{
+      if(cancelled) return;
+      setPacket(current=>{
+        // Never attach a Guide to a different, newer employer location.
+        if(bankCityKey(current.employerCity)!==bankCityKey(city) ||
+           bankStateKey(current.employerState)!==bankStateKey(state)) return current;
+        return {...current,destinationGuide:data?.guide?.match==="city"?data.guide:null};
+      });
+    }).catch(()=>{}).finally(()=>{
+      window.clearTimeout(timer);
+      if(!cancelled)setNavigatorLoading(false);
+    });
+    return ()=>{cancelled=true;window.clearTimeout(timer);controller.abort();};
+  }, [facilityVerified,packet.employerCity,packet.employerState,user?.email,adminMode,adminToken]);
+
+  const verifiedEmployerBank = facilityVerified && locationServices.bank?.name && packet.employerCity && packet.employerState &&
+    bankCityKey(locationServices.bank.city)===bankCityKey(packet.employerCity) &&
+    bankStateKey(locationServices.bank.state)===bankStateKey(packet.employerState)
+      ? locationServices.bank : null;
+
+  const fetchLocationServices = async (destination, endorsementState = "", employerCity = "", employerState = "", bankingPlan = "") => {
+    if (!destination && !isLocalBankPlan) return;
 
     setLookupLoading(true);
     try {
       const token = (adminMode ? adminToken : localStorage.getItem("icp_auth_token"));
       const response = await fetch(
-        `${API_BASE}/api/welcome-packet/location-services?destination=${encodeURIComponent(destination)}&endorsementState=${encodeURIComponent(endorsementState || "")}`,
+        `${API_BASE}/api/welcome-packet/location-services?destination=${encodeURIComponent(destination)}&endorsementState=${encodeURIComponent(endorsementState || "")}&employerCity=${encodeURIComponent(employerCity || "")}&employerState=${encodeURIComponent(employerState || "")}&bankingPlan=${encodeURIComponent(bankingPlan || "")}`,
         {
           method: "GET",
           cache: "no-store",
@@ -6843,9 +6980,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
               current.destination ||
               destination,
             bank:
-              data.bank?.name && data.bank?.address
-                ? data.bank
-                : current.bank,
+              null, // bank only comes from the independently verified employer-location endpoint
             // Preserve the previously working SSA result unless the backend
             // returns a complete replacement office. Bank/licensure failures
             // can never wipe out SSA.
@@ -6931,25 +7066,52 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   ]);
 
   useEffect(() => {
-    if (!isLocalBankPlan) return;
-
-    const destination =
-      packet.housingAddress ||
-      locationServices.destination ||
-      packet.employerAddress;
-
-    if (!destination) return;
-
-    void fetchLocationServices(
-      destination,
-      packet.endorsementState
-    );
-  }, [
-    isLocalBankPlan,
-    packet.housingAddress,
-    packet.employerAddress,
-    packet.endorsementState
-  ]);
+    if (!isLocalBankPlan || !facilityVerified) {
+      setLocationServices(current => ({...current, bank:null}));
+      setBankLookupReason("");
+      return undefined;
+    }
+    // The authoritative Account lookup fills these fields, never housing/flight city.
+    // Banking endpoint independently resolves the current Deal -> Account location.
+    let cancelled = false;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 37000);
+    const fetchEmployerBank = async () => {
+      setLocationServices(current => ({...current,bank:null}));
+      setBankLookupReason("checking");
+      try {
+        const token = adminMode ? adminToken : localStorage.getItem("icp_auth_token");
+        if (!token) return;
+        const response = await fetch((adminMode ? `${API_BASE}/api/admin/welcome-packet/banking-vendor?email=${encodeURIComponent(user?.email || "")}&expectedCity=${encodeURIComponent(packet.employerCity||"")}&expectedState=${encodeURIComponent(packet.employerState||"")}` : `${API_BASE}/api/welcome-packet/banking-vendor?expectedCity=${encodeURIComponent(packet.employerCity||"")}&expectedState=${encodeURIComponent(packet.employerState||"")}`), {
+          cache:"no-store",
+          signal:controller.signal,
+          headers:{
+            Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`,
+            ...(adminMode ? {"x-candidate-email":user?.email || ""} : {}),
+            Accept:"application/json"
+          }
+        });
+        const result = await response.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!response.ok || !result.success) throw new Error(result.error || "Bank lookup failed");
+        setLocationServices(current => ({...current,bank:result.bank?.name &&
+          bankCityKey(result.bank.city)===bankCityKey(packet.employerCity) &&
+          bankStateKey(result.bank.state)===bankStateKey(packet.employerState)
+          ? result.bank : null}));
+        setBankLookupReason(String(result.reason || "vendor-no-match"));
+        setBankLookupLocation([result.city, result.state].filter(Boolean).join(", "));
+      } catch (error) {
+        if (!cancelled) {
+          setBankLookupReason("crm-lookup-failed");
+          console.warn("[Welcome Packet] CRM bank lookup:",error?.message || error);
+        }
+      } finally {
+        window.clearTimeout(timer);
+      }
+    };
+    void fetchEmployerBank();
+    return () => { cancelled = true; controller.abort(); window.clearTimeout(timer); };
+  }, [isLocalBankPlan,facilityVerified,packet.employerCity,packet.employerState,user?.email,adminMode,adminToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -7039,8 +7201,13 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     // blocking the rest of the Welcome Packet. Backend v53 supplies this route.
     void fetchLicensureInformation();
 
-    if (adminMode) {
+    {
       authoritativeFacilityRef.current = null;
+      setFacilityVerified(false);
+      setFacilityError("");
+      setLocationServices(current => ({...current, bank:null}));
+      ++facilityRequestSequenceRef.current;
+      setFacilityChecking(true);
       // The hospital Account lookup runs independently from the much larger
       // relocation/bank/licensure packet, so Admin sees updated facility info
       // even when a full Welcome Packet CRM refresh is slow.
@@ -7186,9 +7353,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             setPacket(current => ({
               ...current,
               ...normalizedPacket,
-              ...(adminMode && authoritativeFacilityRef.current
-                ? authoritativeFacilityRef.current
-                : {}),
+              ...(authoritativeFacilityRef.current || {}),
               ...(authoritativeLicensureRef.current
                 ? {
                     stateLicenseRequired:authoritativeLicensureRef.current.state,
@@ -7229,8 +7394,9 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             setLoading(false);
           }
 
-          // The facility is refreshed independently on opening; the latest
-          // Account result is retained when this full packet response arrives.
+          // An older full-packet cache may arrive after a current Account
+          // update. Always revalidate the live CRM Account after it settles.
+          if (!cancelled) void fetchFacilityInformation(1);
           return;
         }
 
@@ -7475,6 +7641,15 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             "Concierge_Email",
             "Concierge_Email1"
           ),
+          employerCity:pick(deal,"employerCity","Hospital_City"),
+          employerState:pick(deal,"employerState","Hospital_State"),
+          destinationGuide:deal.destinationGuide || null,
+          facilityAdministrator:pick(deal,"facilityAdministrator","Facility_Admin"),
+          facilityAdministratorEmail:pick(deal,"facilityAdministratorEmail","Facility_Admin_Email"),
+          clinicalManager:pick(deal,"clinicalManager","Clinical_Manager"),
+          clinicalManagerEmail:pick(deal,"clinicalManagerEmail","MS_Clinical_Mgr_Email"),
+          employeeRelations:pick(deal,"employeeRelations","HR_Director"),
+          employeeRelationsEmail:pick(deal,"employeeRelationsEmail"),
           employerName:
             pick(
               deal,
@@ -7614,9 +7789,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
 
         setPacket({
           ...nextPacket,
-          ...(adminMode && authoritativeFacilityRef.current
-            ? authoritativeFacilityRef.current
-            : {}),
+          ...(authoritativeFacilityRef.current || {}),
           ...(authoritativeLicensureRef.current
             ? {
                 stateLicenseRequired:authoritativeLicensureRef.current.state,
@@ -7631,9 +7804,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         writeWelcomePacketCache(
           {
             ...nextPacket,
-            ...(adminMode && authoritativeFacilityRef.current
-              ? authoritativeFacilityRef.current
-              : {})
+            ...(authoritativeFacilityRef.current || {})
           },
           packetResponse.locationServices || null
         );
@@ -7659,7 +7830,10 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         // ICP banking spreadsheet directory.
         void fetchLocationServices(
           nextPacket.housingAddress || destination,
-          nextPacket.endorsementState
+          nextPacket.endorsementState,
+          nextPacket.employerCity || destinationCity,
+          nextPacket.employerState || destinationState,
+          normalizePacketValue(packetResponse.finalBankingPlan) || ""
         );
 
         // Bank, SSA and Licensure are resolved by /api/welcome-packet/data
@@ -8201,7 +8375,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
 
       <section id="welcome-packet-welcome-page" className="rounded-2xl border border-purple-200 bg-purple-50/70 p-5 shadow-sm">
         <h3 className="text-xl font-bold text-purple-800">
-          Your Skills Crossed Borders. Your Dreams Found a Home.
+          Your Skills Crossed Borders. Your Dreams found Opportunity.
         </h3>
         <p data-welcome-print-timestamp="true" className="mt-3 text-sm text-gray-600">November 3, 2026</p>
         <div className="mt-4 space-y-3 text-sm leading-6 text-gray-700">
@@ -8232,18 +8406,26 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           <Building className="h-5 w-5" />
           Facility Information
         </h3>
+        {!facilityVerified ? (
+          <p className="py-3 text-sm text-gray-600">{facilityChecking ? "Checking the current hospital assignment in Zoho CRM…" : (facilityError || "Current hospital assignment has not been verified. Refresh CRM Data to retry.")}</p>
+        ) : (
+          <>
         <InfoRow label="Employer Name" value={packet.employerName} />
         <InfoRow label="Address" value={packet.employerAddress} />
         <InfoRow label="Phone" value={packet.employerPhone} />
         <InfoRow label="Website" value={packet.employerWebsite} />
-        <InfoRow
-          label="Facility contact details"
-          value={packet.facilityContactDetails || packet.employerContact}
-        />
-        <InfoRow
+        {normalizePacketValue(packet.facilityAdministrator) && <InfoRow label="Facility Administrator" value={packet.facilityAdministrator} />}
+        {normalizePacketValue(packet.facilityAdministratorEmail) && <InfoRow label="Facility Administrator Email" value={packet.facilityAdministratorEmail} />}
+        {normalizePacketValue(packet.clinicalManager) && <InfoRow label="Clinical Manager" value={packet.clinicalManager} />}
+        {normalizePacketValue(packet.clinicalManagerEmail) && <InfoRow label="Clinical Manager Email" value={packet.clinicalManagerEmail} />}
+        {normalizePacketValue(packet.employeeRelations) && <InfoRow label="Employee Relations" value={packet.employeeRelations} />}
+        {normalizePacketValue(packet.employeeRelationsEmail) && <InfoRow label="Employee Relations Email" value={packet.employeeRelationsEmail} />}
+          </>
+        )}
+        {facilityVerified && <InfoRow
           label="Onboarding notes"
           value={packet.onboardingNotes}
-        />
+        />}
 
         <h4 className="mt-5 font-bold text-gray-900">Work Expectations</h4>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-700">
@@ -8282,9 +8464,9 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         <div className="grid grid-cols-[240px_minmax(0,1fr)] items-start gap-x-8 border-b border-gray-100 py-3 text-sm last:border-b-0 max-md:grid-cols-[minmax(130px,38%)_minmax(0,1fr)] max-md:gap-x-4">
           <span className="font-semibold text-gray-600">Board of Nursing</span>
           <span className="min-w-0 text-gray-900">
-            {licenseStateLabel ? (
+            {licenseStateLabel && (packet.boardWebsite || locationServices.licensureSearchUrl) ? (
               <a
-                href={locationServices.licensureSearchUrl || validLicenseBoard?.url || "https://www.ncsbn.org/about/contact.page"}
+                href={packet.boardWebsite || locationServices.licensureSearchUrl || undefined}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 font-semibold text-violet-700 hover:text-violet-900 hover:underline"
@@ -8299,20 +8481,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             )}
           </span>
         </div>
-        <InfoRow
-          label="Address"
-          value={
-            validLicenseBoard?.address ||
-            (licenseStateLabel ? packet.boardAddress : "")
-          }
-        />
-        <InfoRow
-          label="Phone"
-          value={
-            validLicenseBoard?.phone ||
-            (licenseStateLabel ? packet.boardPhone : "")
-          }
-        />
+        <InfoRow label="Board Website" value={packet.boardWebsite || locationServices.licensureSearchUrl} />
 
         {licensureLiveError && adminMode && (
           <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800 print:hidden">
@@ -8420,23 +8589,31 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
 
         {isLocalBankPlan ? (
           <>
-            <InfoRow
-              label="Local Bank Name"
-              value={locationServices.bank?.name}
-            />
-            <InfoRow
-              label="Address"
-              value={locationServices.bank?.address}
-            />
-            <InfoRow
-              label="Phone"
-              value={locationServices.bank?.phone}
-            />
-            {locationServices.bank?.directoryCity ? (
-              <InfoRow
-                label="Reference Location"
-                value={locationServices.bank.directoryCity}
-              />
+            {!facilityVerified ? (
+              <p className="my-2 text-sm text-amber-700">Bank information will appear after the current CRM facility is verified.</p>
+            ) : verifiedEmployerBank?.name ? (
+              <InfoRow label="Local Bank Name" value={verifiedEmployerBank.name} />
+            ) : (
+              <p className="my-2 text-sm text-amber-700">
+                {bankLookupReason === "checking" ? "Checking employer-location banks…" :
+                 bankLookupReason === "account-city-state-missing" ? "Employer city or state is missing from the linked CRM Account." :
+                 bankLookupReason === "facility-location-mismatch" ? "Facility location changed. Refreshing the correct bank; an old location will not be shown." :
+                 bankLookupReason === "deal-account-lookup-missing" ? "The candidate Deal has no linked hospital Account." :
+                 bankLookupReason === "crm-module-error" ? "Banking_Vendors cannot be read. Check the Zoho CRM module API name and permissions." :
+                 ["lookup-timeout", "lookup-incomplete", "crm-lookup-failed"].includes(bankLookupReason) ? "Bank lookup could not finish. Please retry; this is not a confirmed absence of banks." :
+                 `No Banking_Vendors record matched ${bankLookupLocation || "the employer city and state"}.`}
+              </p>
+            )}
+            {/^https:\/\//i.test(String(verifiedEmployerBank?.url || "")) && (
+              <div className="my-2 text-sm"><span className="font-semibold">Bank Website: </span>
+                <a href={verifiedEmployerBank.url} target="_blank" rel="noopener noreferrer" className="text-purple-700 underline">Visit bank website</a>
+              </div>
+            )}
+            {verifiedEmployerBank?.city && verifiedEmployerBank?.state ? (
+              <InfoRow label="Bank Location" value={`${verifiedEmployerBank.city}, ${verifiedEmployerBank.state}`} />
+            ) : null}
+            {verifiedEmployerBank?.address ? (
+              <InfoRow label="Bank Address" value={verifiedEmployerBank.address} />
             ) : null}
             {lookupLoading && (
               <p className="mt-2 text-xs text-gray-500">
@@ -8452,7 +8629,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             />
           ) : null}
 
-        <h4 className="mt-5 font-bold">Setting Up Your Account</h4>
+        {isLocalBankPlan && <><h4 className="mt-5 font-bold">Setting Up Your Account</h4>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-700">
           <li>Consider opening both checking and savings accounts.</li>
           <li>
@@ -8462,7 +8639,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             Ask about a beginner credit card to begin building credit history.
           </li>
           <li>Set up the bank’s mobile application to monitor your account.</li>
-        </ul>
+        </ul></>}
 
         <h4 className="mt-5 font-bold">The 50 / 30 / 20 Budget Rule</h4>
         <div className="mt-2 grid gap-3 md:grid-cols-3">
@@ -8548,6 +8725,16 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       </section>
 
       
+
+      <section id="welcome-packet-local-guide" className="rounded-2xl border border-purple-200 bg-purple-50 p-5 shadow-sm">
+        <h3 className="mb-2 font-bold text-purple-900">Explore Your New Community</h3>
+        <p className="text-sm text-gray-700">{facilityVerified && packet.employerCity && packet.employerState ? `Find local resources for ${packet.employerCity}, ${packet.employerState} from the Infinity Navigator directory.` : "Checking your current employer city and state in CRM."}</p>
+        {facilityVerified && packet.destinationGuide?.match === "city" && packet.destinationGuide?.url ? (
+          <a href={packet.destinationGuide.url} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-lg bg-purple-700 px-4 py-2 text-white hover:bg-purple-800">
+            {packet.destinationGuide.label || `Explore ${packet.employerCity}, ${packet.employerState}`} <ExternalLink className="h-4 w-4" />
+          </a>
+        ) : <p className="mt-2 text-xs text-gray-600">{facilityChecking || navigatorLoading ? "Checking your current facility and city guide…" : !packet.employerCity || !packet.employerState ? "Employer city/state is not yet confirmed in CRM." : "A verified city-specific Infinity Navigator guide has not been configured for this location."}</p>}
+      </section>
 
       <div className="flex flex-wrap justify-end gap-2 border-t pt-4 print:hidden">
         <Button variant="outline" onClick={onClose}>Close</Button>
@@ -10886,6 +11073,33 @@ export const ReimbursementExpensesView = ({
   const [advanceAgreementPersisted, setAdvanceAgreementPersisted] = useState(false);
   const [expenseReportAcknowledged, setExpenseReportAcknowledged] = useState(false);
   const [expenseReportAcknowledgedAt, setExpenseReportAcknowledgedAt] = useState(null);
+  const [expenseAdminApproved, setExpenseAdminApproved] = useState(false);
+  const [expenseAdminApprovalLoading, setExpenseAdminApprovalLoading] = useState(true);
+  const [expenseAdminApprovedAt, setExpenseAdminApprovedAt] = useState(null);
+  const loadExpenseAdminApproval = async () => {
+    if (!user?.email) return;
+    setExpenseAdminApprovalLoading(true);
+    try {
+      const token = adminMode ? adminToken : localStorage.getItem('icp_auth_token');
+      const url = adminMode
+        ? `${API_BASE}/api/admin/reimbursement/expense-report-approval?email=${encodeURIComponent(user.email)}`
+        : `${API_BASE}/api/reimbursement/expense-report-approval`;
+      const response = await fetch(url,{cache:'no-store',headers:{Authorization:adminMode?`AdminBearer ${token}`:`Bearer ${token}`,...(adminMode?{'x-admin-token':token,'x-candidate-email':user.email}:{})}});
+      const data = await response.json().catch(()=>({}));
+      setExpenseAdminApproved(Boolean(response.ok && data.success && data.approved && data.crmSynced));
+      setExpenseAdminApprovedAt(data.approvedAt || null);
+    } catch (_) { setExpenseAdminApproved(false); }
+    finally { setExpenseAdminApprovalLoading(false); }
+  };
+  useEffect(() => {
+    void loadExpenseAdminApproval();
+    const onUpdate = () => void loadExpenseAdminApproval();
+    window.addEventListener('candidate-data-updated',onUpdate);
+    window.addEventListener('expense-report-updated',onUpdate);
+    const timer = window.setInterval(onUpdate,30000);
+    return () => {window.removeEventListener('candidate-data-updated',onUpdate);window.removeEventListener('expense-report-updated',onUpdate);window.clearInterval(timer);};
+  },[user?.email,adminMode,adminToken]);
+
   const [bankSubmittedAt, setBankSubmittedAt] = useState(null);
   const [expenseReportAcknowledging, setExpenseReportAcknowledging] = useState(false);
   const EXPENSE_AUTOMATIC_ROW_IDS = new Set([
@@ -11878,6 +12092,18 @@ export const ReimbursementExpensesView = ({
     return null;
   };
 
+  // Keep open candidate and admin reports aligned even across browser sessions.
+  useEffect(() => {
+    if (!user?.email) return;
+    const id = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void fetchExpenseReport(false,{silent:true});
+        void fetchPaymentData(false);
+      }
+    }, 90000);
+    return () => window.clearInterval(id);
+  }, [user?.email, adminMode, adminToken]);
+
   const handleBankChange = (e) => {
     const { name, value } = e.target;
     setBankDetails(prev => ({ ...prev, [name]: value }));
@@ -12106,14 +12332,31 @@ export const ReimbursementExpensesView = ({
           );
         }
 
-        setExpenseReportAcknowledged(
+        if (adminMode) {
+          setExpenseAdminApproved(true);
+          setExpenseAdminApprovedAt(data.approvedAt || data.acknowledgedAt || null);
+          // CRM returned the committed/read-back total: update the visible
+          // header immediately instead of showing a stale snapshot while refetching.
+          if (Number.isFinite(Number(data.crmTotal ?? data.totalAmount))) {
+            const committedTotal = Number(data.crmTotal ?? data.totalAmount);
+            setPaymentData(previous => ({
+              ...previous,
+              totalReimbursement:committedTotal,
+              balance:Math.max(0, committedTotal - Number(previous?.amountPaid || 0))
+            }));
+            toast.success(`CRM Total synchronized: $${committedTotal.toFixed(2)}`);
+          }
+          void fetchPaymentData(true);
+          void fetchExpenseReport(true,{silent:true});
+        }
+        if (!adminMode) setExpenseReportAcknowledged(
           true
         );
-        setExpenseReportAcknowledgedAt(
+        if (!adminMode) setExpenseReportAcknowledgedAt(
           data.acknowledgedAt || new Date().toISOString()
         );
 
-        setStages?.(
+        if (!adminMode) setStages?.(
           previous =>
             applyOrderedLocksWithDeepEntry(
               previous.map(
@@ -12497,6 +12740,10 @@ export const ReimbursementExpensesView = ({
     balanceAmount === 0;
 
   const printExpenseReport = () => {
+    if (!adminMode && (!expenseAdminApproved || expenseAdminApprovalLoading)) {
+      toast.error('Printing is available after ICP administration approves the current Expense Report.');
+      return;
+    }
     const root = expenseReportPrintRef.current;
 
     if (!root) {
@@ -12550,7 +12797,8 @@ export const ReimbursementExpensesView = ({
         ${styles}
         <style>
           body { margin:0; padding:24px; background:#fff; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-          .expense-report-print-copy { display:block; width:100%; }
+          .expense-report-print-copy { display:block; width:100%; position:relative; isolation:isolate; }
+          .expense-report-print-copy::before { content:"INFINITY CARE PARTNERS"; position:fixed; top:45%; left:12%; transform:rotate(-32deg); font-size:48px; font-weight:800; letter-spacing:4px; color:rgba(107,33,168,.075); pointer-events:none; z-index:-1; white-space:nowrap; }
           .expense-report-print-copy [class*="overflow-"] { overflow:visible !important; }
           .expense-report-print-copy [class*="max-h-"] { max-height:none !important; }
           .expense-report-print-copy table { width:100%; border-collapse:collapse; }
@@ -12624,13 +12872,13 @@ export const ReimbursementExpensesView = ({
             </p>
           </div>
 
-          {adminMode && (
-            <div data-expense-no-print="true" className="flex items-center gap-2">
-              <Button type="button" data-icp-expense-print="true" variant="outline" onClick={printExpenseReport} className="gap-2">
-                <Printer className="h-4 w-4" /> Print Expense Report
-              </Button>
-            </div>
-          )}
+          <div data-expense-no-print="true" className="flex flex-wrap items-center gap-2">
+            <Button type="button" data-icp-expense-print="true" variant="outline" onClick={printExpenseReport}
+              disabled={!adminMode && (!expenseAdminApproved || expenseAdminApprovalLoading)} className="gap-2">
+              <Printer className="h-4 w-4" /> Print Expense Report
+            </Button>
+            {!adminMode && !expenseAdminApproved && <span className="text-xs text-amber-700">Printing unlocks after administrator approval.</span>}
+          </div>
         </div>
 
 
@@ -13066,7 +13314,8 @@ export const ReimbursementExpensesView = ({
               disabled={
                 expenseReportAcknowledging ||
                 expenseReportLoading ||
-                !expenseReport
+                !expenseReport ||
+                (!adminMode && !expenseAdminApproved)
               }
               className="gap-2"
             >
@@ -13079,8 +13328,8 @@ export const ReimbursementExpensesView = ({
                 <>
                   <CheckCircle2 className="h-4 w-4" />
                   {expenseReportAcknowledged
-                    ? (adminMode ? "Re-acknowledge for Candidate" : "Re-acknowledge Expense Report")
-                    : (adminMode ? "Acknowledge for Candidate" : "Acknowledge Expense Report")}
+                    ? (adminMode ? "Approved — Reconcile CRM" : "Re-acknowledge Expense Report")
+                    : (adminMode ? "Approve Expense Report & Sync CRM" : "Acknowledge Expense Report")}
                 </>
               )}
             </Button>
@@ -13636,6 +13885,10 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
 
   const downloadExpenseReport =
     async () => {
+      if (!adminMode && !expenseAdminApproved) {
+        toast.error('PDF download is unlocked after ICP administration approves the Expense Report. You can still review it here.');
+        return;
+      }
       try {
         const token =
           localStorage.getItem(
@@ -14037,12 +14290,10 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
             onClick={
               downloadExpenseReport
             }
-            disabled={
-              expenseReportLoading
-            }
+            disabled={expenseReportLoading || (!adminMode && !expenseAdminApproved)}
           >
             <FileText className="mr-2 h-4 w-4" />
-            View Report
+            {expenseAdminApproved ? 'Download Approved Report' : 'PDF after approval'}
           </Button>
         </div>
 
@@ -22701,5 +22952,3 @@ export default function Pipeline() {
     </div>
   );
 }
-
-

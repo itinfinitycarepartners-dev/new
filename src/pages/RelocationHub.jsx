@@ -360,14 +360,17 @@ export default function RelocationHub() {
   );
 
   const destinationState = getProfileField(
+    "Hospital_State",
+    "employerState",
     "destination_state",
     "Destination_State",
-    "Hospital_State",
     "hospitalState",
     "state"
   );
 
   const fallbackDestination = getProfileField(
+    "Hospital_City",
+    "employerCity",
     "destination_city",
     "Destination_City",
     "Final_Destination_City",
@@ -401,8 +404,9 @@ export default function RelocationHub() {
       setLoadingInfo(true);
       setError(null);
 
-      let chosenCity = "";
-      let chosenState = destinationState;
+    // The CRM Account's employment location always beats flight-stop inference.
+    let chosenCity = getProfileField("Hospital_City", "employerCity");
+    let chosenState = getProfileField("Hospital_State", "employerState") || destinationState;
 
       const layover1MatchesPort = locationsAreSimilar(layover1, portOfEntry);
       const layover2MatchesPort = locationsAreSimilar(layover2, portOfEntry);
@@ -410,7 +414,7 @@ export default function RelocationHub() {
 
       // If the traveler enters the U.S. at Layover 2, the next stop (Layover 3)
       // is the relocation city. Layover 1 is intentionally ignored in this case.
-      if (layover3 && layover2MatchesPort) {
+    if (!chosenCity && layover3 && layover2MatchesPort) {
         chosenCity = layover3;
       }
 
@@ -651,6 +655,16 @@ export default function RelocationHub() {
       </div>
 
       
+      <div className="rounded-2xl border border-purple-200 bg-purple-50 p-5">
+        <h3 className="text-lg font-semibold text-purple-900">Explore Your New Community</h3>
+        <p className="mt-1 text-sm text-gray-700">Infinity Navigator resources for {getProfileField("Hospital_City", "employerCity") || displayCity}, {getProfileField("Hospital_State", "employerState") || displayState}.</p>
+        {profile?.destinationGuide?.match === "city" && profile?.destinationGuide?.url ? (
+          <a href={profile.destinationGuide.url} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-lg bg-purple-700 px-4 py-2 text-white hover:bg-purple-800">
+            {profile.destinationGuide.label}<ExternalLink className="h-4 w-4" />
+          </a>
+        ) : <p className="mt-2 text-xs text-gray-600">No verified city-specific Infinity Navigator guide is currently available for the employer location.</p>}
+      </div>
+
       {/* Local Resources */}
       <div className="rounded-2xl border border-[#E9D5FF] bg-gradient-to-br from-white via-[#FFF7FB] to-[#F0F9FF] p-5 shadow-sm lg:p-6">
         <div className="mb-4 flex items-center gap-3">
