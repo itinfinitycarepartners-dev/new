@@ -6464,7 +6464,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   const [facilityVerified, setFacilityVerified] = useState(false);
   const [facilityError, setFacilityError] = useState("");
   const [navigatorLoading, setNavigatorLoading] = useState(false);
-  const verifiedNavigatorFastLinks = { "forsyth|georgia":"https://linktr.ee/ICPForsythGA" };
+  const verifiedNavigatorFastLinks = { "forsyth|georgia":"https://linktr.ee/ICPForsythGA", "chattanooga|tennessee":"https://linktr.ee/ICPChattanoogaTN" };
   const authoritativeLicensureRef = useRef(null);
   const [licensureLiveError, setLicensureLiveError] = useState("");
   const [bankLookupReason, setBankLookupReason] = useState("checking");
@@ -6938,7 +6938,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         // Never attach a Guide to a different, newer employer location.
         if(bankCityKey(current.employerCity)!==bankCityKey(city) ||
            bankStateKey(current.employerState)!==bankStateKey(state)) return current;
-        return {...current,destinationGuide:data?.guide?.match==="city"?data.guide:null};
+        return {...current,destinationGuide:data?.guide?.url?data.guide:null};
       });
     }).catch(()=>{}).finally(()=>{
       window.clearTimeout(timer);
@@ -7091,9 +7091,23 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             Accept:"application/json"
           }
         });
-        const result = await response.json().catch(() => ({}));
+        let result = await response.json().catch(() => ({}));
         if (cancelled) return;
         if (!response.ok || !result.success) throw new Error(result.error || "Bank lookup failed");
+        // Retry one transient/incomplete CRM lookup after a facility change.
+        // Never retry a confirmed no-match or permission error indefinitely.
+        if (["lookup-incomplete","crm-lookup-failed","lookup-timeout","lookup-busy","facility-location-mismatch"].includes(result.reason)) {
+          await new Promise(resolve => window.setTimeout(resolve, 1200));
+          if (cancelled || controller.signal.aborted) return;
+          const retryUrl = (adminMode
+            ? `${API_BASE}/api/admin/welcome-packet/banking-vendor?email=${encodeURIComponent(user?.email || "")}&expectedCity=${encodeURIComponent(packet.employerCity||"")}&expectedState=${encodeURIComponent(packet.employerState||"")}`
+            : `${API_BASE}/api/welcome-packet/banking-vendor?expectedCity=${encodeURIComponent(packet.employerCity||"")}&expectedState=${encodeURIComponent(packet.employerState||"")}`);
+          const again = await fetch(retryUrl, {cache:"no-store",signal:controller.signal,headers:{
+            Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`,
+            ...(adminMode ? {"x-candidate-email":user?.email || ""} : {}),Accept:"application/json"
+          }});
+          if (again.ok) result = await again.json().catch(() => result);
+        }
         setLocationServices(current => ({...current,bank:result.bank?.name &&
           bankCityKey(result.bank.city)===bankCityKey(packet.employerCity) &&
           bankStateKey(result.bank.state)===bankStateKey(packet.employerState)
@@ -8729,7 +8743,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       <section id="welcome-packet-local-guide" className="rounded-2xl border border-purple-200 bg-purple-50 p-5 shadow-sm">
         <h3 className="mb-2 font-bold text-purple-900">Explore Your New Community</h3>
         <p className="text-sm text-gray-700">{facilityVerified && packet.employerCity && packet.employerState ? `Find local resources for ${packet.employerCity}, ${packet.employerState} from the Infinity Navigator directory.` : "Checking your current employer city and state in CRM."}</p>
-        {facilityVerified && packet.destinationGuide?.match === "city" && packet.destinationGuide?.url ? (
+        {facilityVerified && packet.destinationGuide?.url ? (
           <a href={packet.destinationGuide.url} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-lg bg-purple-700 px-4 py-2 text-white hover:bg-purple-800">
             {packet.destinationGuide.label || `Explore ${packet.employerCity}, ${packet.employerState}`} <ExternalLink className="h-4 w-4" />
           </a>
@@ -22952,3 +22966,5 @@ export default function Pipeline() {
     </div>
   );
 }
+
+
