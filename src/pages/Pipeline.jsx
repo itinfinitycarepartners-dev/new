@@ -8120,20 +8120,23 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       toast.error("Welcome Packet is not ready to print.");
       return;
     }
+    // Never freeze an unfinished CRM lookup into a permanent paper/PDF copy.
+    if (loading || lookupLoading || facilityChecking || !facilityVerified || welcomePacketRefreshBusy) {
+      toast.error("Please wait until the Welcome Packet and hospital information finish loading before printing.");
+      return;
+    }
 
-    // Render a completely independent document. The Admin portal uses
-    // overflow/scrolling/fixed modal containers; printing its DOM directly
-    // could result in a blank page even though the packet is visible.
+    // Print the same DOM as the visible candidate/admin packet, including Vite's
+    // <style> injected Tailwind rules (not only production <link> stylesheets).
+    // A print-only iframe avoids printing the surrounding admin modal.
     const frame = document.createElement("iframe");
-    frame.title = "Welcome Packet Print Document";
+    frame.title = "ICP Welcome Packet";
     frame.setAttribute("aria-hidden", "true");
     Object.assign(frame.style, {
-      position:"fixed", left:"0", bottom:"0",
-      width:"1px", height:"1px", border:"0",
-      opacity:"0", pointerEvents:"none", zIndex:"-1"
+      position: "fixed", left: "0", bottom: "0", width: "1px", height: "1px",
+      border: "0", opacity: "0", pointerEvents: "none", zIndex: "-1"
     });
     document.body.appendChild(frame);
-
     let cleanedUp = false;
     const cleanup = () => {
       if (cleanedUp) return;
@@ -8145,88 +8148,88 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       const printDoc = frame.contentDocument;
       const packetCopy = root.cloneNode(true);
       packetCopy.removeAttribute("id");
-      // v85: The cloned component contains a @media print stylesheet for the
-      // live admin modal. It conflicts with this isolated iframe print layout.
-      packetCopy.querySelectorAll("style").forEach(node => node.remove());
-      // The printed PDF is a clean, static document: no clickable links,
-      // trailing link URLs, external-link icons or generated timestamps.
-      // Strip the portal/site hyperlink from printed packet only; interactive
-      // bank and nursing-board links remain available on screen.
-      packetCopy.querySelectorAll('a[href]').forEach(link => {
-        const href=String(link.getAttribute('href')||'');
-        if (/portal\.infinitycarepartners\.com|icpcandidateportal.*azurewebsites\.net|localhost(?::\d+)?\/(?:login)?/i.test(href)) {
-          link.remove();
-        }
+      // The live component's fallback print stylesheet targets the surrounding
+      // modal; the isolated print document owns its own print rules below.
+      packetCopy.querySelectorAll("style,script").forEach(node => node.remove());
+      packetCopy.querySelectorAll("button,input,select,textarea").forEach(node => node.remove());
+      packetCopy.querySelectorAll('[data-welcome-no-print="true"], [data-welcome-print-timestamp="true"], time').forEach(node => node.remove());
+      packetCopy.querySelectorAll("*").forEach(node => {
+        if ([...node.classList || []].some(name => name === "print:hidden")) node.remove();
       });
-      packetCopy.querySelectorAll("a").forEach(link => {
+      // URL footers are controlled by the browser's Headers and footers setting.
+      // Convert other links to their visible labels so they print as ordinary text.
+      packetCopy.querySelectorAll("a[href]").forEach(link => {
+        const href = String(link.getAttribute("href") || "");
+        if (/portal\.infinitycarepartners\.com|icpcandidateportal.*azurewebsites\.net|localhost(?::\d+)?/i.test(href)) {
+          link.remove();
+          return;
+        }
         const label = printDoc.createElement("span");
         label.className = link.className || "";
-        // Keep the visible link text, not the anchor/href or external-link icon.
-        label.textContent = link.textContent?.trim() || "";
+        label.textContent = link.textContent || "";
         link.replaceWith(label);
       });
-      packetCopy.querySelectorAll('[data-welcome-print-timestamp="true"], time').forEach(node => node.remove());
-      packetCopy.querySelectorAll("*").forEach(element => {
-        if (
-          element.classList?.contains("print:hidden") ||
-          element.getAttribute("data-welcome-no-print") === "true"
-        ) element.remove();
-      });
 
-      const styles = [...document.querySelectorAll('link[rel="stylesheet"], style')]
-        .filter(element => !root.contains(element) && element.tagName.toLowerCase() === "link")
-        .map(element => element.outerHTML)
+      // Keep actual styles from the app in BOTH environments:
+      //  - Vite local dev: <style data-vite-dev-id="..."> Tailwind sheets.
+      //  - Azure production: <link rel="stylesheet" href="/assets/...css">.
+      const appStyles = [...document.head.querySelectorAll('link[rel="stylesheet"], style')]
+        .map(node => node.outerHTML)
         .join("\n");
-      const extraPrintStyles = `
+      const printStyles = `
         @page { size: A4 portrait; margin: 12mm; }
-        html,body { display:block!important; height:auto!important; overflow:visible!important; margin:0!important; padding:0!important; background:#fff!important; color:#111!important; }
-        body { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-        .welcome-packet-print-copy { display:block!important; max-width:none!important; height:auto!important; overflow:visible!important; margin:0!important; padding:0!important; }
-        .welcome-packet-print-copy > * { margin-top:0!important; }
-        .welcome-packet-print-copy #welcome-packet-welcome-page { break-before:auto!important; page-break-before:auto!important; }
-        /* Cover is the only section requiring an explicit page boundary. */
+        html,body { margin:0!important; padding:0!important; height:auto!important;
+          min-height:0!important; overflow:visible!important; background:white!important; }
+        body { -webkit-print-color-adjust:exact!important; print-color-adjust:exact!important; }
+        .welcome-packet-print-copy { width:100%!important; max-width:100%!important;
+          margin:0!important; padding:0!important; overflow:visible!important;
+          height:auto!important; min-height:0!important; display:block!important; }
+        .welcome-packet-print-copy > section { margin:0 0 4mm!important; }
+        /* Cover owns only page one, followed by ONE explicit page boundary. */
         .welcome-packet-print-copy #welcome-packet-cover-page {
-          display:flex!important; justify-content:center!important; align-items:center!important;
-          height:240mm!important; min-height:0!important; max-height:240mm!important;
-          width:100%!important; margin:0!important; padding:0!important;
-          border:0!important; box-shadow:none!important; overflow:hidden!important;
-          break-before:auto!important; page-break-before:auto!important;
-          break-after:page!important; page-break-after:auto!important;
-          break-inside:avoid!important; page-break-inside:avoid!important;
+          display:flex!important; align-items:center!important; justify-content:center!important;
+          width:100%!important; height:260mm!important; min-height:0!important;
+          max-height:260mm!important; margin:0!important; padding:0!important;
+          border:0!important; border-radius:0!important; box-shadow:none!important;
+          overflow:hidden!important; break-before:auto!important;
+          page-break-before:auto!important; break-after:page!important;
+          page-break-after:always!important; break-inside:avoid!important;
         }
         .welcome-packet-print-copy #welcome-packet-cover-page img {
-          display:block!important; width:100%!important; height:auto!important;
-          max-height:232mm!important; object-fit:contain!important;
+          display:block!important; width:100%!important; height:100%!important;
+          max-width:100%!important; max-height:100%!important;
+          object-fit:contain!important; break-inside:avoid!important;
         }
-        /* Remaining content flows naturally; no artificial page-per-section layout. */
+        .welcome-packet-print-copy #welcome-packet-welcome-page,
         .welcome-packet-print-copy section:not(#welcome-packet-cover-page) {
           break-before:auto!important; page-break-before:auto!important;
           break-after:auto!important; page-break-after:auto!important;
-          break-inside:auto!important; page-break-inside:auto!important;
-          overflow:visible!important; min-height:0!important;
-          margin-top:0!important; margin-bottom:4mm!important;
+          min-height:0!important; height:auto!important; max-height:none!important;
+          overflow:visible!important;
         }
         .welcome-packet-print-copy h1,.welcome-packet-print-copy h2,
         .welcome-packet-print-copy h3,.welcome-packet-print-copy h4 {
-          break-after:avoid-page!important; page-break-after:avoid!important;
+          break-after:avoid!important; page-break-after:avoid!important;
         }
-        .welcome-packet-print-copy tr,.welcome-packet-print-copy li,
-        .welcome-packet-print-copy img:not(#welcome-packet-cover-page img) {
-          break-inside:avoid-page!important; page-break-inside:avoid!important;
+        .welcome-packet-print-copy p,.welcome-packet-print-copy li {
+          orphans:3; widows:3;
+        }
+        .welcome-packet-print-copy li,.welcome-packet-print-copy tr,
+        .welcome-packet-print-copy .rounded-lg {
+          break-inside:avoid-page; page-break-inside:avoid;
         }
         .welcome-packet-print-copy thead { display:table-header-group!important; }
         .welcome-packet-print-copy [class*="overflow-"] { overflow:visible!important; }
         .welcome-packet-print-copy [class*="max-h-"] { max-height:none!important; }
-        .welcome-packet-print-copy img { max-width:100%!important; }
-        .welcome-packet-print-copy a::before,.welcome-packet-print-copy a::after { content:none!important; }
-        .welcome-packet-print-copy [data-welcome-print-timestamp="true"],
-        .welcome-packet-print-copy time,.print\:hidden,[data-welcome-no-print="true"] { display:none!important; }
+        .welcome-packet-print-copy img { max-width:100%; }
+        .welcome-packet-print-copy a::after { content:none!important; }
+        .welcome-packet-print-copy .print\\:hidden { display:none!important; }
+        @media print { body { color-adjust:exact; } }
       `;
       printDoc.open();
       printDoc.write(`<!doctype html><html><head><meta charset="utf-8" />
-        <base href="${document.baseURI}" />
-        <title>ICP Welcome Packet</title>${styles}
-        <style>${extraPrintStyles}</style></head><body>
+        <base href="${document.baseURI}" /><title>ICP Welcome Packet</title>
+        ${appStyles}<style>${printStyles}</style></head><body>
         <main class="welcome-packet-print-copy">${packetCopy.innerHTML}</main>
         </body></html>`);
       printDoc.close();
@@ -8235,32 +8238,41 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       const sendToPrinter = async () => {
         if (printed || cleanedUp) return;
         printed = true;
-        // Do not print until external styles and the welcome-cover image have
-        // had time to finish loading. Missing assets cannot blank other pages.
         try {
-          const images = [...printDoc.images];
+          // Wait for both compiled/injected CSS and image/font assets to settle.
           await Promise.race([
             Promise.all([
               printDoc.fonts?.ready || Promise.resolve(),
-              ...images.map(img => img.complete
-                ? Promise.resolve()
-                : new Promise(resolve => {
-                    img.addEventListener("load", resolve, {once:true});
-                    img.addEventListener("error", resolve, {once:true});
-                  }))
+              ...[...printDoc.querySelectorAll('link[rel="stylesheet"]')].map(link =>
+                link.sheet ? Promise.resolve() : new Promise(resolve => {
+                  link.addEventListener("load", resolve, {once:true});
+                  link.addEventListener("error", resolve, {once:true});
+                })
+              ),
+              ...[...printDoc.images].map(img => img.complete ? Promise.resolve() :
+                new Promise(resolve => {
+                  img.addEventListener("load", resolve, {once:true});
+                  img.addEventListener("error", resolve, {once:true});
+                })
+              )
             ]),
-            new Promise(resolve => window.setTimeout(resolve, 8000))
+            new Promise(resolve => window.setTimeout(resolve, 10000))
           ]);
-        } catch (_) { /* Print the available packet text anyway. */ }
+        } catch (error) {
+          console.warn("[Welcome Packet] Some print assets did not finish loading", error);
+        }
+        if (!printDoc.querySelector('#welcome-packet-cover-page img')?.naturalWidth) {
+          cleanup();
+          toast.error("The Welcome Packet cover image could not be loaded for printing.");
+          return;
+        }
         frame.contentWindow?.addEventListener("afterprint", cleanup, {once:true});
         frame.contentWindow?.focus();
         frame.contentWindow?.print();
-        // Some browsers omit afterprint for iframe printing.
         window.setTimeout(cleanup, 60000);
       };
       frame.addEventListener("load", () => { void sendToPrinter(); }, {once:true});
-      // A document.write iframe may have completed loading before this handler.
-      window.setTimeout(() => { void sendToPrinter(); }, 1200);
+      window.setTimeout(() => { void sendToPrinter(); }, 1500);
     } catch (error) {
       cleanup();
       console.error("[Welcome Packet] Print failed:", error);
@@ -23056,3 +23068,5 @@ export default function Pipeline() {
     </div>
   );
 }
+
+
