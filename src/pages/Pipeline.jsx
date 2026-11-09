@@ -7129,10 +7129,11 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         // server-side; admin authorization must remain AdminBearer.
         const response = await fetch((adminMode ? `${API_BASE}/api/admin/welcome-packet/banking-vendor?email=${encodeURIComponent(user?.email || "")}&expectedCity=${encodeURIComponent(packet.employerCity||"")}&expectedState=${encodeURIComponent(packet.employerState||"")}${adminMode && welcomePacketRefreshSeq > 0 ? "&refresh=1" : ""}` : `${API_BASE}/api/welcome-packet/banking-vendor?expectedCity=${encodeURIComponent(packet.employerCity||"")}&expectedState=${encodeURIComponent(packet.employerState||"")}${adminMode && welcomePacketRefreshSeq > 0 ? "&refresh=1" : ""}`), {
           cache:"no-store",
+          credentials:"include",
           signal:controller.signal,
           headers:{
             Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`,
-            ...(adminMode ? {"x-candidate-email":user?.email || ""} : {}),
+            ...(adminMode ? {"x-candidate-email":user?.email || "", "x-admin-token": token} : {}),
             Accept:"application/json"
           }
         });
@@ -7147,9 +7148,9 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           const retryUrl = (adminMode
             ? `${API_BASE}/api/admin/welcome-packet/banking-vendor?email=${encodeURIComponent(user?.email || "")}&expectedCity=${encodeURIComponent(packet.employerCity||"")}&expectedState=${encodeURIComponent(packet.employerState||"")}${adminMode && welcomePacketRefreshSeq > 0 ? "&refresh=1" : ""}`
             : `${API_BASE}/api/welcome-packet/banking-vendor?expectedCity=${encodeURIComponent(packet.employerCity||"")}&expectedState=${encodeURIComponent(packet.employerState||"")}${adminMode && welcomePacketRefreshSeq > 0 ? "&refresh=1" : ""}`);
-          const again = await fetch(retryUrl, {cache:"no-store",signal:controller.signal,headers:{
+          const again = await fetch(retryUrl, {cache:"no-store",credentials:"include",signal:controller.signal,headers:{
             Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`,
-            ...(adminMode ? {"x-candidate-email":user?.email || ""} : {}),Accept:"application/json"
+            ...(adminMode ? {"x-candidate-email":user?.email || "", "x-admin-token": token} : {}),Accept:"application/json"
           }});
           if (again.ok) result = await again.json().catch(() => result);
         }
@@ -23055,5 +23056,3 @@ export default function Pipeline() {
     </div>
   );
 }
-
-
