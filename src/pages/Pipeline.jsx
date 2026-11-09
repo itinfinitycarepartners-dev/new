@@ -8207,6 +8207,29 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           min-height:0!important; height:auto!important; max-height:none!important;
           overflow:visible!important;
         }
+        /* v88: Keep the complete Licensure block on one printed page. */
+        .welcome-packet-print-copy #welcome-packet-licensure-page {
+          break-before: auto !important;
+          page-break-before: auto !important;
+          break-inside: avoid-page !important;
+          page-break-inside: avoid !important;
+          overflow: visible !important;
+          display: flow-root !important;
+          padding: 3mm !important;
+          margin-bottom: 4mm !important;
+        }
+        .welcome-packet-print-copy #welcome-packet-licensure-page h3 {
+          break-after: avoid-page !important;
+          page-break-after: avoid !important;
+        }
+        .welcome-packet-print-copy #welcome-packet-licensure-page .grid {
+          gap: 2mm !important;
+        }
+        .welcome-packet-print-copy #welcome-packet-licensure-page .grid > div {
+          padding: 2mm !important;
+          break-inside: avoid-page !important;
+          page-break-inside: avoid !important;
+        }
         .welcome-packet-print-copy h1,.welcome-packet-print-copy h2,
         .welcome-packet-print-copy h3,.welcome-packet-print-copy h4 {
           break-after:avoid!important; page-break-after:avoid!important;
@@ -8412,6 +8435,19 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             overflow: visible !important;
           }
 
+          /* v88: Browser print fallback when iframe printing is unavailable. */
+          body.printing-welcome-packet #welcome-packet-print-root #welcome-packet-licensure-page {
+            break-inside: avoid-page !important;
+            page-break-inside: avoid !important;
+            break-before: auto !important;
+            page-break-before: auto !important;
+            overflow: visible !important;
+            padding: 3mm !important;
+          }
+          body.printing-welcome-packet #welcome-packet-print-root #welcome-packet-licensure-page .grid > div {
+            break-inside: avoid-page !important;
+            page-break-inside: avoid !important;
+          }
           body.printing-welcome-packet #welcome-packet-print-root table,
           body.printing-welcome-packet #welcome-packet-print-root tr,
           body.printing-welcome-packet #welcome-packet-print-root img {
@@ -23068,5 +23104,3 @@ export default function Pipeline() {
     </div>
   );
 }
-
-
