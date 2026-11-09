@@ -67,7 +67,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 // Keep the last successful dashboard payload so a hard refresh can paint
 // immediately while React Query revalidates in the background.
 const DASHBOARD_BROWSER_CACHE_PREFIX = "icp_dashboard_snapshot_v2:";
-const DASHBOARD_BROWSER_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const DASHBOARD_BROWSER_CACHE_MAX_AGE_MS = 2 * 60 * 1000;
 
 const getDashboardBrowserCacheKey = (email) =>
   `${DASHBOARD_BROWSER_CACHE_PREFIX}${String(email || "").trim().toLowerCase()}`;
@@ -1439,7 +1439,27 @@ export default function Dashboard() {
     setRecentMessages
   ] = useState([]);
 
+  // Independent live sources. The fast dashboard snapshot intentionally contains
+  // zero placeholders; never treat those placeholders as authoritative counts.
+  const [liveDocumentData, setLiveDocumentData] = useState(null);
+  const [liveUpdateData, setLiveUpdateData] = useState(null);
+  const [livePipelineData, setLivePipelineData] = useState(() => {
+    try {
+      const email = String(user?.email || '').trim().toLowerCase();
+      if (!email) return null;
+      const saved = JSON.parse(sessionStorage.getItem(`icp_verified_pipeline_v84:${email}`) || 'null');
+      return saved?.at && Date.now() - saved.at < 60_000 && Array.isArray(saved.data?.stages) && saved.data.stages.length
+        ? saved.data : null;
+    } catch { return null; }
+  });
+  const [pipelineLoadStatus, setPipelineLoadStatus] = useState("checking");
+  const [pipelineRefreshKey, setPipelineRefreshKey] = useState(0);
+  const [liveCountsError, setLiveCountsError] = useState(false);
+  const [messagesVerified, setMessagesVerified] = useState(false);
+  const liveRequestSequence = useRef(0);
+
   const queryClient = useQueryClient();
+  const lastFullDashboardRefreshAt = useRef(0);
 
   const {
     data: summary,
@@ -1460,7 +1480,7 @@ export default function Dashboard() {
     gcTime:
       60 * 60 * 1000,
     refetchInterval:
-      false,
+      60 * 1000,
     initialData: () => {
       const cached = readDashboardBrowserCache(user?.email);
       return cached?.data;
@@ -1472,9 +1492,9 @@ export default function Dashboard() {
     refetchIntervalInBackground:
       false,
     refetchOnWindowFocus:
-      false,
+      true,
     refetchOnReconnect:
-      false,
+      true,
     refetchOnMount: true,
     queryFn:
       async () => {
@@ -1520,7 +1540,10 @@ export default function Dashboard() {
         // Never make the first paint wait for Zoho. The fast snapshot above is
         // rendered immediately, while the authoritative CRM/Recruit dashboard
         // quietly replaces it in the React Query cache.
+        if (Date.now() - lastFullDashboardRefreshAt.current >= 5 * 60 * 1000) {
+          lastFullDashboardRefreshAt.current = Date.now();
         fetch(`${API_BASE}/api/candidate/dashboard-summary`, {
+          signal: AbortSignal.timeout(15000),
           headers: {
             Authorization: `Bearer ${token}`,
             Accept: "application/json",
@@ -1538,6 +1561,7 @@ export default function Dashboard() {
             );
           })
           .catch(() => null);
+        }
 
         return payload;
       }
@@ -1556,9 +1580,94 @@ export default function Dashboard() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [user?.email, refetch]);
 
-  // The summary endpoint already includes updates and unread counts.
-  // Avoid a second /api/updates request on initial dashboard load.
-  const dashboardUpdatesPayload = summary;
+  // Keep counters aligned with the same routes used by the respective tabs.
+  // Requests have deadlines and retain the last confirmed result during outages.
+  useEffect(() => {
+    if (!user?.email) return;
+    let stopped = false;
+    const requestSequence = ++liveRequestSequence.current;
+    const load = async (endpoint, timeoutMs = 12000) => {
+      const token = tokenStorage.get();
+      if (!token) throw new Error("Authentication token is missing");
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = await fetch(`${API_BASE}${endpoint}`, {
+          cache: "no-store",
+          signal: controller.signal,
+          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.success === false) throw new Error(data.error || `HTTP ${response.status}`);
+        return data;
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    };
+    const assignIfCurrent = setter => value => {
+      if (!stopped && liveRequestSequence.current === requestSequence) setter(value);
+    };
+    let liveFetchRunning = false;
+    const fetchLive = () => {
+      if (liveFetchRunning) return;
+      liveFetchRunning = true;
+      // The document-library endpoint is PostgreSQL/cache-first and matches
+      // Documents tab data. Avoid the much heavier /api/documents/all route.
+      // Independent updates: a slow Documents or Updates endpoint must never
+      // delay rendering the Pipeline or its current-stage countdown.
+      const documents = load("/api/documents/library", 12000)
+        .then(value => { if (!stopped && Array.isArray(value.documents)) assignIfCurrent(setLiveDocumentData)(value); })
+        .catch(() => { if (!stopped) setLiveCountsError(true); });
+      const updates = load("/api/updates?limit=100", 10000)
+        .then(value => { if (!stopped && Array.isArray(value.updates)) assignIfCurrent(setLiveUpdateData)(value); })
+        .catch(() => { if (!stopped) setLiveCountsError(true); });
+      const stages = (async () => {
+        let lastError;
+        try {
+          const saved = await load("/api/pipeline/dashboard-snapshot", 4500);
+          if (Array.isArray(saved.stages) && saved.stages.length) return saved;
+          lastError = new Error("No saved Pipeline stages yet");
+        } catch (error) { lastError = error; }
+        // Fallback only. It may trigger Recruit, so never block other widgets.
+        try {
+          const full = await load("/api/pipeline/get", 14000);
+          if (Array.isArray(full.stages) && full.stages.length) return full;
+        } catch (error) { lastError = error; }
+        throw lastError || new Error("Pipeline data unavailable");
+      })().then(value => {
+        if (stopped || liveRequestSequence.current !== requestSequence) return;
+        assignIfCurrent(setLivePipelineData)(value);
+        setPipelineLoadStatus("verified");
+        try {
+          const email = String(user?.email || '').trim().toLowerCase();
+          if (email) sessionStorage.setItem(`icp_verified_pipeline_v84:${email}`,
+            JSON.stringify({at:Date.now(),data:value}));
+        } catch {}
+      }).catch(() => {
+        if (!stopped) setPipelineLoadStatus(previous => previous === "verified" ? previous : "unavailable");
+      });
+      Promise.allSettled([documents, updates, stages]).finally(() => { liveFetchRunning = false; });
+    };
+    fetchLive();
+    const refreshTimer = window.setInterval(fetchLive, 60000);
+    const focusRefresh = () => { if (document.visibilityState === "visible") fetchLive(); };
+    const eventRefresh = () => fetchLive();
+    document.addEventListener("visibilitychange", focusRefresh);
+    window.addEventListener("pipeline-updated", eventRefresh);
+    window.addEventListener("documents-updated", eventRefresh);
+    window.addEventListener("updates-read", eventRefresh);
+    window.addEventListener("candidate-data-updated", eventRefresh);
+    return () => {
+      stopped = true;
+      window.clearInterval(refreshTimer);
+      document.removeEventListener("visibilitychange", focusRefresh);
+      window.removeEventListener("pipeline-updated", eventRefresh);
+      window.removeEventListener("documents-updated", eventRefresh);
+      window.removeEventListener("updates-read", eventRefresh);
+      window.removeEventListener("candidate-data-updated", eventRefresh);
+    };
+  }, [user?.email, pipelineRefreshKey]);
+
 
 
   const profile =
@@ -1566,8 +1675,11 @@ export default function Dashboard() {
     {};
 
   const pipeline =
-    summary?.pipeline ||
-    {};
+    livePipelineData?.stages?.length
+      ? { ...(summary?.pipeline || {}), ...livePipelineData,
+          currentStage: livePipelineData.authoritativeCurrentStage || summary?.pipeline?.currentStage,
+          nextStage: livePipelineData.authoritativeNextStage || summary?.pipeline?.nextStage }
+      : (summary?.pipeline || {});
 
   const baseVisiblePipelineStages = getDashboardVisibleStages(
     Array.isArray(pipeline.stages) ? pipeline.stages : [],
@@ -1932,9 +2044,10 @@ export default function Dashboard() {
       : null;
 
   const activeDeadline =
-    activeStage?.target_date
+    (activeStage?.target_date || activeStage?.targetDate || activeStage?.deadline)
+
       ? new Date(
-          activeStage.target_date
+          activeStage.target_date || activeStage.targetDate || activeStage.deadline
         )
       : fixedDashboardHiringTarget
         ? fixedDashboardHiringTarget
@@ -1944,57 +2057,40 @@ export default function Dashboard() {
             )
           : null;
 
-  const docs =
-    Array.isArray(
-      summary?.documents
-    )
-      ? summary.documents
-      : [];
+  const docs = Array.isArray(liveDocumentData?.documents)
+    ? liveDocumentData.documents.filter(document =>
+        document?.survey_submission !== true &&
+        document?.form_submission !== true &&
+        document?.is_form_submission !== true &&
+        document?.is_form !== true &&
+        !String(document?.form_type || "").trim()
+      )
+    : (Array.isArray(summary?.documents) && !summary?._fastSnapshot ? summary.documents : []);
 
-  const allDashboardUpdates =
-    Array.isArray(summary?.updates)
-      ? summary.updates
-      : [];
-
-  const updates =
-    allDashboardUpdates.slice(
-      0,
-      5
-    );
-
-  const documentCount =
-    Number(
-      summary?.counts
-        ?.documents ||
-      0
-    );
-
-  const pendingDocs =
-    Number(
-      summary?.counts
-        ?.documentPending ||
-      0
-    );
-
-  const approvedDocs =
-    Number(
-      summary?.counts
-        ?.documentApproved ||
-      0
-    );
-
-  const unreadUpdates =
-    Number(
-      summary?.counts
-        ?.updates ||
-      0
-    );
+  const allDashboardUpdates = Array.isArray(liveUpdateData?.updates)
+    ? liveUpdateData.updates
+    : (Array.isArray(summary?.updates) && !summary?._fastSnapshot ? summary.updates : []);
+  // Previews stay short; totals below are calculated from full tab data.
+  const documentPreview = docs.slice(0, 5);
+  const updates = allDashboardUpdates.slice(0, 5);
+  const documentCount = liveDocumentData ? docs.length
+    : (!summary?._fastSnapshot && summary?.counts?.documents != null ? Number(summary.counts.documents) : null);
+  const pendingDocs = liveDocumentData?.pending_count != null
+    ? Number(liveDocumentData.pending_count)
+    : (!summary?._fastSnapshot && summary?.counts?.documentPending != null ? Number(summary.counts.documentPending) : null);
+  const approvedDocs = liveDocumentData?.approved_count != null
+    ? Number(liveDocumentData.approved_count)
+    : liveDocumentData ? docs.filter(d => String(d.approval_status || "").toLowerCase() === "approved").length
+    : (!summary?._fastSnapshot && summary?.counts?.documentApproved != null ? Number(summary.counts.documentApproved) : null);
+  const unreadUpdates = liveUpdateData?.unread != null
+    ? Number(liveUpdateData.unread)
+    : (!summary?._fastSnapshot && summary?.counts?.updates != null ? Number(summary.counts.updates) : null);
 
   const pipelineCompletedCount = visiblePipelineStages.filter(isPipelineStageComplete).length;
   const pipelineTotalCount = visiblePipelineStages.length;
   const pipelineProgressPercent = pipelineTotalCount > 0
     ? Math.round((pipelineCompletedCount / pipelineTotalCount) * 100)
-    : 0;
+    : null;
 
   useEffect(() => {
     if (!user?.email) {
@@ -2042,6 +2138,7 @@ export default function Dashboard() {
           setUnreadMessageCount(
             unread
           );
+          setMessagesVerified(true);
 
           const recent =
             conversations
@@ -2105,13 +2202,8 @@ export default function Dashboard() {
             messageError
           );
 
-          setUnreadMessageCount(
-            Number(
-              summary?.counts
-                ?.messages ||
-              0
-            )
-          );
+          // Keep last verified count; do not replace it with zero after an API failure.
+          setMessagesVerified(false);
         }
       };
 
@@ -2134,6 +2226,9 @@ export default function Dashboard() {
       "new_message",
       handleMessage
     );
+    const messagesInterval = window.setInterval(handleMessage, 60000);
+    const messagesOnFocus = () => { if (document.visibilityState === "visible") handleMessage(); };
+    document.addEventListener("visibilitychange", messagesOnFocus);
 
     window.addEventListener(
       "messaging-updated",
@@ -2150,6 +2245,8 @@ export default function Dashboard() {
         window.clearTimeout(fallbackTimerId);
       }
 
+      window.clearInterval(messagesInterval);
+      document.removeEventListener("visibilitychange", messagesOnFocus);
       websocket.off(
         "new_message",
         handleMessage
@@ -2280,24 +2377,30 @@ export default function Dashboard() {
       stage => stage?.stage_name === "Receipt Submission"
     ) || null;
 
-  const stageCanOpen = stage =>
-    Boolean(
-      stage &&
-      (
-        isPipelineStageComplete(stage) ||
-        stage.unlocked === true ||
-        stage.is_unlocked === true ||
-        stage.trigger_unlocked === true ||
-        stage.source_trigger_unlocked === true ||
-        String(stage.status || "").trim().toLowerCase() === "in progress"
-      )
-    );
+  const isGateSatisfied = stage => Boolean(stage && (
+    isPipelineStageComplete(stage) ||
+    stage.source_trigger_unlocked === true || stage.trigger_unlocked === true ||
+    stage.crm_unlocked === true || stage.recruit_unlocked === true ||
+    stage.portal_unlocked === true || stage.nclex_unlocked === true ||
+    stage.aftercare_unlocked === true || stage.gate_satisfied === true ||
+    stage.unlocked === true || stage.is_unlocked === true ||
+    String(stage.status || "").toLowerCase() === "in progress"
+  ));
+  const stageCanOpen = target => {
+    if (!target || target.access_locked === true) return false;
+    if (isGateSatisfied(target)) return true;
+    const stages = [...visiblePipelineStages]
+      .filter(stage => stage?.is_gate !== true && stage?.hidden_from_main_flow !== true)
+      .sort((a, b) => Number(a.stage_order || 0) - Number(b.stage_order || 0));
+    const index = stages.findIndex(stage => stage.stage_name === target.stage_name);
+    if (index < 0) return false;
+    if (index === 0) return true;
+    if (isPipelineStageComplete(stages[index - 1])) return true;
+    return stages.some((stage, i) => i >= index && isGateSatisfied(stage));
+  };
 
-  const welcomePacketAvailable =
-    stageCanOpen(welcomeStage);
-
-  const expenseReportAvailable =
-    stageCanOpen(expenseStage);
+  const welcomePacketAvailable = stageCanOpen(welcomeStage);
+  const expenseReportAvailable = stageCanOpen(expenseStage);
 
   const notifications =
     [
@@ -2492,7 +2595,7 @@ export default function Dashboard() {
     {
       path: "/documents",
       label: "Documents",
-      sublabel: `${documentCount} document${documentCount === 1 ? "" : "s"}`,
+      sublabel: documentCount == null ? "Loading documents…" : `${documentCount} document${documentCount === 1 ? "" : "s"}`,
       icon: "image:docs",
       color: "bg-[#E0F2FE] text-[#0369A1]",
       accent: "hover:border-[#38BDF8] hover:bg-[#F0F9FF]"
@@ -2508,7 +2611,7 @@ export default function Dashboard() {
     {
       path: "/messages",
       label: "Messages",
-      sublabel: `${unreadMessageCount} unread`,
+      sublabel: messagesVerified ? `${unreadMessageCount} unread` : "Checking messages…",
       icon: "image:mess",
       color: "bg-[#FCE7F3] text-[#BE185D]",
       accent: "hover:border-[#EC4899] hover:bg-[#FFF1F8]",
@@ -2517,7 +2620,7 @@ export default function Dashboard() {
     {
       path: "/updates",
       label: "Updates",
-      sublabel: `${unreadUpdates} unread`,
+      sublabel: unreadUpdates == null ? "Loading updates…" : `${unreadUpdates} unread`,
       icon: BellRing,
       color: "bg-[#FEF3C7] text-[#B45309]",
       accent: "hover:border-[#F59E0B] hover:bg-[#FFFBEB]",
@@ -2528,7 +2631,7 @@ export default function Dashboard() {
       label: "Welcome Packet",
       sublabel: welcomePacketAvailable
         ? (welcomeCompleted ? "Acknowledged · open again" : "Available now")
-        : "Available at Welcome Packet stage",
+        : pipelineTotalCount === 0 ? "Checking Pipeline access…" : "Available at Welcome Packet stage",
       icon: "image:itinerary",
       color: "bg-[#EDE9FE] text-[#6D28D9]",
       accent: welcomePacketAvailable
@@ -2541,7 +2644,7 @@ export default function Dashboard() {
       label: "Expense Report",
       sublabel: expenseReportAvailable
         ? (isPipelineStageComplete(expenseStage) ? "Submitted · open again" : "Available now")
-        : "Available at Receipt Submission stage",
+        : pipelineTotalCount === 0 ? "Checking Pipeline access…" : "Available at Receipt Submission stage",
       icon: Receipt,
       color: "bg-[#FFF1F2] text-[#BE123C]",
       accent: expenseReportAvailable
@@ -2715,6 +2818,13 @@ export default function Dashboard() {
           </Button>
         </div>
 
+        {!activeStage && (
+          <div className="w-full rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground lg:w-[320px] lg:flex-shrink-0">
+            <p className="flex items-center gap-2"><Timer className="h-4 w-4" /> Countdown pending — current stage not verified.</p>
+            <p className="mt-2 text-xs">{pipelineLoadStatus === "unavailable" ? "Pipeline service is temporarily unavailable." : "Checking saved Pipeline stages…"}</p>
+            <button type="button" onClick={() => setPipelineRefreshKey(key => key + 1)} className="mt-2 font-medium text-primary underline">Retry stage data</button>
+          </div>
+        )}
         {activeStage && (
           <div className="w-full rounded-xl border border-border bg-card p-4 shadow-sm backdrop-blur-sm lg:w-[320px] lg:flex-shrink-0">
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground" style={{ color: "#8B0764" }}>
@@ -2732,6 +2842,12 @@ export default function Dashboard() {
                 null
               }
             />
+            {!activeDeadline && (
+              <p className="mt-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                <Timer className="h-4 w-4" />
+                Countdown pending — awaiting the stage deadline from My Pipeline / CRM.
+              </p>
+            )}
 
             {activeStage.timing_rule && (
               <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
@@ -2846,7 +2962,7 @@ export default function Dashboard() {
           </div>
 
           <span className="text-sm font-semibold text-primary">
-            {pipelineCompletedCount} / {pipelineTotalCount} stages
+            {pipelineTotalCount ? `${pipelineCompletedCount} / ${pipelineTotalCount} stages` : "Stage data pending"}
           </span>
         </div>
 
@@ -2856,7 +2972,7 @@ export default function Dashboard() {
               className="h-full rounded-full bg-gradient-to-r from-blue-500 via-purple-500 to-emerald-500 transition-all duration-700"
               style={{
                 width:
-                  `${pipelineProgressPercent}%`
+                  `${pipelineProgressPercent ?? 0}%`
               }}
             />
           </div>
@@ -2865,7 +2981,7 @@ export default function Dashboard() {
             aria-label="Your current pipeline progress"
             className="pointer-events-none absolute -translate-x-1/2 select-none transition-all duration-700 ease-out"
             style={{
-              left: `${pipelineProgressPercent}%`,
+              left: `${pipelineProgressPercent ?? 0}%`,
               bottom: "calc(100% - 6px)",
               filter: "drop-shadow(0 3px 4px rgba(0,0,0,0.25))"
             }}
@@ -2890,9 +3006,15 @@ export default function Dashboard() {
 
         <div className="relative z-10 mt-2 flex max-w-[72%] justify-between text-xs text-muted-foreground">
           <span>
-            {pipelineProgressPercent}% complete
+            {pipelineProgressPercent === null ? "Pipeline not verified" : `${pipelineProgressPercent}% complete`}
           </span>
 
+          {pipelineProgressPercent === null && (
+            <button type="button" onClick={() => setPipelineRefreshKey(key => key + 1)}
+              className="font-medium text-primary underline">
+              Retry pipeline
+            </button>
+          )}
           <Link
             to="/pipeline"
             className="font-medium text-primary hover:underline"
@@ -2990,14 +3112,14 @@ export default function Dashboard() {
             <div className="flex items-center gap-2 text-sm">
               <CheckCircle2 className="h-5 w-5 text-emerald-600" />
               <span>
-                {approvedDocs} in library
+                {approvedDocs ?? "—"} in library
               </span>
             </div>
 
             <div className="flex items-center gap-2 text-sm">
               <Clock className="h-5 w-5 text-amber-500" />
               <span>
-                {pendingDocs} awaiting approval
+                {pendingDocs ?? "—"} awaiting approval
               </span>
             </div>
           </div>
@@ -3008,7 +3130,7 @@ export default function Dashboard() {
             </p>
           ) : (
             <div className="mt-4 space-y-2">
-              {docs.map(
+              {documentPreview.map(
                 doc => (
                   <div
                     key={

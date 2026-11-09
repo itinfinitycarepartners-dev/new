@@ -2313,10 +2313,10 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                 <div className="rounded-xl border bg-white p-2">
                   <div className="mb-2 flex items-center justify-between rounded-lg border border-purple-100 bg-purple-50 px-3 py-2 print:hidden">
                     <span className="text-sm font-semibold text-purple-900">Candidate Welcome Packet</span>
-                    <span className="text-xs text-purple-700">Print pages: 1 Cover image · 2 Welcome message · 3 Facility · 4 Licensure.</span>
+                    <span className="text-xs text-purple-700">Print layout: cover on page 1; remaining sections flow across pages.</span>
                   </div>
                   <WelcomePacketView
-                    key={`welcome-packet-${String(user?.email || "candidate").trim().toLowerCase()}`}
+                    key={`welcome-packet-${String(user?.email || "candidate").trim().toLowerCase()}-${String(adminSummary?.profile?.Account_Name?.id || adminSummary?.profile?.deal_id || "current")}`}
                     user={{
                       ...(user || {}),
                       email:user?.email,

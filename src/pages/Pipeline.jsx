@@ -6464,7 +6464,43 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   const [facilityVerified, setFacilityVerified] = useState(false);
   const [facilityError, setFacilityError] = useState("");
   const [navigatorLoading, setNavigatorLoading] = useState(false);
-  const verifiedNavigatorFastLinks = { "forsyth|georgia":"https://linktr.ee/ICPForsythGA", "chattanooga|tennessee":"https://linktr.ee/ICPChattanoogaTN" };
+  const verifiedNavigatorFastLinks = { "forsyth|georgia":"https://linktr.ee/ICPForsythGA", "chattanooga|tennessee":"https://linktr.ee/ICPChattanoogaTN", "little rock|arkansas":"https://linktr.ee/ICPLittleRockAR" };
+  const verifiedNavigatorStateLinks = {
+    "alabama": "https://linktr.ee/ICPAlabama",
+    "alaska": "https://linktr.ee/ICPAlaska",
+    "arizona": "https://linktr.ee/ICPArizona",
+    "arkansas": "https://linktr.ee/ICPArkansas",
+    "california": "https://linktr.ee/ICPCalifornia",
+    "colorado": "https://linktr.ee/ICPColorado",
+    "connecticut": "https://linktr.ee/ICPConnecticut",
+    "delaware": "https://linktr.ee/ICPDeleware",
+    "florida": "https://linktr.ee/ICPFlorida",
+    "georgia": "https://linktr.ee/ICPGeorgia",
+    "idaho": "https://linktr.ee/ICPIdaho",
+    "illinois": "https://linktr.ee/ICPIllinois",
+    "indiana": "https://linktr.ee/ICPIndiana",
+    "iowa": "https://linktr.ee/ICPIowa",
+    "kansas": "https://linktr.ee/ICPKansas",
+    "kentucky": "https://linktr.ee/ICPKentucky",
+    "louisiana": "https://linktr.ee/ICPLouisiana",
+    "maine": "https://linktr.ee/ICPMaine",
+    "massachusetts": "https://linktr.ee/ICPMassachusetts",
+    "mississippi": "https://linktr.ee/ICPMississippi",
+    "missouri": "https://linktr.ee/ICPMissouri",
+    "nevada": "https://linktr.ee/ICPNevada",
+    "newhampshire": "https://linktr.ee/ICPNewHampshire",
+    "newmexico": "https://linktr.ee/ICPNewMexico",
+    "northcarolina": "https://linktr.ee/ICPNorthCarolina",
+    "rhodeisland": "https://linktr.ee/ICPRhodeIsland",
+    "southcarolina": "https://linktr.ee/ICPSouthCarolina",
+    "tennessee": "https://linktr.ee/ICPTennessee",
+    "texas": "https://linktr.ee/ICPTexas",
+    "virginia": "https://linktr.ee/ICPVirginia",
+    "washington": "https://linktr.ee/ICPWashington",
+    "westvirginia": "https://linktr.ee/ICPWestVirginia",
+    "wisconsin": "https://linktr.ee/ICPWisconsin",
+    "wyoming": "https://linktr.ee/ICPWyoming"
+  };
   const authoritativeLicensureRef = useRef(null);
   const [licensureLiveError, setLicensureLiveError] = useState("");
   const [bankLookupReason, setBankLookupReason] = useState("checking");
@@ -6916,12 +6952,17 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       }));
       return () => controller.abort();
     }
-    // Keep an already-verified guide for the same city during revalidation.
+    // Show a verified state-directory link immediately instead of an empty result
+    // while looking for a city-specific page. Never invent a city URL.
+    const stateDirectory = verifiedNavigatorStateLinks[bankStateKey(state)] || null;
+    const stateFallback = stateDirectory ? { city, state, url:stateDirectory,
+      match:"state", label:`Browse ${state} cities` } : null;
     setPacket(current => {
       const old = current.destinationGuide;
-      return old?.match === "city" && bankCityKey(old.city) === bankCityKey(city) &&
-        bankStateKey(old.state) === bankStateKey(state)
-        ? current : {...current,destinationGuide:null};
+      const same = bankCityKey(old?.city) === bankCityKey(city) &&
+        bankStateKey(old?.state) === bankStateKey(state);
+      if (same && old?.match === "city") return current;
+      return {...current,destinationGuide:stateFallback};
     });
     setNavigatorLoading(true);
     const token = adminMode ? adminToken : localStorage.getItem("icp_auth_token");
@@ -6938,7 +6979,8 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         // Never attach a Guide to a different, newer employer location.
         if(bankCityKey(current.employerCity)!==bankCityKey(city) ||
            bankStateKey(current.employerState)!==bankStateKey(state)) return current;
-        return {...current,destinationGuide:data?.guide?.url?data.guide:null};
+        // A backend error must not erase a verified state directory link.
+        return {...current,destinationGuide:data?.guide?.url?data.guide:stateFallback};
       });
     }).catch(()=>{}).finally(()=>{
       window.clearTimeout(timer);
@@ -6980,7 +7022,8 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
               current.destination ||
               destination,
             bank:
-              null, // bank only comes from the independently verified employer-location endpoint
+              current.bank || null, // preserve the independent CRM Banking_Vendors result;
+              // only a verified employer-location change may invalidate it
             // Preserve the previously working SSA result unless the backend
             // returns a complete replacement office. Bank/licensure failures
             // can never wipe out SSA.
@@ -7075,14 +7118,16 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     // Banking endpoint independently resolves the current Deal -> Account location.
     let cancelled = false;
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 37000);
+    const timer = window.setTimeout(() => controller.abort(), 22000);
     const fetchEmployerBank = async () => {
-      setLocationServices(current => ({...current,bank:null}));
+      setLocationServices(current => ({...current,bank: current.bank?.name && bankCityKey(current.bank.city)===bankCityKey(packet.employerCity) && bankStateKey(current.bank.state)===bankStateKey(packet.employerState) ? current.bank : null}));
       setBankLookupReason("checking");
       try {
         const token = adminMode ? adminToken : localStorage.getItem("icp_auth_token");
         if (!token) return;
-        const response = await fetch((adminMode ? `${API_BASE}/api/admin/welcome-packet/banking-vendor?email=${encodeURIComponent(user?.email || "")}&expectedCity=${encodeURIComponent(packet.employerCity||"")}&expectedState=${encodeURIComponent(packet.employerState||"")}` : `${API_BASE}/api/welcome-packet/banking-vendor?expectedCity=${encodeURIComponent(packet.employerCity||"")}&expectedState=${encodeURIComponent(packet.employerState||"")}`), {
+        // The admin route and candidate route both call icpBankForCandidateEmail
+        // server-side; admin authorization must remain AdminBearer.
+        const response = await fetch((adminMode ? `${API_BASE}/api/admin/welcome-packet/banking-vendor?email=${encodeURIComponent(user?.email || "")}&expectedCity=${encodeURIComponent(packet.employerCity||"")}&expectedState=${encodeURIComponent(packet.employerState||"")}${adminMode && welcomePacketRefreshSeq > 0 ? "&refresh=1" : ""}` : `${API_BASE}/api/welcome-packet/banking-vendor?expectedCity=${encodeURIComponent(packet.employerCity||"")}&expectedState=${encodeURIComponent(packet.employerState||"")}${adminMode && welcomePacketRefreshSeq > 0 ? "&refresh=1" : ""}`), {
           cache:"no-store",
           signal:controller.signal,
           headers:{
@@ -7096,22 +7141,40 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         if (!response.ok || !result.success) throw new Error(result.error || "Bank lookup failed");
         // Retry one transient/incomplete CRM lookup after a facility change.
         // Never retry a confirmed no-match or permission error indefinitely.
-        if (["lookup-incomplete","crm-lookup-failed","lookup-timeout","lookup-busy","facility-location-mismatch"].includes(result.reason)) {
+        if (["facility-location-mismatch"].includes(result.reason)) {
           await new Promise(resolve => window.setTimeout(resolve, 1200));
           if (cancelled || controller.signal.aborted) return;
           const retryUrl = (adminMode
-            ? `${API_BASE}/api/admin/welcome-packet/banking-vendor?email=${encodeURIComponent(user?.email || "")}&expectedCity=${encodeURIComponent(packet.employerCity||"")}&expectedState=${encodeURIComponent(packet.employerState||"")}`
-            : `${API_BASE}/api/welcome-packet/banking-vendor?expectedCity=${encodeURIComponent(packet.employerCity||"")}&expectedState=${encodeURIComponent(packet.employerState||"")}`);
+            ? `${API_BASE}/api/admin/welcome-packet/banking-vendor?email=${encodeURIComponent(user?.email || "")}&expectedCity=${encodeURIComponent(packet.employerCity||"")}&expectedState=${encodeURIComponent(packet.employerState||"")}${adminMode && welcomePacketRefreshSeq > 0 ? "&refresh=1" : ""}`
+            : `${API_BASE}/api/welcome-packet/banking-vendor?expectedCity=${encodeURIComponent(packet.employerCity||"")}&expectedState=${encodeURIComponent(packet.employerState||"")}${adminMode && welcomePacketRefreshSeq > 0 ? "&refresh=1" : ""}`);
           const again = await fetch(retryUrl, {cache:"no-store",signal:controller.signal,headers:{
             Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`,
             ...(adminMode ? {"x-candidate-email":user?.email || ""} : {}),Accept:"application/json"
           }});
           if (again.ok) result = await again.json().catch(() => result);
         }
-        setLocationServices(current => ({...current,bank:result.bank?.name &&
-          bankCityKey(result.bank.city)===bankCityKey(packet.employerCity) &&
-          bankStateKey(result.bank.state)===bankStateKey(packet.employerState)
-          ? result.bank : null}));
+        if (result.bank?.name && bankCityKey(result.bank.city)===bankCityKey(packet.employerCity) &&
+            bankStateKey(result.bank.state)===bankStateKey(packet.employerState)) {
+          try {
+            sessionStorage.setItem(`icp_verified_vendor_v84:${bankCityKey(packet.employerCity)}:${bankStateKey(packet.employerState)}`,
+              JSON.stringify({savedAt:Date.now(),bank:result.bank}));
+          } catch {}
+        }
+        setLocationServices(current => {
+          const matching = bank => bank?.name &&
+            bankCityKey(bank.city)===bankCityKey(packet.employerCity) &&
+            bankStateKey(bank.state)===bankStateKey(packet.employerState);
+          const transient = ["lookup-timeout","lookup-incomplete","crm-lookup-failed","lookup-busy"].includes(result.reason);
+          let verifiedSaved = null;
+          if (transient) {
+            try {
+              const saved = JSON.parse(sessionStorage.getItem(`icp_verified_vendor_v84:${bankCityKey(packet.employerCity)}:${bankStateKey(packet.employerState)}`) || "null");
+              if (saved?.savedAt && Date.now()-saved.savedAt < 5*60*1000 && matching(saved.bank)) verifiedSaved = saved.bank;
+            } catch {}
+          }
+          return {...current,bank:matching(result.bank) ? result.bank :
+            (transient && matching(current.bank) ? current.bank : verifiedSaved)};
+        });
         setBankLookupReason(String(result.reason || "vendor-no-match"));
         setBankLookupLocation([result.city, result.state].filter(Boolean).join(", "));
       } catch (error) {
@@ -7125,7 +7188,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     };
     void fetchEmployerBank();
     return () => { cancelled = true; controller.abort(); window.clearTimeout(timer); };
-  }, [isLocalBankPlan,facilityVerified,packet.employerCity,packet.employerState,user?.email,adminMode,adminToken]);
+  }, [isLocalBankPlan,facilityVerified,packet.employerCity,packet.employerState,user?.email,adminMode,adminToken,welcomePacketRefreshSeq]);
 
   useEffect(() => {
     let cancelled = false;
@@ -8081,8 +8144,19 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       const printDoc = frame.contentDocument;
       const packetCopy = root.cloneNode(true);
       packetCopy.removeAttribute("id");
+      // v85: The cloned component contains a @media print stylesheet for the
+      // live admin modal. It conflicts with this isolated iframe print layout.
+      packetCopy.querySelectorAll("style").forEach(node => node.remove());
       // The printed PDF is a clean, static document: no clickable links,
       // trailing link URLs, external-link icons or generated timestamps.
+      // Strip the portal/site hyperlink from printed packet only; interactive
+      // bank and nursing-board links remain available on screen.
+      packetCopy.querySelectorAll('a[href]').forEach(link => {
+        const href=String(link.getAttribute('href')||'');
+        if (/portal\.infinitycarepartners\.com|icpcandidateportal.*azurewebsites\.net|localhost(?::\d+)?\/(?:login)?/i.test(href)) {
+          link.remove();
+        }
+      });
       packetCopy.querySelectorAll("a").forEach(link => {
         const label = printDoc.createElement("span");
         label.className = link.className || "";
@@ -8099,65 +8173,53 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       });
 
       const styles = [...document.querySelectorAll('link[rel="stylesheet"], style')]
-        .filter(element => !root.contains(element))
+        .filter(element => !root.contains(element) && element.tagName.toLowerCase() === "link")
         .map(element => element.outerHTML)
         .join("\n");
       const extraPrintStyles = `
-        @page { size: A4; margin: 10mm; }
-        html, body { display:block!important; overflow:visible!important;
-          height:auto!important; width:auto!important; margin:0!important;
-          padding:0!important; background:white!important; color:#111!important; }
+        @page { size: A4 portrait; margin: 12mm; }
+        html,body { display:block!important; height:auto!important; overflow:visible!important; margin:0!important; padding:0!important; background:#fff!important; color:#111!important; }
         body { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-        .welcome-packet-print-copy { display:block!important; width:100%!important;
-          max-width:none!important; overflow:visible!important; padding:0!important;
-          margin:0!important; height:auto!important; }
-        .welcome-packet-print-copy > section {
-          margin-top:0!important; margin-bottom:0!important;
-          break-inside:auto; page-break-inside:auto;
-          overflow:visible!important;
-        }
-        /* Explicit booklet order (same for Admin and candidate print):
-           1 cover, 2 welcome message, 3 facility, 4 licensure. */
-        #welcome-packet-welcome-page,
-        #welcome-packet-facility-page,
-        #welcome-packet-licensure-page,
-        #welcome-packet-housing-page,
-        #welcome-packet-social-security-page {
-          break-before:page!important;
-          page-break-before:always!important;
-          break-inside:avoid-page!important;
-          page-break-inside:avoid!important;
-          min-height:0!important;
-        }
-        .welcome-packet-print-copy img { max-width:100%!important; height:auto!important; }
-        #welcome-packet-cover-page {
-          display:flex!important; align-items:center!important; justify-content:center!important;
-          width:100%!important; height:260mm!important; min-height:260mm!important;
-          max-height:260mm!important; margin:0!important; padding:0!important;
-          overflow:hidden!important; border:0!important; box-shadow:none!important;
-          break-after:auto!important; page-break-after:auto!important;
+        .welcome-packet-print-copy { display:block!important; max-width:none!important; height:auto!important; overflow:visible!important; margin:0!important; padding:0!important; }
+        .welcome-packet-print-copy > * { margin-top:0!important; }
+        .welcome-packet-print-copy #welcome-packet-welcome-page { break-before:auto!important; page-break-before:auto!important; }
+        /* Cover is the only section requiring an explicit page boundary. */
+        .welcome-packet-print-copy #welcome-packet-cover-page {
+          display:flex!important; justify-content:center!important; align-items:center!important;
+          height:240mm!important; min-height:0!important; max-height:240mm!important;
+          width:100%!important; margin:0!important; padding:0!important;
+          border:0!important; box-shadow:none!important; overflow:hidden!important;
+          break-before:auto!important; page-break-before:auto!important;
+          break-after:page!important; page-break-after:auto!important;
           break-inside:avoid!important; page-break-inside:avoid!important;
         }
-        #welcome-packet-cover-page img {
-          display:block!important; object-fit:contain!important;
-          width:100%!important; max-height:250mm!important; height:auto!important;
+        .welcome-packet-print-copy #welcome-packet-cover-page img {
+          display:block!important; width:100%!important; height:auto!important;
+          max-height:232mm!important; object-fit:contain!important;
         }
-        #welcome-packet-social-security-page {
-          /* This is the last content section; no trailing blank page. */
-          break-after:auto!important;
-          page-break-after:auto!important;
+        /* Remaining content flows naturally; no artificial page-per-section layout. */
+        .welcome-packet-print-copy section:not(#welcome-packet-cover-page) {
+          break-before:auto!important; page-break-before:auto!important;
+          break-after:auto!important; page-break-after:auto!important;
+          break-inside:auto!important; page-break-inside:auto!important;
+          overflow:visible!important; min-height:0!important;
+          margin-top:0!important; margin-bottom:4mm!important;
         }
-        .welcome-packet-print-copy section:not(#welcome-packet-cover-page):not(#welcome-packet-welcome-page):not(#welcome-packet-facility-page):not(#welcome-packet-licensure-page):not(#welcome-packet-housing-page):not(#welcome-packet-social-security-page) {
-          break-before:auto; page-break-before:auto;
+        .welcome-packet-print-copy h1,.welcome-packet-print-copy h2,
+        .welcome-packet-print-copy h3,.welcome-packet-print-copy h4 {
+          break-after:avoid-page!important; page-break-after:avoid!important;
         }
-        .welcome-packet-print-copy a { overflow-wrap:anywhere; }
-        .welcome-packet-print-copy a::after,
-        .welcome-packet-print-copy a::before { content:none!important; }
-        .welcome-packet-print-copy [data-welcome-print-timestamp="true"],
-        .welcome-packet-print-copy time { display:none!important; }
+        .welcome-packet-print-copy tr,.welcome-packet-print-copy li,
+        .welcome-packet-print-copy img:not(#welcome-packet-cover-page img) {
+          break-inside:avoid-page!important; page-break-inside:avoid!important;
+        }
+        .welcome-packet-print-copy thead { display:table-header-group!important; }
         .welcome-packet-print-copy [class*="overflow-"] { overflow:visible!important; }
         .welcome-packet-print-copy [class*="max-h-"] { max-height:none!important; }
-        .print\:hidden, [data-welcome-no-print="true"] { display:none!important; }
+        .welcome-packet-print-copy img { max-width:100%!important; }
+        .welcome-packet-print-copy a::before,.welcome-packet-print-copy a::after { content:none!important; }
+        .welcome-packet-print-copy [data-welcome-print-timestamp="true"],
+        .welcome-packet-print-copy time,.print\:hidden,[data-welcome-no-print="true"] { display:none!important; }
       `;
       printDoc.open();
       printDoc.write(`<!doctype html><html><head><meta charset="utf-8" />
@@ -8427,7 +8489,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         <InfoRow label="Employer Name" value={packet.employerName} />
         <InfoRow label="Address" value={packet.employerAddress} />
         <InfoRow label="Phone" value={packet.employerPhone} />
-        <InfoRow label="Website" value={packet.employerWebsite} />
+        {/* Employer website/site link intentionally omitted from Welcome Packet. */}
         {normalizePacketValue(packet.facilityAdministrator) && <InfoRow label="Facility Administrator" value={packet.facilityAdministrator} />}
         {normalizePacketValue(packet.facilityAdministratorEmail) && <InfoRow label="Facility Administrator Email" value={packet.facilityAdministratorEmail} />}
         {normalizePacketValue(packet.clinicalManager) && <InfoRow label="Clinical Manager" value={packet.clinicalManager} />}
@@ -8614,7 +8676,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
                  bankLookupReason === "facility-location-mismatch" ? "Facility location changed. Refreshing the correct bank; an old location will not be shown." :
                  bankLookupReason === "deal-account-lookup-missing" ? "The candidate Deal has no linked hospital Account." :
                  bankLookupReason === "crm-module-error" ? "Banking_Vendors cannot be read. Check the Zoho CRM module API name and permissions." :
-                 ["lookup-timeout", "lookup-incomplete", "crm-lookup-failed"].includes(bankLookupReason) ? "Bank lookup could not finish. Please retry; this is not a confirmed absence of banks." :
+                 ["lookup-timeout", "lookup-incomplete", "crm-lookup-failed"].includes(bankLookupReason) ? "CRM banking lookup is temporarily unavailable. Use Refresh CRM Data to retry; no bank absence is confirmed." :
                  `No Banking_Vendors record matched ${bankLookupLocation || "the employer city and state"}.`}
               </p>
             )}
@@ -12782,6 +12844,15 @@ export const ReimbursementExpensesView = ({
       const copy = root.cloneNode(true);
       copy.querySelectorAll('[data-expense-no-print="true"]').forEach(node => node.remove());
       copy.querySelectorAll('button').forEach(node => node.remove());
+      copy.querySelectorAll('a[href]').forEach(link => {
+        const href=String(link.getAttribute('href')||'');
+        if (/portal\.infinitycarepartners\.com|icpcandidateportal.*azurewebsites\.net|localhost(?::\d+)?\/(?:login)?/i.test(href)) {
+          link.remove(); return;
+        }
+        const text=printDoc.createElement('span');
+        text.textContent=link.textContent||'';
+        link.replaceWith(text);
+      });
       copy.querySelectorAll('input, textarea').forEach(node => {
         const value = node.value || node.getAttribute('value') || '';
         const span = printDoc.createElement('div');
@@ -12811,16 +12882,34 @@ export const ReimbursementExpensesView = ({
         ${styles}
         <style>
           body { margin:0; padding:24px; background:#fff; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-          .expense-report-print-copy { display:block; width:100%; position:relative; isolation:isolate; }
-          .expense-report-print-copy::before { content:"INFINITY CARE PARTNERS"; position:fixed; top:45%; left:12%; transform:rotate(-32deg); font-size:48px; font-weight:800; letter-spacing:4px; color:rgba(107,33,168,.075); pointer-events:none; z-index:-1; white-space:nowrap; }
+          /* position:fixed is reproduced on every printed page in Chromium. */
+          .icp-expense-watermark { position:fixed!important; inset:0!important; display:flex!important;
+            align-items:center!important; justify-content:center!important; z-index:9999!important;
+            pointer-events:none!important; opacity:.10!important; overflow:hidden!important; }
+          .icp-expense-watermark span { display:block; transform:rotate(-32deg);
+            font-size:43px!important; font-weight:800!important; letter-spacing:3px;
+            white-space:nowrap; color:#6b21a8!important; }
+          .expense-report-print-copy { display:block; width:100%; position:relative; z-index:1;
+            background:transparent!important; }
           .expense-report-print-copy [class*="overflow-"] { overflow:visible !important; }
           .expense-report-print-copy [class*="max-h-"] { max-height:none !important; }
-          .expense-report-print-copy table { width:100%; border-collapse:collapse; }
-          .expense-report-print-copy th, .expense-report-print-copy td { vertical-align:top; }
+          .expense-report-print-copy table { width:100%!important; border-collapse:collapse!important;
+            table-layout:fixed; break-inside:auto!important; page-break-inside:auto!important; }
+          .expense-report-print-copy thead { display:table-header-group!important; }
+          .expense-report-print-copy tfoot { display:table-row-group!important; }
+          .expense-report-print-copy tr { break-inside:avoid!important; page-break-inside:avoid!important; }
+          .expense-report-print-copy th, .expense-report-print-copy td { vertical-align:top;
+            overflow-wrap:anywhere; }
+          .expense-report-print-copy h1,.expense-report-print-copy h2,.expense-report-print-copy h3,
+          .expense-report-print-copy h4 { break-after:avoid-page!important; page-break-after:avoid!important; }
+          .expense-report-print-copy > div { break-inside:auto!important; }
+          .expense-report-print-copy .grid > div { break-inside:avoid-page!important; }
           .expense-report-print-copy a { color:inherit; text-decoration:none; }
-          @page { size:auto; margin:12mm; }
+          @page { size:A4; margin:15mm 12mm 17mm; }
+          @media print { html,body { height:auto!important; overflow:visible!important; }
+            body { padding:0!important; } }
         </style>
-      </head><body><main class="expense-report-print-copy">${copy.innerHTML}</main></body></html>`);
+      </head><body><div class="icp-expense-watermark" aria-hidden="true"><span>INFINITY CARE PARTNERS</span></div><main class="expense-report-print-copy">${copy.innerHTML}</main></body></html>`);
       printDoc.close();
 
       const cleanup = () => {
