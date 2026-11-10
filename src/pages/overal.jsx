@@ -4101,7 +4101,7 @@ const AdminRequestsPanel = ({ onOpenUser, notificationTarget = null, onReturnToN
 
   useEffect(() => {
     load();
-    const interval = setInterval(load, 10000);
+    const interval = setInterval(() => { if (document.visibilityState === "visible") load(); }, 120000);
     return () => clearInterval(interval);
   }, [load]);
 
@@ -5418,7 +5418,7 @@ const LoginApprovalsPanel = () => {
 
     const interval = window.setInterval(() => {
       if (document.visibilityState === "visible") load({ silent: true });
-    }, 10000);
+    }, 120000);
 
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") load({ silent: true });
@@ -5792,7 +5792,7 @@ const useAdminNotifications = () => {
     mounted.current = true;
     refresh();
     const onUpdate = () => { if (document.visibilityState === 'visible') refresh(); };
-    const timer = window.setInterval(onUpdate, 30000);
+    const timer = window.setInterval(onUpdate, 120000);
     window.addEventListener('admin-data-updated', onUpdate);
     document.addEventListener('visibilitychange', onUpdate);
     return () => {
@@ -6375,7 +6375,7 @@ const AdminPanel = () => {
       }
     };
     void checkConnectivity();
-    const timer = window.setInterval(checkConnectivity, 20000);
+    const timer = window.setInterval(checkConnectivity, 60000);
     return () => { active = false; window.clearInterval(timer); };
   }, []);
 

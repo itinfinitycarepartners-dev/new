@@ -1646,6 +1646,7 @@ export default function Dashboard() {
     window.addEventListener("documents-updated", eventRefresh);
     window.addEventListener("updates-read", eventRefresh);
     window.addEventListener("candidate-data-updated", eventRefresh);
+    window.addEventListener("crm-recruit-updated", eventRefresh);
     return () => {
       stopped = true;
       window.clearInterval(refreshTimer);
@@ -1654,6 +1655,7 @@ export default function Dashboard() {
       window.removeEventListener("documents-updated", eventRefresh);
       window.removeEventListener("updates-read", eventRefresh);
       window.removeEventListener("candidate-data-updated", eventRefresh);
+      window.removeEventListener("crm-recruit-updated", eventRefresh);
     };
   }, [user?.email, pipelineRefreshKey]);
 
