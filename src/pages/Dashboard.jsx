@@ -55,7 +55,7 @@ import itineraryImage from "../components/itinerary.png";
 import moment from "moment";
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
-import { WelcomePacketView, ReimbursementExpensesView } from "./Pipeline";
+import { WelcomePacketView, ReimbursementExpensesView, isStageUnlocked } from "./Pipeline";
 
 // ─── IMPORT FROM src/api/icpClient.js ──────────────────────────────────────
 import { messaging, websocket, tokenStorage } from "@/api/icpClient";
@@ -1424,9 +1424,8 @@ export default function Dashboard() {
   const closeDirectPortalModal = () => setDirectPortalModal(null);
 
   const refreshAfterDirectPortalAction = () => {
-    try {
-      refetch?.();
-    } catch {}
+    try { refetch?.(); } catch {}
+    window.dispatchEvent(new CustomEvent("pipeline-updated", {detail:{email:user?.email}}));
   };
 
   const [
@@ -1452,7 +1451,13 @@ export default function Dashboard() {
         ? saved.data : null;
     } catch { return null; }
   });
-  const [pipelineLoadStatus, setPipelineLoadStatus] = useState("checking");
+  const [pipelineLoadStatus, setPipelineLoadStatus] = useState(() => {
+    try {
+      const email = String(user?.email || '').trim().toLowerCase();
+      const saved = JSON.parse(sessionStorage.getItem(`icp_verified_pipeline_v84:${email}`) || 'null');
+      return saved?.at && Date.now() - saved.at < 60_000 && Array.isArray(saved?.data?.stages) && saved.data.stages.length ? 'verified' : 'checking';
+    } catch { return 'checking'; }
+  });
   const [pipelineRefreshKey, setPipelineRefreshKey] = useState(0);
   const [liveCountsError, setLiveCountsError] = useState(false);
   const [messagesVerified, setMessagesVerified] = useState(false);
@@ -1480,7 +1485,7 @@ export default function Dashboard() {
     gcTime:
       60 * 60 * 1000,
     refetchInterval:
-      60 * 1000,
+      5 * 60 * 1000,
     initialData: () => {
       const cached = readDashboardBrowserCache(user?.email);
       return cached?.data;
@@ -1492,9 +1497,9 @@ export default function Dashboard() {
     refetchIntervalInBackground:
       false,
     refetchOnWindowFocus:
-      true,
+      false,
     refetchOnReconnect:
-      true,
+      false,
     refetchOnMount: true,
     queryFn:
       async () => {
@@ -1537,31 +1542,8 @@ export default function Dashboard() {
 
         writeDashboardBrowserCache(user?.email, payload);
 
-        // Never make the first paint wait for Zoho. The fast snapshot above is
-        // rendered immediately, while the authoritative CRM/Recruit dashboard
-        // quietly replaces it in the React Query cache.
-        if (Date.now() - lastFullDashboardRefreshAt.current >= 5 * 60 * 1000) {
-          lastFullDashboardRefreshAt.current = Date.now();
-        fetch(`${API_BASE}/api/candidate/dashboard-summary`, {
-          signal: AbortSignal.timeout(15000),
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: "application/json",
-            "Cache-Control": "no-cache"
-          },
-          credentials: "include"
-        })
-          .then(async fullResponse => {
-            const fullPayload = await fullResponse.json().catch(() => ({}));
-            if (!fullResponse.ok || fullPayload?.success !== true) return;
-            writeDashboardBrowserCache(user?.email, fullPayload);
-            queryClient.setQueryData(
-              ["dashboard-summary", user?.email],
-              fullPayload
-            );
-          })
-          .catch(() => null);
-        }
+        // v114: Avoid the unbounded extra full-summary call after every cache refresh.
+        // The candidate can trigger an explicit refresh from My Pipeline instead.
 
         return payload;
       }
@@ -1587,7 +1569,7 @@ export default function Dashboard() {
     let stopped = false;
     const requestSequence = ++liveRequestSequence.current;
     const load = async (endpoint, timeoutMs = 12000) => {
-      const token = tokenStorage.get();
+      const token = tokenStorage.get() || localStorage.getItem("icp_auth_token") || localStorage.getItem("token");
       if (!token) throw new Error("Authentication token is missing");
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -1623,16 +1605,15 @@ export default function Dashboard() {
         .catch(() => { if (!stopped) setLiveCountsError(true); });
       const stages = (async () => {
         let lastError;
+        // v113 route is a fast indexed PostgreSQL read, not Zoho synchronization.
+        // Avoid a second expensive request if saved data is already available.
         try {
-          const saved = await load("/api/pipeline/dashboard-snapshot", 4500);
+          const saved = await load("/api/pipeline/dashboard-snapshot", 9000);
           if (Array.isArray(saved.stages) && saved.stages.length) return saved;
           lastError = new Error("No saved Pipeline stages yet");
         } catch (error) { lastError = error; }
-        // Fallback only. It may trigger Recruit, so never block other widgets.
-        try {
-          const full = await load("/api/pipeline/get", 14000);
-          if (Array.isArray(full.stages) && full.stages.length) return full;
-        } catch (error) { lastError = error; }
+        // v114: never initialize or synchronize Pipeline automatically from Dashboard.
+        // My Pipeline remains the explicit initialization/refresh route.
         throw lastError || new Error("Pipeline data unavailable");
       })().then(value => {
         if (stopped || liveRequestSequence.current !== requestSequence) return;
@@ -1643,15 +1624,23 @@ export default function Dashboard() {
           if (email) sessionStorage.setItem(`icp_verified_pipeline_v84:${email}`,
             JSON.stringify({at:Date.now(),data:value}));
         } catch {}
-      }).catch(() => {
-        if (!stopped) setPipelineLoadStatus(previous => previous === "verified" ? previous : "unavailable");
+      }).catch(error => {
+        if (!stopped && liveRequestSequence.current === requestSequence) {
+          console.warn("[Dashboard] v113 pipeline load:", error?.message || error);
+          setPipelineLoadStatus(previous => previous === "verified" ? previous : "unavailable");
+        }
       });
       Promise.allSettled([documents, updates, stages]).finally(() => { liveFetchRunning = false; });
     };
     fetchLive();
-    const refreshTimer = window.setInterval(fetchLive, 60000);
-    const focusRefresh = () => { if (document.visibilityState === "visible") fetchLive(); };
-    const eventRefresh = () => fetchLive();
+    const refreshTimer = window.setInterval(() => { if (document.visibilityState === "visible") fetchLive(); }, 5 * 60 * 1000);
+    let lastEventRefreshAt = Date.now();
+    const eventRefresh = () => {
+      if (document.visibilityState !== "visible" || Date.now() - lastEventRefreshAt < 45000) return;
+      lastEventRefreshAt = Date.now();
+      fetchLive();
+    };
+    const focusRefresh = eventRefresh;
     document.addEventListener("visibilitychange", focusRefresh);
     window.addEventListener("pipeline-updated", eventRefresh);
     window.addEventListener("documents-updated", eventRefresh);
@@ -1714,44 +1703,12 @@ export default function Dashboard() {
       "Transfer to ICP USRN School"
     ]);
 
-  const visiblePipelineStages =
-    baseVisiblePipelineStages
-      .filter(stage =>
-        stage?.stage_name !==
-          "Transfer to ICP USRN School" ||
-        dashboardNclexEligible
-      )
-      .map(stage => {
-      let next =
-        hydrateDashboardDeploymentTiming(
-          stage,
-          profile,
-          baseVisiblePipelineStages
-        );
-
-      if (
-        dashboardNclexEligible &&
-        nclexPrerequisiteNames.has(
-          next?.stage_name
-        )
-      ) {
-        next = {
-          ...next,
-          status:
-            "Completed",
-          completed:
-            true,
-          is_completed:
-            true,
-          completed_date:
-            next.completed_date ||
-            next.completed_at ||
-            new Date().toISOString()
-        };
-      }
-
-      return next;
-    });
+  // v112: Use the exact saved stage status returned by the pipeline backend.
+  // Do not manufacture Completed stages from NCLEX eligibility or recalculate
+  // deployment dates using a second dashboard-only timing configuration.
+  const visiblePipelineStages = baseVisiblePipelineStages.filter(stage =>
+    stage?.stage_name !== "Transfer to ICP USRN School" || dashboardNclexEligible
+  );
 
   const hiddenStageNames = new Set(
     (Array.isArray(pipeline.stages) ? pipeline.stages : [])
@@ -2226,7 +2183,7 @@ export default function Dashboard() {
       "new_message",
       handleMessage
     );
-    const messagesInterval = window.setInterval(handleMessage, 60000);
+    const messagesInterval = window.setInterval(handleMessage, 3 * 60 * 1000);
     const messagesOnFocus = () => { if (document.visibilityState === "visible") handleMessage(); };
     document.addEventListener("visibilitychange", messagesOnFocus);
 
@@ -2377,27 +2334,12 @@ export default function Dashboard() {
       stage => stage?.stage_name === "Receipt Submission"
     ) || null;
 
-  const isGateSatisfied = stage => Boolean(stage && (
-    isPipelineStageComplete(stage) ||
-    stage.source_trigger_unlocked === true || stage.trigger_unlocked === true ||
-    stage.crm_unlocked === true || stage.recruit_unlocked === true ||
-    stage.portal_unlocked === true || stage.nclex_unlocked === true ||
-    stage.aftercare_unlocked === true || stage.gate_satisfied === true ||
-    stage.unlocked === true || stage.is_unlocked === true ||
-    String(stage.status || "").toLowerCase() === "in progress"
-  ));
-  const stageCanOpen = target => {
-    if (!target || target.access_locked === true) return false;
-    if (isGateSatisfied(target)) return true;
-    const stages = [...visiblePipelineStages]
-      .filter(stage => stage?.is_gate !== true && stage?.hidden_from_main_flow !== true)
-      .sort((a, b) => Number(a.stage_order || 0) - Number(b.stage_order || 0));
-    const index = stages.findIndex(stage => stage.stage_name === target.stage_name);
-    if (index < 0) return false;
-    if (index === 0) return true;
-    if (isPipelineStageComplete(stages[index - 1])) return true;
-    return stages.some((stage, i) => i >= index && isGateSatisfied(stage));
-  };
+  // v112: Access policy is shared with My Pipeline, not recreated here.
+  // Never unlock actions from placeholders or a dashboard-only guessed gate.
+  const stageCanOpen = target =>
+    pipelineLoadStatus === "verified" &&
+    !!target &&
+    isStageUnlocked(target, visiblePipelineStages);
 
   const welcomePacketAvailable = stageCanOpen(welcomeStage);
   const expenseReportAvailable = stageCanOpen(expenseStage);

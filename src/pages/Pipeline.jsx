@@ -3062,7 +3062,7 @@ const isAuthoritativePipelineGateSatisfied = stage => {
   );
 };
 
-const isStageUnlocked = (
+export const isStageUnlocked = (
   targetStage,
   allStages
 ) => {
@@ -6453,6 +6453,9 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   const [welcomePacketRefreshSeq, setWelcomePacketRefreshSeq] = useState(0);
   const [welcomePacketRefreshBusy, setWelcomePacketRefreshBusy] = useState(false);
   const [acknowledgedAt, setAcknowledgedAt] = useState(null);
+  const [packetApprovedAt, setPacketApprovedAt] = useState(null);
+  const [packetApprovedBy, setPacketApprovedBy] = useState("");
+  const [packetApprovalBusy, setPacketApprovalBusy] = useState(false);
   const [error, setError] = useState("");
   const [welcomeDataDiagnostics, setWelcomeDataDiagnostics] = useState(null);
   // An independently refreshed CRM Account must win over a slower packet
@@ -6771,8 +6774,8 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
 
       const response = await fetch(
         adminMode
-          ? `${API_BASE}/api/admin/welcome-packet/facility?email=${encodeURIComponent(user?.email || "")}&refresh=1`
-          : `${API_BASE}/api/welcome-packet/facility?refresh=1`,
+          ? `${API_BASE}/api/admin/welcome-packet/facility?email=${encodeURIComponent(user?.email || "")}`
+          : `${API_BASE}/api/welcome-packet/facility`,
         {
           method: "GET",
           cache: "no-store",
@@ -6802,6 +6805,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       }
 
       const facility = data.facility;
+      if (data.stale) setFacilityError("Showing previously verified facility details; Zoho needs to reconnect before final approval.");
 
       const hydrated = [
         facility.address,
@@ -6833,8 +6837,8 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       };
       const previousFacility = authoritativeFacilityRef.current;
       authoritativeFacilityRef.current = freshFacility;
-      setFacilityError("");
-      setFacilityVerified(true);
+      setFacilityError(data.stale ? "Showing the last verified facility. Zoho could not confirm current data; do not finalize approval yet." : "");
+      setFacilityVerified(data.stale !== true);
       // Never show a bank selected for a previous employer Account.
       if (previousFacility && (
         previousFacility.employerName !== freshFacility.employerName ||
@@ -7969,6 +7973,51 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     loadAcknowledgementStatus();
   }, [user?.email]);
 
+  // v98: Approval is an admin-only, backend-verified action. Candidate acknowledgement is separate.
+  useEffect(() => {
+    if (!adminMode || !adminToken || !user?.email) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 12000);
+    fetch(`${API_BASE}/api/admin/welcome-packet/approval-status?email=${encodeURIComponent(user.email)}`, {
+      cache: "no-store", credentials: "include", signal: controller.signal,
+      headers: { Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken }
+    }).then(async response => {
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Approval status unavailable");
+      if (!cancelled) {
+        setPacketApprovedAt(payload.approvedAt || null);
+        setPacketApprovedBy(payload.approvedBy || "");
+      }
+    }).catch(error => {
+      if (!cancelled && error?.name !== "AbortError") console.warn("[Welcome Packet] Admin approval status:", error);
+    }).finally(() => window.clearTimeout(timer));
+    return () => { cancelled = true; window.clearTimeout(timer); controller.abort(); };
+  }, [adminMode, adminToken, user?.email]);
+
+  const approveWelcomePacket = async () => {
+    if (!adminMode || !adminToken || !user?.email || packetApprovalBusy) return;
+    if (!window.confirm(`Confirm that you have reviewed and approved the complete Welcome Packet for ${user.email}?`)) return;
+    setPacketApprovalBusy(true);
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/welcome-packet/approve`, {
+        method: "POST", credentials: "include", cache: "no-store", signal: controller.signal,
+        headers: { "Content-Type": "application/json", Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken },
+        body: JSON.stringify({ email: user.email })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.success !== true) throw new Error(payload.error || "Unable to approve packet.");
+      setPacketApprovedAt(payload.approvedAt);
+      setPacketApprovedBy(payload.approvedBy || "");
+      toast.success(payload.alreadyApproved ? "Welcome Packet was already approved." : "Welcome Packet approved successfully.");
+    } catch (error) {
+      // An interrupted HTTP reply can follow a successful DB save. Never claim approval on timeout.
+      toast.error(error?.name === "AbortError" ? "Approval response timed out. Reopen the packet to confirm the saved status." : (error.message || "Approval could not be saved."));
+    } finally { window.clearTimeout(timer); setPacketApprovalBusy(false); }
+  };
+
   const acknowledgePacket = async () => {
     setAcknowledging(true);
     try {
@@ -8230,6 +8279,23 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           break-inside: avoid-page !important;
           page-break-inside: avoid !important;
         }
+        /* v98: Keep Explore Your New Community on one page, including its button. */
+        .welcome-packet-print-copy #welcome-packet-local-guide {
+          break-before: auto !important;
+          page-break-before: auto !important;
+          break-inside: avoid-page !important;
+          page-break-inside: avoid !important;
+          display: flow-root !important;
+          min-height: 0 !important;
+          height: auto !important;
+          padding: 3mm !important;
+          margin: 0 0 4mm !important;
+          overflow: visible !important;
+        }
+        .welcome-packet-print-copy #welcome-packet-local-guide > * {
+          break-inside: avoid-page !important;
+          page-break-inside: avoid !important;
+        }
         .welcome-packet-print-copy h1,.welcome-packet-print-copy h2,
         .welcome-packet-print-copy h3,.welcome-packet-print-copy h4 {
           break-after:avoid!important; page-break-after:avoid!important;
@@ -8448,6 +8514,17 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             break-inside: avoid-page !important;
             page-break-inside: avoid !important;
           }
+          /* v98: Browser print fallback – do not split the community panel. */
+          body.printing-welcome-packet #welcome-packet-print-root #welcome-packet-local-guide {
+            break-inside: avoid-page !important;
+            page-break-inside: avoid !important;
+            break-before: auto !important;
+            page-break-before: auto !important;
+            display: flow-root !important;
+            padding: 3mm !important;
+            min-height: 0 !important;
+            height: auto !important;
+          }
           body.printing-welcome-packet #welcome-packet-print-root table,
           body.printing-welcome-packet #welcome-packet-print-root tr,
           body.printing-welcome-packet #welcome-packet-print-root img {
@@ -8587,7 +8664,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           }
         />
         <div className="grid grid-cols-[240px_minmax(0,1fr)] items-start gap-x-8 border-b border-gray-100 py-3 text-sm last:border-b-0 max-md:grid-cols-[minmax(130px,38%)_minmax(0,1fr)] max-md:gap-x-4">
-          <span className="font-semibold text-gray-600">Board of Nursing</span>
+          <span className="font-semibold text-gray-600">Board of Nursing Website</span>
           <span className="min-w-0 text-gray-900">
             {licenseStateLabel && (packet.boardWebsite || locationServices.licensureSearchUrl) ? (
               <a
@@ -8606,7 +8683,6 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             )}
           </span>
         </div>
-        <InfoRow label="Board Website" value={packet.boardWebsite || locationServices.licensureSearchUrl} />
 
         {licensureLiveError && adminMode && (
           <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800 print:hidden">
@@ -8879,6 +8955,19 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           )}
           {acknowledgedAt ? "Re-acknowledge Packet" : "Acknowledge Packet"}
         </Button>
+        {adminMode && (
+          <Button type="button" variant="outline" onClick={approveWelcomePacket}
+            disabled={packetApprovalBusy || Boolean(packetApprovedAt)}
+            className="gap-2 border-emerald-600 text-emerald-800">
+            {packetApprovalBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+            {packetApprovedAt ? "Welcome Packet Approved" : "Approve Welcome Packet"}
+          </Button>
+        )}
+        {adminMode && packetApprovedAt && (
+          <p className="w-full text-right text-xs text-emerald-700">
+            Admin approved {new Date(packetApprovedAt).toLocaleString()}{packetApprovedBy ? ` by ${packetApprovedBy}` : ""}.
+          </p>
+        )}
         {acknowledgedAt && (
           <p className="w-full text-right text-xs text-muted-foreground">
             Last acknowledged: {new Date(acknowledgedAt).toLocaleString()}

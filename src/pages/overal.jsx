@@ -63,6 +63,45 @@ const writeAdminDocumentCache = (email, documents) => {
   } catch (_) {}
 };
 
+// v111: Keep terminal approvals attached to their canonical submission ID.
+// This prevents stale summary/snapshot responses from turning an approved card
+// back into a pending card. Do not merge by filename (a new upload is new work).
+const adminApprovalIdentityV111 = doc => {
+  const id = String(doc?.pending_upload_id || "").trim();
+  if (id) return `pending:${id}`;
+  const key = String(doc?.approval_key || "").trim();
+  if (key) return `key:${key}`;
+  return "";
+};
+const adminTerminalApprovalV111 = doc =>
+  doc?.already_approved === true ||
+  ["approved", "rejected"].includes(String(doc?.approval_status || "").trim().toLowerCase());
+const preserveAdminApprovalsV111 = (incoming, previous = [], email = "") => {
+  const durableUI = [
+    ...(Array.isArray(previous) ? previous : []),
+    ...(email ? (readAdminDocumentCache(email) || []) : [])
+  ];
+  const statuses = new Map();
+  for (const item of durableUI) {
+    const key = adminApprovalIdentityV111(item);
+    if (!key || !adminTerminalApprovalV111(item)) continue;
+    statuses.set(key, item);
+  }
+  return (Array.isArray(incoming) ? incoming : []).map(item => {
+    if (adminTerminalApprovalV111(item)) return item;
+    const key = adminApprovalIdentityV111(item);
+    const prior = key ? statuses.get(key) : null;
+    if (!prior) return item;
+    const status = prior?.already_approved === true ? "approved" : String(prior.approval_status || "approved").toLowerCase();
+    return {...item, approval_status:status,
+      already_approved:status === "approved",approval_required:false,
+      approved_at:prior.approved_at || item.approved_at || null,
+      approved_by:prior.approved_by || item.approved_by || null,
+      rejected_at:prior.rejected_at || item.rejected_at || null,
+      rejection_reason:prior.rejection_reason || item.rejection_reason || null};
+  });
+};
+
 let adminDocumentIndexPreloadPromise = null;
 const preloadAdminDocumentIndex = () => {
   if (adminDocumentIndexPreloadPromise) return adminDocumentIndexPreloadPromise;
@@ -100,10 +139,87 @@ const preloadAdminDocumentIndex = () => {
 };
 
 
+// v103: Safe GET-only retries for transient 429/502/503/504 or network faults.
+// Never automatically retry POST approvals or document uploads.
+// v108: read-only request coalescing and transient outage backoff.
+// Never apply this logic to POST approval requests or mutations.
+const adminV108ReadInFlight = new Map();
+const adminV108Backoff = { failures: 0, until: 0 };
+const adminReadWithRetryV103 = async (url, options = {}, attempts = 2) => {
+  const method = String(options.method || 'GET').toUpperCase();
+  if (method !== 'GET') return fetch(url, options);
+  const requestURL = new URL(url, window.location.href);
+  requestURL.searchParams.delete('_');
+  const key = requestURL.toString();
+  if (Date.now() < adminV108Backoff.until) {
+    const error = new Error('API temporarily unavailable; automatic reads paused');
+    error.code = 'ICP_READ_BACKOFF';
+    throw error;
+  }
+  if (adminV108ReadInFlight.has(key)) return adminV108ReadInFlight.get(key);
+  const task = (async () => {
+    let lastError;
+    for (let i = 0; i < attempts; i += 1) {
+      if (options.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      try {
+        const response = await fetch(url, options);
+        if (![429, 502, 503, 504].includes(response.status)) {
+          adminV108Backoff.failures = 0;
+          adminV108Backoff.until = 0;
+          return response;
+        }
+        lastError = new Error(`API read returned HTTP ${response.status}`);
+        // No aggressive retry during App Service warmup/recycle.
+        if (i === attempts - 1) return response;
+        await response.body?.cancel?.().catch(() => {});
+      } catch (error) {
+        if (options.signal?.aborted || error?.name === 'AbortError') throw error;
+        lastError = error;
+      }
+      await new Promise(resolve => setTimeout(resolve, 1200 * (i + 1)));
+    }
+    adminV108Backoff.failures = Math.min(6, adminV108Backoff.failures + 1);
+    adminV108Backoff.until = Date.now() + Math.min(60000, 3000 * 2 ** (adminV108Backoff.failures - 1));
+    throw lastError || new Error('API read temporarily unavailable');
+  })();
+  adminV108ReadInFlight.set(key, task);
+  try { return await task; }
+  finally { if (adminV108ReadInFlight.get(key) === task) adminV108ReadInFlight.delete(key); }
+};
+
+// v109 approval controls: never automatically repeat a POST whose response may
+// have been lost. Check the durable, authenticated approval-job status instead.
+const adminV109ApprovalInFlight = new Set();
+const adminV109JobStatus = async (url, adminToken, timeoutMs = 8000) => {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      method: "GET", cache:"no-store", credentials:"include", signal:controller.signal,
+      headers: { Authorization:`AdminBearer ${adminToken}`,
+        "x-admin-token":adminToken, "Cache-Control":"no-store" }
+    });
+    return {httpStatus:response.status,
+      body:await response.json().catch(() => ({}))};
+  } finally { window.clearTimeout(timer); }
+};
+const adminV109ProgressSummary = job => {
+  const records = job?.provider_progress || {};
+  const nice = {recruit_candidates:"Recruit Candidates",recruit_nclex:"Recruit NCLEX",crm_deals:"CRM Deals"};
+  const accepted = Object.entries(records).filter(([,entry])=>entry?.phase==="accepted").map(([k])=>nice[k]||k);
+  const attempted = Object.entries(records).filter(([,entry])=>entry?.phase==="attempted").map(([k])=>nice[k]||k);
+  return [accepted.length ? `Accepted: ${accepted.join(", ")}.` : "",
+    attempted.length ? `Uncertain: ${attempted.join(", ")}.` : ""].filter(Boolean).join(" ");
+};
+
 const safeAdminDocumentFetch = async (url, options = {}) => {
   try {
-    const response = await fetch(url, options);
+    const response = await adminReadWithRetryV103(url, options, 3);
     if (!response.ok) {
+      if ([429, 502, 503, 504].includes(response.status)) {
+        adminV108Backoff.failures = Math.min(6, adminV108Backoff.failures + 1);
+        adminV108Backoff.until = Date.now() + Math.min(60000, 3000 * 2 ** (adminV108Backoff.failures - 1));
+      }
       const text = await response.text().catch(() => "");
       console.warn("[Admin Documents] Request failed:", response.status, text || response.statusText);
       return { ok: false, data: null, status: response.status };
@@ -112,6 +228,10 @@ const safeAdminDocumentFetch = async (url, options = {}) => {
     return { ok: true, data, status: response.status };
   } catch (error) {
     // A CORS/network failure must NEVER crash/unmount the Admin panel.
+    if (error?.name !== 'AbortError' && error?.code !== 'ICP_READ_BACKOFF') {
+      adminV108Backoff.failures = Math.min(6, adminV108Backoff.failures + 1);
+      adminV108Backoff.until = Date.now() + Math.min(60000, 3000 * 2 ** (adminV108Backoff.failures - 1));
+    }
     console.warn("[Admin Documents] Network request failed:", error);
     return { ok: false, data: null, status: 0, error };
   }
@@ -932,7 +1052,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
     try {
       const email = encodeURIComponent(user.email);
-      const response = await fetch(
+      const response = await adminReadWithRetryV103(
         `${API_BASE}/api/admin/candidate/${email}/summary?_=${Date.now()}${force ? "&refresh=1" : ""}`,
         {
           headers,
@@ -1024,9 +1144,13 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
       setPipeline(summaryPipeline);
 
-      setDocuments(summaryDocuments);
+      setDocuments(previous => {
+        const stable = preserveAdminApprovalsV111(summaryDocuments, previous, user.email);
+        if (stable.length) writeAdminDocumentCache(user.email, stable);
+        return stable;
+      });
       if (summaryDocuments.length) {
-        writeAdminDocumentCache(user.email, summaryDocuments);
+        // Cache update occurs inside functional state update to preserve approvals.
         setDocumentsLoading(false);
       } else {
         // User requirement: never show a terminal "No documents" state.
@@ -1194,12 +1318,17 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       const rows = result.data.documents;
 
       if (rows.length) {
-        setDocuments(rows);
-        writeAdminDocumentCache(user.email, rows);
+        setDocuments(previous => {
+          const stable = preserveAdminApprovalsV111(rows, previous, user.email);
+          writeAdminDocumentCache(user.email, stable);
+          return stable;
+        });
         setDocumentsLoading(false);
         return true;
       }
-
+      // A successful empty response is not an endless loading request.
+      // Keep any previously loaded documents while indicating incompleteness.
+      setDocumentsLoading(false);
       return false;
     };
 
@@ -1232,33 +1361,11 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
         applyDocuments(local);
       }
 
-      // 2) Start at most one provider refresh. We intentionally do not await it.
-      if (documentSyncRequestedRef.current !== key) {
-        documentSyncRequestedRef.current = key;
-
-        void safeAdminDocumentFetch(
-          `${API_BASE}/api/admin/documents/${email}?refresh=1&_=${Date.now()}`,
-          {
-            headers,
-            credentials:"include",
-            cache:"no-store"
-          }
-        ).then(result => {
-          // The refresh request itself already includes local rows; use them too.
-          applyDocuments(result);
-        });
-      }
-
-      // 3) Cheap snapshot checks update the screen as soon as background provider
-      // synchronization publishes fresh metadata. No full candidate summary needed.
-      for (const delay of [450, 1200, 2600, 5000]) {
-        window.setTimeout(
-          () => {
-            if (!cancelled) void pollSnapshot();
-          },
-          delay
-        );
-      }
+      // v108: Do not launch an expensive Zoho refresh automatically on every
+      // candidate open. Keep the existing explicit Refresh CRM Data action.
+      // One snapshot read after local data is enough for the initial render.
+      await new Promise(resolve => window.setTimeout(resolve, 1500));
+      if (!cancelled) await pollSnapshot();
     };
 
     void start();
@@ -1648,12 +1755,40 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       return;
     }
 
+    const submissionLock = `${String(user.email || "").toLowerCase()}::${approvalKey}`;
+    if (adminV109ApprovalInFlight.has(submissionLock)) return;
+    adminV109ApprovalInFlight.add(submissionLock);
     setApprovalBusyKey(approvalKey);
     setApprovalBusyAction(action);
     setDocActionError(null);
 
     try {
       const { adminToken } = getTokens();
+      if (!adminToken) throw new Error("Administrator session missing. Sign in again.");
+      const jobUrl = `${API_BASE}/api/admin/documents/${encodeURIComponent(user.email)}/${encodeURIComponent(approvalKey)}/approval-job`;
+      if (action === "approve") {
+        // An already queued/accepted job must never cause a second upload.
+        // If the status endpoint is unavailable, do not send a fresh POST.
+        const previous = await adminV109JobStatus(jobUrl, adminToken);
+        const oldJob = previous.body;
+        if (previous.httpStatus === 200) {
+          if (oldJob.approval_status === "approved" || oldJob.job_status === "completed") {
+            setDocActionError("This document is already approved. Refresh documents to see the saved state.");
+            return;
+          }
+          if (["queued", "running"].includes(oldJob.job_status)) {
+            setDocActionError(`The approval is already ${oldJob.job_status}. It has not been submitted again. Check its status shortly.`);
+            return;
+          }
+          if (oldJob.job_status === "needs_review" ||
+              (oldJob.job_status === "failed" && oldJob.safe_to_retry !== true)) {
+            setDocActionError(`Previous approval needs Zoho reconciliation. ${oldJob.job_error || "Verify attachments in all required destinations."} ${adminV109ProgressSummary(oldJob)} Do not click Approve again.`);
+            return;
+          }
+        } else if (previous.httpStatus !== 404) {
+          throw new Error(`Approval status check returned HTTP ${previous.httpStatus}. No new approval was sent; wait for the backend to reconnect.`);
+        }
+      }
 
       const controller = new AbortController();
       const approvalTimeout = window.setTimeout(
@@ -1733,15 +1868,48 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
         window.clearTimeout(approvalTimeout);
       }
 
-      const data = await response
+      let data = await response
         .json()
-        .catch(() => ({}));
+        .catch(() => ({error:`Approval endpoint returned HTTP ${response.status} without a readable JSON response.`}));
 
-      if (!response.ok || data.success !== true) {
-        throw new Error(
-          data.error ||
-          "Unable to update document approval."
-        );
+      // v99: HTTP 202 means queued, NOT approved. Poll the durable job status.
+      if (response.status === 202 && action === "approve") {
+        let completed = false;
+        for (let attempt=0; attempt<15; attempt++) {
+          await new Promise(resolve => window.setTimeout(resolve, 2000));
+          let job;
+          try {
+            const checked = await adminV109JobStatus(jobUrl,adminToken,6000);
+            if (checked.httpStatus !== 200) continue;
+            job = checked.body;
+          } catch (_) { continue; }
+          if (job.job_status === "completed" && job.approval_status === "approved") {
+            data={success:true,approval_status:"approved",approved_at:job.result?.approved_at};
+            completed=true; break;
+          }
+          if (["failed","needs_review"].includes(job.job_status))
+            throw new Error([job.job_error || "Zoho approval was not confirmed.",
+              job.failure_code ? `Code: ${job.failure_code}.` : "",
+              Array.isArray(job.missing_targets) && job.missing_targets.length
+                ? `Missing: ${job.missing_targets.join(", ")}.` : "",
+              adminV109ProgressSummary(job),
+              job.reconciliation_required ? "Check Zoho before retrying to avoid duplicates." : ""
+            ].filter(Boolean).join(" "));
+        }
+        if (!completed) {
+          setDocActionError("Approval queued and still processing. It is NOT approved yet. Reopen documents to check the status.");
+          return;
+        }
+      }
+
+      if ((!response.ok && response.status !== 202) || data.success !== true) {
+        throw new Error([
+          data.error || data.message || `Approval API returned HTTP ${response.status}.`,
+          data.code ? `Code: ${data.code}.` : "",
+          data.stage ? `Stage: ${data.stage}.` : "",
+          Array.isArray(data.missing_targets) && data.missing_targets.length
+            ? `Missing: ${data.missing_targets.join(", ")}.` : ""
+        ].filter(Boolean).join(" "));
       }
 
       if (
@@ -1862,21 +2030,46 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
             Array.isArray(snapshotData.documents) &&
             snapshotData.documents.length
           ) {
-            setDocuments(snapshotData.documents);
-            writeAdminDocumentCache(user.email, snapshotData.documents);
+            setDocuments(previous => {
+              const stable = preserveAdminApprovalsV111(snapshotData.documents, previous, user.email);
+              writeAdminDocumentCache(user.email, stable);
+              return stable;
+            });
           }
         } catch (_) {}
       }, 250);
     } catch (error) {
-      setDocActionError(
-        error?.name === "AbortError"
-          ? "The approval request took too long. The document status will refresh automatically; do not click repeatedly."
-          : (
-              error.message ||
-              "Unable to update document approval."
-            )
-      );
+      // v106: A failed network response is NOT evidence that the approval did
+      // not reach Azure. Query the durable job before offering a manual retry.
+      let recoveredStatus = null;
+      if (action === "approve") {
+        try {
+          const { adminToken } = getTokens();
+          const statusUrl = `${API_BASE}/api/admin/documents/${encodeURIComponent(user.email)}/${encodeURIComponent(approvalKey)}/approval-job`;
+          const checked=await adminV109JobStatus(statusUrl,adminToken,8000);
+          if (checked.httpStatus === 200) recoveredStatus=checked.body;
+        } catch (_) {
+          // Network failure may mean the whole API instance is unavailable.
+          // Do not assume an unconfirmed upload is safe to repeat.
+        }
+      }
+      if (recoveredStatus?.job_status === "completed" && recoveredStatus?.approval_status === "approved") {
+        setDocActionError("Zoho approval is confirmed. Refresh documents to view the updated status.");
+        setDocumentsLoading(true);
+      } else if (["queued", "running"].includes(recoveredStatus?.job_status)) {
+        setDocActionError("The approval was received and is still processing. Do not submit it again; check the document status shortly.");
+      } else if (recoveredStatus?.job_status === "needs_review") {
+        setDocActionError(`Zoho reconciliation required: ${recoveredStatus.job_error || "upload confirmation is uncertain"}. ${adminV109ProgressSummary(recoveredStatus)} Do not retry until verified in Zoho.`);
+      } else if (recoveredStatus?.job_status === "failed") {
+        setDocActionError(`Approval failed: ${recoveredStatus.job_error || recoveredStatus.failure_code || "check server logs"}. ${recoveredStatus.safe_to_retry === true ? "No upload is recorded for this attempt; correct the underlying problem first." : "Verify Zoho before trying again."}`);
+      } else {
+        setDocActionError(
+          `The approval response could not be verified (${error?.message || "network error"}). ` +
+          "Do not click Approve again until the backend reconnects and the approval status has been checked."
+        );
+      }
     } finally {
+      adminV109ApprovalInFlight.delete(submissionLock);
       setApprovalBusyKey(null);
       setApprovalBusyAction(null);
     }
@@ -2511,12 +2704,16 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                       <AlertTriangle className="w-4 h-4 shrink-0" /> {docActionError}
                     </div>
                   )}
-                  {documentsLoading || documents.length === 0 ? (
+                  {documentsLoading && documents.length === 0 ? (
                     <div className="flex min-h-[190px] items-center justify-center rounded-xl border bg-white">
                       <div className="flex flex-col items-center gap-3 text-sm font-medium text-gray-600">
                         <Loader2 className="h-8 w-8 animate-spin text-purple-600" />
                         <span>Loading documents…</span>
                       </div>
+                    </div>
+                  ) : documents.length === 0 ? (
+                    <div className="p-5 rounded-xl border bg-white text-sm text-gray-700">
+                      No documents were returned from local storage yet. A Zoho inventory refresh may still be running. Do not interpret this as confirmation that the candidate has no documents.
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2579,7 +2776,9 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                       ? "Approved"
                                       : doc.approval_status === "rejected"
                                         ? "Rejected"
-                                        : "Pending approval"}
+                                        : ["needs_review", "processing"].includes(String(doc.approval_status || "").toLowerCase())
+                                          ? "Zoho verification required"
+                                          : "Pending approval"}
                                   </span>
                                 </div>
                                 {doc.rejection_reason && (
@@ -2603,7 +2802,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                   : <Eye className="h-4 w-4" />}
                               </button>
 
-                              {!(doc.already_approved === true || doc.approval_status === "approved" || doc.approval_status === "rejected" || (["crm", "recruit", "custommodule1", "recruit_field"].includes(String(doc.source || "").toLowerCase()) && !doc.pending_upload_id)) && (
+                              {!(doc.already_approved === true || ["approved", "rejected", "needs_review", "processing"].includes(String(doc.approval_status || "").toLowerCase()) || (["crm", "recruit", "custommodule1", "recruit_field"].includes(String(doc.source || "").toLowerCase()) && !doc.pending_upload_id)) && (
                                 <>
                                   <button
                                     type="button"
@@ -3902,8 +4101,22 @@ const AdminRequestsPanel = ({ onOpenUser, notificationTarget = null, onReturnToN
           })
         }
       );
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.success !== true) {
+      let data = await response.json().catch(() => ({}));
+      if (response.status === 202 && action === "approve") {
+        const pollUrl=`${API_BASE}/api/admin/documents/${encodeURIComponent(request.candidate_email)}/${encodeURIComponent(approvalKey)}/approval-job`;
+        let confirmed=false;
+        for(let i=0;i<15;i++) {
+          await new Promise(resolve=>window.setTimeout(resolve,2000));
+          const statusResponse=await fetch(pollUrl,{credentials:"include",headers:{Authorization:`AdminBearer ${adminToken}`,"x-admin-token":adminToken}});
+          if(!statusResponse.ok) continue;
+          const job=await statusResponse.json();
+          if(job.job_status==="completed"&&job.approval_status==="approved") {confirmed=true;break;}
+          if(["failed","needs_review"].includes(job.job_status)) throw new Error(job.job_error||"Evidence approval needs review.");
+        }
+        if(!confirmed) {alert("Evidence approval is queued, not confirmed. Check the status again shortly.");return;}
+        data={success:true,approval_status:"approved"};
+      }
+      if (!response.ok && response.status!==202 || data.success !== true) {
         throw new Error(data.error || "Unable to update evidence approval.");
       }
       alert(action === "approve" ? "Evidence approved successfully." : "Evidence rejected successfully.");
@@ -4361,6 +4574,7 @@ const AdminRequestsPanel = ({ onOpenUser, notificationTarget = null, onReturnToN
 const AdminReceiptsPanel = () => {
   const [receipts, setReceipts] = useState([]);
   const [receiptRejectReasons, setReceiptRejectReasons] = useState({});
+  const [receiptOtherReasons, setReceiptOtherReasons] = useState({});
   const [loading, setLoading] = useState(true);
   const [drafts, setDrafts] = useState({});
   const [sideDrafts, setSideDrafts] = useState({});
@@ -4522,15 +4736,18 @@ const AdminReceiptsPanel = () => {
 
   const rejectReceipt = async receipt => {
     const id = String(receipt?.id || receipt?._id || "").trim();
-    const reason = String(receiptRejectReasons[id] || "").trim();
+    const selectedReason = String(receiptRejectReasons[id] || "").trim();
+    const reason = selectedReason === "Other"
+      ? String(receiptOtherReasons[id] || "").trim()
+      : selectedReason;
 
     if (!id) {
       setSaveMessage("This receipt is missing its record ID.");
       return;
     }
 
-    if (!reason) {
-      setSaveMessage("Select a rejection reason before rejecting the receipt.");
+    if (!reason || (selectedReason === "Other" && reason.length < 5)) {
+      setSaveMessage(selectedReason === "Other" ? "Enter a detailed rejection reason before rejecting this receipt." : "Select a rejection reason before rejecting the receipt.");
       return;
     }
 
@@ -4566,6 +4783,11 @@ const AdminReceiptsPanel = () => {
         previous.filter(item => String(item.id || item._id) !== id)
       );
       setReceiptRejectReasons(previous => {
+        const next = { ...previous };
+        delete next[id];
+        return next;
+      });
+      setReceiptOtherReasons(previous => {
         const next = { ...previous };
         delete next[id];
         return next;
@@ -5010,10 +5232,21 @@ const AdminReceiptsPanel = () => {
                         <option value="Other">Other</option>
                       </select>
 
+                      {receiptRejectReasons[id] === "Other" && (
+                        <textarea
+                          aria-label="Custom receipt rejection reason"
+                          placeholder="Explain why this receipt is being rejected..."
+                          value={receiptOtherReasons[id] || ""}
+                          maxLength={500}
+                          rows={2}
+                          onChange={event => setReceiptOtherReasons(previous => ({ ...previous, [id]: event.target.value }))}
+                          className="min-w-[230px] flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                        />
+                      )}
                       <button
                         type="button"
                         onClick={() => rejectReceipt(receipt)}
-                        disabled={busyId === id || !receiptRejectReasons[id]}
+                        disabled={busyId === id || !receiptRejectReasons[id] || (receiptRejectReasons[id] === "Other" && String(receiptOtherReasons[id] || "").trim().length < 5)}
                         className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {busyId === id ? "Working..." : "Reject"}
@@ -5847,17 +6080,19 @@ const AdminPanel = () => {
         }
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.success !== true) throw new Error(data.message || 'Failed to load the admin overview.');
+      if (!response.ok || data.success !== true) throw new Error(
+        data.message || (Array.isArray(data.unavailable) ? `Overview queries unavailable: ${data.unavailable.join(', ')}` : 'Failed to load the admin overview.')
+      );
       setError(null);
       setCrossOriginBlock(false);
       // Overview uses a cached snapshot; never treat it as live database health.
 
       setStats(previous => {
-        const next = { ...previous, total: data.totalUsers || 0, active: data.activeUsers || 0, expired: data.expiredUsers || 0 };
+        const next = { ...previous, total: data.totalUsers ?? previous.total, active: data.activeUsers ?? previous.active, expired: data.expiredUsers ?? previous.expired };
         writeAdminFastCache("stats", next);
         return next;
       });
-      setLogs(data.logs || []);
+      if (Array.isArray(data.logs)) setLogs(data.logs);
     } catch (err) {
       if (!Array.isArray(departmentUsersCacheRef.current.all) || !departmentUsersCacheRef.current.all.length) {
         setError(err.message || 'Admin overview is temporarily unavailable.');
@@ -6534,3 +6769,4 @@ const AdminPanel = () => {
 };
 
 export default AdminPanel;
+
