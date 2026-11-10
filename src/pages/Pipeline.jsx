@@ -8609,7 +8609,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           Facility Information
         </h3>
         {!facilityVerified ? (
-          <p className="py-3 text-sm text-gray-600">{facilityChecking ? "Checking the current hospital assignment in Zoho CRM…" : (facilityError || "Current hospital assignment has not been verified. Refresh CRM Data to retry.")}</p>
+          <p className="py-3 text-sm text-gray-600">{facilityChecking ? "Checking the current hospital assignment..." : (facilityError || "Current hospital assignment has not been verified. Refresh CRM Data to retry.")}</p>
         ) : (
           <>
         <InfoRow label="Employer Name" value={packet.employerName} />

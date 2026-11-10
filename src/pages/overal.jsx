@@ -1278,105 +1278,45 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     };
   }, [user?.email, user?._initialTab, loadAdminSummary]);
 
-  // Candidate Documents: paint PostgreSQL metadata first, then refresh providers
-  // strictly in the background. Never wait for CRM/Recruit before showing rows.
+  // v115: ONE read per candidate Documents tab. Never run Zoho automatically.
+  // Backend serves metadata only, coalesces in-flight requests and preserves approvals.
   useEffect(() => {
-    if (
-      activeTab !== "documents" ||
-      !user?.email
-    ) {
-      return undefined;
-    }
-
-    let cancelled = false;
-    const key = String(user.email).trim().toLowerCase();
-
-    const { adminToken, userToken } = getTokens();
-    const headers = {
-      Accept:"application/json",
-      ...(adminToken
-        ? {
-            Authorization:`AdminBearer ${adminToken}`,
-            "x-admin-token":adminToken
-          }
-        : userToken
-          ? { Authorization:`Bearer ${userToken}` }
-          : {})
-    };
-
-    const email = encodeURIComponent(user.email);
-
-    const applyDocuments = result => {
-      if (
-        cancelled ||
-        !result?.ok ||
-        !Array.isArray(result?.data?.documents)
-      ) {
-        return false;
-      }
-
-      const rows = result.data.documents;
-
-      if (rows.length) {
-        setDocuments(previous => {
-          const stable = preserveAdminApprovalsV111(rows, previous, user.email);
-          writeAdminDocumentCache(user.email, stable);
+    if (activeTab !== 'documents' || !user?.email) return undefined;
+    let cancelled=false;
+    const controller=new AbortController();
+    const {adminToken,userToken}=getTokens();
+    const headers={Accept:'application/json',
+      ...(adminToken ? {Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken}
+        : userToken ? {Authorization:`Bearer ${userToken}`} : {})};
+    const cached=readAdminDocumentCache(user.email);
+    if (Array.isArray(cached)) {
+      setDocuments(previous=>preserveAdminApprovalsV111(cached,previous,user.email));
+      setDocumentsLoading(false);
+    } else setDocumentsLoading(true);
+    const fetchMetadata=async()=>{
+      try {
+        const response=await fetch(`${API_BASE}/api/admin/documents/${encodeURIComponent(user.email)}?snapshot=1`,
+          {headers,credentials:'include',cache:'no-store',signal:controller.signal});
+        if (!response.ok) throw new Error(`Document metadata HTTP ${response.status}`);
+        const data=await response.json();
+        if (cancelled || !Array.isArray(data?.documents)) return;
+        setDocuments(previous=>{
+          const stable=preserveAdminApprovalsV111(data.documents,previous,user.email);
+          if (stable.length) writeAdminDocumentCache(user.email,stable);
           return stable;
         });
         setDocumentsLoading(false);
-        return true;
-      }
-      // A successful empty response is not an endless loading request.
-      // Keep any previously loaded documents while indicating incompleteness.
-      setDocumentsLoading(false);
-      return false;
-    };
-
-    const pollSnapshot = async () => {
-      const result = await safeAdminDocumentFetch(
-        `${API_BASE}/api/admin/documents/${email}?snapshot=1&_=${Date.now()}`,
-        {
-          headers,
-          credentials:"include",
-          cache:"no-store"
+      } catch(error) {
+        if (!cancelled && error?.name!=='AbortError') {
+          console.warn('[Admin Documents] Metadata read failed',error);
+          setDocActionError('Document metadata is temporarily unavailable. Cached documents remain visible.');
+          setDocumentsLoading(false);
         }
-      );
-      return applyDocuments(result);
-    };
-
-    const start = async () => {
-      // 1) Show every document already known to PostgreSQL immediately.
-      if (!documents.length) {
-        setDocumentsLoading(true);
-
-        const local = await safeAdminDocumentFetch(
-          `${API_BASE}/api/admin/documents/${email}?local=1&_=${Date.now()}`,
-          {
-            headers,
-            credentials:"include",
-            cache:"no-store"
-          }
-        );
-
-        applyDocuments(local);
       }
-
-      // v108: Do not launch an expensive Zoho refresh automatically on every
-      // candidate open. Keep the existing explicit Refresh CRM Data action.
-      // One snapshot read after local data is enough for the initial render.
-      await new Promise(resolve => window.setTimeout(resolve, 1500));
-      if (!cancelled) await pollSnapshot();
     };
-
-    void start();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    activeTab,
-    user?.email
-  ]);
+    void fetchMetadata();
+    return ()=>{cancelled=true;controller.abort();};
+  },[activeTab,user?.email]);
 
   // Audit history is potentially hundreds of rows. Load it only when Admin
   // actually opens the Field Audit tab.
@@ -5998,7 +5938,7 @@ const AdminPanel = () => {
   // documents on every Admin mount unless explicitly opted in. The Documents
   // tab still uses its local-first, per-candidate snapshot endpoint.
   useEffect(() => {
-    if (import.meta.env.VITE_ADMIN_PRELOAD_DOCUMENT_INDEX !== "true") {
+    if (true) { // v115: never preload all candidate documents into browser
       setDocumentIndexReady(true);
       return undefined;
     }
