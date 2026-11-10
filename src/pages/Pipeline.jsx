@@ -93,7 +93,7 @@ const API_BASE = String(
     typeof window !== "undefined" &&
     ["localhost", "127.0.0.1"].includes(window.location.hostname)
       ? "http://localhost:4000"
-      : "https://icpcandidateportal.azurewebsites.net"
+      : "https://icpcandidateportal-bve7d5bpdnftfbbc.centralus-01.azurewebsites.net"
   )
 ).replace(/\/$/, "");
 
@@ -6781,7 +6781,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           cache: "no-store",
           credentials: "include",
           headers: {
-            Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`, ...(adminMode ? { "x-candidate-email": user?.email || "" } : {}),
+            Authorization: adminMode ? `AdminBearer ${token}` : `Bearer ${token}`, ...(adminMode ? { "x-admin-token": token, "x-candidate-email": user?.email || "" } : {}),
             Accept: "application/json"
           }
         }
@@ -6923,7 +6923,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       finally { inFlight = false; }
     };
     void refreshFacility();
-    const intervalId = window.setInterval(refreshFacility, 12000);
+    const intervalId = window.setInterval(refreshFacility, 300000);
     window.addEventListener("focus", refreshFacility);
     window.addEventListener("candidate-data-updated", refreshFacility);
     return () => {
@@ -8609,7 +8609,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           Facility Information
         </h3>
         {!facilityVerified ? (
-          <p className="py-3 text-sm text-gray-600">{facilityChecking ? "Checking the current hospital assignment..." : (facilityError || "Current hospital assignment has not been verified. Refresh CRM Data to retry.")}</p>
+          <p className="py-3 text-sm text-gray-600">{facilityChecking ? "Checking the current hospital assignment in Zoho CRM…" : (facilityError || "Current hospital assignment has not been verified. Refresh CRM Data to retry.")}</p>
         ) : (
           <>
         <InfoRow label="Employer Name" value={packet.employerName} />

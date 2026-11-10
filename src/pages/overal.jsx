@@ -4694,6 +4694,8 @@ const AdminReceiptsPanel = () => {
     setBusyId(id);
     setSaveMessage("");
 
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 20000);
     try {
       const { adminToken } = getTokens();
       if (!adminToken) {
@@ -4710,7 +4712,11 @@ const AdminReceiptsPanel = () => {
             Authorization: `AdminBearer ${adminToken}`,
             "x-admin-token": adminToken
           },
-          body: JSON.stringify({ reason })
+          body: JSON.stringify({
+            reason: selectedReason,
+            ...(selectedReason === "Other" ? { otherReason: reason } : {})
+          }),
+          signal: controller.signal
         }
       );
 
@@ -4740,8 +4746,11 @@ const AdminReceiptsPanel = () => {
       );
     } catch (error) {
       console.error("[Admin Receipts] Reject failed:", error);
-      setSaveMessage(error.message || "Unable to reject receipt.");
+      setSaveMessage(error?.name === "AbortError"
+        ? "Rejection status uncertain after 20 seconds. Refresh receipts to verify before retrying."
+        : (error.message || "Unable to reject receipt."));
     } finally {
+      window.clearTimeout(timeoutId);
       setBusyId("");
     }
   };
