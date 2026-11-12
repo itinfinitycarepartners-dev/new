@@ -6458,6 +6458,9 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   const [acknowledgedAt, setAcknowledgedAt] = useState(null);
   const [packetApprovedAt, setPacketApprovedAt] = useState(null);
   const [packetApprovedBy, setPacketApprovedBy] = useState("");
+  const [packetApprovalProof, setPacketApprovalProof] = useState(null);
+  const [packetApprovalStatusReady, setPacketApprovalStatusReady] = useState(!adminMode);
+  const [packetApprovalError, setPacketApprovalError] = useState("");
   const [packetApprovalBusy, setPacketApprovalBusy] = useState(false);
   const [error, setError] = useState("");
   const [welcomeDataDiagnostics, setWelcomeDataDiagnostics] = useState(null);
@@ -8091,49 +8094,79 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     loadAcknowledgementStatus();
   }, [user?.email]);
 
-  // v98: Approval is an admin-only, backend-verified action. Candidate acknowledgement is separate.
-  useEffect(() => {
-    if (!adminMode || !adminToken || !user?.email) return;
-    let cancelled = false;
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 12000);
-    fetch(`${API_BASE}/api/admin/welcome-packet/approval-status?email=${encodeURIComponent(user.email)}`, {
-      cache: "no-store", credentials: "include", signal: controller.signal,
-      headers: { Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken }
-    }).then(async response => {
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.success) throw new Error(payload.error || "Approval status unavailable");
-      if (!cancelled) {
-        setPacketApprovedAt(payload.approvedAt || null);
-        setPacketApprovedBy(payload.approvedBy || "");
-      }
-    }).catch(error => {
-      if (!cancelled && error?.name !== "AbortError") console.warn("[Welcome Packet] Admin approval status:", error);
-    }).finally(() => window.clearTimeout(timer));
-    return () => { cancelled = true; window.clearTimeout(timer); controller.abort(); };
-  }, [adminMode, adminToken, user?.email]);
-
-  const approveWelcomePacket = async () => {
-    if (!adminMode || !adminToken || !user?.email || packetApprovalBusy) return;
-    if (!window.confirm(`Confirm that you have reviewed and approved the complete Welcome Packet for ${user.email}?`)) return;
-    setPacketApprovalBusy(true);
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 15000);
+  // v158: Only the backend can certify Welcome Packet approval. The proof
+  // is backed by PostgreSQL and a verified Zoho CRM read-back; never guess it.
+  const refreshPacketApprovalProof = useCallback(async () => {
+    if (!adminMode || !adminToken || !user?.email) return null;
+    const controller=new AbortController();
+    const timer=window.setTimeout(()=>controller.abort(),14000);
     try {
-      const response = await fetch(`${API_BASE}/api/admin/welcome-packet/approve`, {
-        method: "POST", credentials: "include", cache: "no-store", signal: controller.signal,
-        headers: { "Content-Type": "application/json", Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken },
-        body: JSON.stringify({ email: user.email })
+      const response=await fetch(`${API_BASE}/api/admin/welcome-packet/approval-status?email=${encodeURIComponent(user.email)}`,{
+        cache:'no-store',credentials:'include',signal:controller.signal,
+        headers:{Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken}
       });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || payload.success !== true) throw new Error(payload.error || "Unable to approve packet.");
-      setPacketApprovedAt(payload.approvedAt);
-      setPacketApprovedBy(payload.approvedBy || "");
-      toast.success(payload.alreadyApproved ? "Welcome Packet was already approved." : "Welcome Packet approved successfully.");
-    } catch (error) {
-      // An interrupted HTTP reply can follow a successful DB save. Never claim approval on timeout.
-      toast.error(error?.name === "AbortError" ? "Approval response timed out. Reopen the packet to confirm the saved status." : (error.message || "Approval could not be saved."));
-    } finally { window.clearTimeout(timer); setPacketApprovalBusy(false); }
+      const payload=await response.json().catch(()=>({}));
+      if(!response.ok || payload.success!==true) throw new Error(payload.error||`Approval status HTTP ${response.status}`);
+      setPacketApprovedAt(payload.approved ? payload.approvedAt||null : null);
+      setPacketApprovedBy(payload.approved ? payload.approvedBy||'' : '');
+      setPacketApprovalProof(payload.approved ? payload.approvalProof||null : null);
+      setPacketApprovalError(payload.previousApprovalOutdated ? 'The report or arrival date changed after a previous approval. Review and approve the current schedule.' : '');
+      setPacketApprovalStatusReady(true);
+      return payload;
+    } catch(error) {
+      setPacketApprovalStatusReady(false);
+      setPacketApprovalError(error?.name==='AbortError' ? 'Approval verification timed out. Try checking status again.' : (error.message||'Approval status unavailable.'));
+      return null;
+    } finally {window.clearTimeout(timer);}
+  },[adminMode,adminToken,user?.email]);
+
+  useEffect(()=>{
+    if(!adminMode || !adminToken || !user?.email) return;
+    setPacketApprovalStatusReady(false);
+    void refreshPacketApprovalProof();
+  },[adminMode,adminToken,user?.email,refreshPacketApprovalProof]);
+
+  const approveWelcomePacket=async()=>{
+    if(!adminMode || !adminToken || !user?.email || packetApprovalBusy || !packetApprovalStatusReady || packetApprovedAt) return;
+    if(!window.confirm(`Approve the Welcome Packet for ${user.email} and synchronize the verified CRM payment dates and amounts? This will use the report total, CRM payment type and arrival date.`)) return;
+    setPacketApprovalBusy(true);
+    setPacketApprovalError('');
+    const controller=new AbortController();
+    const timer=window.setTimeout(()=>controller.abort(),45000);
+    try {
+      const response=await fetch(`${API_BASE}/api/admin/welcome-packet/approve`,{
+        method:'POST',credentials:'include',cache:'no-store',signal:controller.signal,
+        headers:{'Content-Type':'application/json',Accept:'application/json',Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken},
+        body:JSON.stringify({email:user.email})
+      });
+      const payload=await response.json().catch(()=>({}));
+      if(!response.ok || payload.success!==true) {
+        throw new Error(payload.error || `Welcome Packet approval HTTP ${response.status}`);
+      }
+      if(!payload.approved || !payload.crmSynced || !payload.scheduleSynced ||
+         !payload.crmReadbackVerified || !payload.approvalProof?.proof_id) {
+        throw new Error('Zoho CRM approval proof was not confirmed. Do not resubmit without checking approval status.');
+      }
+      setPacketApprovedAt(payload.approvalProof.approved_at);
+      setPacketApprovedBy(payload.approvalProof.approved_by||'');
+      setPacketApprovalProof(payload.approvalProof);
+      setPacketApprovalStatusReady(true);
+      window.dispatchEvent(new CustomEvent('expense-report-updated',{detail:{email:user.email,source:'welcome-packet-approval'}}));
+      window.dispatchEvent(new CustomEvent('candidate-data-updated',{detail:{email:user.email,source:'welcome-packet-approval'}}));
+      toast.success(payload.alreadyApproved?'Previous approval verified in CRM and PostgreSQL.':'Welcome Packet approved; CRM payment schedule verified and proof saved.');
+    } catch(error) {
+      // A lost HTTP response may follow a successful CRM PUT. DO NOT retry POST.
+      const status=await refreshPacketApprovalProof();
+      if(status?.approved && status?.approvalProof?.proof_id) {
+        toast.success('Saved Welcome Packet approval and CRM proof confirmed.');
+      } else {
+        const message=error?.name==='AbortError'
+          ? 'The approval response timed out. Inspect the CRM Deal and check approval status before retrying.'
+          : (error.message || 'Approval not confirmed. Check CRM before retrying.');
+        setPacketApprovalError(message);
+        toast.error(message);
+      }
+    } finally {window.clearTimeout(timer);setPacketApprovalBusy(false);}
   };
 
   const acknowledgePacket = async () => {
@@ -9079,7 +9112,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           <Printer className="h-4 w-4" />
           Print Packet
         </Button>
-        <Button
+        {!adminMode && <Button
           onClick={acknowledgePacket}
           disabled={acknowledging}
           className="gap-2 bg-purple-700 hover:bg-purple-800"
@@ -9090,19 +9123,52 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             <CheckCircle2 className="h-4 w-4" />
           )}
           {acknowledgedAt ? "Re-acknowledge Packet" : "Acknowledge Packet"}
-        </Button>
+        </Button>}
         {adminMode && (
           <Button type="button" variant="outline" onClick={approveWelcomePacket}
-            disabled={packetApprovalBusy || Boolean(packetApprovedAt)}
+            disabled={packetApprovalBusy || !packetApprovalStatusReady || Boolean(packetApprovedAt)}
             className="gap-2 border-emerald-600 text-emerald-800">
-            {packetApprovalBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-            {packetApprovedAt ? "Welcome Packet Approved" : "Approve Welcome Packet"}
+            {packetApprovalBusy || !packetApprovalStatusReady ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+            {packetApprovedAt ? "Welcome Packet Approved (CRM verified)" : packetApprovalStatusReady ? "Approve Welcome Packet & Sync CRM" : "Checking approval status…"}
           </Button>
         )}
-        {adminMode && packetApprovedAt && (
-          <p className="w-full text-right text-xs text-emerald-700">
-            Admin approved {new Date(packetApprovedAt).toLocaleString()}{packetApprovedBy ? ` by ${packetApprovedBy}` : ""}.
-          </p>
+        {adminMode && !packetApprovalStatusReady && (
+          <Button type="button" variant="outline" onClick={()=>void refreshPacketApprovalProof()}>Check approval status</Button>
+        )}
+        {adminMode && packetApprovalError && (
+          <p role="alert" className="w-full text-right text-xs text-amber-700">{packetApprovalError}</p>
+        )}
+        {adminMode && packetApprovedAt && packetApprovalProof && (
+          <div className="w-full rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-950" data-icp-approval-proof="true">
+            <p className="font-bold flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> Verified Welcome Packet approval — proof saved</p>
+            <p className="mt-2">Approved: {new Date(packetApprovedAt).toLocaleString()} {packetApprovedBy ? `by ${packetApprovedBy}` : ''}</p>
+            <p>Zoho CRM Deal: {packetApprovalProof.crm_deal_id}</p>
+            <p>Approval proof ID: {packetApprovalProof.proof_id}</p>
+            <p>Zoho fields verified at: {new Date(packetApprovalProof.crm_verified_at).toLocaleString()}</p>
+            <details className="mt-3 rounded-md border border-emerald-200 bg-white p-3 text-gray-800">
+              <summary className="cursor-pointer font-semibold">View payment schedule and CRM approval evidence</summary>
+              <p className="mt-2">Payment type: {packetApprovalProof.payment_type}</p>
+              <p>Arrival: {packetApprovalProof.arrival_date}</p>
+              <p>Approved total: ${Number(packetApprovalProof.total_amount||0).toFixed(2)}</p>
+              {Number(packetApprovalProof.initial_payment||0)>0 && (
+                <p>Separate initial advance: ${Number(packetApprovalProof.initial_payment).toFixed(2)}
+                  {!packetApprovalProof.initial_payment_crm_synced ? ' (not mapped to a dedicated CRM initial-payment field)' : ' (CRM initial-payment field verified)'}
+                </p>
+              )}
+              <p>Admin approval is recorded in PostgreSQL; payment totals and dates are verified in Zoho CRM.</p>
+              <table className="mt-2 w-full text-left text-xs">
+                <thead><tr><th className="py-1">Payment</th><th>Due date</th><th className="text-right">CRM amount</th></tr></thead>
+                <tbody>{(packetApprovalProof.installments||[]).map((payment,index)=>(
+                  <tr key={payment.installment||index} className="border-t">
+                    <td className="py-1">Payment {payment.installment}</td>
+                    <td>{payment.date}</td>
+                    <td className="text-right">${Number(payment.amount||0).toFixed(2)}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+              <p className="mt-2 text-xs text-emerald-700">Evidence is a PostgreSQL Admin approval receipt recorded only after Zoho CRM confirmed the payment total, dates and amounts. Candidate acknowledgement is separate.</p>
+            </details>
+          </div>
         )}
         {acknowledgedAt && (
           <p className="w-full text-right text-xs text-muted-foreground">
@@ -11364,7 +11430,7 @@ export const ReimbursementExpensesView = ({
   const [loading, setLoading] = useState(true);
   const [paymentData, setPaymentData] = useState({
     nursePaymentType: "",
-    initialPayment: { date: "", paid: false, total: 1000 },
+    initialPayment: { date: "", paid: false, total: 0 },
     payment1: { date: "", paid: false, total: 0 },
     payment2: { date: "", paid: false, total: 0 },
     payment3: { date: "", paid: false, total: 0 },
@@ -11426,6 +11492,8 @@ export const ReimbursementExpensesView = ({
   const [expenseAdminApproved, setExpenseAdminApproved] = useState(false);
   const [expenseAdminApprovalLoading, setExpenseAdminApprovalLoading] = useState(true);
   const [expenseAdminApprovedAt, setExpenseAdminApprovedAt] = useState(null);
+  const [expenseApprovalFeedback, setExpenseApprovalFeedback] = useState({kind:'',message:''});
+  const [expenseApprovalProof, setExpenseApprovalProof] = useState(null);
   const loadExpenseAdminApproval = async () => {
     if (!user?.email) return;
     setExpenseAdminApprovalLoading(true);
@@ -11436,8 +11504,11 @@ export const ReimbursementExpensesView = ({
         : `${API_BASE}/api/reimbursement/expense-report-approval`;
       const response = await fetch(url,{cache:'no-store',headers:{Authorization:adminMode?`AdminBearer ${token}`:`Bearer ${token}`,...(adminMode?{'x-admin-token':token,'x-candidate-email':user.email}:{})}});
       const data = await response.json().catch(()=>({}));
-      setExpenseAdminApproved(Boolean(response.ok && data.success && data.approved && data.crmSynced));
-      setExpenseAdminApprovedAt(data.approvedAt || null);
+      const verified=Boolean(response.ok && data.success && data.approved && data.crmSynced &&
+        data.scheduleSynced && data.crmReadbackVerified);
+      setExpenseAdminApproved(verified);
+      setExpenseAdminApprovedAt(verified ? (data.approvedAt || null) : null);
+      setExpenseApprovalProof(verified ? (data.approvalProof || null) : null);
     } catch (_) { setExpenseAdminApproved(false); }
     finally { setExpenseAdminApprovalLoading(false); }
   };
@@ -11668,7 +11739,7 @@ export const ReimbursementExpensesView = ({
         reimbursementData.nursePaymentType || "",
       initialPayment:
         reimbursementData.initialPayment ||
-        { date:"", paid:false, total:1000 },
+        { date:"", paid:false, total:0 },
       payment1:
         reimbursementData.payment1 ||
         { date:"", paid:false, total:0 },
@@ -12604,173 +12675,127 @@ export const ReimbursementExpensesView = ({
       }
     };
 
-  const handleAcknowledgeExpenseReport =
-    async () => {
-      if (
-        expenseReportAcknowledging
-      ) {
-        return;
-      }
-
-      setExpenseReportAcknowledging(
-        true
+  // v159: Explicit approval evidence is always visible IN the report, not only
+  // in a Sonner toast. Never automatically resend a financial POST after a
+  // timeout. If the response was lost, check the saved approval via GET.
+  const handleAcknowledgeExpenseReport = async () => {
+    if (expenseReportAcknowledging) return;
+    const token=adminMode ? adminToken : localStorage.getItem('icp_auth_token');
+    if (!token) {
+      const message='Your admin/candidate session is unavailable. Sign in again.';
+      if (adminMode) setExpenseApprovalFeedback({kind:'error',message});
+      toast.error(message); return;
+    }
+    if (adminMode && !user?.email) {
+      const message='Candidate email missing. Reopen this candidate before approval.';
+      setExpenseApprovalFeedback({kind:'error',message});toast.error(message);return;
+    }
+    if (adminMode && !window.confirm(
+      `Approve the Expense Report for ${user.email} and synchronize its payment schedule to Zoho CRM? `+
+      'This changes financial fields in the candidate Deal and must not be repeated if Zoho outcome is uncertain.'
+    )) return;
+    const approvalAttemptStartedAt=Date.now();
+    setExpenseReportAcknowledging(true);
+    if(adminMode) setExpenseApprovalFeedback({kind:'working',message:'Verifying Zoho Deal, payment dates and amounts. Please do not click again.'});
+    const controller=new AbortController();
+    const timeoutId=window.setTimeout(()=>controller.abort(),45000);
+    let uncertain=false;
+    try {
+      const response=await fetch(
+        adminMode ? `${API_BASE}/api/admin/reimbursement/acknowledge-expense-report`
+                  : `${API_BASE}/api/reimbursement/acknowledge-expense-report`,
+        { method:'POST',credentials:'include',cache:'no-store',signal:controller.signal,
+          headers:{
+            Authorization:adminMode ? `AdminBearer ${token}` : `Bearer ${token}`,
+            ...(adminMode ? {'x-admin-token':token,'x-candidate-email':user?.email||''} : {}),
+            'Content-Type':'application/json',Accept:'application/json'
+          },
+          body:JSON.stringify({acknowledged:true,...(adminMode?{email:user.email,trigger:'admin_expense_report_acknowledgement'}:{})})
+        }
       );
-
-      try {
-        const token =
-          adminMode
-            ? adminToken
-            : localStorage.getItem("icp_auth_token");
-
-        if (!token) {
-          throw new Error(
-            "Not authenticated"
-          );
-        }
-
-        const response =
-          await fetch(
-            adminMode
-              ? `${API_BASE}/api/admin/reimbursement/acknowledge-expense-report`
-              : `${API_BASE}/api/reimbursement/acknowledge-expense-report`,
-            {
-              method:"POST",
-              cache:"no-store",
-              credentials:"include",
-              headers: {
-                Authorization:
-                  adminMode
-                    ? `AdminBearer ${token}`
-                    : `Bearer ${token}`,
-                ...(adminMode
-                  ? {
-                      "x-admin-token":token,
-                      "x-candidate-email":user?.email || ""
-                    }
-                  : {}),
-                "Content-Type":"application/json",
-                Accept:"application/json"
-              },
-              body:
-                JSON.stringify({
-                  acknowledged:true,
-                  ...(adminMode
-                    ? {
-                        email:user?.email || "",
-                        trigger:"admin_expense_report_acknowledgement"
-                      }
-                    : {})
-                })
-            }
-          );
-
-        const data =
-          await response
-            .json()
-            .catch(
-              () => ({})
-            );
-
-        if (
-          !response.ok ||
-          data.success !==
-            true
-        ) {
-          throw new Error(
-            data.error ||
-            "Unable to acknowledge the Expense Report."
-          );
-        }
-
-        if (adminMode) {
-          setExpenseAdminApproved(true);
-          setExpenseAdminApprovedAt(data.approvedAt || data.acknowledgedAt || null);
-          // CRM returned the committed/read-back total: update the visible
-          // header immediately instead of showing a stale snapshot while refetching.
-          if (Number.isFinite(Number(data.crmTotal ?? data.totalAmount))) {
-            const committedTotal = Number(data.crmTotal ?? data.totalAmount);
-            setPaymentData(previous => ({
-              ...previous,
-              totalReimbursement:committedTotal,
-              balance:Math.max(0, committedTotal - Number(previous?.amountPaid || 0))
-            }));
-            toast.success(`CRM Total synchronized: $${committedTotal.toFixed(2)}`);
-          }
-          void fetchPaymentData(true);
-          void fetchExpenseReport(true,{silent:true});
-        }
-        if (!adminMode) setExpenseReportAcknowledged(
-          true
-        );
-        if (!adminMode) setExpenseReportAcknowledgedAt(
-          data.acknowledgedAt || new Date().toISOString()
-        );
-
-        if (!adminMode) setStages?.(
-          previous =>
-            applyOrderedLocksWithDeepEntry(
-              previous.map(
-                stage =>
-                  stage.stage_name ===
-                    "Receipt Submission"
-                    ? {
-                        ...stage,
-                        status:
-                          "Completed",
-                        completed:
-                          true,
-                        is_completed:
-                          true,
-                        completed_date:
-                          data.acknowledgedAt ||
-                          new Date()
-                            .toISOString(),
-                        source_trigger_unlocked:
-                          true,
-                        trigger_unlocked:
-                          true,
-                        completion_source:
-                          "candidate_expense_report_total_click"
-                      }
-                    : stage
-              )
-            )
-        );
-
-        window.dispatchEvent(
-          new CustomEvent(
-            "pipeline-updated",
-            {
-              detail: {
-                email:
-                  user?.email,
-                stage_name:
-                  "Receipt Submission",
-                status:
-                  "Completed",
-                completed:
-                  true,
-                source:
-                  "candidate_expense_report_total_click"
-              }
-            }
-          )
-        );
-
-        toast.success(
-          "Expense Report acknowledged. This stage is complete."
-        );
-      } catch (error) {
-        toast.error(
-          error?.message ||
-          "Unable to acknowledge the Expense Report."
-        );
-      } finally {
-        setExpenseReportAcknowledging(
-          false
-        );
+      const data=await response.json().catch(()=>({}));
+      if (!response.ok || data.success!==true) {
+        const details=String(data.details||'').trim();
+        const fields=Array.isArray(data.mismatchedFields) && data.mismatchedFields.length
+          ? ` CRM fields: ${data.mismatchedFields.join(', ')}.` : '';
+        const error=new Error(`${data.error||`Approval returned HTTP ${response.status}`}${details?` (${details})`:''}${fields}`);
+        error.crmOutcome=data.crmOutcome;
+        error.httpStatus=response.status;
+        throw error;
       }
-    };
+      if(adminMode && !(data.approved && data.crmSynced && data.scheduleSynced && data.crmReadbackVerified && data.expenseApprovalProof?.proofId))
+        throw Object.assign(new Error('CRM verification or saved Expense Report proof is missing. Check status before submitting again.'),{crmOutcome:'unverified'});
+      if (adminMode) {
+        setExpenseAdminApproved(true);
+        setExpenseAdminApprovedAt(data.approvedAt || null);
+        setExpenseApprovalProof(data.expenseApprovalProof);
+        const message=data.notificationSaved
+          ? 'Expense Report approved; CRM schedule verified and candidate notification saved.'
+          : 'Expense Report approved and CRM verified. Candidate notification could not be saved; notify the candidate manually and check logs.';
+        setExpenseApprovalFeedback({kind:data.notificationSaved?'success':'warning',message});
+        if(Number.isFinite(Number(data.crmTotal ?? data.totalAmount))) {
+          const total=Number(data.crmTotal ?? data.totalAmount);
+          setPaymentData(previous=>({
+            ...previous,totalReimbursement:total,
+            balance:Math.max(0,total-Number(previous?.amountPaid||0))
+          }));
+        }
+        if(data.paymentData && data.scheduleSynced) applyPaymentData(data.paymentData);
+        // The expense-report-updated event below refreshes approval status once.
+      } else {
+        setExpenseReportAcknowledged(true);
+        setExpenseReportAcknowledgedAt(data.acknowledgedAt || new Date().toISOString());
+        setStages?.(previous=>applyOrderedLocksWithDeepEntry(previous.map(stage=>
+          stage.stage_name==='Receipt Submission' ? {...stage,status:'Completed',completed:true,
+            is_completed:true,completed_date:data.acknowledgedAt||new Date().toISOString(),
+            source_trigger_unlocked:true,trigger_unlocked:true,
+            completion_source:'candidate_expense_report_total_click'} : stage
+        )));
+        window.dispatchEvent(new CustomEvent('pipeline-updated',{detail:{email:user?.email,
+          stage_name:'Receipt Submission',status:'Completed',completed:true,
+          source:'candidate_expense_report_total_click'}}));
+      }
+      window.dispatchEvent(new CustomEvent('expense-report-updated',{detail:{email:user?.email,source:'expense-report-approval'}}));
+      toast.success(adminMode?'Expense Report and CRM schedule verified.':'Expense Report acknowledged. This stage is complete.');
+    } catch(error) {
+      uncertain=error?.name==='AbortError' || error?.crmOutcome==='unknown' ||
+        error?.crmOutcome==='unverified' || (error instanceof TypeError);
+      let confirmed=false;
+      // Read-only check is safe after an unknown CRM outcome; never retry POST.
+      if(uncertain && adminMode && token && user?.email) {
+        const checkController=new AbortController();
+        const checkTimer=window.setTimeout(()=>checkController.abort(),7000);
+        try {
+          const check=await fetch(`${API_BASE}/api/admin/reimbursement/expense-report-approval?email=${encodeURIComponent(user.email)}`,
+            {cache:'no-store',credentials:'include',signal:checkController.signal,
+              headers:{Authorization:`AdminBearer ${token}`,'x-admin-token':token,'x-candidate-email':user.email}});
+          const body=await check.json().catch(()=>({}));
+          confirmed=Boolean(check.ok && body.success && body.approved && body.crmSynced &&
+            body.scheduleSynced && body.crmReadbackVerified &&
+            body.approvalProof?.proofId &&
+            // An old approval record is NOT proof of the current uncertain CRM PUT.
+            Date.parse(body.approvalProof?.crmVerifiedAt||'') >= approvalAttemptStartedAt-1500);
+          if(confirmed) {
+            setExpenseAdminApproved(true);
+            setExpenseAdminApprovedAt(body.approvedAt||null);
+            setExpenseApprovalProof(body.approvalProof);
+            setExpenseApprovalFeedback({kind:'success',message:'Approval verified from PostgreSQL after the response was interrupted. No duplicate CRM update was submitted.'});
+            toast.success('Expense Report approval verified in PostgreSQL.');
+          }
+        } catch(_){} finally {window.clearTimeout(checkTimer);}
+      }
+      if(!confirmed) {
+        const message=error?.name==='AbortError'
+          ? 'Approval request timed out. Check the Zoho Deal and saved approval status before clicking again.'
+          : String(error?.message||'Expense Report approval failed.');
+        if(adminMode) setExpenseApprovalFeedback({kind:uncertain?'warning':'error',message});
+        toast.error(message);
+      }
+    } finally {
+      window.clearTimeout(timeoutId);
+      setExpenseReportAcknowledging(false);
+    }
+  };
 
   const openExpenseRowEditor = row => {
     setExpenseRowEditor(row.id);
@@ -13051,12 +13076,17 @@ export const ReimbursementExpensesView = ({
           label: "Initial Payment",
           payment: {
             ...(paymentData.initialPayment || {}),
-            total: 1000
+            // Preserve actual zero and values below $1,000; never invent a
+            // $1,000 initial payment when CRM provides a smaller total.
+            total: Number.isFinite(Number(paymentData.initialPayment?.total))
+              ? Number(paymentData.initialPayment.total)
+              : Math.min(1000,Math.max(0,Number(paymentData.totalReimbursement)||0))
           }
         },
-        { key: "payment2", label: "Payment 2", payment: paymentData.payment2 },
-        { key: "payment3", label: "Payment 3", payment: paymentData.payment3 },
-        { key: "payment4", label: "Payment 4", payment: paymentData.payment4 }
+        { key: "payment1", label: "Payment 1 (Month 1)", payment: paymentData.payment1 },
+        { key: "payment2", label: "Payment 2 (Month 2)", payment: paymentData.payment2 },
+        { key: "payment3", label: "Payment 3 (Month 3)", payment: paymentData.payment3 },
+        { key: "payment4", label: "Payment 4 (Month 4)", payment: paymentData.payment4 }
       ]
     : [1, 2, 3, 4].map(number => ({
         key: `payment${number}`,
@@ -13693,7 +13723,7 @@ export const ReimbursementExpensesView = ({
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
               {adminMode
-                ? "Acknowledge this candidate’s Expense Report after reviewing the final total. This also completes the candidate’s Receipt Submission stage."
+                ? "Approve the final Expense Report, confirm the CRM acknowledgment, and save four monthly installments beginning one month after arrival. The candidate acknowledges separately."
                 : "The Expense Report stage checks off when a total amount is available and you click the Expense Report section. You can also acknowledge it here."}
             </p>
           </div>
@@ -13718,9 +13748,9 @@ export const ReimbursementExpensesView = ({
               ) : (
                 <>
                   <CheckCircle2 className="h-4 w-4" />
-                  {expenseReportAcknowledged
-                    ? (adminMode ? "Approved — Reconcile CRM" : "Re-acknowledge Expense Report")
-                    : (adminMode ? "Approve Expense Report & Sync CRM" : "Acknowledge Expense Report")}
+                  {adminMode
+                    ? (expenseAdminApproved ? "Reconcile Expense Report & CRM Schedule" : "Approve Expense Report & Sync CRM Schedule")
+                    : (expenseReportAcknowledged ? "Re-acknowledge Expense Report" : "Acknowledge Expense Report")}
                 </>
               )}
             </Button>
@@ -13729,8 +13759,37 @@ export const ReimbursementExpensesView = ({
                 Last acknowledged: {new Date(expenseReportAcknowledgedAt).toLocaleString()}
               </p>
             )}
+            {adminMode && expenseAdminApproved && expenseAdminApprovedAt && (
+              <p className="text-xs text-emerald-800 font-medium">
+                Approved: {new Date(expenseAdminApprovedAt).toLocaleString()}
+              </p>
+            )}
           </div>
         </div>
+        {adminMode && expenseApprovalFeedback.message && (
+          <div role={expenseApprovalFeedback.kind==='error'?'alert':'status'} className={`mt-3 rounded-lg border px-4 py-3 text-sm ${
+            expenseApprovalFeedback.kind==='success'?'border-emerald-300 bg-emerald-50 text-emerald-900':
+            expenseApprovalFeedback.kind==='working'?'border-blue-300 bg-blue-50 text-blue-900':
+            expenseApprovalFeedback.kind==='warning'?'border-amber-300 bg-amber-50 text-amber-900':
+            'border-red-300 bg-red-50 text-red-900'
+          }`}>{expenseApprovalFeedback.message}</div>
+        )}
+        {adminMode && expenseAdminApproved && expenseApprovalProof?.proofId && (
+          <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
+            <p className="font-semibold">Verified Expense Report approval proof</p>
+            <p>Approval ID: {expenseApprovalProof.proofId}</p>
+            <p>Approved by: {expenseApprovalProof.approvedBy || 'ICP Administration'}</p>
+            <p>CRM Deal: {expenseApprovalProof.crmDealId || '—'} · Type: {expenseApprovalProof.paymentType || '—'}</p>
+            <p>Approved amount: ${Number(expenseApprovalProof.totalAmount||0).toFixed(2)} · Initial payment: ${Number(expenseApprovalProof.initialPayment||0).toFixed(2)}</p>
+            <p>CRM verified: {expenseApprovalProof.crmVerifiedAt ? new Date(expenseApprovalProof.crmVerifiedAt).toLocaleString() : 'Saved'}</p>
+            <div className="mt-2 grid gap-1 sm:grid-cols-2">
+              {(expenseApprovalProof.payments||[]).map((payment,i)=>(
+                <p key={i}>Payment {payment.installment||i+1}: {payment.date} · ${Number(payment.amount||0).toFixed(2)}</p>
+              ))}
+            </div>
+            <p className="mt-2">Candidate notification: {expenseApprovalProof.notificationSaved?'Saved':'Not confirmed'}</p>
+          </div>
+        )}
       </div>
 
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -13923,7 +13982,7 @@ export const ReimbursementExpensesView = ({
               <div key={key} className="grid grid-cols-4 gap-2 p-3 border-b border-green-100 last:border-0 hover:bg-green-50/50 transition-colors">
                 <div className="font-medium text-sm">{label}</div>
                 <div className="text-sm text-gray-600">
-                  {validDate ? format(parsedDate, "MMM d, yyyy h:mm a") : ""}
+                  {validDate ? format(parsedDate, "MMM d, yyyy") : ""}
                 </div>
                 <div>
                   {payment?.paid ? (
