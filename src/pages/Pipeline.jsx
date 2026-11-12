@@ -6428,6 +6428,9 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   const [finalBankingPlan, setFinalBankingPlan] = useState("");
   const [finalTransportationPlan, setFinalTransportationPlan] = useState("");
 
+  const isAdvancialPreArrivalPlan = /^advancial\s+pre[- ]arrival\s+banking$/i.test(
+    String(finalBankingPlan || '').trim()
+  );
   const isLocalBankPlan = (() => {
     const value = String(finalBankingPlan || "")
       .trim()
@@ -6462,7 +6465,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   // response containing an older hospital/phone snapshot.
   const authoritativeFacilityRef = useRef(null);
   const facilityRequestSequenceRef = useRef(0);
-  const [facilityChecking, setFacilityChecking] = useState(true);
+  const [facilityChecking, setFacilityChecking] = useState(!adminMode);
   // A cached packet is never treated as confirmation of the current employer.
   const [facilityVerified, setFacilityVerified] = useState(false);
   const [facilityError, setFacilityError] = useState("");
@@ -6765,19 +6768,24 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     }
   };
 
-  const fetchFacilityInformation = async (retryCount = 0) => {
+  const fetchFacilityInformation = async (retryCount = 0, forceRefresh = false) => {
     const requestSequence = ++facilityRequestSequenceRef.current;
     if (retryCount === 0) setFacilityChecking(true);
     try {
       const token = (adminMode ? adminToken : localStorage.getItem("icp_auth_token"));
       if (!token) return;
 
-      const response = await fetch(
-        adminMode
-          ? `${API_BASE}/api/admin/welcome-packet/facility?email=${encodeURIComponent(user?.email || "")}`
-          : `${API_BASE}/api/welcome-packet/facility`,
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), adminMode ? 12000 : 12000);
+      let response;
+      try {
+        response = await fetch(
+          adminMode
+            ? `${API_BASE}/api/admin/welcome-packet/facility?email=${encodeURIComponent(user?.email || "")}${forceRefresh ? "&refresh=1" : ""}`
+            : `${API_BASE}/api/welcome-packet/facility`,
         {
           method: "GET",
+          signal:controller.signal,
           cache: "no-store",
           credentials: "include",
           headers: {
@@ -6786,6 +6794,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           }
         }
       );
+      } finally { window.clearTimeout(timeoutId); }
 
       const data =
         await response.json().catch(() => ({}));
@@ -6793,9 +6802,11 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       if (requestSequence !== facilityRequestSequenceRef.current) return;
 
       if (!response.ok || !data?.facility) {
-        setFacilityError(data?.error || "Current CRM facility could not be verified.");
+        setFacilityError(data?.error || (adminMode
+          ? "No previously verified hospital assignment is saved. Use Refresh Hospital to check CRM once."
+          : "Current CRM facility could not be verified."));
         setFacilityVerified(false);
-        if (retryCount < 1) {
+        if (!adminMode && retryCount < 1) {
           window.setTimeout(
             () => void fetchFacilityInformation(retryCount + 1),
             900
@@ -6886,7 +6897,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
 
       // A sparse Account lookup can occur while Zoho is refreshing. Retry once
       // instead of leaving the Welcome Packet permanently on "Not available".
-      if (!hydrated && retryCount < 1) {
+      if (!adminMode && !hydrated && retryCount < 1) {
         window.setTimeout(
           () => void fetchFacilityInformation(retryCount + 1),
           900
@@ -6900,7 +6911,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       setFacilityError(error?.message || "Current CRM facility could not be verified.");
       setFacilityVerified(false);
 
-      if (retryCount < 1) {
+      if (!adminMode && retryCount < 1) {
         window.setTimeout(
           () => void fetchFacilityInformation(retryCount + 1),
           900
@@ -6914,6 +6925,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   // Lightweight authoritative CRM Account refresh while packet remains open.
   // Avoid fetching entire Zoho packet every cycle; don't poll in hidden tabs.
   useEffect(() => {
+    if (adminMode) return undefined; // v124: Admin reads saved packet, no CRM polling.
     let active = true;
     let inFlight = false;
     const refreshFacility = async () => {
@@ -6956,6 +6968,17 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       }));
       return () => controller.abort();
     }
+    // Restore a previously resolved exact city guide instantly.
+    try{
+      const key=`icp_navigator_city_v139:${bankCityKey(city)}:${bankStateKey(state)}`;
+      const saved=JSON.parse(sessionStorage.getItem(key)||'null');
+      if(saved?.guide?.match==='city' && saved.guide.url &&
+         Date.now()-Number(saved.savedAt||0)<6*60*60*1000){
+        setPacket(current=>({...current,destinationGuide:saved.guide}));
+        setNavigatorLoading(false);
+        return () => controller.abort();
+      }
+    }catch(_){}
     // Show a verified state-directory link immediately instead of an empty result
     // while looking for a city-specific page. Never invent a city URL.
     const stateDirectory = verifiedNavigatorStateLinks[bankStateKey(state)] || null;
@@ -6973,7 +6996,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     const url = adminMode
       ? `${API_BASE}/api/admin/welcome-packet/destination-guide?city=${encodeURIComponent(city)}&state=${encodeURIComponent(state)}`
       : `${API_BASE}/api/welcome-packet/destination-guide?city=${encodeURIComponent(city)}&state=${encodeURIComponent(state)}`;
-    const timer=window.setTimeout(()=>controller.abort(),8000);
+    const timer=window.setTimeout(()=>controller.abort(),4500);
     fetch(url,{cache:"no-store",signal:controller.signal,headers:{
       Authorization:adminMode?`AdminBearer ${token}`:`Bearer ${token}`,
       ...(adminMode?{"x-candidate-email":user?.email||""}:{})
@@ -6984,6 +7007,10 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         if(bankCityKey(current.employerCity)!==bankCityKey(city) ||
            bankStateKey(current.employerState)!==bankStateKey(state)) return current;
         // A backend error must not erase a verified state directory link.
+        if(data?.guide?.match==='city' && data.guide.url){
+          try{sessionStorage.setItem(`icp_navigator_city_v139:${bankCityKey(city)}:${bankStateKey(state)}`,
+            JSON.stringify({savedAt:Date.now(),guide:data.guide}));}catch(_){}
+        }
         return {...current,destinationGuide:data?.guide?.url?data.guide:stateFallback};
       });
     }).catch(()=>{}).finally(()=>{
@@ -7070,6 +7097,25 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     }
   };
 
+  // v124 Admin: read nurse-saved planning directly from PostgreSQL, without full CRM lookups.
+  useEffect(() => {
+    if (!adminMode || !adminToken || !user?.email) return undefined;
+    let cancelled = false;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 6500);
+    fetch(`${API_BASE}/api/admin/candidate/${encodeURIComponent(user.email)}/planning-snapshot`, {
+      signal:controller.signal,cache:'no-store',
+      headers:{Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken}
+    }).then(r=>r.json().then(data=>({ok:r.ok,data}))).then(({ok,data})=>{
+      if (!ok || !data?.success || cancelled) return;
+      const summary = data.travelSummary || {};
+      setFinalBankingPlan(previous=>summary.finalBankingPlan || previous);
+      setFinalTransportationPlan(previous=>summary.finalTransportationPlan || previous);
+      setFinalBankNameCity(previous=>summary.finalBankNameCity || previous);
+    }).catch(()=>{}).finally(()=>window.clearTimeout(timer));
+    return ()=>{cancelled=true;controller.abort();window.clearTimeout(timer);};
+  },[adminMode,adminToken,user?.email]);
+
   useEffect(() => {
     if (adminMode) return undefined;
 
@@ -7113,9 +7159,13 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
   ]);
 
   useEffect(() => {
+    if (adminMode && welcomePacketRefreshSeq === 0) return undefined;
     if (!isLocalBankPlan || !facilityVerified) {
-      setLocationServices(current => ({...current, bank:null}));
-      setBankLookupReason("");
+      // Only local-bank data depends on facility verification.
+      // Keep exact-name Advancial data when the facility is being checked.
+      setLocationServices(current => ({...current, bank:
+        current.bank?.exactNameMatch && current.bank?.name === 'Advancial Credit Union' ? current.bank : null}));
+      if (!isAdvancialPreArrivalPlan) setBankLookupReason("");
       return undefined;
     }
     // The authoritative Account lookup fills these fields, never housing/flight city.
@@ -7195,6 +7245,54 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
     return () => { cancelled = true; controller.abort(); window.clearTimeout(timer); };
   }, [isLocalBankPlan,facilityVerified,packet.employerCity,packet.employerState,user?.email,adminMode,adminToken,welcomePacketRefreshSeq]);
 
+  // Advancial is a named CRM vendor, not an employer-location bank.
+  // One authenticated request on plan selection; no repeated polling.
+  useEffect(() => {
+    if (!isAdvancialPreArrivalPlan) return undefined;
+    let cancelled = false;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 9500);
+    const fetchAdvancial = async () => {
+      // A previously verified exact CRM vendor is safe across packet reopens.
+      // Do not re-fetch it for every Admin tab navigation.
+      try {
+        const entry=JSON.parse(sessionStorage.getItem('icp_advancial_exact_vendor_v139')||'null');
+        if(entry?.bank?.exactNameMatch && entry.bank.name==='Advancial Credit Union' &&
+           Date.now()-Number(entry.savedAt||0)<30*60*1000){
+          if(!cancelled){setLocationServices(previous=>({...previous,bank:entry.bank}));setBankLookupReason('matched');}
+          return;
+        }
+      }catch(_){}
+      const token = adminMode ? adminToken : localStorage.getItem('icp_auth_token');
+      if (!token || !user?.email) return;
+      const path = adminMode ? '/api/admin/welcome-packet/banking-vendor' : '/api/welcome-packet/banking-vendor';
+      const params = new URLSearchParams({plan:'advancial'});
+      if (adminMode) params.set('email', user.email);
+      try {
+        const response = await fetch(`${API_BASE}${path}?${params}`, {
+          cache:'no-store',credentials:'include',signal:controller.signal,
+          headers:{Authorization:adminMode?`AdminBearer ${token}`:`Bearer ${token}`,
+            ...(adminMode?{'x-candidate-email':user.email,'x-admin-token':token}:{}),
+            Accept:'application/json'}
+        });
+        const data = await response.json().catch(() => ({}));
+        if (cancelled) return;
+        if (response.ok && data.success && data.bank?.exactNameMatch &&
+            String(data.bank.name).trim().toLowerCase()==='advancial credit union') {
+          setLocationServices(previous => ({...previous,bank:data.bank}));
+          try{sessionStorage.setItem('icp_advancial_exact_vendor_v139',JSON.stringify({savedAt:Date.now(),bank:data.bank}));}catch(_){}
+          setBankLookupReason('matched');
+        } else {
+          setBankLookupReason(data.reason || 'crm-lookup-failed');
+        }
+      } catch (e) {
+        if (!cancelled) setBankLookupReason('crm-lookup-failed');
+      } finally { window.clearTimeout(timeout); }
+    };
+    fetchAdvancial();
+    return () => {cancelled=true;controller.abort();window.clearTimeout(timeout);};
+  }, [isAdvancialPreArrivalPlan,user?.email,adminMode,adminToken]);
+
   useEffect(() => {
     let cancelled = false;
     const cached = readWelcomePacketCache();
@@ -7237,10 +7335,8 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
         ...(adminSummaryWelcome.locationServices || {})
       }));
 
-      setFinalBankingPlan(
-        normalizePacketValue(
-          adminSummaryWelcome.finalBankingPlan
-        ) || ""
+      setFinalBankingPlan(previous =>
+        previous || normalizePacketValue(adminSummaryWelcome.finalBankingPlan) || ""
       );
 
       setFinalTransportationPlan(
@@ -7277,6 +7373,18 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       setLoading(false);
     }
 
+    // v124: Admin receives the existing summary and direct PostgreSQL travel plan.
+    // Do not launch full CRM packet, licensure, facility, and geocoding concurrently.
+    // Explicit Refresh CRM Data still uses the original full flow.
+    if (adminMode && welcomePacketRefreshSeq === 0) {
+      setLoading(false);
+      setFacilityChecking(false);
+      // Strictly cache-only. Backend NEVER calls Zoho for this default route.
+      // It supplies facility verification only from a previously saved CRM Account snapshot.
+      void fetchFacilityInformation(1, false);
+      return () => { cancelled = true; ++facilityRequestSequenceRef.current; };
+    }
+
     authoritativeLicensureRef.current = null;
     setLicensureLiveError("");
     // v53: refresh licensure separately for both Candidate and Admin, without
@@ -7287,7 +7395,9 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       authoritativeFacilityRef.current = null;
       setFacilityVerified(false);
       setFacilityError("");
-      setLocationServices(current => ({...current, bank:null}));
+      // Preserve an exact-name Advancial record while Account/facility refreshes.
+      setLocationServices(current => ({...current, bank:
+        current.bank?.exactNameMatch && current.bank?.name === 'Advancial Credit Union' ? current.bank : null}));
       ++facilityRequestSequenceRef.current;
       setFacilityChecking(true);
       // The hospital Account lookup runs independently from the much larger
@@ -7420,12 +7530,10 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
               formatPacketDate(packetResponse.packet.moveInDate)
           };
 
-          if (
-            !forceRefresh &&
-            !welcomePacketHasUsefulData(normalizedPacket)
-          ) {
-            // Do not accept a sparse Admin packet as final. Ask the backend for
-            // one controlled live repair before displaying rows as unavailable.
+          // v141: do not recursively refresh a sparse Admin packet; that
+          // doubles costly Zoho calls and can starve other candidates.
+          if (!adminMode && !forceRefresh &&
+              !welcomePacketHasUsefulData(normalizedPacket)) {
             await loadPacket(true);
             return;
           }
@@ -7435,6 +7543,11 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             setPacket(current => ({
               ...current,
               ...normalizedPacket,
+              ...Object.fromEntries(['housingAddress','propertyManager',
+                'propertyManagerPhone','moveInDate','rentCost',
+                'firstMonthRent','totalPaymentsMade','utilities'].map(key=>[
+                  key,normalizePacketValue(normalizedPacket[key]) || current[key] || ''
+                ])),
               ...(authoritativeFacilityRef.current || {}),
               ...(authoritativeLicensureRef.current
                 ? {
@@ -7451,6 +7564,9 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             setLocationServices(current => ({
               ...current,
               ...(packetResponse.locationServices || {}),
+              bank:packetResponse.locationServices?.bank ||
+                (current.bank?.exactNameMatch && current.bank?.name === 'Advancial Credit Union'
+                  ? current.bank : null),
               ...(authoritativeLicensureRef.current
                 ? {
                     licensure:authoritativeLicensureRef.current.licensure,
@@ -7502,7 +7618,9 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
             destination:
               packetResponse.locationServices.destination || "",
             bank:
-              packetResponse.locationServices.bank || null,
+              packetResponse.locationServices.bank ||
+              (locationServices.bank?.exactNameMatch && locationServices.bank?.name === 'Advancial Credit Union'
+                ? locationServices.bank : null),
             socialSecurity:
               packetResponse.locationServices.socialSecurity || null,
             licensure:
@@ -8558,9 +8676,9 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
       {adminMode && (
         <div className="sticky top-0 z-20 flex justify-end gap-2 rounded-lg border border-purple-100 bg-white/95 p-2 shadow-sm print:hidden">
           <Button type="button" variant="outline" disabled={welcomePacketRefreshBusy}
-            onClick={() => setWelcomePacketRefreshSeq(n => n + 1)} className="gap-2">
+            onClick={() => void fetchFacilityInformation(1, true)} className="gap-2">
             <RefreshCw className={`h-4 w-4 ${welcomePacketRefreshBusy ? "animate-spin" : ""}`} />
-            Refresh CRM Data
+            Refresh Hospital Assignment
           </Button>
           <Button type="button" variant="outline" onClick={printPacket} className="gap-2">
             <Printer className="h-4 w-4" /> Print Welcome Packet
@@ -8608,9 +8726,15 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           <Building className="h-5 w-5" />
           Facility Information
         </h3>
-        {!facilityVerified ? (
-          <p className="py-3 text-sm text-gray-600">{facilityChecking ? "Checking the current hospital assignment in Zoho CRM…" : (facilityError || "Current hospital assignment has not been verified. Refresh CRM Data to retry.")}</p>
-        ) : (
+        {!facilityVerified && (
+          <p className="py-3 text-sm text-amber-700" role="status">
+            {facilityChecking ? "Reading saved hospital assignment…" :
+              (facilityError || (normalizePacketValue(packet.employerName)
+                ? "Showing saved assignment; it has not been reverified against live CRM. Refresh Hospital Assignment before final approval."
+                : "No saved hospital assignment is available. Use Refresh Hospital Assignment."))}
+          </p>
+        )}
+        {(facilityVerified || normalizePacketValue(packet.employerName)) && (
           <>
         <InfoRow label="Employer Name" value={packet.employerName} />
         <InfoRow label="Address" value={packet.employerAddress} />
@@ -8788,7 +8912,19 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           }
         />
 
-        {isLocalBankPlan ? (
+        {isAdvancialPreArrivalPlan ? (
+          locationServices.bank?.exactNameMatch && locationServices.bank?.name === 'Advancial Credit Union' ? (
+            <div className="space-y-2">
+              <InfoRow label="Banking Vendor" value={locationServices.bank.name} />
+              {locationServices.bank.address ? <InfoRow label="Address" value={locationServices.bank.address} /> : null}
+              {locationServices.bank.city || locationServices.bank.state ? <InfoRow label="Location" value={[locationServices.bank.city,locationServices.bank.state].filter(Boolean).join(', ')} /> : null}
+              {locationServices.bank.phone ? <InfoRow label="Phone" value={locationServices.bank.phone} /> : null}
+              {/^https:\/\//i.test(String(locationServices.bank.url || '')) ? <a className="text-sm text-purple-700 underline" href={locationServices.bank.url} target="_blank" rel="noopener noreferrer">Advancial Credit Union website</a> : null}
+            </div>
+          ) : <p className="my-2 text-sm text-amber-700">{bankLookupReason === 'checking'
+            ? 'Loading Advancial Credit Union from Zoho CRM…'
+            : 'Advancial Credit Union vendor details are temporarily unavailable from Zoho CRM. The selected banking plan is saved; bank contact details will appear once the CRM record is retrieved.'}</p>
+        ) : isLocalBankPlan ? (
           <>
             {!facilityVerified ? (
               <p className="my-2 text-sm text-amber-700">Bank information will appear after the current CRM facility is verified.</p>
@@ -11310,7 +11446,7 @@ export const ReimbursementExpensesView = ({
     const onUpdate = () => void loadExpenseAdminApproval();
     window.addEventListener('candidate-data-updated',onUpdate);
     window.addEventListener('expense-report-updated',onUpdate);
-    const timer = window.setInterval(onUpdate,30000);
+    const timer = window.setInterval(onUpdate,300000);
     return () => {window.removeEventListener('candidate-data-updated',onUpdate);window.removeEventListener('expense-report-updated',onUpdate);window.clearInterval(timer);};
   },[user?.email,adminMode,adminToken]);
 
@@ -12994,7 +13130,8 @@ export const ReimbursementExpensesView = ({
       copy.querySelectorAll('input, textarea').forEach(node => {
         const value = node.value || node.getAttribute('value') || '';
         const span = printDoc.createElement('div');
-        span.textContent = value;
+        const sensitive = ['accountNumber','routingNumber'].includes(node.name);
+        span.textContent = sensitive ? (value ? '••••' + String(value).slice(-4) : '') : value;
         span.style.whiteSpace = 'pre-wrap';
         span.style.minHeight = '1.25rem';
         span.style.padding = '0.125rem 0';
@@ -13042,6 +13179,19 @@ export const ReimbursementExpensesView = ({
           .expense-report-print-copy h4 { break-after:avoid-page!important; page-break-after:avoid!important; }
           .expense-report-print-copy > div { break-inside:auto!important; }
           .expense-report-print-copy .grid > div { break-inside:avoid-page!important; }
+          /* Stable two-column printed form regardless of responsive browser width. */
+          .expense-report-print-copy [data-icp-bank-print-section="true"] { width:100%!important; box-sizing:border-box!important;
+            break-inside:avoid-page!important; page-break-inside:avoid!important; }
+          .expense-report-print-copy [data-icp-bank-print-section="true"] form > .grid {
+            display:grid!important; grid-template-columns:repeat(2,minmax(0,1fr))!important;
+            gap:10px 18px!important; align-items:start!important; }
+          .expense-report-print-copy [data-icp-bank-print-section="true"] form > .grid > div {
+            min-width:0!important; width:100%!important; box-sizing:border-box!important; }
+          .expense-report-print-copy [data-icp-bank-print-section="true"] form > .grid > div > div,
+          .expense-report-print-copy [data-icp-bank-print-section="true"] form > .grid > div > select {
+            width:100%!important; min-width:0!important; overflow-wrap:anywhere!important; }
+          .expense-report-print-copy [data-icp-bank-print-section="true"] label { display:block!important; white-space:normal!important; }
+          @media print { .expense-report-print-copy [data-icp-bank-print-section="true"] { padding:12px!important; } }
           .expense-report-print-copy a { color:inherit; text-decoration:none; }
           @page { size:A4; margin:15mm 12mm 17mm; }
           @media print { html,body { height:auto!important; overflow:visible!important; }
@@ -13818,7 +13968,7 @@ export const ReimbursementExpensesView = ({
 
         </div>
 
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+      <div data-icp-bank-print-section="true" className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <h3 className="font-semibold text-blue-800 flex items-center gap-2 mb-4">
           <CreditCard className="h-5 w-5" />
           Bank & Payment Details
@@ -14131,16 +14281,8 @@ const ReimbursementUpload = ({ onClose, user, setStages }) => {
         return;
       }
       try {
-        const token =
-          localStorage.getItem(
-            "icp_auth_token"
-          );
-
-        if (!token) {
-          throw new Error(
-            "Please sign in again."
-          );
-        }
+        const token = adminMode ? adminToken : localStorage.getItem("icp_auth_token");
+        if (!token) throw new Error("Please sign in again.");
 
         const response =
           await fetch(

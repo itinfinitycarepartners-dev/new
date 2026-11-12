@@ -22,7 +22,7 @@ const API_BASE = String(
   'http://localhost:4000'
 ).replace(/\/+$/, '');
 
-const ADMIN_FAST_CACHE_PREFIX = "icp_admin_fast_v1:";
+const ADMIN_FAST_CACHE_PREFIX = "icp_admin_fast_v144:";
 const ADMIN_FAST_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const readAdminFastCache = key => {
   try {
@@ -41,7 +41,7 @@ const writeAdminFastCache = (key, value) => {
 // Instant candidate-document snapshot. The list is metadata-only, so keeping it
 // in sessionStorage is safe and prevents a Zoho round-trip every time an admin
 // opens the same candidate during a work session.
-const ADMIN_DOC_CACHE_PREFIX = "icp_admin_candidate_docs_v4:";
+const ADMIN_DOC_CACHE_PREFIX = "icp_admin_candidate_docs_v152:";
 const ADMIN_DOC_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const readAdminDocumentCache = email => {
   try {
@@ -75,7 +75,61 @@ const adminApprovalIdentityV111 = doc => {
 };
 const adminTerminalApprovalV111 = doc =>
   doc?.already_approved === true ||
-  ["approved", "rejected"].includes(String(doc?.approval_status || "").trim().toLowerCase());
+  ["approved", "rejected"].includes(String(doc?.approval_status || doc?.document_status || "").trim().toLowerCase());
+const adminDocRealNameV135 = doc => {
+  for (const value of [doc?.document_name,doc?.original_name,doc?.file_name,
+    doc?.File_Name,doc?.filename,doc?.original_filename,doc?.originalName,
+    doc?.fileName,doc?.uploaded_file_name,doc?.display_name]) {
+    if (typeof value === 'string' && value.trim() &&
+        !/^(unnamed(?: document)?|unknown|document|n\/a|—|-)$/i.test(value.trim()) &&
+        !/filename unavailable/i.test(value)) return value.trim();
+  }
+  const field=String(doc?.crm_field_api_name || doc?.recruit_field_api_name || doc?.document_category || '').trim();
+  return field ? `${field.replace(/_/g,' ')} (filename not recorded)` : 'Filename not recorded';
+};
+const adminDocStatusV135 = doc => {
+  const status=String(doc?.approval_status || doc?.document_status || '').trim().toLowerCase();
+  if (status === 'rejected') return 'rejected';
+  if (status === 'approved' || doc?.already_approved === true) return 'approved';
+  if (status === 'needs_review' || status === 'processing' || status === 'on_file_unverified') return status;
+  // Unknown historical state is not proof of a new upload.
+  return status === 'pending' || doc?.approval_required === true ? 'pending' : 'needs_review';
+};
+const adminDocAliasesV136 = doc => [doc?.pending_upload_id,doc?.approval_key,
+  doc?.crm_attachment_id,doc?.recruit_attachment_id,
+  doc?.recruit_custom_module1_attachment_id,doc?.attachment_id,doc?.document_id,
+  doc?.id,doc?._id].filter(v=>v!=null && String(v).trim()).map(String);
+const preserveAdminFilenamesV136 = (incoming,previous=[]) => {
+  const prior=new Map();
+  for(const doc of previous){
+    const name=adminDocRealNameV135(doc);
+    if(name==='Filename not recorded'||/filename not recorded/i.test(name)) continue;
+    for(const id of adminDocAliasesV136(doc)) prior.set(id,name);
+  }
+  return incoming.map(doc=>{
+    const name=adminDocRealNameV135(doc);
+    if(name!=='Filename not recorded'&&!/filename not recorded/i.test(name))return doc;
+    const match=adminDocAliasesV136(doc).map(id=>prior.get(id)).find(Boolean);
+    return match?{...doc,document_name:match}:doc;
+  });
+};
+// v153: Stale reads from another Azure instance may use an older document
+// approval_key. Keep an already confirmed decision by namespaced attachment ID
+// as well as by the canonical submission ID; never match by filename.
+const adminProviderDecisionAliasesV153 = doc => {
+  const source=String(doc?.source||'').trim().toLowerCase();
+  const out=[];
+  const add=(p,v)=>{const id=String(v??'').trim();if(id)out.push(`${p}:${id}`);};
+  add('crm',doc?.crm_attachment_id);
+  add('crm-file',doc?.crm_file_id);
+  add('recruit',doc?.recruit_attachment_id);
+  add('recruit',doc?.recruit_file_id);
+  add('recruit-custom',doc?.recruit_custom_module1_attachment_id);
+  if(source.includes('crm'))add('crm',doc?.attachment_id);
+  else if(source==='custommodule1')add('recruit-custom',doc?.attachment_id);
+  else if(source.includes('recruit'))add('recruit',doc?.attachment_id);
+  return [...new Set(out)];
+};
 const preserveAdminApprovalsV111 = (incoming, previous = [], email = "") => {
   const durableUI = [
     ...(Array.isArray(previous) ? previous : []),
@@ -83,14 +137,14 @@ const preserveAdminApprovalsV111 = (incoming, previous = [], email = "") => {
   ];
   const statuses = new Map();
   for (const item of durableUI) {
-    const key = adminApprovalIdentityV111(item);
-    if (!key || !adminTerminalApprovalV111(item)) continue;
-    statuses.set(key, item);
+    if (!adminTerminalApprovalV111(item)) continue;
+    for (const alias of [adminApprovalIdentityV111(item),...adminProviderDecisionAliasesV153(item)].filter(Boolean))
+      statuses.set(alias,item);
   }
-  return (Array.isArray(incoming) ? incoming : []).map(item => {
+  return preserveAdminFilenamesV136((Array.isArray(incoming) ? incoming : []),durableUI).map(item => {
     if (adminTerminalApprovalV111(item)) return item;
-    const key = adminApprovalIdentityV111(item);
-    const prior = key ? statuses.get(key) : null;
+    const keys=[adminApprovalIdentityV111(item),...adminProviderDecisionAliasesV153(item)].filter(Boolean);
+    const prior=keys.map(key=>statuses.get(key)).find(Boolean)||null;
     if (!prior) return item;
     const status = prior?.already_approved === true ? "approved" : String(prior.approval_status || "approved").toLowerCase();
     return {...item, approval_status:status,
@@ -907,6 +961,9 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   const [dependantAttachment, setDependantAttachment] = useState(null);
   const [portalProfileLoading, setPortalProfileLoading] = useState(false);
   const [documents, setDocuments] = useState([]);
+  // Only a backend-verified count is displayed as Pending. documents.length
+  // counts file cards and includes separately stored CRM / Recruit copies.
+  const [documentPendingCount, setDocumentPendingCount] = useState(null);
   const [documentsLoading, setDocumentsLoading] = useState(true);
   const [pipeline, setPipeline] = useState([]);
   const [adminDetails, setAdminDetails] = useState({});
@@ -923,6 +980,11 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   const [approvalBusyAction, setApprovalBusyAction] = useState(null);
   const [rejectingDocument, setRejectingDocument] = useState(null);
   const [rejectionReason, setRejectionReason] = useState("");
+  const [historicalDecisionTarget, setHistoricalDecisionTarget] = useState(null);
+  const [historicalDecision, setHistoricalDecision] = useState("");
+  const [historicalEvidenceReference, setHistoricalEvidenceReference] = useState("");
+  const [historicalVerified, setHistoricalVerified] = useState(false);
+  const [historicalDecisionBusy, setHistoricalDecisionBusy] = useState(false);
   const [candidateExpenseReport, setCandidateExpenseReport] = useState(null);
   const [candidateExpenseReportLoading, setCandidateExpenseReportLoading] = useState(false);
   const [adminSummary, setAdminSummary] = useState(null);
@@ -1128,9 +1190,10 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
           null
       }));
 
-      setPortalProfile({
+      setPortalProfile(previous => ({
+        ...previous,
         ...summaryPortal,
-        travelSummary:summaryPortal.travelSummary || {},
+        travelSummary:{...(previous?.travelSummary||{}),...(summaryPortal.travelSummary||{})},
         travelDependants:
           Array.isArray(summaryPortal.travelDependants)
             ? summaryPortal.travelDependants
@@ -1138,13 +1201,16 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
         dependants:
           Array.isArray(summaryPortal.dependants)
             ? summaryPortal.dependants
-            : []
-      });
+            : (previous?.dependants||[])
+      }));
       setPortalProfileLoading(false);
 
       setPipeline(summaryPipeline);
 
-      setDocuments(previous => {
+      if (summaryDocuments.length) setDocuments(previous => {
+        // Summary is a secondary view and must not replace a richer document
+        // inventory that already has real filenames and identifiers.
+        if (previous.length) return previous;
         const stable = preserveAdminApprovalsV111(summaryDocuments, previous, user.email);
         if (stable.length) writeAdminDocumentCache(user.email, stable);
         return stable;
@@ -1220,6 +1286,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     notificationDocumentOpenedRef.current = "";
     documentSyncRequestedRef.current = "";
     setAdminSummary(null);
+    setDocumentPendingCount(null);
 
     const cachedDocuments = readAdminDocumentCache(user.email);
     if (Array.isArray(cachedDocuments) && cachedDocuments.length) {
@@ -1244,7 +1311,11 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       candidateName:user?.name || previous?.candidateName || ""
     }));
 
-    void loadAdminSummary({ silent:false });
+    // Fetch summary on other tabs. Documents has its own bounded metadata endpoint;
+    // competing summary reads previously delayed document cards and Azure.
+    if ((user?._initialTab || 'profile') !== 'documents')
+      void loadAdminSummary({ silent:false });
+    else setLoading(false);
 
     const refreshSummary = event => {
       const updatedEmail = String(event?.detail?.email || "").trim().toLowerCase();
@@ -1278,6 +1349,11 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     };
   }, [user?.email, user?._initialTab, loadAdminSummary]);
 
+  useEffect(() => {
+    if (activeTab !== 'documents' && user?.email && !adminSummary && !summaryRequestRef.current.inFlight)
+      void loadAdminSummary({silent:true});
+  },[activeTab,user?.email,adminSummary,loadAdminSummary]);
+
   // v115: ONE read per candidate Documents tab. Never run Zoho automatically.
   // Backend serves metadata only, coalesces in-flight requests and preserves approvals.
   useEffect(() => {
@@ -1299,7 +1375,12 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
           {headers,credentials:'include',cache:'no-store',signal:controller.signal});
         if (!response.ok) throw new Error(`Document metadata HTTP ${response.status}`);
         const data=await response.json();
-        if (cancelled || !Array.isArray(data?.documents)) return;
+        if (cancelled || !response.ok || data?.success !== true ||
+            data?.complete === false && !data.documents?.length ||
+            !Array.isArray(data?.documents)) return;
+        if (data.count_verified===true && Number.isFinite(Number(data.pending_count)))
+          setDocumentPendingCount(Number(data.pending_count));
+        if (!data.documents.length && (cached?.length || documents.length)) return;
         setDocuments(previous=>{
           const stable=preserveAdminApprovalsV111(data.documents,previous,user.email);
           if (stable.length) writeAdminDocumentCache(user.email,stable);
@@ -1443,7 +1524,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     setDocxBlob(null);
     setDocActionError(null);
     setViewingDocId(docId);
-    const documentName = extractString(doc?.document_name || doc?.File_Name || doc?.file_name || "Document");
+    const documentName = adminDocRealNameV135(doc);
     setViewingDocument({
       name: documentName,
       type: String(doc?.file_type || "").toLowerCase(),
@@ -1490,67 +1571,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
         ? { Authorization: `AdminBearer ${adminToken}`, "x-admin-token": adminToken }
         : { Authorization: `Bearer ${userToken}` };
 
-      // FAST ADMIN PATH: when the library row already contains the exact Zoho
-      // record ID + file ID, go directly to the small admin Zoho proxy. This
-      // avoids the large /api/admin/documents/download route, candidate-email
-      // resolution, MongoDB library lookup, and Deal/Candidate discovery.
-      // It follows the same direct module/record/attachment pattern as the
-      // working backend supplied as reference.
-      const directProvider = isCrmDocument || isRecruitFieldDocument || source === "recruit" || source === "custommodule1"
-        ? (isCrmDocument ? "crm" : "recruit")
-        : "";
-      const directModule = isCrmDocument
-        ? "Deals"
-        : source === "custommodule1"
-          ? "CustomModule1"
-          : "Candidates";
-      const directRecordId = isCrmDocument
-        ? String(doc?.deal_id || doc?.crm_record_id || doc?.crm_deal_id || "").trim()
-        : String(doc?.candidate_id || doc?.recruit_record_id || doc?.recruit_candidate_id || doc?.custom_module1_record_id || doc?.recruit_custom_module1_record_id || "").trim();
-      const directFileId = String(docId || "").trim();
-
-      if (adminToken && directProvider && directRecordId && directFileId) {
-        const directQuery = new URLSearchParams({
-          name: documentName || `document-${directFileId}`,
-          download: "false"
-        });
-        if (doc?.crm_field_api_name) directQuery.set("field", String(doc.crm_field_api_name));
-        if (doc?.crm_file_upload_field === true || doc?.field_upload === true) directQuery.set("fieldUpload", "true");
-        if (doc?.crm_file_id) directQuery.set("fileId", String(doc.crm_file_id));
-        if (doc?.crm_file_attachment_id) directQuery.set("attachmentId", String(doc.crm_file_attachment_id));
-        if (doc?.crm_file_download_url) directQuery.set("fieldDownloadUrl", String(doc.crm_file_download_url));
-        if (doc?.recruit_field_download_url) directQuery.set("recruitFieldDownloadUrl", String(doc.recruit_field_download_url));
-        const directUrl = `${API_BASE}/api/admin/zoho/document/${directProvider}/${encodeURIComponent(directModule)}/${encodeURIComponent(directRecordId)}/${encodeURIComponent(directFileId)}?${directQuery.toString()}`;
-
-        try {
-          const directResponse = await fetch(directUrl, {
-            method: "GET",
-            headers,
-            credentials: "include",
-            cache: "no-store"
-          });
-
-          if (directResponse.ok) {
-            const directBlob = await directResponse.blob();
-            if (!directBlob.size) throw new Error("The direct Zoho document response was empty.");
-            const directType = String(directBlob.type || doc?.file_type || "application/octet-stream").toLowerCase();
-            const directDocx = /\.docx$/i.test(documentName) || directType.includes("wordprocessingml");
-            if (directDocx) {
-              setDocxBlob(directBlob);
-              setViewingDocument({ name: documentName, type: directType, loading: true, isDocx: true });
-            } else {
-              const directObjectUrl = URL.createObjectURL(directBlob);
-              setDocumentObjectUrl(directObjectUrl);
-              setViewingDocument({ name: documentName, type: directType, loading: false, isDocx: false });
-            }
-            return;
-          }
-
-          console.warn("[Admin Documents] Direct Zoho proxy returned", directResponse.status);
-        } catch (directError) {
-          console.warn("[Admin Documents] Direct Zoho proxy failed; falling back to legacy route:", directError?.message || directError);
-        }
-      }
+      // v135: The old direct /api/admin/zoho/document route was not registered.
+      // Use the authenticated download route once, without a failed preliminary fetch.
 
       // Field-upload files can be returned from a direct Zoho download URL.
       // Give the backend enough time for larger documents, while retrying only
@@ -1558,9 +1580,9 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       // valid field document look like a permanent "server took too long" error.
       let response = null;
       let lastError = null;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
+      for (let attempt = 0; attempt < 1; attempt += 1) {
         const controller = new AbortController();
-        const timeout = window.setTimeout(() => controller.abort(), 90000);
+        const timeout = window.setTimeout(() => controller.abort(), 30000);
         try {
           response = await fetch(
             `${API_BASE}/api/admin/documents/download/${encodeURIComponent(String(docId))}?${query.toString()}`,
@@ -1607,7 +1629,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       console.error("[Admin Documents] Failed to open document in app:", error);
       setViewingDocument(null);
       setDocActionError(
-        `Couldn't open "${documentName}". ${error?.name === "AbortError" ? "The document provider did not respond within 90 seconds." : (error?.message || "Unable to load the document.")}`
+        `Couldn't open "${documentName}". ${error?.name === "AbortError" ? "The document provider did not respond within 30 seconds." : (error?.message || "Unable to load the document.")}`
       );
     } finally {
       setViewingDocId(null);
@@ -1672,6 +1694,15 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     selectedReason = ""
   ) => {
     const approvalKey = getDocumentApprovalKey(doc);
+    if (adminDocStatusV135(doc) !== 'pending') {
+      setDocActionError('This document already has a decision or requires reconciliation. No new action was sent.');
+      return;
+    }
+    if (!doc?.approval_key && !doc?.pending_upload_id &&
+        !doc?.attachment_id && !doc?.id && !doc?.document_id) {
+      setDocActionError('This document has no stable submission ID. No action was sent.');
+      return;
+    }
 
     if (!approvalKey) {
       setDocActionError(
@@ -1920,6 +1951,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       // provider routing before returning success, so there is no reason to
       // reload the whole candidate window here.
       setDocumentsLoading(false);
+      if(adminDocStatusV135(doc)==='pending')
+        setDocumentPendingCount(previous=>previous===null?null:Math.max(0,previous-1));
       setRejectingDocument(null);
       setRejectionReason("");
 
@@ -1964,6 +1997,9 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
             }
           );
           const snapshotData = await snapshotResponse.json().catch(() => ({}));
+          if(snapshotResponse.ok && snapshotData.count_verified===true &&
+             Number.isFinite(Number(snapshotData.pending_count)))
+            setDocumentPendingCount(Number(snapshotData.pending_count));
           if (
             snapshotResponse.ok &&
             snapshotData.success === true &&
@@ -2024,6 +2060,56 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     }
   }, [activeTab, user?.email]);
 
+  // This is NOT the Approve button: it records a decision already verified
+  // from a historical source without sending another Zoho upload.
+  const recordHistoricalDecision = async () => {
+    const doc=historicalDecisionTarget;
+    if(!doc||historicalDecisionBusy||!historicalVerified||
+       !['approved','rejected'].includes(historicalDecision)||
+       historicalEvidenceReference.trim().length<12)return;
+    const rawSource=String(doc.source||'').trim().toLowerCase();
+    const source=rawSource==='custommodule1'||doc.recruit_custom_module1_attachment_id
+      ? 'custommodule1'
+      : rawSource.includes('crm')||doc.crm_attachment_id||doc.crm_file_id
+        ? 'crm'
+        : 'recruit';
+    const provider_id=source==='crm'
+      ? String(doc.crm_attachment_id||doc.crm_file_id||doc.attachment_id||'')
+      : source==='custommodule1'
+        ? String(doc.recruit_custom_module1_attachment_id||doc.attachment_id||'')
+        : String(doc.recruit_attachment_id||doc.recruit_file_id||doc.attachment_id||'');
+    const {adminToken}=getTokens();
+    if(!adminToken||!provider_id){setDocActionError('Admin login or provider file ID missing.');return;}
+    setHistoricalDecisionBusy(true);setDocActionError(null);
+    try {
+      const response=await fetch(`${API_BASE}/api/admin/documents/${encodeURIComponent(user.email)}/reconcile-historical`,{
+        method:'POST',credentials:'include',cache:'no-store',
+        headers:{Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken,'Content-Type':'application/json'},
+        body:JSON.stringify({source,provider_id,decision:historicalDecision,
+          evidence_reference:historicalEvidenceReference.trim(),verified_existing_decision:true})
+      });
+      const result=await response.json().catch(()=>({}));
+      if(!response.ok||result.success!==true)throw new Error(result.error||`Verification HTTP ${response.status}`);
+      setDocuments(previous=>{
+        const next=previous.map(item=>{
+          const src=String(item.source||'').toLowerCase();
+          const id=src==='crm'?String(item.crm_attachment_id||item.crm_file_id||item.attachment_id||''):
+            src==='custommodule1'?String(item.recruit_custom_module1_attachment_id||item.attachment_id||''):
+              String(item.recruit_attachment_id||item.recruit_file_id||item.attachment_id||'');
+          return src===source && id===provider_id?{...item,approval_status:historicalDecision,
+            already_approved:historicalDecision==='approved',approval_required:false,
+            decision_origin:'admin_verified_historical_evidence'}:item;
+        });
+        writeAdminDocumentCache(user.email,next);
+        return next;
+      });
+      toast.success('Historical decision recorded in PostgreSQL. No Zoho upload was performed.');
+      setHistoricalDecisionTarget(null);setHistoricalDecision('');
+      setHistoricalEvidenceReference('');setHistoricalVerified(false);
+    }catch(error){setDocActionError(error?.message||'Could not verify the historical decision.');}
+    finally{setHistoricalDecisionBusy(false);}
+  };
+
   if (!user) return null;
 
   // The candidate-visible /api/pipeline/get response is authoritative.
@@ -2038,7 +2124,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     { id: 'welcome-packet', label: 'Welcome Packet' },
     { id: 'expense-report', label: 'Expense Report' },
     { id: 'pipeline', label: 'Candidate Pipeline', badge: adminVisiblePipeline.length },
-    { id: 'documents', label: 'Candidate Documents', badge: documents.length },
+    { id: 'documents', label: 'Candidate Documents', badge: documentPendingCount ?? undefined },
     { id: 'deployment', label: 'Travel & Extras' },
     { id: 'aftercare', label: 'Aftercare Dates' },
     { id: 'audit', label: 'Field Audit', badge: auditSummary.total },
@@ -2113,6 +2199,39 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
         />
       )}
 
+      {historicalDecisionTarget && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl">
+            <h3 className="text-lg font-bold text-gray-900">Record verified historical decision</h3>
+            <p className="mt-2 text-sm text-gray-600">This file is already on CRM/Recruit, but no historical Admin decision was found. Verify the original decision first. This action updates the PostgreSQL decision ledger only; it does not upload anything to Zoho.</p>
+            <p className="mt-2 break-all text-xs font-semibold">{adminDocRealNameV135(historicalDecisionTarget)}</p>
+            <label className="mt-4 block text-sm font-semibold">Verified original decision</label>
+            <select value={historicalDecision} onChange={event=>setHistoricalDecision(event.target.value)} className="mt-1 w-full rounded-lg border p-2 text-sm">
+              <option value="">Choose only after checking evidence</option>
+              <option value="approved">Previously approved</option>
+              <option value="rejected">Previously rejected</option>
+            </select>
+            <label className="mt-4 block text-sm font-semibold">Evidence reference / audit note</label>
+            <textarea rows={3} maxLength={500} value={historicalEvidenceReference}
+              onChange={event=>setHistoricalEvidenceReference(event.target.value)}
+              placeholder="Where did you verify the original decision? (at least 12 characters)"
+              className="mt-1 w-full rounded-lg border p-2 text-sm" />
+            <label className="mt-3 flex gap-2 text-sm text-gray-700">
+              <input type="checkbox" checked={historicalVerified} onChange={event=>setHistoricalVerified(event.target.checked)} />
+              I personally verified this document's existing decision from a trustworthy record.
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" disabled={historicalDecisionBusy} onClick={()=>{setHistoricalDecisionTarget(null);setHistoricalDecision('');setHistoricalEvidenceReference('');setHistoricalVerified(false);}}
+                className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button>
+              <button type="button" disabled={historicalDecisionBusy||!historicalVerified||!historicalDecision||historicalEvidenceReference.trim().length<12}
+                onClick={()=>void recordHistoricalDecision()}
+                className="rounded-lg bg-purple-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                {historicalDecisionBusy?'Recording…':'Record verified decision'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {rejectingDocument && (
         <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl">
@@ -2320,6 +2439,9 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                           <InfoRow label="Foundations Completed" value={portalProfile.travelSummary?.foundationsCompleted} />
                           <InfoRow label="Final Banking Plan" value={portalProfile.travelSummary?.finalBankingPlan} icon={Building2} />
                           <InfoRow label="Final Bank Name / City" value={portalProfile.travelSummary?.finalBankNameCity} icon={Building} />
+                          <InfoRow label="Housing Preference" value={portalProfile.travelSummary?.housingPreference || portalProfile.travelSummary?.housingType || portalProfile.housing?.housingPreference || portalProfile.housing?.housingType} icon={Home} />
+                          <InfoRow label="Housing Location" value={portalProfile.travelSummary?.housingLocation || portalProfile.housing?.location || portalProfile.housing?.city} icon={MapPin} />
+                          <InfoRow label="Housing / Transportation Notes" value={portalProfile.travelSummary?.housingNotes || portalProfile.housing?.notes} icon={FileText} />
                         </div>
                         <div className="mt-5 border-t pt-4">
                           <h4 className="text-sm font-semibold text-gray-800">Dependents Travelling With Me</h4>
@@ -2638,6 +2760,54 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
               {/* TAB 3: DOCUMENTS */}
               {activeTab === 'documents' && (
               <div className="space-y-5">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white px-4 py-3">
+                  <p className="text-xs text-gray-500">{documents.length} files on record (including separate CRM/Recruit copies). {documentPendingCount===null ? 'Checking pending submissions…' : `${documentPendingCount} verified pending submission${documentPendingCount===1?'':'s'}`}. “On file” means an existing provider attachment without a recorded Admin decision; it is not a pending approval.</p>
+                  <button type="button" disabled={documentsLoading}
+                    className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 disabled:opacity-50"
+                    onClick={async()=>{
+                      const {adminToken}=getTokens();
+                      if(!adminToken)return setDocActionError('Admin session unavailable');
+                      setDocumentsLoading(true);setDocActionError(null);
+                      try{
+                        const response=await fetch(`${API_BASE}/api/admin/documents/${encodeURIComponent(user.email)}?snapshot=1&refresh=1`,
+                          {credentials:'include',cache:'no-store',headers:{Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken,Accept:'application/json'}});
+                        const data=await response.json().catch(()=>({}));
+                        if(!response.ok || !Array.isArray(data.documents))throw new Error(data.error||`Document refresh returned ${response.status}`);
+                        if(data.count_verified===true && Number.isFinite(Number(data.pending_count)))
+                          setDocumentPendingCount(Number(data.pending_count));
+                        setDocuments(previous=>{
+                          const next=preserveAdminApprovalsV111(data.documents,previous,user.email);
+                          if(next.length)writeAdminDocumentCache(user.email,next);
+                          return next;
+                        });
+                        toast.success('Saved document inventory refreshed');
+                      }catch(error){setDocActionError(error.message||'Saved document metadata unavailable');}
+                      finally{setDocumentsLoading(false);}
+                    }}>Refresh saved documents</button>
+                  <button type="button" disabled={documentsLoading} className="rounded-lg border border-purple-200 px-3 py-2 text-xs font-semibold text-purple-700 disabled:opacity-50"
+                    onClick={async()=>{
+                      const {adminToken}=getTokens();
+                      if(!adminToken)return setDocActionError('Admin session unavailable');
+                      setDocumentsLoading(true);setDocActionError(null);
+                      try{
+                        const response=await fetch(`${API_BASE}/api/admin/documents/${encodeURIComponent(user.email)}/refresh-recruit-names`,
+                          {method:'POST',credentials:'include',headers:{Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken}});
+                        const result=await response.json().catch(()=>({}));
+                        if(!response.ok)throw new Error(result.error||`Recruit metadata returned ${response.status}`);
+                        const fresh=await fetch(`${API_BASE}/api/admin/documents/${encodeURIComponent(user.email)}?snapshot=1&_=${Date.now()}`,
+                          {credentials:'include',cache:'no-store',headers:{Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken}});
+                        const data=await fresh.json().catch(()=>({}));
+                        if(fresh.ok&&data.count_verified===true && Number.isFinite(Number(data.pending_count)))
+                          setDocumentPendingCount(Number(data.pending_count));
+                        if(fresh.ok&&Array.isArray(data.documents))setDocuments(previous=>{
+                          const next=preserveAdminApprovalsV111(data.documents,previous,user.email);
+                          writeAdminDocumentCache(user.email,next);return next;
+                        });
+                        toast.success(`${result.restored||0} Recruit filename(s) recovered`);
+                      }catch(error){setDocActionError(error.message||'Recruit metadata could not be refreshed');}
+                      finally{setDocumentsLoading(false);}
+                    }}>Refresh Recruit filenames</button>
+                </div>
                 <div className="space-y-4">
                   {docActionError && (
                     <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 flex items-center gap-2">
@@ -2684,7 +2854,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                               </div>
                               <div className="min-w-0">
                                 <p className="font-bold text-sm text-gray-900 truncate pr-4">
-                                  {extractString(doc.document_name || doc.File_Name) !== "—" ? extractString(doc.document_name || doc.File_Name) : 'Unnamed Document'}
+                                  {adminDocRealNameV135(doc)}
                                 </p>
                                 <div className="flex gap-2 mt-1.5 items-center flex-wrap">
                                   <span className="text-[10px] uppercase font-bold tracking-wider bg-gray-100 text-gray-600 px-2 py-1 rounded-md">{category}</span>
@@ -2710,15 +2880,11 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                           : "bg-amber-50 text-amber-700"
                                     }`}
                                   >
-                                    {doc.already_approved === true ||
-                                      doc.approval_status === "approved" ||
-                                      (["crm", "recruit", "custommodule1", "recruit_field"].includes(String(doc.source || "").toLowerCase()) && !doc.pending_upload_id && doc.approval_status !== "rejected")
-                                      ? "Approved"
-                                      : doc.approval_status === "rejected"
-                                        ? "Rejected"
-                                        : ["needs_review", "processing"].includes(String(doc.approval_status || "").toLowerCase())
-                                          ? "Zoho verification required"
-                                          : "Pending approval"}
+                                    {adminDocStatusV135(doc) === "approved" ? "Approved" :
+                                      adminDocStatusV135(doc) === "rejected" ? "Rejected" :
+                                      adminDocStatusV135(doc) === 'on_file_unverified' ? 'On file' :
+                                      ["needs_review", "processing"].includes(adminDocStatusV135(doc))
+                                        ? "Decision needs review" : "Pending approval"}
                                   </span>
                                 </div>
                                 {doc.rejection_reason && (
@@ -2742,7 +2908,14 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                   : <Eye className="h-4 w-4" />}
                               </button>
 
-                              {!(doc.already_approved === true || ["approved", "rejected", "needs_review", "processing"].includes(String(doc.approval_status || "").toLowerCase()) || (["crm", "recruit", "custommodule1", "recruit_field"].includes(String(doc.source || "").toLowerCase()) && !doc.pending_upload_id)) && (
+                              {adminDocStatusV135(doc) === 'on_file_unverified' && (
+                                <button type="button" onClick={()=>{
+                                  setHistoricalDecisionTarget(doc);setHistoricalDecision('');
+                                  setHistoricalEvidenceReference('');setHistoricalVerified(false);
+                                }} className="rounded-lg border border-purple-200 px-2 py-1.5 text-[11px] font-semibold text-purple-700"
+                                title="Only use after verifying an existing decision; no Zoho upload">Verify history</button>
+                              )}
+                              {adminDocStatusV135(doc) === "pending" && Boolean(getDocumentApprovalKey(doc)) && (
                                 <>
                                   <button
                                     type="button"
@@ -3181,7 +3354,7 @@ const BroadcastModal = ({ isOpen, onClose, onSend }) => {
 };
 
 const adminDisplayName = (user) => {
-  const stored = String(user?.name || "").trim();
+  const stored = String(user?.displayName || user?.candidateName || user?.name || "").trim();
   if (stored) return stored;
   const email = String(user?.email || "").trim();
   const local = email.includes("@") ? email.split("@")[0] : email;
@@ -4513,6 +4686,8 @@ const AdminRequestsPanel = ({ onOpenUser, notificationTarget = null, onReturnToN
 
 const AdminReceiptsPanel = () => {
   const [receipts, setReceipts] = useState([]);
+  const [receiptsNextPage,setReceiptsNextPage]=useState(null);
+  const [receiptsLoadingMore,setReceiptsLoadingMore]=useState(false);
   const [receiptRejectReasons, setReceiptRejectReasons] = useState({});
   const [receiptOtherReasons, setReceiptOtherReasons] = useState({});
   const [loading, setLoading] = useState(true);
@@ -4523,12 +4698,50 @@ const AdminReceiptsPanel = () => {
   const [selectedCandidate, setSelectedCandidate] = useState("");
   const [receiptPreview, setReceiptPreview] = useState(null);
   const [reportPreview, setReportPreview] = useState(null);
+  const [receiptCandidates,setReceiptCandidates]=useState([]);
+  const [receiptCandidateTotal,setReceiptCandidateTotal]=useState(0);
+  const [receiptGroupsPartial,setReceiptGroupsPartial]=useState(false);
+  const [receiptDirectoryError,setReceiptDirectoryError]=useState('');
+  const [unlinkedPreview,setUnlinkedPreview]=useState([]);
+  const [unlinkedPreviewPage,setUnlinkedPreviewPage]=useState(null);
+  const [unlinkedBusy,setUnlinkedBusy]=useState(false);
+  const loadUnlinked=useCallback(async(page=0)=>{
+    setUnlinkedBusy(true);
+    try{
+      const response=await fetch(`${API_BASE}/api/admin/receipt-unlinked-preview?page=${page}`,{
+        headers:adminNotificationHeaders(),credentials:'include',cache:'no-store'});
+      const data=await response.json();
+      if(!response.ok||!data.success)throw Error(data.error||'Unable to retrieve saved receipts');
+      setUnlinkedPreview(old=>page? [...old,...(data.receipts||[])]:data.receipts||[]);
+      setUnlinkedPreviewPage(data.hasMore?data.nextPage:null);
+    }catch(error){setReceiptDirectoryError(error.message||'Unable to retrieve receipt details');}
+    finally{setUnlinkedBusy(false);}
+  },[]);
+  useEffect(()=>{
+    let active=true;const controller=new AbortController();
+    const {adminToken,userToken}=getTokens();
+    const headers=adminToken?{Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken}
+      :userToken?{Authorization:`Bearer ${userToken}`} : {};
+    fetch(`${API_BASE}/api/admin/receipt-candidates-lite`,{credentials:'include',cache:'no-store',headers,signal:controller.signal})
+      .then(async r=>{const d=await r.json();if(!r.ok||!d.success)throw Error(d.error||'Receipt directory unavailable');return d;})
+      .then(d=>{if(!active)return;setReceiptCandidates(d.candidates||[]);setReceiptCandidateTotal(Number(d.total||0));
+        setReceiptGroupsPartial(Boolean(d.truncated));if(d.unlinked)setReceiptDirectoryError(`${d.unlinked} historical receipt(s) have no linked candidate email in saved metadata; they require data reconciliation.`);})
+      .catch(e=>{if(active&&e.name!=='AbortError')setReceiptDirectoryError(e.message||'Receipt directory unavailable');});
+    return ()=>{active=false;controller.abort()};
+  },[]);
+  // Empty candidate grouping must not create an empty Receipts page.
+  // Read one lightweight, VIEW-ONLY metadata page when ownership is still unresolved.
+  useEffect(()=>{
+    if(receiptCandidateTotal>0 && !receiptCandidates.length && !unlinkedPreview.length)
+      void loadUnlinked(0);
+  },[receiptCandidateTotal,receiptCandidates.length,loadUnlinked]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (page=0) => {
+    if(page>0)setReceiptsLoadingMore(true);
     try {
       const { adminToken, userToken } = getTokens();
       const response = await fetch(
-        `${API_BASE}/api/admin/receipts?_=${Date.now()}`,
+        `${API_BASE}/api/admin/receipts?limit=25&page=${page}${selectedCandidate?`&candidateEmail=${encodeURIComponent(selectedCandidate)}`:''}`,
         {
           cache:"no-store",
           credentials:"include",
@@ -4547,17 +4760,38 @@ const AdminReceiptsPanel = () => {
       if (!response.ok || data.success !== true) {
         throw new Error(data.error || "Unable to load receipts.");
       }
-      setReceipts(Array.isArray(data.receipts) ? data.receipts : []);
+      setReceipts(previous => {
+        const returned=Array.isArray(data.receipts)?data.receipts:[];
+        if(page===0){
+          // A successful empty detail query does not invalidate the directory's
+          // verified receipt IDs. They were resolved from the source of truth.
+          return returned.length ? returned : previous;
+        }
+        return [...previous,...returned.filter(item=>
+          !previous.some(old=>String(old.id||old._id)===String(item.id||item._id)))];
+      });
+      setReceiptsNextPage(data.hasMore ? data.nextPage : null);
     } catch (error) {
       console.error("[Admin Receipts]", error);
+      setReceiptDirectoryError(error?.message || 'Candidate receipts could not be loaded.');
     } finally {
-      setLoading(false);
+      setLoading(false);setReceiptsLoadingMore(false);
     }
-  }, []);
+  }, [selectedCandidate]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (selectedCandidate) {
+      const current=receiptCandidates.find(item=>item.email===selectedCandidate);
+      const snapshot=Array.isArray(current?.receipts)?current.receipts:[];
+      if(snapshot.length) {
+        setReceipts(snapshot);
+        // Directory contains metadata only, not receipt bytes. Review/download
+        // routes still fetch the selected file on explicit user action.
+        setReceiptsNextPage(null);
+        setLoading(false);
+      } else void load(0);
+    } else {setReceipts([]);setReceiptsNextPage(null);setLoading(false);}
+  }, [load,selectedCandidate,receiptCandidates]);
 
   const viewReceipt = async receipt => {
     const receiptId = String(receipt?.id || receipt?._id || '').trim();
@@ -4922,42 +5156,60 @@ const AdminReceiptsPanel = () => {
         </div>
       )}
 
-      {receipts.length === 0 ? (
+      <p className="text-sm text-gray-600">{receiptCandidateTotal} receipt(s) awaiting review. Choose a candidate to load only their receipts.</p>
+      {receiptDirectoryError && <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800">{receiptDirectoryError}</p>}
+      {receiptGroupsPartial && <p className="text-xs text-gray-500">Candidate directory is capped for server safety; use search or load subsequent groups when available.</p>}
+      {!selectedCandidate && receiptCandidateTotal>0 && !receiptCandidates.length && (
+        <div className="rounded-lg border bg-white p-4">
+          <button type="button" onClick={()=>void loadUnlinked(0)} disabled={unlinkedBusy}
+            className="rounded-lg border px-4 py-2 text-sm font-semibold text-purple-700 disabled:opacity-50">
+            {unlinkedBusy?'Loading…':'Show saved receipt metadata (read-only)'}</button>
+          <div className="mt-3 space-y-2">
+            {unlinkedPreview.map(row=><div key={row.id} className="flex flex-wrap items-center justify-between rounded-lg border px-3 py-2 text-sm">
+              <span>{row.original_name||row.document_name||row.category_label||'Receipt'} <span className="text-gray-500">{row.candidate_email||'Owner not verified'}</span></span>
+              <button type="button" onClick={()=>viewReceipt(row)} className="rounded border px-3 py-1 text-purple-700">View</button>
+            </div>)}
+          </div>
+          {unlinkedPreviewPage!==null&&<button type="button" onClick={()=>void loadUnlinked(unlinkedPreviewPage)} disabled={unlinkedBusy} className="mt-3 rounded border px-3 py-2 text-sm">Load more receipt metadata</button>}
+          {unlinkedPreview.length>0&&<p className="mt-3 text-xs text-amber-700">Review and reimbursement changes remain disabled until each candidate owner is verified.</p>}
+        </div>
+      )}
+      {receipts.length === 0 && !receiptCandidates.length ? (
         <div className="rounded-xl border bg-white p-8 text-center text-gray-500">
-          No receipts uploaded from the Documents section yet.
+          {receiptCandidateTotal>0 ? `There are ${receiptCandidateTotal} pending receipts, but their candidate owners have not been verified. No receipt has been deleted or reassigned.` : 'No receipts were returned.'}
         </div>
       ) : !selectedCandidate ? (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {Object.entries(
+          {(receiptCandidates.length ? receiptCandidates.map(item=>[item.email,{length:item.count}]) : Object.entries(
             receipts.reduce((groups, receipt) => {
-              const email =
-                receipt.candidate_email ||
-                "Unknown candidate";
-
-              if (!groups[email]) {
-                groups[email] = [];
-              }
-
-              groups[email].push(receipt);
+              const email=receipt.candidate_email || `Unlinked receipt ${receipt.id||receipt._id}`;
+              (groups[email] ||= []).push(receipt);
               return groups;
             }, {})
-          ).map(([email, candidateReceipts]) => (
+          )).map(([email, candidateReceipts]) => (
             <button
               key={email}
               type="button"
               onClick={() => {
-                setSelectedCandidate(
-                  email
-                );
-                loadExpenseReport(
-                  email
-                );
+                if (email.startsWith('Unlinked receipt ')) {
+                  setReceiptDirectoryError('This receipt has no candidate identity; associate it in PostgreSQL before attempting candidate-specific operations.');
+                  return;
+                }
+                // The receipt directory and details MUST share the same
+                // verified owner mapping. Paint its lightweight metadata now;
+                // the optional details refresh cannot blank it out.
+                const record=receiptCandidates.find(item=>item.email===email);
+                const snapshot=Array.isArray(record?.receipts)?record.receipts:[];
+                setReceipts(snapshot.filter(row=>/^[0-9a-f]{24}$/i.test(String(row.id||row._id||''))));
+                setReceiptDirectoryError('');
+                setSelectedCandidate(email);
               }}
               className="rounded-xl border bg-white p-4 text-left hover:border-purple-300 hover:bg-purple-50/40"
             >
               <p className="font-semibold text-purple-800">
-                {email}
+                {readAdminFastCache('users')?.find?.(u=>String(u.email||'').toLowerCase()===String(email).toLowerCase())?.name || email}
               </p>
+              <p className="text-xs text-gray-500">{email}</p>
               <p className="mt-1 text-sm text-gray-500">
                 {candidateReceipts.length} receipt{candidateReceipts.length === 1 ? "" : "s"}
               </p>
@@ -4979,6 +5231,13 @@ const AdminReceiptsPanel = () => {
             ← Back to candidates
           </button>
 
+          {receipts.length===0 && !loading && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              Candidate receipts were counted but no valid Mongo receipt IDs were returned.
+              The backend must read <code>mongo_id</code> and <code>runtime_data</code> for the selected candidate.
+              No receipt was removed or reassigned.
+            </div>
+          )}
           <div className="rounded-xl border bg-purple-50 p-4">
             <p className="text-xs uppercase tracking-wide text-purple-500">
               Candidate receipts
@@ -5032,10 +5291,6 @@ const AdminReceiptsPanel = () => {
           )}
 
           {receipts
-            .filter(receipt =>
-              receipt.candidate_email ===
-              selectedCandidate
-            )
             .map(receipt => {
               const id =
                 String(
@@ -5208,6 +5463,12 @@ const AdminReceiptsPanel = () => {
         </div>
       )}
 
+      {receiptsNextPage!==null && (
+        <div className="flex justify-center"><button type="button" disabled={receiptsLoadingMore}
+          onClick={()=>void load(receiptsNextPage)} className="rounded-lg border border-purple-300 px-4 py-2 text-sm font-semibold text-purple-700 disabled:opacity-50">
+          {receiptsLoadingMore?'Loading receipts…':'Load more receipts'}
+        </button></div>
+      )}
       {receiptPreview && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4">
           <div className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
@@ -5769,35 +6030,42 @@ const adminNotificationHeaders = () => {
   };
 };
 
-const useAdminNotifications = () => {
+const useAdminNotifications = (enabled = true) => {
   const initialNotifications = readAdminFastCache("notifications") || [];
   const [notifications, setNotifications] = useState(initialNotifications);
   const [loading, setLoading] = useState(initialNotifications.length === 0);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
+  const [nextPage,setNextPage]=useState(null);
+  const [olderLoading,setOlderLoading]=useState(false);
   const mounted = useRef(false);
   const requestVersion = useRef(0);
   const refresh = useCallback(async () => {
     const version = ++requestVersion.current;
     try {
-      const response = await fetch(`${API_BASE}/api/admin/notifications`, {
-        credentials: 'include', cache: 'no-store', headers: adminNotificationHeaders()
-      });
-      const data = await response.json();
+      const controller=new AbortController();
+      const timer=window.setTimeout(()=>controller.abort(),23000);
+      let response;
+      try { response=await fetch(`${API_BASE}/api/admin/notifications`, {
+        credentials:'include',cache:'no-store',headers:adminNotificationHeaders(),signal:controller.signal
+      }); } finally { window.clearTimeout(timer); }
+      const data=await response.json();
       if (!response.ok || data.success !== true) throw new Error(data.error || 'Unable to load notifications.');
       if (mounted.current && version === requestVersion.current) {
         const nextNotifications = Array.isArray(data.notifications) ? data.notifications : [];
         setNotifications(nextNotifications);
+        setNextPage(data.hasMore?data.nextPage:null);
         writeAdminFastCache("notifications", nextNotifications);
         setError('');
       }
     } catch (err) {
-      if (mounted.current && version === requestVersion.current) setError(err.message || 'Unable to load notifications.');
+      if (mounted.current && version === requestVersion.current) setError(err?.name==='AbortError' ? 'Notifications took too long; existing results are preserved. Retry to load the next batch.' : (err.message || 'Unable to load notifications.'));
     } finally {
       if (mounted.current && version === requestVersion.current) setLoading(false);
     }
   }, []);
   useEffect(() => {
+    if (!enabled) return undefined;
     mounted.current = true;
     refresh();
     const onUpdate = () => { if (document.visibilityState === 'visible') refresh(); };
@@ -5811,7 +6079,15 @@ const useAdminNotifications = () => {
       window.removeEventListener('admin-data-updated', onUpdate);
       document.removeEventListener('visibilitychange', onUpdate);
     };
-  }, [refresh]);
+  }, [refresh, enabled]);
+  // v145: When Notifications is open, progressively load all available pages.
+  // Exactly one additional request at a time; stop immediately on tab exit.
+  useEffect(()=>{
+    if(!enabled || nextPage===null || olderLoading || loading || error)return undefined;
+    const timer=window.setTimeout(()=>{ if(document.visibilityState==='visible')void loadOlderRef.current?.(); },350);
+    return ()=>window.clearTimeout(timer);
+  },[enabled,nextPage,olderLoading,loading,error]);
+  const loadOlderRef=useRef(null);
   const markRead = useCallback(async item => {
     if (item.read) return true;
     setBusy(item.id);
@@ -5838,14 +6114,36 @@ const useAdminNotifications = () => {
       if (mounted.current) setBusy('');
     }
   }, [refresh]);
-  return { notifications, loading, error, busy, refresh, markRead,
+  const loadOlder=useCallback(async()=>{
+    if(nextPage===null||olderLoading)return;
+    setOlderLoading(true);
+    try{
+      const ctrl=new AbortController();const timer=window.setTimeout(()=>ctrl.abort(),12000);
+      let response;
+      try{response=await fetch(`${API_BASE}/api/admin/notifications?page=${nextPage}`,
+        {headers:adminNotificationHeaders(),credentials:'include',cache:'no-store',signal:ctrl.signal});}
+      finally{window.clearTimeout(timer);}
+      const data=await response.json();
+      if(!response.ok||!data.success)throw Error(data.error||'Unable to load older notifications');
+      if(mounted.current){
+        setNotifications(previous=>{
+          const ids=new Set(previous.map(row=>row.id));
+          return [...previous,...(data.notifications||[]).filter(row=>!ids.has(row.id))];
+        });
+        setNextPage(data.hasMore?data.nextPage:null);
+      }
+    }catch(e){if(mounted.current)setError(e.message||'Older notifications are temporarily unavailable');}
+    finally{if(mounted.current)setOlderLoading(false);}
+  },[nextPage,olderLoading]);
+  loadOlderRef.current=loadOlder;
+  return { notifications, loading, error, busy, refresh, markRead,loadOlder,olderLoading,nextPage,
     unreadTotal: notifications.filter(item => !item.read).length };
 };
 
 const AdminNotificationsPanel = ({ state, onOpenUser, onOpenRequests }) => {
   const [filter, setFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const { notifications, loading, error, busy, refresh, markRead } = state;
+  const { notifications, loading, error, busy, refresh, markRead,loadOlder,olderLoading,nextPage } = state;
   const normalizedSearch = String(searchTerm || '').trim().toLowerCase();
   const filtered = notifications.filter(item => {
     const matchesFilter =
@@ -5935,12 +6233,37 @@ const AdminNotificationsPanel = ({ state, onOpenUser, onOpenRequests }) => {
           );
         })}
       </div>
+      {nextPage!==null && <div className="border-t p-4 text-center">
+        <button type="button" onClick={loadOlder} disabled={olderLoading}
+          className="rounded-lg border px-4 py-2 text-sm font-semibold text-purple-700 disabled:opacity-50">
+          {olderLoading?'Loading older notifications…':'Load older notifications'}
+        </button>
+      </div>}
     </div>
   );
 };
 
 const AdminPanel = () => {
-  const notificationState = useAdminNotifications();
+  const [tab, setTab] = useState('overview');
+  const notificationState = useAdminNotifications(tab === 'notifications');
+  const [notificationPendingTotal,setNotificationPendingTotal]=useState(null);
+  useEffect(()=>{
+    let active=true, controller=null;
+    async function loadCount(){
+      if(!active || document.visibilityState==='hidden')return;
+      controller=new AbortController();
+      const timeout=setTimeout(()=>controller?.abort(),6000);
+      try{
+        const response=await fetch(`${API_BASE}/api/admin/notification-summary`,{
+          headers:adminNotificationHeaders(),credentials:'include',cache:'no-store',signal:controller.signal});
+        if(!response.ok)return;
+        const payload=await response.json();
+        if(active&&payload.success)setNotificationPendingTotal(Number(payload.total||0));
+      }catch(_){}finally{clearTimeout(timeout);}
+    }
+    void loadCount();const interval=window.setInterval(loadCount,120000);
+    return ()=>{active=false;controller?.abort();window.clearInterval(interval);};
+  },[]);
   const [documentIndexReady, setDocumentIndexReady] = useState(false);
 
   // The entire document index can be huge. Do not transfer all candidates'
@@ -5957,10 +6280,13 @@ const AdminPanel = () => {
     });
     return () => { cancelled = true; };
   }, []);
-  const [tab, setTab] = useState('overview');
-  const initialCachedUsers = readAdminFastCache("users") || [];
+  const initialCachedUsers = [];
   const [users, setUsers] = useState(initialCachedUsers);
   const [usersLoaded, setUsersLoaded] = useState(initialCachedUsers.length > 0);
+  const [usersNextPage,setUsersNextPage] = useState(null);
+  const [usersLoadingMore,setUsersLoadingMore] = useState(false);
+  const [usersLoadingAll,setUsersLoadingAll]=useState(false);
+  const usersLoadAllRef=useRef(false);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -6002,6 +6328,31 @@ const AdminPanel = () => {
   const [receiptCount, setReceiptCount] = useState(0);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const [loginApprovalCount, setLoginApprovalCount] = useState(0);
+
+  // v140: badges are 3 database counts, NOT full queue downloads.
+  useEffect(()=>{
+    let live=true,inFlight=false;
+    async function refreshCounts(){
+      if(!live||inFlight||selectedUserOpenRef.current||document.visibilityState!=='visible')return;
+      inFlight=true;
+      const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),5500);
+      try{
+        const {adminToken,userToken}=getTokens();
+        const headers={...(adminToken?{Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken}:
+          userToken?{Authorization:`Bearer ${userToken}`}:{})};
+        const response=await fetch(`${API_BASE}/api/admin/queue-counts`,
+          {headers,credentials:'include',cache:'no-store',signal:controller.signal});
+        const data=await response.json();
+        if(!live||!response.ok||data.success!==true)return;
+        if(typeof data.counts?.requests==='number')setPendingRequestCount(data.counts.requests);
+        if(typeof data.counts?.receipts==='number')setReceiptCount(data.counts.receipts);
+        if(typeof data.counts?.messages==='number')setUnreadMessageCount(data.counts.messages);
+      }catch(_){/* retain last good totals */}
+      finally{clearTimeout(timer);inFlight=false;}
+    }
+    void refreshCounts();const interval=setInterval(refreshCounts,60000);
+    return()=>{live=false;clearInterval(interval)};
+  },[]);
 
   const openMessageThread = useCallback((user) => {
     setMsgTarget(user);
@@ -6110,189 +6461,90 @@ const AdminPanel = () => {
     }
   }, [departmentsReady]);
 
+  // v140: page 60 candidates at a time; show names where saved; no Zoho fanout.
   const fetchUsers = useCallback(async (department = '', options = {}) => {
-    if (selectedUserOpenRef.current && options.force !== true) return;
-    const key = department || 'all';
-    const force = options.force === true;
-    const cached = departmentUsersCacheRef.current[key];
-    if (!force && Array.isArray(cached)) {
-      setUsers(cached);
-      setUsersLoaded(true);
-      return;
+    if(selectedUserOpenRef.current && !options.force)return;
+    const page=options.page ?? 0;
+    const append=page>0;
+    if(!append && !options.force && Array.isArray(departmentUsersCacheRef.current.all)){
+      setUsers(departmentUsersCacheRef.current.all);setUsersLoaded(true);return;
     }
-    const requestId = ++departmentRequestRef.current;
-    if (!usersLoaded) setLoading(true);
-    setError(null);
-    setCrossOriginBlock(false);
-    try {
-      const { userToken, adminToken } = getTokens();
-      const headers = {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        ...(userToken ? { 'Authorization': `Bearer ${userToken}` } : {}),
-        ...(adminToken ? { 'x-admin-token': adminToken } : {})
-      };
-      const usersRequest = fetch(`${API_BASE}/api/admin/users?includePipeline=false`, {
-        method: 'GET', credentials: 'include', headers, cache: 'no-store'
+    const requestId=++departmentRequestRef.current;
+    if(append)setUsersLoadingMore(true);else setLoading(true);
+    const controller=new AbortController();
+    const timer=window.setTimeout(()=>controller.abort(),9000);
+    try{
+      const {adminToken,userToken}=getTokens();
+      const headers={Accept:'application/json',...(adminToken?{
+        Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken
+      }:userToken?{Authorization:`Bearer ${userToken}`}:{})};
+      const response=await fetch(`${API_BASE}/api/admin/users-lite?limit=60&page=${page}`,
+        {credentials:'include',headers,cache:'no-store',signal:controller.signal});
+      const body=await response.json();
+      if(!response.ok||body.success!==true||!Array.isArray(body.users))
+        throw new Error(body.message||`Users list HTTP ${response.status}`);
+      const prior=append?(departmentUsersCacheRef.current.all||[]):[];
+      const merged=new Map(prior.map(u=>[String(u.email).toLowerCase(),u]));
+      body.users.forEach(u=>{
+        const email=String(u.email).toLowerCase();
+        const prior=merged.get(email);
+        const previousName=String(prior?.name||'').trim();
+        const backendName=String(u.name||'').trim();
+        const looksLikeUsername=n=>n===email.split('@')[0]||n===email;
+        const bestName=(!looksLikeUsername(backendName)&&backendName) ? backendName :
+          (!looksLikeUsername(previousName)&&previousName ? previousName : backendName);
+        merged.set(email,{...prior,...u,name:bestName||backendName});
       });
-      const historyRequest = fetch(`${API_BASE}/api/admin/login-history?limit=200`, {
-        method: 'GET', credentials: 'include', headers
-      }).catch(() => ({ ok: false }));
-      const [uRes, hRes] = await Promise.all([usersRequest, historyRequest]);
-      if (!uRes.ok) {
-        if (uRes.status === 401 || uRes.status === 403) setCrossOriginBlock(true);
-        throw new Error('Your admin session has expired. Please sign in again.');
+      const allUsers=[...merged.values()];
+      const next={all:allUsers,recruiting:allUsers.filter(u=>String(u.department||'').toLowerCase()==='recruiting'),
+        immigration:allUsers.filter(u=>String(u.department||'').toLowerCase()==='immigration'),
+        deployment:allUsers.filter(u=>String(u.department||'').toLowerCase()==='deployment'),
+        aftercare:allUsers.filter(u=>String(u.department||'').toLowerCase()==='aftercare')};
+      departmentUsersCacheRef.current=next;
+      if(requestId===departmentRequestRef.current){
+        setUsers(next[userDepartmentFilter||department||'all']||next.all);
+        setUsersLoaded(true);setDepartmentsReady(true);
+        setStats(previous=>({...previous,
+          recruiting:next.recruiting.length,immigration:next.immigration.length,
+          deployment:next.deployment.length,aftercare:next.aftercare.length}));
+        setUsersNextPage(body.hasMore?body.nextPage:null);
+        setDepartmentsError('');
+        setStats(previous=>({...previous,total:Math.max(Number(previous.total||0),allUsers.length)}));
       }
-      const uData = await uRes.json();
-      const hData = hRes.ok ? await hRes.json().catch(() => ({})) : {};
-      if (uData.success) {
-        const allUsers = (uData.users || []).map(user => ({
-          ...user,
-          name: String(user?.name || "").trim() || String(user?.email || "").split("@")[0] || "Candidate",
-          zohoNamePending:false
-        }));
-        const nextCache = {
-          all: allUsers,
-          recruiting: allUsers.filter(user => String(user.department || '').toLowerCase() === 'recruiting'),
-          immigration: allUsers.filter(user => String(user.department || '').toLowerCase() === 'immigration'),
-          deployment: allUsers.filter(user => String(user.department || '').toLowerCase() === 'deployment'),
-          aftercare: allUsers.filter(user => String(user.department || '').toLowerCase() === 'aftercare')
-        };
-        departmentUsersCacheRef.current = nextCache;
-        writeAdminFastCache("users", allUsers);
-        if (requestId === departmentRequestRef.current) {
-          const selectedKey = userDepartmentFilter || key || 'all';
-          setUsers(nextCache[selectedKey] || nextCache.all);
-        }
-        setUsersLoaded(true);
-        const immediateStats = {
-          total: Number(uData.totalUsers || allUsers.length || 0),
-          active: Number(uData.activeUsers || 0),
-          expired: Number(uData.inactiveUsers || 0),
-          recruiting: Number(uData.departmentStats?.recruiting ?? nextCache.recruiting.length ?? 0),
-          immigration: Number(uData.departmentStats?.immigration ?? nextCache.immigration.length ?? 0),
-          deployment: Number(uData.departmentStats?.deployment ?? nextCache.deployment.length ?? 0),
-          aftercare: Number(uData.departmentStats?.aftercare ?? nextCache.aftercare.length ?? 0)
-        };
-        setStats(immediateStats);
-        writeAdminFastCache("stats", immediateStats);
-        if (!initialCachedStats && initialCachedUsers.length === 0) setDepartmentsReady(false);
-        setDepartmentsError("");
-        const emails = allUsers.map(user => user?.email).filter(Boolean);
-        fetch(`${API_BASE}/api/admin/user-departments`, {
-          method:'POST',
-          credentials:'include',
-          headers,
-          cache:'no-store',
-          body:JSON.stringify({ emails })
-        })
-          .then(response => response.ok ? response.json() : Promise.reject(new Error(`Department resolver returned ${response.status}`)))
-          .then(departmentData => {
-            if(!departmentData?.success)return;
-            const enriched=allUsers.map(user=>{
-              const resolved=departmentData.users?.[String(user.email||'').trim().toLowerCase()];
-              if(!resolved)return user;
-              return {
-                ...user,
-                name:resolved.name||user.name||String(user.email||'').split('@')[0],
-                nameSource:resolved.nameSource||null,
-                department:resolved.department||'Unknown',
-                departmentCurrentStage:resolved.currentStage||user.departmentCurrentStage||null,
-                crmFound:resolved.crmFound===true,
-                recruitFound:resolved.recruitFound===true
-              };
-            });
-            const accurateCache={
-              all:enriched,
-              recruiting:enriched.filter(user=>String(user.department||'').toLowerCase()==='recruiting'),
-              immigration:enriched.filter(user=>String(user.department||'').toLowerCase()==='immigration'),
-              deployment:enriched.filter(user=>String(user.department||'').toLowerCase()==='deployment'),
-              aftercare:enriched.filter(user=>String(user.department||'').toLowerCase()==='aftercare')
-            };
-            departmentUsersCacheRef.current=accurateCache;
-            writeAdminFastCache("users", enriched);
-            const selectedKey=userDepartmentFilter||'all';
-            setUsers(accurateCache[selectedKey]||accurateCache.all);
-            setStats(previous=>{
-              const next = {
-                ...previous,
-                recruiting:Number(departmentData.stats?.recruiting||0),
-                immigration:Number(departmentData.stats?.immigration||0),
-                deployment:Number(departmentData.stats?.deployment||0),
-                aftercare:Number(departmentData.stats?.aftercare||0)
-              };
-              writeAdminFastCache("stats", next);
-              return next;
-            });
-            setDepartmentsReady(true);
-            if (departmentData.refreshing === true) {
-              window.setTimeout(() => {
-                fetch(`${API_BASE}/api/admin/user-departments`, {
-                  method:'POST', credentials:'include', headers, cache:'no-store', body:JSON.stringify({ emails })
-                }).then(r => r.ok ? r.json() : null).then(fresh => {
-                  if (!fresh?.success || fresh?.refreshing) return;
-                  const finalUsers=allUsers.map(user=>{
-                    const resolved=fresh.users?.[String(user.email||'').trim().toLowerCase()];
-                    return resolved ? {...user,name:resolved.name||user.name,department:resolved.department||user.department,departmentCurrentStage:resolved.currentStage||user.departmentCurrentStage||null} : user;
-                  });
-                  const finalCache={all:finalUsers,recruiting:finalUsers.filter(u=>String(u.department||'').toLowerCase()==='recruiting'),immigration:finalUsers.filter(u=>String(u.department||'').toLowerCase()==='immigration'),deployment:finalUsers.filter(u=>String(u.department||'').toLowerCase()==='deployment'),aftercare:finalUsers.filter(u=>String(u.department||'').toLowerCase()==='aftercare')};
-                  departmentUsersCacheRef.current=finalCache;
-                  setUsers(finalCache[userDepartmentFilter||'all']||finalCache.all);
-                  setStats(previous=>{
-                    const next={...previous,recruiting:Number(fresh.stats?.recruiting||0),immigration:Number(fresh.stats?.immigration||0),deployment:Number(fresh.stats?.deployment||0),aftercare:Number(fresh.stats?.aftercare||0)};
-                    writeAdminFastCache("stats", next);
-                    return next;
-                  });
-                }).catch(()=>{});
-              }, 15000);
-            }
-          })
-          .catch(error=>{
-            console.warn('[Admin Users] Accurate department resolution failed:',error);
-            setDepartmentsReady(false);
-            setDepartmentsError("Department data could not be loaded. Refresh to retry.");
-          });
-      }
-      if (hData.success) setLogs(hData.logs || []);
-    } catch (err) {
-      const cachedUsers = departmentUsersCacheRef.current.all;
-      if (!Array.isArray(cachedUsers) || !cachedUsers.length) {
-        setError(err.message || 'Candidate list is temporarily unavailable.');
-      } else {
-        console.warn('[Admin Users] Keeping cached users after transient request failure:', err?.message || err);
-      }
-    } finally {
-      if (requestId === departmentRequestRef.current) setLoading(false);
-    }
-  }, [userDepartmentFilter]);
+      return body.hasMore?body.nextPage:null;
+    }catch(error){if(requestId===departmentRequestRef.current)
+      setError(`Candidate directory: ${error.message||error}`);
+    }finally{window.clearTimeout(timer);if(requestId===departmentRequestRef.current){
+      setLoading(false);setUsersLoadingMore(false);
+    }}
+  },[userDepartmentFilter]);
 
-  useEffect(() => {
-    fetchOverview();
-    // Warm the heaviest shared Admin dataset immediately in the background.
-    // Cached data paints instantly; this refresh keeps every later tab hot.
-    fetchUsers("", { force: false });
-    const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') fetchOverview();
-    }, 60000);
-    const onAdminDataUpdated = () => {
-      // Do not fan out another users+department refresh while reviewing a user.
-      // The overview/list can refresh after the modal is closed.
-      if (selectedUserOpenRef.current) return;
-      fetchOverview();
-      if (usersLoaded) { departmentUsersCacheRef.current = { all:null, recruiting:null, immigration:null, deployment:null, aftercare:null }; fetchUsers('', { force:true }); }
-    };
-    const onFocus = () => fetchOverview();
-    window.addEventListener('admin-data-updated', onAdminDataUpdated);
-    window.addEventListener('focus', onFocus);
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('admin-data-updated', onAdminDataUpdated);
-      window.removeEventListener('focus', onFocus);
-    };
-  }, [fetchOverview, fetchUsers, usersLoaded]);
+  // v143: explicit opt-in, sequential full directory hydration. No parallel
+  // pages or expensive Zoho work. Stop if a request fails.
+  const loadAllUsers = async () => {
+    if(usersLoadAllRef.current || usersNextPage===null)return;
+    usersLoadAllRef.current=true;setUsersLoadingAll(true);
+    let next=usersNextPage;
+    try{
+      for(let batch=0;batch<100 && next!==null;batch++){
+        const resolved=await fetchUsers('',{page:next,force:true});
+        if(resolved===undefined)break;
+        next=resolved;
+        if(next!==null)await new Promise(resolve=>window.setTimeout(resolve,500));
+      }
+    }finally{usersLoadAllRef.current=false;setUsersLoadingAll(false);}
+  };
 
+  // v138: strict lazy loading. Entering Admin makes ONE overview read.
+  // Never warm candidate lists, full login history, or Zoho in the background.
   useEffect(() => {
-    if (!usersLoaded && ['users', 'analytics', 'messages'].includes(tab)) fetchUsers('');
+    if (tab !== 'overview' || selectedUserOpenRef.current) return undefined;
+    void fetchOverview();
+    return undefined;
+  }, [tab, fetchOverview]);
+  useEffect(() => {
+    if (tab !== 'users' || selectedUserOpenRef.current) return;
+    if (!usersLoaded) void fetchUsers('');
   }, [tab, usersLoaded, fetchUsers]);
 
   useEffect(() => {
@@ -6349,6 +6601,7 @@ const AdminPanel = () => {
   // Single non-overlapping lightweight status poll. Network failures are
   // "unknown", not proof that either dependency has disconnected.
   useEffect(() => {
+    if (tab !== 'overview') return undefined;
     let active = true;
     let inFlight = false;
     const checkConnectivity = async () => {
@@ -6386,145 +6639,18 @@ const AdminPanel = () => {
     void checkConnectivity();
     const timer = window.setInterval(checkConnectivity, 60000);
     return () => { active = false; window.clearInterval(timer); };
-  }, []);
+  }, [tab]);
 
-  useEffect(() => {
-    let active = true;
-
-    const refreshAdminQueues = async () => {
-      if (selectedUserOpenRef.current) return;
-      try {
-        const { adminToken, userToken } = getTokens();
-        const headers = {
-          ...(adminToken ? {
-            Authorization:`AdminBearer ${adminToken}`,
-            "x-admin-token":adminToken
-          } : {}),
-          ...(!adminToken && userToken ? {
-            Authorization:`Bearer ${userToken}`
-          } : {})
-        };
-
-        const [requestsRes, receiptsRes, loginApprovalsRes] =
-          await Promise.all([
-            fetch(`${API_BASE}/api/admin/requests?pendingOnly=true&_=${Date.now()}`, {
-              cache:"no-store",
-              credentials:"include",
-              headers
-            }),
-            fetch(`${API_BASE}/api/admin/receipts?_=${Date.now()}`, {
-              cache:"no-store",
-              credentials:"include",
-              headers
-            }),
-            fetch(`${API_BASE}/api/admin/login-approvals?status=pending&_=${Date.now()}`, { cache:"no-store", credentials:"include", headers })
-          ]);
-
-        const requestsData =
-          await requestsRes.json().catch(() => ({}));
-        const receiptsData =
-          await receiptsRes.json().catch(() => ({}));
-        const loginApprovalsData = await loginApprovalsRes.json().catch(() => ({}));
-
-        if (!active) return;
-
-        if (requestsRes.ok && requestsData.success === true) {
-          setPendingRequestCount(
-            Array.isArray(requestsData.requests)
-              ? requestsData.requests.length
-              : 0
-          );
-        }
-
-        if (receiptsRes.ok && receiptsData.success === true) {
-          setReceiptCount(
-            Number.isFinite(Number(receiptsData.pendingReviewCount))
-              ? Number(receiptsData.pendingReviewCount)
-              : Number.isFinite(Number(receiptsData.unreadCount))
-                ? Number(receiptsData.unreadCount)
-                : (Array.isArray(receiptsData.receipts)
-                  ? receiptsData.receipts.filter(receipt => receipt?.admin_reviewed !== true).length
-                  : 0)
-          );
-        }
-        if (loginApprovalsRes.ok && loginApprovalsData.success === true) setLoginApprovalCount((loginApprovalsData.approvals || []).length);
-      } catch {
-      }
-    };
-
-    refreshAdminQueues();
-    const interval = setInterval(() => {
-      if (document.visibilityState === "visible") refreshAdminQueues();
-    }, 60000);
-
-    const onAdminDataUpdated = () => refreshAdminQueues();
-    const onReceiptReviewed = () => {
-      setReceiptCount(previous => Math.max(0, Number(previous || 0) - 1));
-      refreshAdminQueues();
-    };
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") refreshAdminQueues();
-    };
-
-    window.addEventListener("admin-data-updated", onAdminDataUpdated);
-    window.addEventListener("receipt-reviewed", onReceiptReviewed);
-    document.addEventListener("visibilitychange", onVisibilityChange);
-
-    return () => {
-      active = false;
-      clearInterval(interval);
-      window.removeEventListener("admin-data-updated", onAdminDataUpdated);
-      window.removeEventListener("receipt-reviewed", onReceiptReviewed);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-
-    const loadUnreadMessages = async () => {
-      if (selectedUserOpenRef.current) return;
-      try {
-        const { adminToken, userToken } = getTokens();
-        const response = await fetch(`${API_BASE}/api/admin/messaging/conversations`, {
-          credentials: 'include',
-          headers: {
-            ...(adminToken ? {
-              Authorization: `AdminBearer ${adminToken}`,
-              'x-admin-token': adminToken
-            } : {}),
-            ...(!adminToken && userToken ? { Authorization: `Bearer ${userToken}` } : {})
-          }
-        });
-        const data = await response.json().catch(() => ({}));
-        if (!active || !response.ok || data.success !== true) return;
-
-        const total = (data.conversations || []).reduce(
-          (sum, conversation) => sum + Number(conversation.unreadCount || 0),
-          0
-        );
-        setUnreadMessageCount(total);
-      } catch {
-      }
-    };
-
-    loadUnreadMessages();
-    const interval = window.setInterval(loadUnreadMessages, 30000);
-    window.addEventListener('admin-messaging-read', loadUnreadMessages);
-
-    return () => {
-      active = false;
-      window.clearInterval(interval);
-      window.removeEventListener('admin-messaging-read', loadUnreadMessages);
-    };
-  }, []);
+  // v138: no hidden queue/message polling. Requests, Receipts, Login Approvals,
+  // Notifications and Messages load independently when their tab is selected.
+  // This intentionally trades global badge freshness for API availability.
 
   const navItems = [
     { id: 'overview', icon: <Home className="w-4 h-4" />, label: 'Overview' },
     { id: 'users', icon: <Users className="w-4 h-4" />, label: 'Users', badge: stats.total },
     { id: 'analytics', icon: <BarChart3 className="w-4 h-4" />, label: 'Analytics' },
     { id: 'messages', icon: <MessageSquare className="w-4 h-4" />, label: 'Messages', badge: unreadMessageCount },
-    { id: 'notifications', icon: <Bell className="w-4 h-4" />, label: 'Notifications', badge: notificationState.unreadTotal },
+    { id: 'notifications', icon: <Bell className="w-4 h-4" />, label: 'Notifications', badge: notificationPendingTotal ?? notificationState.unreadTotal },
     { id: 'requests', icon: <ClipboardList className="w-4 h-4" />, label: 'Requests', badge: pendingRequestCount },
     { id: 'login-approvals', icon: <UserCheck className="w-4 h-4" />, label: 'Login approvals', badge: loginApprovalCount },
     { id: 'receipts', icon: <Receipt className="w-4 h-4" />, label: 'Receipts', badge: receiptCount },
@@ -6673,7 +6799,19 @@ const AdminPanel = () => {
             </div>
           )}
 
-          {tab === 'users' && <UsersTable users={users} onSelectUser={setSelectedUser} onMessageUser={openMessageThread} onBroadcast={handleBroadcast} departmentFilter={userDepartmentFilter} onDepartmentFilterChange={setUserDepartmentFilter} />}
+          {tab === 'users' && <>
+            <UsersTable users={users} onSelectUser={setSelectedUser} onMessageUser={openMessageThread} onBroadcast={handleBroadcast} departmentFilter={userDepartmentFilter} onDepartmentFilterChange={setUserDepartmentFilter} />
+            {usersNextPage !== null && <div className="mt-4 flex flex-wrap justify-center gap-3">
+              <button type="button" className="rounded-lg border border-purple-300 bg-white px-5 py-2 text-sm font-semibold text-purple-700 disabled:opacity-50"
+                disabled={usersLoadingMore||usersLoadingAll} onClick={()=>void fetchUsers('',{page:usersNextPage})}>
+                {usersLoadingMore?'Loading candidates…':'Load next 60 candidates'}
+              </button>
+              <button type="button" className="rounded-lg border border-gray-300 bg-white px-5 py-2 text-sm font-semibold text-gray-700 disabled:opacity-50"
+                disabled={usersLoadingMore||usersLoadingAll} onClick={()=>void loadAllUsers()}>
+                {usersLoadingAll?'Loading all candidates sequentially…':'Load all candidates safely'}
+              </button>
+            </div>}
+            </>}
           {tab === 'analytics' && <AnalyticsPanel users={users} logs={logs} />}
           {tab === 'messages' && <MessagingPanel users={users} initialTarget={msgTarget} />}
           {tab === 'notifications' && (

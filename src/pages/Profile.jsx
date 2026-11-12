@@ -342,6 +342,7 @@ export default function Profile() {
   const [bankingSaved, setBankingSaved] = useState(false);
   const [planningOptions, setPlanningOptions] = useState({
     finalTransportationPlan: [],
+    finalTransportationPlanOptions: [],
     finalBankingPlan: []
   });
   const [showTravelDependantForm, setShowTravelDependantForm] = useState(false);
@@ -718,6 +719,10 @@ export default function Profile() {
             finalTransportationPlan:
               Array.isArray(data.finalTransportationPlan)
                 ? data.finalTransportationPlan
+                : [],
+            finalTransportationPlanOptions:
+              Array.isArray(data.finalTransportationPlanOptions)
+                ? data.finalTransportationPlanOptions
                 : [],
             finalBankingPlan:
               Array.isArray(data.finalBankingPlan)
@@ -2378,18 +2383,21 @@ export default function Profile() {
                 className="mt-1 w-full rounded-lg border border-[#e6def1] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#eee6fb]"
               >
                 <option value="">Select transportation plan</option>
-                {[
-                  ...new Set([
-                    travelPlanning.finalTransportationPlan || "",
-                    ...planningOptions.finalTransportationPlan
-                  ].filter(Boolean))
-                ].map(option => (
-                  <option key={option} value={option}>{option}</option>
-                ))}
+                {(() => {
+                  const options = planningOptions.finalTransportationPlanOptions.length
+                    ? planningOptions.finalTransportationPlanOptions
+                    : planningOptions.finalTransportationPlan.map(value=>({value,label:value}));
+                  const selected = String(travelPlanning.finalTransportationPlan || '').trim();
+                  const rows = [...options];
+                  if (selected && !rows.some(x=>x.value===selected)) {
+                    rows.unshift({value:selected,label:`${selected} (saved selection)`});
+                  }
+                  return rows.map(option=>(
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ));
+                })()}
               </select>
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Options are loaded directly from CRM Deals field Final_Transportation_Plan.
-              </p>
+              
             </label>
           </div>
 

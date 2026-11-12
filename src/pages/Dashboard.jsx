@@ -2338,9 +2338,11 @@ export default function Dashboard() {
 
   // v112: Access policy is shared with My Pipeline, not recreated here.
   // Never unlock actions from placeholders or a dashboard-only guessed gate.
+  // v142: A saved, candidate-specific stage snapshot can authorize an
+  // already-unlocked action immediately. Do not wait for another network read.
+  // Never unlock a locked stage from missing/placeholder data.
   const stageCanOpen = target =>
-    pipelineLoadStatus === "verified" &&
-    !!target &&
+    !!target && visiblePipelineStages.length > 0 &&
     isStageUnlocked(target, visiblePipelineStages);
 
   const welcomePacketAvailable = stageCanOpen(welcomeStage);

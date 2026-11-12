@@ -726,8 +726,8 @@ export default function Documents() {
     uploading,
     setUploading
   ] = useState(false);
-  const [optimisticPendingCount, setOptimisticPendingCount] = useState(0);
-  const [submittedDocumentCount, setSubmittedDocumentCount] = useState(0);
+  const [optimisticPendingCount, setOptimisticPendingCount] = useState(null);
+  const [submittedDocumentCount, setSubmittedDocumentCount] = useState(null);
   const pendingCountRequestRef = useRef(false);
   const [submissionPopup, setSubmissionPopup] = useState(null);
   const [removingDocumentKey, setRemovingDocumentKey] = useState("");
@@ -831,13 +831,13 @@ export default function Documents() {
   // Server pending_count is authoritative. This makes the number rise when a
   // document is submitted and fall immediately after admin approval/rejection.
   useEffect(() => {
-    if (documentData?.pending_count !== undefined) {
-      setOptimisticPendingCount(Number(documentData.pending_count || 0));
+    if (documentData?.count_verified === true) {
+      if (Number.isFinite(Number(documentData.pending_count)))
+        setOptimisticPendingCount(Number(documentData.pending_count));
+      if (Number.isFinite(Number(documentData.submitted_count)))
+        setSubmittedDocumentCount(Number(documentData.submitted_count));
     }
-    if (documentData?.submitted_count !== undefined) {
-      setSubmittedDocumentCount(Number(documentData.submitted_count || 0));
-    }
-  }, [documentData?.pending_count, documentData?.submitted_count]);
+  }, [documentData?.count_verified,documentData?.pending_count,documentData?.submitted_count]);
 
   // Pending approval count is intentionally independent from the full document
   // inventory. This endpoint reads only PostgreSQL approval queues, so CRM/Recruit
@@ -866,13 +866,11 @@ export default function Documents() {
           }
         );
         const payload = await response.json().catch(() => ({}));
-        if (!cancelled && response.ok) {
-          if (payload?.pending_count !== undefined) {
-            setOptimisticPendingCount(Number(payload.pending_count || 0));
-          }
-          if (payload?.submitted_count !== undefined) {
-            setSubmittedDocumentCount(Number(payload.submitted_count || 0));
-          }
+        if (!cancelled && response.ok && payload?.verified === true) {
+          if (Number.isFinite(Number(payload?.pending_count)))
+            setOptimisticPendingCount(Number(payload.pending_count));
+          if (Number.isFinite(Number(payload?.submitted_count)))
+            setSubmittedDocumentCount(Number(payload.submitted_count));
         }
       } catch (_) {
         // Keep the last confirmed count; the next poll retries automatically.
@@ -1091,7 +1089,11 @@ export default function Documents() {
       groups.get(category.key).documents.push(document);
     }
     return [...groups.values()].map((group,index) => ({
-      ...group, sectionIndex:index, documentCount:group.documents.length,
+      ...group, sectionIndex:index,
+      documentCount:new Set(group.documents.map(doc => String(doc.pending_upload_id ||
+        doc.approval_key ||
+        `${String(doc.source||'document')}:${String(doc.crm_attachment_id||doc.recruit_attachment_id||doc.attachment_id||doc.id||doc._id||'')}`))).size,
+      fileCount:group.documents.length,
       documents:group.documents.sort((a,b) => new Date(b.uploaded_at || 0)-new Date(a.uploaded_at || 0))
     }));
   }, [categories, filteredDocs]);
@@ -1858,7 +1860,7 @@ export default function Documents() {
               Documents
             </p>
             <p className="mt-1 text-2xl font-bold">
-              {submittedDocumentCount || allDocs.length}
+              {submittedDocumentCount === null ? '—' : submittedDocumentCount}
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
               Total documents submitted
@@ -1874,7 +1876,7 @@ export default function Documents() {
               Awaiting Approval
             </p>
             <p className="mt-1 text-2xl font-bold">
-              {optimisticPendingCount}
+              {optimisticPendingCount === null ? '—' : optimisticPendingCount}
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
               Waiting for review
@@ -1914,7 +1916,7 @@ export default function Documents() {
           </div>
         </div>
       )}
-      {optimisticPendingCount > 0 && (
+      {Number(optimisticPendingCount || 0) > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           {optimisticPendingCount} document{optimisticPendingCount === 1 ? " is" : "s are"} awaiting administrator approval.
         </div>
@@ -2006,7 +2008,7 @@ export default function Documents() {
                 <div className="min-w-0 flex-1">
                   <h2 className="text-lg font-bold text-[#111827]">{group.section}</h2>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {group.documentCount} submitted file{group.documentCount === 1 ? "" : "s"} attached to this document type
+                    {group.documentCount} distinct document{group.documentCount === 1 ? "" : "s"} · {group.fileCount} stored file cop{group.fileCount === 1 ? "y" : "ies"}
                   </p>
 
                 </div>
