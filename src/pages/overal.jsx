@@ -793,6 +793,39 @@ const formatDate = (dateStr) => {
   } catch { return extractString(dateStr); }
 };
 
+// v170: Zoho lookup values can arrive as nested objects or JSON-encoded strings.
+// Show only the human-readable lookup name in Admin; never expose provider IDs.
+const adminLookupNameV170 = value => {
+  const read = (raw, depth = 0) => {
+    if (raw == null || depth > 5) return '';
+    if (Array.isArray(raw)) return raw.map(item => read(item, depth + 1)).filter(Boolean).join(', ');
+    if (typeof raw === 'object') {
+      for (const key of ['name', 'display_value', 'displayValue', 'label', 'Interview_Location',
+        'interview_location', 'interviewLocation', 'value']) {
+        if (raw[key] != null) {
+          const result = read(raw[key], depth + 1);
+          if (result) return result;
+        }
+      }
+      return '';
+    }
+    const valueText = String(raw).trim();
+    if (!valueText || valueText === '—') return '';
+    if (/^[\[{\"]/.test(valueText)) {
+      try { return read(JSON.parse(valueText), depth + 1); } catch (_) {}
+      // Historical Zoho data sometimes contains escaped / partially serialized JSON.
+      const normalized = valueText.replace(/\\\"/g, '\"');
+      const names = [...normalized.matchAll(/\"(?:name|display_value)\"\s*:\s*\"([^\"]+)\"/g)];
+      if (names.length) return names[names.length - 1][1];
+      return '';
+    }
+    // Never mistake a bare numeric Zoho identifier for a location.
+    if (/^\d{12,}$/.test(valueText)) return '';
+    return valueText;
+  };
+  return read(value) || '—';
+};
+
 const initials = (name) => {
   const safe = extractString(name);
   return (safe !== "—" ? safe : '?').split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2);
@@ -2387,7 +2420,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                   <Section title={<><Building className="w-5 h-5 text-purple-600" /> Interview & Hiring Details</>}>
                     <InfoRow label="Scheduled for Interview" value={profile.scheduled_for_interview} icon={CalendarDays} />
                     <InfoRow label="Interview Date" value={profile.interviewdate || profile.interviewDate} isDate icon={Calendar} />
-                    <InfoRow label="Interview Location" value={profile.interviewlocation || profile.interviewLocation} icon={MapPin} />
+                    <InfoRow label="Interview Location" value={adminLookupNameV170(profile.interviewlocation || profile.interviewLocation)} icon={MapPin} />
                     <InfoRow label="Hired Location" value={profile.hiredlocation} icon={MapPin} />
                     <InfoRow label="Hired Department" value={profile.hireddept || profile.Departmenet} icon={Building} />
                     <div className="mt-4">
@@ -3825,8 +3858,8 @@ const MessagingPanel = ({ users, initialTarget }) => {
     "";
 
   return (
-    <div className="h-[680px] min-h-[680px] max-h-[680px] w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-200/50 flex">
-      <div className="w-[340px] shrink-0 border-r border-slate-200 bg-slate-50/70 overflow-y-auto">
+    <div className="h-[680px] min-h-[680px] max-h-[680px] w-full min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-200/50 flex">
+      <div className="w-[340px] h-full min-h-0 shrink-0 border-r border-slate-200 bg-slate-50/70 overflow-y-auto">
         <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -3983,7 +4016,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
           );
         })}
       </div>
-      <div className="min-h-0 min-w-0 flex-1 flex flex-col bg-slate-50/50">
+      <div className="h-full min-h-0 min-w-0 flex-1 flex flex-col overflow-hidden bg-slate-50/50">
         {department === "public" ? (
           <>
             <div className="border-b px-5 py-4 bg-white shadow-sm">
@@ -4074,7 +4107,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
               </div>
               <span className="rounded-full bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700">{departments.find(item => item.id === department)?.label || department}</span>
             </div>
-            <div className="flex-1 space-y-4 overflow-y-auto bg-slate-100/60 p-6">
+            <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-100/60 p-6">
               {messageError && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{messageError}</div>}
               {loadingHistory ? (
                 <div className="text-center text-xs text-gray-400 mt-4">Loading conversation...</div>
@@ -4083,7 +4116,7 @@ const MessagingPanel = ({ users, initialTarget }) => {
               ) : (
                 chat.map((msg) => (
                   <div key={msg._id || msg.id} className={`flex ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`w-full max-w-[78%] rounded-2xl text-sm shadow-sm ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'text-white rounded-br-sm' : 'border border-slate-200 bg-white text-slate-800 rounded-bl-sm'}`} style={{ background: msg.senderEmail === 'admin' || msg.from === 'admin' ? THEME.brand : '' }}>
+                    <div className={`w-fit min-w-0 max-w-[78%] break-words [overflow-wrap:anywhere] whitespace-pre-wrap rounded-2xl text-sm shadow-sm ${msg.senderEmail === 'admin' || msg.from === 'admin' ? 'text-white rounded-br-sm' : 'border border-slate-200 bg-white text-slate-800 rounded-bl-sm'}`} style={{ background: msg.senderEmail === 'admin' || msg.from === 'admin' ? THEME.brand : '' }}>
                       <div className="px-4 pt-2.5">
                         {msg.content || msg.text}
                       </div>
@@ -4099,8 +4132,8 @@ const MessagingPanel = ({ users, initialTarget }) => {
               )}
               <div ref={chatEndRef} />
             </div>
-            <div className="flex gap-3 border-t border-slate-200 bg-white p-4">
-              <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()} placeholder={`Message ${selectedName}...`} className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+            <div className="flex shrink-0 min-w-0 gap-3 border-t border-slate-200 bg-white p-4">
+              <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()} placeholder={`Message ${selectedName}...`} className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
               <button onClick={sendMessage} disabled={loading || !input.trim()} className="flex items-center gap-2 rounded-xl px-6 py-2.5 text-sm font-bold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50" style={{ background: THEME.brand }}>
                 {loading ? 'Sending' : 'Send'} <Send className="w-4 h-4" />
               </button>

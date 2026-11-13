@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { 
   CheckCircle2, 
@@ -13224,6 +13224,13 @@ export const ReimbursementExpensesView = ({
         node.replaceWith(span);
       });
 
+      // Mark sections in the isolated print copy; small sections stay together,
+      // long sections can continue on the next page without a forced blank page.
+      [...copy.children].forEach(section => {
+        if (section.nodeType === 1 && section.tagName !== 'STYLE')
+          section.setAttribute('data-icp-expense-print-block', 'true');
+      });
+
       const styles = [...document.querySelectorAll('style, link[rel="stylesheet"]')]
         .map(node => node.outerHTML)
         .join('\n');
@@ -13269,6 +13276,53 @@ export const ReimbursementExpensesView = ({
             width:100%!important; min-width:0!important; overflow-wrap:anywhere!important; }
           .expense-report-print-copy [data-icp-bank-print-section="true"] label { display:block!important; white-space:normal!important; }
           @media print { .expense-report-print-copy [data-icp-bank-print-section="true"] { padding:12px!important; } }
+          /* v170: keep a normal-flow A4 report and neutralize inherited screen/page rules. */
+          .expense-report-print-copy, .expense-report-print-copy * {
+            box-sizing:border-box!important;
+          }
+          .expense-report-print-copy {
+            width:100%!important; max-width:100%!important; margin:0!important;
+            padding:0!important; height:auto!important; min-height:0!important;
+            overflow:visible!important; transform:none!important;
+          }
+          .expense-report-print-copy [data-icp-expense-print-block="true"] {
+            position:static!important; height:auto!important; max-height:none!important;
+            overflow:visible!important; break-before:auto!important;
+            break-after:auto!important; page-break-before:auto!important;
+            page-break-after:auto!important; margin-bottom:4mm!important;
+          }
+          /* A short summary/receipt card should not split between pages. Long
+             detail tables must be allowed to flow rather than overflow a page. */
+          .expense-report-print-copy [data-icp-expense-print-block="true"]:not(:has(table)):not(:has(form)) {
+            break-inside:avoid-page!important; page-break-inside:avoid!important;
+          }
+          .expense-report-print-copy [data-icp-expense-print-block="true"]:has(table),
+          .expense-report-print-copy [data-icp-expense-print-block="true"]:has(form) {
+            break-inside:auto!important; page-break-inside:auto!important;
+          }
+          .expense-report-print-copy [class*="h-screen"],
+          .expense-report-print-copy [class*="min-h-screen"],
+          .expense-report-print-copy [class*="max-h-"],
+          .expense-report-print-copy [class*="overflow-"] {
+            height:auto!important; min-height:0!important; max-height:none!important;
+            overflow:visible!important;
+          }
+          .expense-report-print-copy table { break-before:auto!important;
+            break-after:auto!important; page-break-before:auto!important;
+            page-break-after:auto!important; }
+          .expense-report-print-copy thead { display:table-header-group!important; }
+          .expense-report-print-copy tr, .expense-report-print-copy td {
+            break-inside:avoid-page!important; page-break-inside:avoid!important;
+          }
+          .expense-report-print-copy p, .expense-report-print-copy li {
+            orphans:3; widows:3; overflow-wrap:anywhere;
+          }
+          .expense-report-print-copy img, .expense-report-print-copy svg {
+            max-width:100%!important; object-fit:contain!important;
+          }
+          .expense-report-print-copy [data-icp-bank-print-section="true"] {
+            break-inside:auto!important; page-break-inside:auto!important;
+          }
           .expense-report-print-copy a { color:inherit; text-decoration:none; }
           @page { size:A4; margin:15mm 12mm 17mm; }
           @media print { html,body { height:auto!important; overflow:visible!important; }
