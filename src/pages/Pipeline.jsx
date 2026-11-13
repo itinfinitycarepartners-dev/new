@@ -11494,6 +11494,12 @@ export const ReimbursementExpensesView = ({
   const [expenseAdminApprovedAt, setExpenseAdminApprovedAt] = useState(null);
   const [expenseApprovalFeedback, setExpenseApprovalFeedback] = useState({kind:'',message:''});
   const [expenseApprovalProof, setExpenseApprovalProof] = useState(null);
+  // Explicit Admin operation. It uses the computed Expense Report total,
+  // never an arbitrary number supplied by the browser.
+  const [showCrmTotalOverride,setShowCrmTotalOverride]=useState(false);
+  const [crmTotalOverrideReason,setCrmTotalOverrideReason]=useState('');
+  const [crmTotalInspection,setCrmTotalInspection]=useState(null);
+  const [crmTotalInspectionBusy,setCrmTotalInspectionBusy]=useState(false);
   const loadExpenseAdminApproval = async () => {
     if (!user?.email) return;
     setExpenseAdminApprovalLoading(true);
@@ -12675,11 +12681,39 @@ export const ReimbursementExpensesView = ({
       }
     };
 
+  // v168: One bounded, authenticated, read-only inspection. Never calls a
+  // financial POST and never attempts a second update after INVALID_DATA.
+  const inspectCrmExpenseField=async()=>{
+    if(!adminMode||!adminToken||!user?.email||crmTotalInspectionBusy) return;
+    setCrmTotalInspectionBusy(true);
+    setCrmTotalInspection(null);
+    const controller=new AbortController();
+    const timer=window.setTimeout(()=>controller.abort(),16000);
+    try {
+      const response=await fetch(`${API_BASE}/api/admin/reimbursement/expense-report-crm-diagnostic?email=${encodeURIComponent(user.email)}`,{
+        method:'GET',cache:'no-store',credentials:'include',signal:controller.signal,
+        headers:{Accept:'application/json',Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken}
+      });
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok||data.success!==true) throw new Error(data.error||`CRM diagnostic HTTP ${response.status}`);
+      setCrmTotalInspection(data);
+    }catch(error){
+      setCrmTotalInspection({error:String(error?.message||'CRM inspection failed')});
+    }finally{
+      window.clearTimeout(timer);
+      setCrmTotalInspectionBusy(false);
+    }
+  };
+
   // v159: Explicit approval evidence is always visible IN the report, not only
   // in a Sonner toast. Never automatically resend a financial POST after a
   // timeout. If the response was lost, check the saved approval via GET.
-  const handleAcknowledgeExpenseReport = async () => {
+  const handleAcknowledgeExpenseReport = async ({crmTotalOverride=false}={}) => {
     if (expenseReportAcknowledging) return;
+    if (adminMode && crmTotalOverride && String(crmTotalOverrideReason||'').trim().length<12) {
+      setExpenseApprovalFeedback({kind:'error',message:'Provide an audit reason of at least 12 characters for the CRM total override.'});
+      return;
+    }
     const token=adminMode ? adminToken : localStorage.getItem('icp_auth_token');
     if (!token) {
       const message='Your admin/candidate session is unavailable. Sign in again.';
@@ -12691,14 +12725,18 @@ export const ReimbursementExpensesView = ({
       setExpenseApprovalFeedback({kind:'error',message});toast.error(message);return;
     }
     if (adminMode && !window.confirm(
-      `Approve the Expense Report for ${user.email} and synchronize its payment schedule to Zoho CRM? `+
-      'This changes financial fields in the candidate Deal and must not be repeated if Zoho outcome is uncertain.'
+      `${crmTotalOverride?'OVERRIDE the CRM Total_Due_to_ICP_RN field separately, then ':''}Approve the Expense Report for ${user.email} `+
+      `for the packet total $${Number(expenseReport?.totals?.amount_due||0).toFixed(2)} and synchronize its payment schedule? `+
+      'This changes financial fields in the candidate Deal. Verify the Deal before retrying an uncertain result.'
     )) return;
     const approvalAttemptStartedAt=Date.now();
     setExpenseReportAcknowledging(true);
     if(adminMode) setExpenseApprovalFeedback({kind:'working',message:'Verifying Zoho Deal, payment dates and amounts. Please do not click again.'});
     const controller=new AbortController();
-    const timeoutId=window.setTimeout(()=>controller.abort(),45000);
+    // Explicit override performs TWO sequential, verified Zoho writes.
+    // Keep the normal approval 45-second timeout while giving the manual
+    // operation enough time to finish without aborting midway.
+    const timeoutId=window.setTimeout(()=>controller.abort(),crmTotalOverride?105000:45000);
     let uncertain=false;
     try {
       const response=await fetch(
@@ -12710,7 +12748,12 @@ export const ReimbursementExpensesView = ({
             ...(adminMode ? {'x-admin-token':token,'x-candidate-email':user?.email||''} : {}),
             'Content-Type':'application/json',Accept:'application/json'
           },
-          body:JSON.stringify({acknowledged:true,...(adminMode?{email:user.email,trigger:'admin_expense_report_acknowledgement'}:{})})
+          body:JSON.stringify({acknowledged:true,...(adminMode?{
+            email:user.email,trigger:'admin_expense_report_acknowledgement',
+            ...(crmTotalOverride?{overrideCrmTotal:true,
+              overrideReason:crmTotalOverrideReason.trim(),
+              expectedPacketTotal:Number(expenseReport?.totals?.amount_due)}:{})
+          }:{})})
         }
       );
       const data=await response.json().catch(()=>({}));
@@ -12721,11 +12764,14 @@ export const ReimbursementExpensesView = ({
         const error=new Error(`${data.error||`Approval returned HTTP ${response.status}`}${details?` (${details})`:''}${fields}`);
         error.crmOutcome=data.crmOutcome;
         error.httpStatus=response.status;
+        error.crmRejectedField=data.rejectedField||data.zohoField||null;
+        error.crmZohoCode=data.zohoCode||null;
         throw error;
       }
       if(adminMode && !(data.approved && data.crmSynced && data.scheduleSynced && data.crmReadbackVerified && data.expenseApprovalProof?.proofId))
         throw Object.assign(new Error('CRM verification or saved Expense Report proof is missing. Check status before submitting again.'),{crmOutcome:'unverified'});
       if (adminMode) {
+        if (crmTotalOverride) setShowCrmTotalOverride(false);
         setExpenseAdminApproved(true);
         setExpenseAdminApprovedAt(data.approvedAt || null);
         setExpenseApprovalProof(data.expenseApprovalProof);
@@ -12788,7 +12834,8 @@ export const ReimbursementExpensesView = ({
         const message=error?.name==='AbortError'
           ? 'Approval request timed out. Check the Zoho Deal and saved approval status before clicking again.'
           : String(error?.message||'Expense Report approval failed.');
-        if(adminMode) setExpenseApprovalFeedback({kind:uncertain?'warning':'error',message});
+        if(adminMode) setExpenseApprovalFeedback({kind:uncertain?'warning':'error',
+          message:message+(error?.crmRejectedField?` Rejected field: ${error.crmRejectedField}. Use Inspect CRM field below before another attempt.`:'')});
         toast.error(message);
       }
     } finally {
@@ -13723,7 +13770,7 @@ export const ReimbursementExpensesView = ({
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
               {adminMode
-                ? "Approve the final Expense Report, confirm the CRM acknowledgment, and save four monthly installments beginning one month after arrival. The candidate acknowledges separately."
+                ? "Approve the final Expense Report in PostgreSQL and verify the CRM total and four monthly installments beginning one month after arrival. The candidate acknowledges separately; no CRM acknowledgment field is needed."
                 : "The Expense Report stage checks off when a total amount is available and you click the Expense Report section. You can also acknowledge it here."}
             </p>
           </div>
@@ -13766,6 +13813,74 @@ export const ReimbursementExpensesView = ({
             )}
           </div>
         </div>
+        {adminMode && (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
+            <button type="button" onClick={()=>setShowCrmTotalOverride(v=>!v)}
+              className="font-semibold text-amber-900 underline underline-offset-2"
+              disabled={expenseReportAcknowledging}>
+              {showCrmTotalOverride?'Hide CRM total sync':'Sync missing or different CRM total'}
+            </button>
+            {showCrmTotalOverride && (
+              <div className="mt-3 space-y-2">
+                <p className="text-xs text-amber-950">
+                  This uses a single-field Zoho v8 Deal update. It writes
+                  <strong> Total_Due_to_ICP_RN </strong>first, checks CRM, then syncs the four installments.
+                  It cannot bypass Zoho field permissions. To change the calculated amount,
+                  edit the reviewed Expense Report rows first.
+                </p>
+                <p className="text-sm font-semibold text-amber-950">
+                  Verified packet total to send: ${Number(expenseReport?.totals?.amount_due||0).toFixed(2)}
+                </p>
+                <label htmlFor="icp-crm-total-override-reason" className="block text-xs font-medium text-amber-950">
+                  Reason for CRM total override (required)
+                </label>
+                <textarea id="icp-crm-total-override-reason" rows={2} maxLength={250}
+                  value={crmTotalOverrideReason}
+                  onChange={event=>setCrmTotalOverrideReason(event.target.value)}
+                  placeholder="e.g., First synchronization failed although final packet total is verified"
+                  className="w-full rounded-md border border-amber-300 p-2 text-sm"
+                />
+                <Button type="button" variant="outline"
+                  disabled={expenseReportAcknowledging||expenseReportLoading||!expenseReport||
+                    String(crmTotalOverrideReason||'').trim().length<12}
+                  onClick={()=>handleAcknowledgeExpenseReport({crmTotalOverride:true})}>
+                  {expenseReportAcknowledging?'Synchronizing...':'Sync packet total to CRM & approve with schedule'}
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+        {adminMode && (
+          <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="font-semibold text-slate-900">CRM total-field inspection</p>
+                <p className="text-xs text-slate-600">Read-only check of this Deal and its Total_Due_to_ICP_RN metadata. It cannot approve or modify CRM.</p>
+              </div>
+              <Button type="button" variant="outline" disabled={crmTotalInspectionBusy||expenseReportAcknowledging}
+                onClick={inspectCrmExpenseField}>
+                {crmTotalInspectionBusy?'Checking Deal...':'Inspect CRM field'}
+              </Button>
+            </div>
+            {crmTotalInspection?.error && <p role="alert" className="mt-2 text-red-700">{crmTotalInspection.error}</p>}
+            {crmTotalInspection?.success && (()=>{
+              const meta=crmTotalInspection.totalFieldContext||{};
+              return (
+                <div className="mt-3 space-y-1 text-xs text-slate-800" role="status">
+                  <p><strong>Deal suffix:</strong> {crmTotalInspection.dealIdSuffix} · <strong>Payment type:</strong> {crmTotalInspection.paymentType}</p>
+                  <p><strong>Packet total:</strong> ${Number(crmTotalInspection.approvedReportTotal||0).toFixed(2)} · <strong>CRM total:</strong> {meta.currentValue===null?'Not populated':String(meta.currentValue)}</p>
+                  <p><strong>Field type:</strong> {meta.type||'Unknown'} · <strong>API update allowed:</strong> {meta.apiUpdateAllowed?'Yes':'No'} · <strong>Read-only:</strong> {meta.readOnly?'Yes':'No'}</p>
+                  <p><strong>CRM field precision:</strong> {meta.currencyPrecision??'Not provided'} · <strong>Deal layout ID:</strong> {meta.dealLayoutId||'Unavailable'} · <strong>Currency:</strong> {meta.dealCurrency||'Not supplied'}</p>
+                  <p><strong>Last attempted sync:</strong> {crmTotalInspection.latestAttempt?.status||'No recorded attempt'} · <strong>Zoho code:</strong> {crmTotalInspection.latestAttempt?.code||'—'}</p>
+                  {!!crmTotalInspection.issues?.length && <div className="mt-2 text-amber-900"><strong>Check:</strong> {crmTotalInspection.issues.join(' ')}</div>}
+                  {meta.apiUpdateAllowed && !meta.readOnly && !meta.matchesPacket && !crmTotalInspection.issues?.length &&
+                    <p className="mt-2 text-amber-900">Zoho reports this field as writable but rejected the candidate's value. Check this Deal's field constraints, applicable layout, blueprint or automation in Zoho CRM. The application cannot bypass a rejected CRM value.</p>}
+                  <p className="mt-2 text-slate-600">This inspection does not retry the update or change the saved approval.</p>
+                </div>
+              );
+            })()}
+          </div>
+        )}
         {adminMode && expenseApprovalFeedback.message && (
           <div role={expenseApprovalFeedback.kind==='error'?'alert':'status'} className={`mt-3 rounded-lg border px-4 py-3 text-sm ${
             expenseApprovalFeedback.kind==='success'?'border-emerald-300 bg-emerald-50 text-emerald-900':
@@ -13782,6 +13897,9 @@ export const ReimbursementExpensesView = ({
             <p>CRM Deal: {expenseApprovalProof.crmDealId || '—'} · Type: {expenseApprovalProof.paymentType || '—'}</p>
             <p>Approved amount: ${Number(expenseApprovalProof.totalAmount||0).toFixed(2)} · Initial payment: ${Number(expenseApprovalProof.initialPayment||0).toFixed(2)}</p>
             <p>CRM verified: {expenseApprovalProof.crmVerifiedAt ? new Date(expenseApprovalProof.crmVerifiedAt).toLocaleString() : 'Saved'}</p>
+            {expenseApprovalProof.crmTotalOverrideVerified && (
+              <p className="font-semibold">Admin CRM total override: verified and recorded in PostgreSQL</p>
+            )}
             <div className="mt-2 grid gap-1 sm:grid-cols-2">
               {(expenseApprovalProof.payments||[]).map((payment,i)=>(
                 <p key={i}>Payment {payment.installment||i+1}: {payment.date} · ${Number(payment.amount||0).toFixed(2)}</p>
