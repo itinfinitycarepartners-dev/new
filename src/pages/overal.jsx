@@ -997,6 +997,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   // Only a backend-verified count is displayed as Pending. documents.length
   // counts file cards and includes separately stored CRM / Recruit copies.
   const [documentPendingCount, setDocumentPendingCount] = useState(null);
+  const [documentInventoryVerified, setDocumentInventoryVerified] = useState(false);
   const [documentsLoading, setDocumentsLoading] = useState(true);
   const [pipeline, setPipeline] = useState([]);
   const [adminDetails, setAdminDetails] = useState({});
@@ -1320,6 +1321,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     documentSyncRequestedRef.current = "";
     setAdminSummary(null);
     setDocumentPendingCount(null);
+    setDocumentInventoryVerified(false);
 
     const cachedDocuments = readAdminDocumentCache(user.email);
     if (Array.isArray(cachedDocuments) && cachedDocuments.length) {
@@ -1387,49 +1389,83 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       void loadAdminSummary({silent:true});
   },[activeTab,user?.email,adminSummary,loadAdminSummary]);
 
-  // v115: ONE read per candidate Documents tab. Never run Zoho automatically.
-  // Backend serves metadata only, coalesces in-flight requests and preserves approvals.
+  // v172: A 202 indicates that the bounded PostgreSQL inventory read is still
+  // running, NOT that the candidate has zero documents. Retry a few GETs only;
+  // never start Zoho sync or mutate a pending upload from this effect.
   useEffect(() => {
     if (activeTab !== 'documents' || !user?.email) return undefined;
     let cancelled=false;
     const controller=new AbortController();
+    let retryTimer=null;
     const {adminToken,userToken}=getTokens();
     const headers={Accept:'application/json',
       ...(adminToken ? {Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken}
         : userToken ? {Authorization:`Bearer ${userToken}`} : {})};
     const cached=readAdminDocumentCache(user.email);
-    if (Array.isArray(cached)) {
+    if (Array.isArray(cached) && cached.length) {
       setDocuments(previous=>preserveAdminApprovalsV111(cached,previous,user.email));
       setDocumentsLoading(false);
-    } else setDocumentsLoading(true);
+    } else {
+      setDocuments([]);
+      setDocumentsLoading(true);
+    }
+    setDocumentPendingCount(null);
+    setDocumentInventoryVerified(false);
+    setDocActionError(null);
+    const wait=ms=>new Promise(resolve=>{retryTimer=window.setTimeout(resolve,ms);});
     const fetchMetadata=async()=>{
-      try {
-        const response=await fetch(`${API_BASE}/api/admin/documents/${encodeURIComponent(user.email)}?snapshot=1`,
-          {headers,credentials:'include',cache:'no-store',signal:controller.signal});
-        if (!response.ok) throw new Error(`Document metadata HTTP ${response.status}`);
-        const data=await response.json();
-        if (cancelled || !response.ok || data?.success !== true ||
-            data?.complete === false && !data.documents?.length ||
-            !Array.isArray(data?.documents)) return;
-        if (data.count_verified===true && Number.isFinite(Number(data.pending_count)))
-          setDocumentPendingCount(Number(data.pending_count));
-        if (!data.documents.length && (cached?.length || documents.length)) return;
-        setDocuments(previous=>{
-          const stable=preserveAdminApprovalsV111(data.documents,previous,user.email);
-          if (stable.length) writeAdminDocumentCache(user.email,stable);
-          return stable;
-        });
-        setDocumentsLoading(false);
-      } catch(error) {
-        if (!cancelled && error?.name!=='AbortError') {
-          console.warn('[Admin Documents] Metadata read failed',error);
-          setDocActionError('Document metadata is temporarily unavailable. Cached documents remain visible.');
+      // Max four metadata reads per tab open (initial + 3 bounded retries).
+      // HTTP 202 and 503 with Retry-After only; no rapid request loop.
+      for(let attempt=0;attempt<4 && !cancelled;attempt++){
+        try {
+          const response=await fetch(`${API_BASE}/api/admin/documents/${encodeURIComponent(user.email)}?snapshot=1`,
+            {headers,credentials:'include',cache:'no-store',signal:controller.signal});
+          const data=await response.json().catch(()=>({}));
+          if(cancelled)return;
+          if(data.count_verified===true && Number.isFinite(Number(data.pending_count)))
+            setDocumentPendingCount(Number(data.pending_count));
+          if(response.ok && data.success===true && Array.isArray(data.documents)) {
+            if(data.documents.length) {
+              setDocumentInventoryVerified(true);
+              setDocuments(previous=>{
+                const stable=preserveAdminApprovalsV111(data.documents,previous,user.email);
+                if(stable.length)writeAdminDocumentCache(user.email,stable);
+                return stable;
+              });
+              setDocumentsLoading(false);
+              return;
+            }
+            if(data.emptyVerified===true && data.count_verified===true) {
+              setDocumentInventoryVerified(true);
+              setDocuments([]);
+              setDocumentsLoading(false);
+              return;
+            }
+          }
+          if(![202,503,429].includes(response.status) && response.ok!==true)
+            throw new Error(data.error||`Document metadata HTTP ${response.status}`);
+          if(![202,503,429].includes(response.status) && response.ok===true)
+            throw new Error('PostgreSQL has not verified the document inventory.');
+          if(attempt===3)throw new Error(data.error||'Document records are still being loaded from PostgreSQL. Please use Refresh saved documents.');
+          const suggested=Number(response.headers.get('Retry-After'));
+          await wait(Number.isFinite(suggested)&&suggested>0?Math.min(6000,suggested*1000):2500);
+        } catch(error) {
+          if(cancelled||error?.name==='AbortError')return;
+          if(attempt<3 && /network|fetch|timeout/i.test(String(error?.message||''))) {
+            await wait(2500);continue;
+          }
+          setDocActionError(error?.message||'Document metadata is temporarily unavailable. Existing files remain visible.');
           setDocumentsLoading(false);
+          return;
         }
       }
+      if(!cancelled) setDocumentsLoading(false);
     };
     void fetchMetadata();
-    return ()=>{cancelled=true;controller.abort();};
+    return ()=>{
+      cancelled=true;controller.abort();
+      if(retryTimer!==null)window.clearTimeout(retryTimer);
+    };
   },[activeTab,user?.email]);
 
   // Audit history is potentially hundreds of rows. Load it only when Admin
@@ -2794,7 +2830,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
               {activeTab === 'documents' && (
               <div className="space-y-5">
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white px-4 py-3">
-                  <p className="text-xs text-gray-500">{documents.length} files on record (including separate CRM/Recruit copies). {documentPendingCount===null ? 'Checking pending submissions…' : `${documentPendingCount} verified pending submission${documentPendingCount===1?'':'s'}`}. “On file” means an existing provider attachment without a recorded Admin decision; it is not a pending approval.</p>
+                  <p className="text-xs text-gray-500">{documents.length ? `${documents.length} files on record (including separate CRM/Recruit copies)` : documentInventoryVerified ? '0 verified files on record' : 'Document inventory not yet verified'}. {documentPendingCount===null ? 'Checking pending submissions…' : `${documentPendingCount} verified pending submission${documentPendingCount===1?'':'s'}`}. “On file” means an existing provider attachment without a recorded Admin decision; it is not a pending approval.</p>
                   <button type="button" disabled={documentsLoading}
                     className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 disabled:opacity-50"
                     onClick={async()=>{
@@ -2805,9 +2841,12 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                         const response=await fetch(`${API_BASE}/api/admin/documents/${encodeURIComponent(user.email)}?snapshot=1&refresh=1`,
                           {credentials:'include',cache:'no-store',headers:{Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken,Accept:'application/json'}});
                         const data=await response.json().catch(()=>({}));
-                        if(!response.ok || !Array.isArray(data.documents))throw new Error(data.error||`Document refresh returned ${response.status}`);
+                        if(!response.ok || data.success!==true || !Array.isArray(data.documents) ||
+                            (data.documents.length===0 && data.emptyVerified!==true))
+                          throw new Error(data.error||'Inventory is still being loaded; no confirmed empty result.');
                         if(data.count_verified===true && Number.isFinite(Number(data.pending_count)))
                           setDocumentPendingCount(Number(data.pending_count));
+                        setDocumentInventoryVerified(true);
                         setDocuments(previous=>{
                           const next=preserveAdminApprovalsV111(data.documents,previous,user.email);
                           if(next.length)writeAdminDocumentCache(user.email,next);
@@ -2832,7 +2871,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                         const data=await fresh.json().catch(()=>({}));
                         if(fresh.ok&&data.count_verified===true && Number.isFinite(Number(data.pending_count)))
                           setDocumentPendingCount(Number(data.pending_count));
-                        if(fresh.ok&&Array.isArray(data.documents))setDocuments(previous=>{
+                        if(fresh.ok&&data.success===true&&Array.isArray(data.documents)&&
+                           (data.documents.length>0||data.emptyVerified===true))setDocuments(previous=>{
                           const next=preserveAdminApprovalsV111(data.documents,previous,user.email);
                           writeAdminDocumentCache(user.email,next);return next;
                         });
@@ -2840,6 +2880,23 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                       }catch(error){setDocActionError(error.message||'Recruit metadata could not be refreshed');}
                       finally{setDocumentsLoading(false);}
                     }}>Refresh Recruit filenames</button>
+                  <button type="button" className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"
+                    onClick={async()=>{
+                      const {adminToken}=getTokens();
+                      if(!adminToken)return setDocActionError('Admin session unavailable');
+                      try{
+                        const r=await fetch(`${API_BASE}/api/admin/documents/${encodeURIComponent(user.email)}/storage-check`,{
+                          cache:'no-store',credentials:'include',headers:{Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken}});
+                        const d=await r.json().catch(()=>({}));
+                        if(!r.ok||d.success!==true)throw new Error(d.error||'Storage check unavailable');
+                        const t=d.tables||{};
+                        if(d.verified!==true)throw new Error('Database counts were not verified; no zero may be assumed.');
+                        const summary=['pending_recruit_document_uploads','document_library_uploads','document_approvals']
+                          .map(k=>`${k}: ${Number(t[k]?.n||0)} saved`)
+                          .join(' | ');
+                        setDocActionError(`PostgreSQL storage check — ${summary}. If pending rows exist, use Refresh saved documents. If all are 0, inspect the upload receipt and candidate email.`);
+                      }catch(e){setDocActionError(e.message||'Could not inspect document storage');}
+                    }}>Check PostgreSQL uploads</button>
                 </div>
                 <div className="space-y-4">
                   {docActionError && (
@@ -2856,7 +2913,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                     </div>
                   ) : documents.length === 0 ? (
                     <div className="p-5 rounded-xl border bg-white text-sm text-gray-700">
-                      No documents were returned from local storage yet. A Zoho inventory refresh may still be running. Do not interpret this as confirmation that the candidate has no documents.
+                      No document metadata was returned. This does not confirm that the candidate has no uploads. Use Check PostgreSQL uploads to verify the original pending rows; Recruit filename refresh is only for attachments already linked to a Recruit record.
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -4717,6 +4774,36 @@ const AdminRequestsPanel = ({ onOpenUser, notificationTarget = null, onReturnToN
   );
 };
 
+// Display a verified candidate name separately from the email in Admin Receipts.
+// Never use the email as the name: that previously rendered the email twice.
+const receiptCandidateDisplayName = (email, directoryItem, report, zohoNames = {}) => {
+  const candidate = readAdminFastCache('users')?.find?.(
+    u => String(u.email || u.candidate_email || '').trim().toLowerCase() === String(email || '').trim().toLowerCase()
+  );
+  const key = String(email || '').trim().toLowerCase();
+  const names = [
+    zohoNames[key],
+    directoryItem?.candidate_name, directoryItem?.candidateName,
+    candidate?.name, candidate?.full_name, candidate?.fullName,
+    candidate?.Full_Name, candidate?.Candidate_Name,
+    [candidate?.first_name || candidate?.First_Name, candidate?.last_name || candidate?.Last_Name].filter(Boolean).join(' '),
+    report?.candidate_name
+  ];
+  const normalizedEmail=String(email||'').trim().toLowerCase();
+  const localPart=normalizedEmail.split('@')[0];
+  const verifiedName = names.find(value => typeof value === 'string' && value.trim() &&
+    !value.includes('@') && value.trim().toLowerCase() !== localPart &&
+    !/^(?:candidate|unknown|name unavailable|n\/?a)$/i.test(value.trim()))?.trim();
+  if (verifiedName) return verifiedName;
+  // Last fallback: turn the email username into a readable label, without
+  // repeating the full email that appears on the next line.
+  const emailUsername = String(email || '').trim().split('@')[0] || '';
+  const readableUsername = emailUsername.replace(/[._-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return readableUsername
+    ? readableUsername.replace(/\b[a-z]/g, character => character.toUpperCase())
+    : 'Name unavailable';
+};
+
 const AdminReceiptsPanel = () => {
   const [receipts, setReceipts] = useState([]);
   const [receiptsNextPage,setReceiptsNextPage]=useState(null);
@@ -4732,6 +4819,10 @@ const AdminReceiptsPanel = () => {
   const [receiptPreview, setReceiptPreview] = useState(null);
   const [reportPreview, setReportPreview] = useState(null);
   const [receiptCandidates,setReceiptCandidates]=useState([]);
+  const [receiptZohoNames,setReceiptZohoNames]=useState({});
+  const [receiptNamesLoading,setReceiptNamesLoading]=useState(false);
+  const [receiptNamesError,setReceiptNamesError]=useState('');
+  const [receiptNamesRefreshKey,setReceiptNamesRefreshKey]=useState(0);
   const [receiptCandidateTotal,setReceiptCandidateTotal]=useState(0);
   const [receiptGroupsPartial,setReceiptGroupsPartial]=useState(false);
   const [receiptDirectoryError,setReceiptDirectoryError]=useState('');
@@ -4762,6 +4853,66 @@ const AdminReceiptsPanel = () => {
       .catch(e=>{if(active&&e.name!=='AbortError')setReceiptDirectoryError(e.message||'Receipt directory unavailable');});
     return ()=>{active=false;controller.abort()};
   },[]);
+  // Resolve receipt owner names through the SAME batched CRM/Recruit snapshot
+  // as Admin Users. Never call Zoho individually for each receipt card.
+  // This endpoint returns saved PostgreSQL names immediately and schedules any
+  // missing identities for a coalesced background Zoho refresh.
+  const receiptEmailsKey=useMemo(()=>[...new Set(receiptCandidates
+    .map(item=>String(item?.email||'').trim().toLowerCase()).filter(email=>email.includes('@')))]
+    .sort().join('|'),[receiptCandidates]);
+  useEffect(()=>{
+    if(!receiptEmailsKey)return undefined;
+    let cancelled=false;
+    const controller=new AbortController();
+    let retryTimer=null;
+    const emails=receiptEmailsKey.split('|');
+    const {adminToken,userToken}=getTokens();
+    const headers={"Content-Type":"application/json",
+      ...(adminToken?{Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken}
+      :userToken?{Authorization:`Bearer ${userToken}`}:{})};
+    const resolveNames=async()=>{
+      setReceiptNamesLoading(true);
+      setReceiptNamesError('');
+      try{
+        // Three bounded reads in total. No forced rebuild and no request fanout.
+        for(let attempt=0;attempt<3&&!cancelled;attempt++){
+          const response=await fetch(`${API_BASE}/api/admin/user-departments`,{
+            method:'POST',headers,credentials:'include',cache:'no-store',
+            body:JSON.stringify({emails}),signal:controller.signal});
+          const result=await response.json().catch(()=>({}));
+          if(!response.ok||result.success!==true)
+            throw new Error(result.error||'Zoho candidate names are temporarily unavailable');
+          const verified={};
+          for(const [email,person] of Object.entries(result.users||{})){
+            const name=String(person?.name||'').trim();
+            const source=String(person?.nameSource||'');
+            // Prefer actual Zoho names; fall back to genuine saved portal/auth
+            // identities when Zoho has no match. Reject fabricated email-prefix
+            // names and temporary backend fallbacks.
+            const normalizedEmail=String(email||'').trim().toLowerCase();
+            const localPart=normalizedEmail.split('@')[0];
+            const isRecordedSource=/(?:zoho|crm|recruit|userauth|loginlog|portal)/i.test(source) &&
+              !/(?:fallback|temporary|generated|inferred)/i.test(source);
+            const isRealName=name && !name.includes('@') &&
+              name.toLowerCase()!==localPart &&
+              !/^(?:candidate|unknown|name unavailable|n\/?a)$/i.test(name);
+            if(normalizedEmail.includes('@') && isRecordedSource && isRealName)
+              verified[normalizedEmail]=name;
+          }
+          if(cancelled)return;
+          setReceiptZohoNames(previous=>({...previous,...verified}));
+          if(emails.every(email=>verified[email])||attempt===2)break;
+          await new Promise(resolve=>{retryTimer=window.setTimeout(resolve,6000);});
+        }
+      }catch(error){
+        if(!cancelled&&error.name!=='AbortError')
+          setReceiptNamesError(error.message||'Candidate name lookup failed');
+      }finally{if(!cancelled)setReceiptNamesLoading(false);}
+    };
+    void resolveNames();
+    return ()=>{cancelled=true;controller.abort();if(retryTimer!==null)window.clearTimeout(retryTimer);};
+  },[receiptEmailsKey,receiptNamesRefreshKey]);
+
   // Empty candidate grouping must not create an empty Receipts page.
   // Read one lightweight, VIEW-ONLY metadata page when ownership is still unresolved.
   useEffect(()=>{
@@ -5191,6 +5342,14 @@ const AdminReceiptsPanel = () => {
 
       <p className="text-sm text-gray-600">{receiptCandidateTotal} receipt(s) awaiting review. Choose a candidate to load only their receipts.</p>
       {receiptDirectoryError && <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800">{receiptDirectoryError}</p>}
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="button" disabled={receiptNamesLoading||!receiptCandidates.length}
+          onClick={()=>setReceiptNamesRefreshKey(value=>value+1)}
+          className="rounded-lg border px-3 py-2 text-xs font-semibold text-purple-700 disabled:opacity-50">
+          {receiptNamesLoading?'Resolving Zoho names…':'Refresh candidate names'}
+        </button>
+        {receiptNamesError&&<span className="text-xs text-amber-700">{receiptNamesError}</span>}
+      </div>
       {receiptGroupsPartial && <p className="text-xs text-gray-500">Candidate directory is capped for server safety; use search or load subsequent groups when available.</p>}
       {!selectedCandidate && receiptCandidateTotal>0 && !receiptCandidates.length && (
         <div className="rounded-lg border bg-white p-4">
@@ -5240,7 +5399,7 @@ const AdminReceiptsPanel = () => {
               className="rounded-xl border bg-white p-4 text-left hover:border-purple-300 hover:bg-purple-50/40"
             >
               <p className="font-semibold text-purple-800">
-                {readAdminFastCache('users')?.find?.(u=>String(u.email||'').toLowerCase()===String(email).toLowerCase())?.name || email}
+                {receiptCandidateDisplayName(email, receiptCandidates.find(item => item.email === email), null, receiptZohoNames)}
               </p>
               <p className="text-xs text-gray-500">{email}</p>
               <p className="mt-1 text-sm text-gray-500">
@@ -5276,8 +5435,9 @@ const AdminReceiptsPanel = () => {
               Candidate receipts
             </p>
             <p className="font-semibold text-purple-900">
-              {selectedCandidate}
+              {receiptCandidateDisplayName(selectedCandidate, receiptCandidates.find(item => item.email === selectedCandidate), reportPreview, receiptZohoNames)}
             </p>
+            <p className="text-xs text-purple-700 break-all">{selectedCandidate}</p>
           </div>
 
           {reportPreview && (
@@ -5288,7 +5448,7 @@ const AdminReceiptsPanel = () => {
                     Expense Report
                   </p>
                   <p className="font-semibold">
-                    {reportPreview.candidate_name || selectedCandidate}
+                    {receiptCandidateDisplayName(selectedCandidate, receiptCandidates.find(item => item.email === selectedCandidate), reportPreview, receiptZohoNames)}
                   </p>
                   <p className="text-xs text-gray-500">
                     {reportPreview.arrival_date
