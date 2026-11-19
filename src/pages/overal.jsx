@@ -446,6 +446,85 @@ const normalizeAdminApplicationStatus = value =>
     .replace(/\s*-\s*/g, "-")
     .replace(/\s+/g, " ");
 
+// v183: Display NCLEX inside the Recruiting/Hiring sequence, matching My Pipeline.
+// Presentation only: do not mutate stored stages, unlock flags, approval state or API payloads.
+const isAdminInlineNCLEXStage = stage =>
+  stage?.nclex_stage === true || stage?.nclex_subprocess === true ||
+  ["NCLEX Program", "NCLEX Prescreen"].includes(stage?.stage_category);
+
+// v186: Pure NCLEX presentation merge, shared by saved snapshots and the
+// explicit Recruit refresh. Does not mutate stored stages or approval records.
+const mergeAdminPipelineNclexEvidence = (data, profile = {}) => {
+        const persisted = data.stages.map(stage => ({...stage,_admin_mirror_v182:true}));
+        // NCLEX mini-stages in My Pipeline are generated from CustomModule1.
+        // The normal canonical snapshot does not include them, so derive only
+        // from actually saved Recruit field values or previously saved NCLEX rows.
+        // v184: Candidate NCLEX is calculated from Recruit CustomModule1 AND
+        // field-status.stageStatus. Saved pipeline placeholders can be incomplete.
+        // Merge evidence by exact stage name, never by position/index.
+        const sourceFields = {...profile,...(data.nclex_fields || {})};
+        const verified = data.nclex_verified === true;
+        const derived = verified
+          ? buildAdminCandidatePipelineFlow(persisted,sourceFields)
+              .filter(stage => isAdminInlineNCLEXStage(stage))
+          : [];
+        const derivedByName = new Map(derived.map(stage=>[stage.stage_name,stage]));
+        const liveByName = data.nclex_stage_status || {};
+        const mergeNCLEX = stage => {
+          if (!isAdminInlineNCLEXStage(stage)) return stage;
+          const source = derivedByName.get(stage.stage_name);
+          const live = liveByName[stage.stage_name];
+          const sourceCompleted = source && adminStageComplete(source);
+          const liveCompleted = live?.completed === true || live?.is_completed === true ||
+            String(live?.status || '').toLowerCase() === 'completed';
+          const completed = adminStageComplete(stage) || sourceCompleted || liveCompleted;
+          const unlocked = stage.nclex_unlocked === true || source?.nclex_unlocked === true ||
+            live?.unlocked === true || live?.is_unlocked === true;
+          return {
+            ...(source || {}), ...stage, _admin_mirror_v182:true,
+            status:completed ? 'Completed' : (verified && (live?.status || source?.status)) || stage.status || 'Not Started',
+            completed:Boolean(completed),is_completed:Boolean(completed),
+            completed_date: stage.completed_date || live?.completed_date || source?.completed_date || null,
+            nclex_unlocked:Boolean(unlocked),
+            _nclex_verified:verified
+          };
+        };
+        const seen = new Set(persisted.map(stage => stage.stage_name));
+        const stages = [...persisted.map(mergeNCLEX),
+          ...derived.filter(stage=>!seen.has(stage.stage_name))
+            .map(stage=>mergeNCLEX({...stage,_nclex_derived_from_saved_fields:true}))];
+        return {...data,stages};
+};
+
+const buildAdminHiringWithInlineNCLEX = stages => {
+  const all = Array.isArray(stages) ? stages : [];
+  const sortByOrder = (a, b) => Number(a?.stage_order || 0) - Number(b?.stage_order || 0);
+  const hiring = all.filter(stage =>
+    stage?.stage_category === "Hiring" && !isAdminInlineNCLEXStage(stage)
+  ).sort(sortByOrder);
+  const nclex = all.filter(isAdminInlineNCLEXStage)
+    .sort((a, b) => {
+      const ai = Number(a?.nclex_sequence_index);
+      const bi = Number(b?.nclex_sequence_index);
+      if (Number.isFinite(ai) && Number.isFinite(bi)) return ai - bi;
+      if (Number.isFinite(ai)) return -1;
+      if (Number.isFinite(bi)) return 1;
+      return sortByOrder(a, b);
+    });
+  if (!nclex.length) return hiring;
+  // In the candidate view, NCLEX is nested below Transfer when selected;
+  // otherwise it follows Associated with Job (for the visible NCLEX branch).
+  const transferIndex = hiring.findIndex(stage => stage?.stage_name === "Transfer to ICP USRN School");
+  const associatedIndex = hiring.findIndex(stage => stage?.stage_name === "Associated with Job");
+  const anchorIndex = transferIndex >= 0 ? transferIndex : associatedIndex;
+  if (anchorIndex < 0) return [...hiring, ...nclex];
+  return [
+    ...hiring.slice(0, anchorIndex + 1),
+    ...nclex,
+    ...hiring.slice(anchorIndex + 1)
+  ];
+};
+
 const adminStageComplete = stage => {
   const status =
     String(stage?.status || "")
@@ -1000,6 +1079,10 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   const [documentInventoryVerified, setDocumentInventoryVerified] = useState(false);
   const [documentsLoading, setDocumentsLoading] = useState(true);
   const [pipeline, setPipeline] = useState([]);
+  const [adminPipelineMirror, setAdminPipelineMirror] = useState(null);
+  const [adminPipelineMirrorError, setAdminPipelineMirrorError] = useState("");
+  const [adminPipelineMirrorLoading, setAdminPipelineMirrorLoading] = useState(false);
+  const [adminNCLEXRefreshSequence, setAdminNCLEXRefreshSequence] = useState(0);
   const [adminDetails, setAdminDetails] = useState({});
   const [auditEvents, setAuditEvents] = useState([]);
   const [auditSummary, setAuditSummary] = useState({ total: 0, recruit: 0, crm: 0, fields: 0 });
@@ -1239,7 +1322,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       }));
       setPortalProfileLoading(false);
 
-      setPipeline(summaryPipeline);
+      setPipeline(previous => previous.some(stage => stage?._admin_mirror_v182 === true)
+        ? previous : summaryPipeline);
 
       if (summaryDocuments.length) setDocuments(previous => {
         // Summary is a secondary view and must not replace a richer document
@@ -1312,6 +1396,44 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     }
   }, [user?.email, user?.name, user?.status, user?.lastLogin]);
 
+  // v182: load exact candidate-visible persisted stages on Pipeline tab only.
+  // Never call candidate /api/pipeline/get with admin credentials: that endpoint
+  // can initialize/sync stages and is intentionally candidate-authenticated.
+  useEffect(() => {
+    if (activeTab !== "pipeline" || !user?.email) return undefined;
+    let cancelled = false;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 8000);
+    const fetchMirror = async () => {
+      const {adminToken} = getTokens();
+      if (!adminToken) { setAdminPipelineMirrorError("Admin session unavailable."); return; }
+      setAdminPipelineMirrorLoading(true);
+      setAdminPipelineMirrorError("");
+      try {
+        const response = await fetch(`${API_BASE}/api/admin/candidate/${encodeURIComponent(user.email)}/pipeline-snapshot`,{
+          credentials:"include",cache:"no-store",signal:controller.signal,
+          headers:{Authorization:`AdminBearer ${adminToken}`,"x-admin-token":adminToken,Accept:"application/json"}
+        });
+        const data = await response.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!response.ok || data.success !== true || data.snapshot_complete !== true || !Array.isArray(data.stages) || !data.stages.length) {
+          throw new Error(data.error || "Candidate pipeline snapshot has not been verified.");
+        }
+        const merged=mergeAdminPipelineNclexEvidence(data,profile);
+        setAdminPipelineMirror(merged);
+        setPipeline(merged.stages);
+      } catch(error) {
+        if (!cancelled) setAdminPipelineMirrorError(error?.name === "AbortError"
+          ? "Pipeline snapshot timed out; saved summary is still available."
+          : (error?.message || "Pipeline snapshot is unavailable."));
+      } finally {
+        if (!cancelled) setAdminPipelineMirrorLoading(false);
+      }
+    };
+    void fetchMirror();
+    return () => {cancelled=true;controller.abort();window.clearTimeout(timer);};
+  }, [activeTab,user?.email,adminNCLEXRefreshSequence]);
+
   // One local PostgreSQL request is the only automatic candidate-open request.
   useEffect(() => {
     if (!user?.email) return undefined;
@@ -1320,6 +1442,9 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     notificationDocumentOpenedRef.current = "";
     documentSyncRequestedRef.current = "";
     setAdminSummary(null);
+    setAdminPipelineMirror(null);
+    setAdminPipelineMirrorError("");
+    setPipeline([]);
     setDocumentPendingCount(null);
     setDocumentInventoryVerified(false);
 
@@ -2227,7 +2352,6 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
 
   const activeCategories = [
     "Hiring",
-    "NCLEX Program",
     "Immigration",
     "Deployment",
     "Aftercare"
@@ -2709,7 +2833,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                           Candidate-facing flow
                         </p>
                         <p className="mt-1 text-sm text-gray-700">
-                          Hiring → NCLEX Program (when applicable) → Immigration → Deployment → Aftercare
+                          Hiring (NCLEX milestones inline where applicable) → Immigration → Deployment → Aftercare
                         </p>
                       </div>
                       <div className="rounded-lg border border-purple-200 bg-white px-3 py-2">
@@ -2723,6 +2847,81 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                     </div>
                   </div>
 
+                  <div className="mb-3 flex flex-wrap items-center gap-3">
+                    <button type="button" disabled={adminPipelineMirrorLoading}
+                      className="rounded-lg border border-purple-200 bg-white px-3 py-2 text-xs font-semibold text-purple-700 disabled:opacity-50"
+                      onClick={async () => {
+                        const {adminToken}=getTokens();
+                        if (!adminToken || !user?.email) return;
+                        setAdminPipelineMirrorLoading(true);
+                        setAdminPipelineMirrorError("");
+                        try {
+                          const response=await fetch(`${API_BASE}/api/admin/candidate/${encodeURIComponent(user.email)}/nclex-evidence-refresh`,{
+                            method:"POST",credentials:"include",cache:"no-store",
+                            headers:{Authorization:`AdminBearer ${adminToken}`,"x-admin-token":adminToken}
+                          });
+                          const body=await response.json().catch(()=>({}));
+                          if (!response.ok || body.success!==true) throw new Error(body.error || "NCLEX refresh failed");
+                          if (!body.recordId) {
+                            setAdminPipelineMirrorError("No linked Zoho Recruit CustomModule1 record was found for this email. Saved stages remain unchanged; verify the Recruit candidate association.");
+                            return;
+                          }
+                          const reload=await fetch(`${API_BASE}/api/admin/candidate/${encodeURIComponent(user.email)}/pipeline-snapshot`,{
+                            credentials:"include",cache:"no-store",
+                            headers:{Authorization:`AdminBearer ${adminToken}`,"x-admin-token":adminToken}
+                          });
+                          const fresh=await reload.json().catch(()=>({}));
+                          if (!reload.ok || fresh.success!==true || !Array.isArray(fresh.stages))
+                            throw new Error(fresh.error || "NCLEX snapshot reload failed");
+                          // Render the verified Recruit completion map immediately,
+                          // even if PostgreSQL cache propagation takes longer.
+                          const verifiedStatuses = Object.fromEntries(
+                            Object.entries(body.completion || {})
+                              .filter(([, completed]) => typeof completed === "boolean")
+                              .map(([name, completed]) => [name, {
+                                completed, evaluated:true,
+                                status:completed ? "Completed" : "Not Started",
+                                source:"Recruit CustomModule1"
+                              }])
+                          );
+                          const combined={
+                            ...fresh,
+                            nclex_fields:{...(fresh.nclex_fields || {}),...(body.fields || {})},
+                            nclex_stage_status:{...(fresh.nclex_stage_status || {}),...verifiedStatuses},
+                            nclex_verified:true,
+                            nclex_source:"live-Recruit-CustomModule1",
+                            nclex_completion_source_available:true,
+                            nclex_completion_count:Object.values(body.completion || {}).filter(v => v === true).length
+                          };
+                          const merged=mergeAdminPipelineNclexEvidence(combined,profile);
+                          setAdminPipelineMirror(merged);
+                          setPipeline(merged.stages);
+                        } catch(error) { setAdminPipelineMirrorError(error.message || "Could not refresh NCLEX source"); }
+                        finally { setAdminPipelineMirrorLoading(false); }
+                      }}>
+                      Refresh NCLEX source from Zoho
+                    </button>
+                    {adminPipelineMirror && <span className="text-xs text-gray-500">
+                       NCLEX source: {adminPipelineMirror.nclex_source || "saved pipeline"} ·
+                       Verified Recruit completions: {adminPipelineMirror.nclex_completion_source_available
+                         ? adminPipelineMirror.nclex_completion_count : "not verified"}
+                     </span>}
+                  </div>
+                  {adminPipelineMirrorLoading && (
+                    <p className="text-xs text-purple-700 mb-2" role="status">Checking the candidate's saved NCLEX and full pipeline stages…</p>
+                  )}
+                  {adminPipelineMirrorError && (
+                    <p className="text-xs text-amber-700 mb-2" role="status">{adminPipelineMirrorError} Displaying the available saved summary.</p>
+                  )}
+                  {adminPipelineMirror?.snapshot_complete && (
+                    <p className="text-xs text-emerald-700 mb-2">Mirrored from candidate's saved pipeline · {adminPipelineMirror.data_stale ? "Last saved snapshot" : "Verified snapshot"}</p>
+                  )}
+                  {adminPipelineMirror?.nclex_data_stale && (
+                    <p className="text-xs text-amber-700 mb-2">NCLEX data is from a saved snapshot and may be outdated.</p>
+                  )}
+                  {adminPipelineMirror?.snapshot_complete && !adminPipelineMirror?.nclex_verified && (
+                    <p className="text-xs text-amber-700 mb-2">NCLEX completion has not been verified against the candidate's current Recruit fields. Saved stages may be out of date; open the candidate pipeline to refresh the source, then reopen this Admin view.</p>
+                  )}
                   {adminVisiblePipeline.length === 0 ? (
                     <div className="text-center py-12 bg-white rounded-xl border border-dashed border-gray-300">
                       <Activity className="w-12 h-12 text-gray-300 mx-auto mb-3" />
@@ -2730,9 +2929,11 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                     </div>
                   ) : (
                     activeCategories.map(cat => {
-                      const catStages = adminVisiblePipeline
-                        .filter(s => s?.stage_category === cat)
-                        .sort((a, b) => Number(a.stage_order || 0) - Number(b.stage_order || 0));
+                      const catStages = cat === "Hiring"
+                        ? buildAdminHiringWithInlineNCLEX(adminVisiblePipeline)
+                        : adminVisiblePipeline
+                            .filter(s => s?.stage_category === cat && !isAdminInlineNCLEXStage(s))
+                            .sort((a, b) => Number(a.stage_order || 0) - Number(b.stage_order || 0));
                       if (!catStages || catStages.length === 0) return null;
                       
                       const colors = PIPELINE_CATEGORIES[cat] || PIPELINE_CATEGORIES.Hiring;
@@ -2747,7 +2948,10 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                             </span>
                           </div>
                           <div className="divide-y divide-gray-100">
-                            {catStages.map((stage) => {
+                            {catStages.map((stage, stageIndex) => {
+                              const inlineNCLEX = isAdminInlineNCLEXStage(stage);
+                              const startsNCLEX = inlineNCLEX &&
+                                (stageIndex === 0 || !isAdminInlineNCLEXStage(catStages[stageIndex - 1]));
                               const cfg = PIPELINE_STATUS[stage.status] || PIPELINE_STATUS["Not Started"];
                               const Icon = cfg.icon;
                               const isGate = stage.is_gate === true;
@@ -2755,8 +2959,10 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                               
                               return (
                                 <div
-                                  key={stage.id || stage._id}
+                                  key={`${inlineNCLEX ? "nclex" : "hiring"}-${stage.id || stage._id || stage.stage_name}`}
                                   className={`flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-start sm:gap-4 sm:px-5 ${
+                                    inlineNCLEX ? 'border-l-4 border-l-amber-300 bg-amber-50/30 ' : ''
+                                  }${
                                     riskStatus === 'Late'
                                       ? 'bg-red-50 border-l-4 border-l-red-500'
                                       : riskStatus === 'At Risk'
@@ -2772,7 +2978,13 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                     {isGate ? <GitBranch className={`w-5 h-5 ${cfg.color}`} /> : <Icon className={`w-5 h-5 ${cfg.color}`} />}
                                   </div>
                                   <div className="flex-1 min-w-0">
+                                    {startsNCLEX && (
+                                      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-amber-800">
+                                        NCLEX Program · Recruiting milestones
+                                      </p>
+                                    )}
                                     <p className={`text-sm font-bold ${stage.status === 'Completed' ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
+                                      {inlineNCLEX && <span className="mr-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold not-italic text-amber-900 no-underline">NCLEX</span>}
                                       {isGate && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded mr-2 font-bold">GATE</span>}
                                       {stage.display_name || stage.stage_name}
                                       {authoritativeCurrentStageName === stage.stage_name && (

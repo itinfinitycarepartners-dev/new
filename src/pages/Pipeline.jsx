@@ -7437,7 +7437,7 @@ export const WelcomePacketView = ({ onClose, user, setStages, setDeploymentField
           response = await fetch(
             adminMode
               ? `${API_BASE}/api/admin/welcome-packet/data?email=${encodeURIComponent(user?.email || "")}${forceRefresh ? "&refresh=1" : ""}`
-              : `${API_BASE}/api/welcome-packet/data?full=1${forceRefresh ? "&refresh=1" : ""}`,
+              : `${API_BASE}/api/welcome-packet/data?full=1${forceRefresh ? "&refresh=1" : "&quick=1"}`,
             {
               method:"GET",
               cache:"no-store",
@@ -11483,6 +11483,8 @@ export const ReimbursementExpensesView = ({
   const pendingExpenseRowEditsRef = useRef(new Map());
   const expenseReportPrintRef = useRef(null);
   const [expenseReportBackgroundRefreshing, setExpenseReportBackgroundRefreshing] = useState(false);
+  // Cached financial rows are view-only until the original full CRM refresh verifies them.
+  const [expenseReportQuickNeedsVerification, setExpenseReportQuickNeedsVerification] = useState(false);
   const [advanceAgreementReviewed, setAdvanceAgreementReviewed] = useState(false);
   const [advanceAgreementAcknowledged, setAdvanceAgreementAcknowledged] = useState(false);
   const [advanceAgreementSaving, setAdvanceAgreementSaving] = useState(false);
@@ -11855,7 +11857,7 @@ export const ReimbursementExpensesView = ({
     }
 
     void fetchExpenseReport(
-      true,
+      adminMode,
       { silent:false }
     );
   }, [
@@ -12333,7 +12335,7 @@ export const ReimbursementExpensesView = ({
         response = await fetch(
           adminMode
             ? `${API_BASE}/api/admin/reimbursement/expense-report?email=${encodeURIComponent(user?.email || "")}${forceRefresh ? "&refresh=1" : ""}${expenseReport?.crm_deal_id ? `&dealId=${encodeURIComponent(expenseReport.crm_deal_id)}` : ""}`
-            : `${API_BASE}/api/reimbursement/expense-report${forceRefresh ? "?refresh=1" : ""}${expenseReport?.crm_deal_id ? `${forceRefresh ? "&" : "?"}dealId=${encodeURIComponent(expenseReport.crm_deal_id)}` : ""}`,
+            : `${API_BASE}/api/reimbursement/expense-report${forceRefresh ? "?refresh=1" : "?quick=1"}${expenseReport?.crm_deal_id ? `&dealId=${encodeURIComponent(expenseReport.crm_deal_id)}` : ""}`,
           {
             cache:"no-store",
             credentials:"include",
@@ -12365,6 +12367,16 @@ export const ReimbursementExpensesView = ({
       }
 
       if (data.report) {
+        if (!adminMode) setExpenseReportQuickNeedsVerification(data.quick === true);
+        // A quick cached report paints immediately. Reconcile its CRM amounts
+        // using the unchanged full endpoint only after the initial render.
+        if (!adminMode && data.quick === true && data.refreshRequired === true) {
+          window.setTimeout(() => {
+            if (!expenseReportRefreshInFlightRef.current) {
+              void fetchExpenseReport(true, {silent:true});
+            }
+          }, 1200);
+        }
         setExpenseReport(
           mergePendingSavedExpenseRows(
             normalizeExpenseReportForUi(data.report)
@@ -12710,6 +12722,10 @@ export const ReimbursementExpensesView = ({
   // timeout. If the response was lost, check the saved approval via GET.
   const handleAcknowledgeExpenseReport = async ({crmTotalOverride=false}={}) => {
     if (expenseReportAcknowledging) return;
+    if (!adminMode && expenseReportQuickNeedsVerification) {
+      toast.error("Wait until the latest Expense Report has been verified with CRM before acknowledging.");
+      return;
+    }
     if (adminMode && crmTotalOverride && String(crmTotalOverrideReason||'').trim().length<12) {
       setExpenseApprovalFeedback({kind:'error',message:'Provide an audit reason of at least 12 characters for the CRM total override.'});
       return;
@@ -13836,6 +13852,7 @@ export const ReimbursementExpensesView = ({
               disabled={
                 expenseReportAcknowledging ||
                 expenseReportLoading ||
+                expenseReportQuickNeedsVerification ||
                 !expenseReport ||
                 (!adminMode && !expenseAdminApproved)
               }

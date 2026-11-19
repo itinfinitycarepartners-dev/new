@@ -1424,8 +1424,10 @@ export default function Dashboard() {
   const closeDirectPortalModal = () => setDirectPortalModal(null);
 
   const refreshAfterDirectPortalAction = () => {
-    try { refetch?.(); } catch {}
+    // v182: stage mutation still refreshes both existing views; do not hold
+    // either modal open while a full CRM dashboard revalidation runs.
     window.dispatchEvent(new CustomEvent("pipeline-updated", {detail:{email:user?.email}}));
+    Promise.resolve().then(() => {try { refetch?.(); } catch {}});
   };
 
   const [
