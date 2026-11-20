@@ -95,6 +95,17 @@ const adminDocStatusV135 = doc => {
   // Unknown historical state is not proof of a new upload.
   return status === 'pending' || doc?.approval_required === true ? 'pending' : 'needs_review';
 };
+// v194: Admin can approve/reject only documents submitted through the portal.
+// A Zoho attachment or a provider-derived pending status alone is not eligible.
+const adminCandidateUploadReviewV194 = doc =>
+  adminDocStatusV135(doc) === 'pending' &&
+  Boolean(String(doc?.pending_upload_id || '').trim()) &&
+  !['crm','recruit','custommodule1','application','recruit_field',
+     'crm_field','zoho','provider'].includes(String(doc?.source || '').trim().toLowerCase());
+const adminProviderViewOnlyV194 = doc =>
+  !String(doc?.pending_upload_id || '').trim() &&
+  ['crm','recruit','custommodule1','application','recruit_field',
+   'crm_field','zoho','provider'].includes(String(doc?.source || '').trim().toLowerCase());
 const adminDocAliasesV136 = doc => [doc?.pending_upload_id,doc?.approval_key,
   doc?.crm_attachment_id,doc?.recruit_attachment_id,
   doc?.recruit_custom_module1_attachment_id,doc?.attachment_id,doc?.document_id,
@@ -154,6 +165,37 @@ const preserveAdminApprovalsV111 = (incoming, previous = [], email = "") => {
       rejected_at:prior.rejected_at || item.rejected_at || null,
       rejection_reason:prior.rejection_reason || item.rejection_reason || null};
   });
+};
+
+
+// v191: Non-destructive inventory reconciliation. A PostgreSQL snapshot may
+// temporarily omit provider files discovered moments earlier. Merge by a
+// source-scoped ID, not filename (different submissions can share a name).
+const adminDocStableIdentityV191 = doc => {
+  const source=String(doc?.source||'').trim().toLowerCase();
+  const record=String(doc?.recruit_record_id||doc?.crm_record_id||
+    doc?.application_record_id||doc?.zoho_record_id||'').trim();
+  const attachment=String(doc?.recruit_custom_module1_attachment_id||
+    doc?.recruit_attachment_id||doc?.crm_attachment_id||
+    doc?.attachment_id||doc?.pending_upload_id||doc?.document_id||
+    doc?.approval_key||doc?.id||doc?._id||'').trim();
+  return attachment ? `${source}:${record}:${attachment}` : null;
+};
+const mergeAdminDocumentInventoryV191 = (previous=[],incoming=[],email='') => {
+  const merged=[...(Array.isArray(previous)?previous:[])];
+  const position=new Map();
+  merged.forEach((doc,index)=>{const id=adminDocStableIdentityV191(doc);if(id)position.set(id,index);});
+  for(const doc of (Array.isArray(incoming)?incoming:[])) {
+    const id=adminDocStableIdentityV191(doc);
+    if(id && position.has(id)) {
+      const index=position.get(id);
+      merged[index]={...merged[index],...doc};
+    } else {
+      if(id)position.set(id,merged.length);
+      merged.push(doc);
+    }
+  }
+  return preserveAdminApprovalsV111(merged,previous,email);
 };
 
 let adminDocumentIndexPreloadPromise = null;
@@ -1073,6 +1115,9 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   const [dependantAttachment, setDependantAttachment] = useState(null);
   const [portalProfileLoading, setPortalProfileLoading] = useState(false);
   const [documents, setDocuments] = useState([]);
+  // v191: A transient empty PostgreSQL/Zoho response is not a reason to
+  // remove an already visible inventory for this candidate.
+  const displayedDocumentCandidateRef = useRef(String(user?.email || '').trim().toLowerCase());
   // Only a backend-verified count is displayed as Pending. documents.length
   // counts file cards and includes separately stored CRM / Recruit copies.
   const [documentPendingCount, setDocumentPendingCount] = useState(null);
@@ -1448,13 +1493,23 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     setDocumentPendingCount(null);
     setDocumentInventoryVerified(false);
 
+    const documentEmail = String(user.email).trim().toLowerCase();
+    const sameDocumentCandidate = displayedDocumentCandidateRef.current === documentEmail;
+    displayedDocumentCandidateRef.current = documentEmail;
     const cachedDocuments = readAdminDocumentCache(user.email);
     if (Array.isArray(cachedDocuments) && cachedDocuments.length) {
-      setDocuments(cachedDocuments);
+      setDocuments(previous => sameDocumentCandidate && previous.length
+        ? mergeAdminDocumentInventoryV191(previous,cachedDocuments,user.email)
+        : cachedDocuments);
       setDocumentsLoading(false);
-    } else {
+    } else if (!sameDocumentCandidate) {
+      // Clear ONLY when switching to a different candidate to avoid leaking
+      // another candidate's files. Reopening the same RN keeps visible cards.
       setDocuments([]);
       setDocumentsLoading(true);
+    } else {
+      setDocuments(previous => previous);
+      setDocumentsLoading(false);
     }
 
     setAdminDetails(previous => ({
@@ -1528,11 +1583,15 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
         : userToken ? {Authorization:`Bearer ${userToken}`} : {})};
     const cached=readAdminDocumentCache(user.email);
     if (Array.isArray(cached) && cached.length) {
-      setDocuments(previous=>preserveAdminApprovalsV111(cached,previous,user.email));
+      setDocuments(previous=>previous.length
+        ? mergeAdminDocumentInventoryV191(previous,cached,user.email)
+        : preserveAdminApprovalsV111(cached,previous,user.email));
       setDocumentsLoading(false);
     } else {
-      setDocuments([]);
-      setDocumentsLoading(true);
+      // On a refresh/re-render, retain the already displayed files.
+      // Loading indication is shown only if no inventory has ever arrived.
+      setDocuments(previous=>previous);
+      setDocumentsLoading(previous=>previous);
     }
     setDocumentPendingCount(null);
     setDocumentInventoryVerified(false);
@@ -1553,7 +1612,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
             if(data.documents.length) {
               setDocumentInventoryVerified(true);
               setDocuments(previous=>{
-                const stable=preserveAdminApprovalsV111(data.documents,previous,user.email);
+                const stable=mergeAdminDocumentInventoryV191(previous,data.documents,user.email);
                 if(stable.length)writeAdminDocumentCache(user.email,stable);
                 return stable;
               });
@@ -1561,8 +1620,10 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
               return;
             }
             if(data.emptyVerified===true && data.count_verified===true) {
+              // This verifies the saved submission query, NOT a complete Zoho
+              // inventory (Candidates/CustomModule1/Applications may still load).
+              // Keep existing cards rather than flashing zero during refresh.
               setDocumentInventoryVerified(true);
-              setDocuments([]);
               setDocumentsLoading(false);
               return;
             }
@@ -1571,7 +1632,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
             throw new Error(data.error||`Document metadata HTTP ${response.status}`);
           if(![202,503,429].includes(response.status) && response.ok===true)
             throw new Error('PostgreSQL has not verified the document inventory.');
-          if(attempt===3)throw new Error(data.error||'Document records are still being loaded from PostgreSQL. Please use Refresh saved documents.');
+          if(attempt===3)throw new Error(data.error||'Document records are still being loaded from PostgreSQL. Recruit discovery runs automatically.');
           const suggested=Number(response.headers.get('Retry-After'));
           await wait(Number.isFinite(suggested)&&suggested>0?Math.min(6000,suggested*1000):2500);
         } catch(error) {
@@ -1590,6 +1651,95 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
     return ()=>{
       cancelled=true;controller.abort();
       if(retryTimer!==null)window.clearTimeout(retryTimer);
+    };
+  },[activeTab,user?.email]);
+
+  // v189: Admin Documents are local-first. When the tab opens, discover provider
+  // attachments in the background using the existing authenticated, single-worker
+  // Recruit sync endpoint. No per-card calls, and no sync triggered by a render.
+  // Only provider METADATA is synchronized; approval actions remain separate.
+  useEffect(() => {
+    if(activeTab!=='documents'||!user?.email)return undefined;
+    const email=String(user.email).trim().toLowerCase();
+    const throttleKey=`icp_admin_recruit_auto_v189:${email}`;
+    let cancelled=false;
+    let timeoutId=null;
+    const controller=new AbortController();
+    const {adminToken}=getTokens();
+    if(!adminToken)return undefined;
+    const headers={Authorization:`AdminBearer ${adminToken}`,
+      'x-admin-token':adminToken,Accept:'application/json'};
+    const readLast=()=>{
+      try{return Number(window.sessionStorage.getItem(throttleKey)||0);}catch{return 0;}
+    };
+    const writeLast=()=>{
+      try{window.sessionStorage.setItem(throttleKey,String(Date.now()));}catch{}
+    };
+    // Reduce repeated calls on tab re-opens. A new browser session may refresh.
+    if(Date.now()-readLast()<5*60*1000)return undefined;
+    const loadZoho=async()=>{
+      for(let attempt=0;attempt<3&&!cancelled;attempt++){
+        try{
+          // A 60-second abort is a client safety guard, not a backend cancellation.
+          timeoutId=window.setTimeout(()=>controller.abort(),60000);
+          const response=await fetch(`${API_BASE}/api/admin/documents/${encodeURIComponent(email)}/sync-recruit`,{
+            method:'POST',credentials:'include',cache:'no-store',headers,signal:controller.signal});
+          if(timeoutId!==null){window.clearTimeout(timeoutId);timeoutId=null;}
+          const body=await response.json().catch(()=>({}));
+          if(cancelled)return;
+          if(response.status===429){
+            if(attempt===2){setDocActionError('Zoho document sync is busy. Saved documents remain available. Reopen this candidate later.');return;}
+            await new Promise(resolve=>{timeoutId=window.setTimeout(resolve,11000);});
+            continue;
+          }
+          if(!response.ok||body.success!==true){
+            const details=Object.entries(body.byModule||{}).map(([name,info])=>
+              `${name}: ${(info?.errors||[]).join('; ')}`).filter(item=>!item.endsWith(': ')).join(' | ');
+            setDocActionError(``);
+            return;
+          }
+          writeLast();
+          if(Array.isArray(body.documents)&&body.documents.length){
+            setDocuments(previous=>{
+              const next=mergeAdminDocumentInventoryV191(previous,body.documents,email);
+              if(next.length)writeAdminDocumentCache(email,next);
+              return next;
+            });
+          }
+          // Fetch PostgreSQL's authoritative inventory after sync. Do not
+          // replace a nonempty list with an unverified empty response.
+          const fresh=await fetch(`${API_BASE}/api/admin/documents/${encodeURIComponent(email)}?snapshot=1`,{
+            headers,credentials:'include',cache:'no-store',signal:controller.signal});
+          const snapshot=await fresh.json().catch(()=>({}));
+          if(!cancelled&&fresh.ok&&snapshot.success===true&&Array.isArray(snapshot.documents)){
+            if(snapshot.documents.length){
+              setDocuments(previous=>{
+                const next=mergeAdminDocumentInventoryV191(previous,snapshot.documents,email);
+                writeAdminDocumentCache(email,next);return next;
+              });
+              setDocumentInventoryVerified(true);
+            }
+            if(snapshot.count_verified===true&&Number.isFinite(Number(snapshot.pending_count)))
+              setDocumentPendingCount(Number(snapshot.pending_count));
+          }
+          const summary=Object.entries(body.byModule||{}).map(([name,info])=>
+            `${name}: ${Number(info?.attachments||0)} file(s)${info?.errors?.length?' (partial/unavailable)':''}`).join(' | ');
+          if(!cancelled&&(body.partial||!body.discovered))setDocActionError(
+            `Zoho document check: ${summary||'No linked attachments discovered'}. Verify Recruit/CRM record links or API permissions if files are missing.`);
+          return;
+        }catch(error){
+          if(cancelled)return;
+          if(error?.name==='AbortError'){
+            setDocActionError('Recruit attachment discovery timed out. Saved documents remain visible; reopen later to retry.');return;
+          }
+          if(attempt===2)setDocActionError('Recruit attachment discovery failed; saved documents remain visible.');
+        }
+      }
+    };
+    void loadZoho();
+    return ()=>{
+      cancelled=true;controller.abort();
+      if(timeoutId!==null)window.clearTimeout(timeoutId);
     };
   },[activeTab,user?.email]);
 
@@ -1748,6 +1898,9 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
         if (doc?.recruit_field_api_name) query.set("recruitField", String(doc.recruit_field_api_name));
         query.set("recruitFieldUpload", "true");
         if (doc?.recruit_field_download_url) query.set("recruitFieldDownloadUrl", String(doc.recruit_field_download_url));
+      } else if (source === "application") {
+        const appId=doc?.recruit_application_record_id || doc?.recruit_record_id || doc?.candidate_id || "";
+        if (appId) query.set("recruitRecordId",String(appId));
       } else if (source === "custommodule1" || doc?.custom_module1_record_id || doc?.recruit_custom_module1_record_id) {
         const customModule1Id =
           doc?.custom_module1_record_id ||
@@ -1861,7 +2014,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       // the full candidate inventory hydrates independently.
       setDocuments([target]);
     } else {
-      setDocuments([]);
+      setDocuments(previous => previous);
     }
     // The notification can identify a target row, but the complete inventory
     // still needs to hydrate. Keep the loading state active until documents arrive.
@@ -1882,11 +2035,77 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
       ].join(":")
     ).trim();
 
+  // v190: Provider file is already in Zoho; this is a NEW local review,
+  // not the staged submission approval job and not historical reconciliation.
+  const reviewOnFileDocument = async (doc, action, selectedReason = '') => {
+    setDocActionError('Existing Zoho CRM/Recruit attachments are view-only. No approval or rejection is required.');
+    return;
+    if(adminDocStatusV135(doc)!=='on_file_unverified') {
+      setDocActionError('Document already has a decision or an approval job. No new action sent.');return;
+    }
+    if(action==='reject'&&!selectedReason){
+      setRejectingDocument(doc);setRejectionReason('');return;
+    }
+    const source=String(doc.source||'').toLowerCase();
+    const record_id=String(source==='custommodule1'?(doc.recruit_custom_module1_record_id||doc.custom_module1_record_id||doc.recruit_record_id):
+      source==='application'?(doc.recruit_application_record_id||doc.recruit_record_id):
+      source==='crm'?(doc.crm_record_id||doc.deal_id):
+      (doc.recruit_record_id||doc.recruit_candidate_id||doc.candidate_id)||'');
+    const attachment_id=String(source==='custommodule1'?(doc.recruit_custom_module1_attachment_id||doc.attachment_id):
+      source==='crm'?(doc.crm_attachment_id||doc.attachment_id):
+      (doc.recruit_attachment_id||doc.attachment_id)||'');
+    if(!['recruit','custommodule1','application','crm'].includes(source)||
+       !/^\d+$/.test(record_id)||!/^\d+$/.test(attachment_id)){
+      setDocActionError('Zoho attachment metadata is incomplete. Cannot safely review this file.');return;
+    }
+    const lock=`onfile:${String(user.email).toLowerCase()}:${source}:${record_id}:${attachment_id}`;
+    if(adminV109ApprovalInFlight.has(lock))return;
+    const {adminToken}=getTokens();
+    if(!adminToken){setDocActionError('Admin session expired. Sign in again.');return;}
+    adminV109ApprovalInFlight.add(lock);
+    setApprovalBusyKey(lock);setApprovalBusyAction(action);setDocActionError(null);
+    try{
+      const response=await fetch(`${API_BASE}/api/admin/documents/${encodeURIComponent(user.email)}/review-on-file`,{
+        method:'POST',credentials:'include',cache:'no-store',
+        headers:{Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken,'Content-Type':'application/json'},
+        body:JSON.stringify({source,record_id,attachment_id,action,reason:selectedReason})
+      });
+      const result=await response.json().catch(()=>({}));
+      if(!response.ok||result.success!==true)throw new Error(result.error||`Review returned HTTP ${response.status}`);
+      const nextStatus=result.approval_status;
+      setDocuments(previous=>{
+        const next=previous.map(item=>{
+          const itemSource=String(item.source||'').toLowerCase();
+          const itemRec=String(itemSource==='custommodule1'?(item.recruit_custom_module1_record_id||item.custom_module1_record_id||item.recruit_record_id):
+            itemSource==='application'?(item.recruit_application_record_id||item.recruit_record_id):
+            itemSource==='crm'?(item.crm_record_id||item.deal_id):
+            (item.recruit_record_id||item.recruit_candidate_id||item.candidate_id)||'');
+          const itemFile=String(itemSource==='custommodule1'?(item.recruit_custom_module1_attachment_id||item.attachment_id):
+            itemSource==='crm'?(item.crm_attachment_id||item.attachment_id):
+            (item.recruit_attachment_id||item.attachment_id)||'');
+          if(itemSource!==source||itemRec!==record_id||itemFile!==attachment_id)return item;
+          return {...item,approval_status:nextStatus,already_approved:nextStatus==='approved',
+            approval_required:false,approval_key:result.approval_key,
+            decision_origin:'admin_new_on_file_review',
+            rejection_reason:nextStatus==='rejected'?selectedReason:null};
+        });
+        writeAdminDocumentCache(user.email,next);return next;
+      });
+      setRejectingDocument(null);setRejectionReason('');
+      toast.success(nextStatus==='approved'?'Document review approved':'Document review rejected');
+    }catch(error){setDocActionError(error?.message||'Could not record review. No Zoho upload was started.');}
+    finally{adminV109ApprovalInFlight.delete(lock);setApprovalBusyKey(null);setApprovalBusyAction(null);}
+  };
+
   const updateDocumentApproval = async (
     doc,
     action,
     selectedReason = ""
   ) => {
+    if (!adminCandidateUploadReviewV194(doc)) {
+      setDocActionError('Only candidate-uploaded pending documents can be approved or rejected. Zoho documents are view-only.');
+      return;
+    }
     const approvalKey = getDocumentApprovalKey(doc);
     if (adminDocStatusV135(doc) !== 'pending') {
       setDocActionError('This document already has a decision or requires reconciliation. No new action was sent.');
@@ -2201,7 +2420,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
             snapshotData.documents.length
           ) {
             setDocuments(previous => {
-              const stable = preserveAdminApprovalsV111(snapshotData.documents, previous, user.email);
+              const stable = mergeAdminDocumentInventoryV191(previous,snapshotData.documents,user.email);
               writeAdminDocumentCache(user.email, stable);
               return stable;
             });
@@ -3041,74 +3260,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
               {/* TAB 3: DOCUMENTS */}
               {activeTab === 'documents' && (
               <div className="space-y-5">
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white px-4 py-3">
-                  <p className="text-xs text-gray-500">{documents.length ? `${documents.length} files on record (including separate CRM/Recruit copies)` : documentInventoryVerified ? '0 verified files on record' : 'Document inventory not yet verified'}. {documentPendingCount===null ? 'Checking pending submissions…' : `${documentPendingCount} verified pending submission${documentPendingCount===1?'':'s'}`}. “On file” means an existing provider attachment without a recorded Admin decision; it is not a pending approval.</p>
-                  <button type="button" disabled={documentsLoading}
-                    className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 disabled:opacity-50"
-                    onClick={async()=>{
-                      const {adminToken}=getTokens();
-                      if(!adminToken)return setDocActionError('Admin session unavailable');
-                      setDocumentsLoading(true);setDocActionError(null);
-                      try{
-                        const response=await fetch(`${API_BASE}/api/admin/documents/${encodeURIComponent(user.email)}?snapshot=1&refresh=1`,
-                          {credentials:'include',cache:'no-store',headers:{Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken,Accept:'application/json'}});
-                        const data=await response.json().catch(()=>({}));
-                        if(!response.ok || data.success!==true || !Array.isArray(data.documents) ||
-                            (data.documents.length===0 && data.emptyVerified!==true))
-                          throw new Error(data.error||'Inventory is still being loaded; no confirmed empty result.');
-                        if(data.count_verified===true && Number.isFinite(Number(data.pending_count)))
-                          setDocumentPendingCount(Number(data.pending_count));
-                        setDocumentInventoryVerified(true);
-                        setDocuments(previous=>{
-                          const next=preserveAdminApprovalsV111(data.documents,previous,user.email);
-                          if(next.length)writeAdminDocumentCache(user.email,next);
-                          return next;
-                        });
-                        toast.success('Saved document inventory refreshed');
-                      }catch(error){setDocActionError(error.message||'Saved document metadata unavailable');}
-                      finally{setDocumentsLoading(false);}
-                    }}>Refresh saved documents</button>
-                  <button type="button" disabled={documentsLoading} className="rounded-lg border border-purple-200 px-3 py-2 text-xs font-semibold text-purple-700 disabled:opacity-50"
-                    onClick={async()=>{
-                      const {adminToken}=getTokens();
-                      if(!adminToken)return setDocActionError('Admin session unavailable');
-                      setDocumentsLoading(true);setDocActionError(null);
-                      try{
-                        const response=await fetch(`${API_BASE}/api/admin/documents/${encodeURIComponent(user.email)}/refresh-recruit-names`,
-                          {method:'POST',credentials:'include',headers:{Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken}});
-                        const result=await response.json().catch(()=>({}));
-                        if(!response.ok)throw new Error(result.error||`Recruit metadata returned ${response.status}`);
-                        const fresh=await fetch(`${API_BASE}/api/admin/documents/${encodeURIComponent(user.email)}?snapshot=1&_=${Date.now()}`,
-                          {credentials:'include',cache:'no-store',headers:{Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken}});
-                        const data=await fresh.json().catch(()=>({}));
-                        if(fresh.ok&&data.count_verified===true && Number.isFinite(Number(data.pending_count)))
-                          setDocumentPendingCount(Number(data.pending_count));
-                        if(fresh.ok&&data.success===true&&Array.isArray(data.documents)&&
-                           (data.documents.length>0||data.emptyVerified===true))setDocuments(previous=>{
-                          const next=preserveAdminApprovalsV111(data.documents,previous,user.email);
-                          writeAdminDocumentCache(user.email,next);return next;
-                        });
-                        toast.success(`${result.restored||0} Recruit filename(s) recovered`);
-                      }catch(error){setDocActionError(error.message||'Recruit metadata could not be refreshed');}
-                      finally{setDocumentsLoading(false);}
-                    }}>Refresh Recruit filenames</button>
-                  <button type="button" className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"
-                    onClick={async()=>{
-                      const {adminToken}=getTokens();
-                      if(!adminToken)return setDocActionError('Admin session unavailable');
-                      try{
-                        const r=await fetch(`${API_BASE}/api/admin/documents/${encodeURIComponent(user.email)}/storage-check`,{
-                          cache:'no-store',credentials:'include',headers:{Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken}});
-                        const d=await r.json().catch(()=>({}));
-                        if(!r.ok||d.success!==true)throw new Error(d.error||'Storage check unavailable');
-                        const t=d.tables||{};
-                        if(d.verified!==true)throw new Error('Database counts were not verified; no zero may be assumed.');
-                        const summary=['pending_recruit_document_uploads','document_library_uploads','document_approvals']
-                          .map(k=>`${k}: ${Number(t[k]?.n||0)} saved`)
-                          .join(' | ');
-                        setDocActionError(`PostgreSQL storage check — ${summary}. If pending rows exist, use Refresh saved documents. If all are 0, inspect the upload receipt and candidate email.`);
-                      }catch(e){setDocActionError(e.message||'Could not inspect document storage');}
-                    }}>Check PostgreSQL uploads</button>
+                <div className="rounded-lg border bg-white px-4 py-3">
+                  <p className="text-xs text-gray-500">{documents.length ? `${documents.length} files on record (including separate CRM/Recruit copies)` : documentInventoryVerified ? 'Saved PostgreSQL inventory checked; checking Recruit sources…' : 'Loading saved documents…'}. {documentPendingCount===null ? 'Pending submission count unavailable.' : `${documentPendingCount} verified pending submission${documentPendingCount===1?'':'s'}`}. Recruit attachments from Candidates, CustomModule1 and Applications sync automatically when this tab opens. “On file” does not mean approved or pending.</p>
                 </div>
                 <div className="space-y-4">
                   {docActionError && (
@@ -3125,7 +3278,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                     </div>
                   ) : documents.length === 0 ? (
                     <div className="p-5 rounded-xl border bg-white text-sm text-gray-700">
-                      No document metadata was returned. This does not confirm that the candidate has no uploads. Use Check PostgreSQL uploads to verify the original pending rows; Recruit filename refresh is only for attachments already linked to a Recruit record.
+                      No documents are available from the saved inventory yet. Zoho Recruit attachment discovery runs automatically; if a source cannot be reached, existing document decisions are preserved and the error is shown above.
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -3160,8 +3313,8 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                 </p>
                                 <div className="flex gap-2 mt-1.5 items-center flex-wrap">
                                   <span className="text-[10px] uppercase font-bold tracking-wider bg-gray-100 text-gray-600 px-2 py-1 rounded-md">{category}</span>
-                                  <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-md ${['recruit', 'pending', 'custommodule1'].includes(docSource) ? 'bg-blue-50 text-blue-700' : 'bg-green-50 text-green-700'}`}>
-                                    {['recruit', 'pending', 'custommodule1'].includes(docSource) ? 'Recruit' : 'CRM'}
+                                  <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-md ${['recruit','pending','custommodule1','application'].includes(docSource) ? 'bg-blue-50 text-blue-700' : 'bg-green-50 text-green-700'}`}>
+                                    {docSource === 'application' ? 'Recruit Applications' : docSource === 'custommodule1' ? 'Recruit CustomModule1' : ['recruit','pending'].includes(docSource) ? 'Recruit Candidates' : 'CRM'}
                                   </span>
                                   {(doc?.crm_file_upload_field === true || doc?.field_upload === true) && docSource.includes('crm') && (doc?.crm_field_api_name || doc?.crm_field_label || doc?.field_name) && (
                                     <span className="text-[10px] font-semibold bg-emerald-50 text-emerald-800 px-2 py-1 rounded-md" title="Zoho CRM attachment/file-upload field">
@@ -3184,9 +3337,9 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                   >
                                     {adminDocStatusV135(doc) === "approved" ? "Approved" :
                                       adminDocStatusV135(doc) === "rejected" ? "Rejected" :
-                                      adminDocStatusV135(doc) === 'on_file_unverified' ? 'On file' :
+                                      adminDocStatusV135(doc) === 'on_file_unverified' ? 'On file · View only' :
                                       ["needs_review", "processing"].includes(adminDocStatusV135(doc))
-                                        ? "Decision needs review" : "Pending approval"}
+                                        ? "Decision needs review" : adminProviderViewOnlyV194(doc) ? "On file · View only" : "Pending approval"}
                                   </span>
                                 </div>
                                 {doc.rejection_reason && (
@@ -3210,14 +3363,12 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
                                   : <Eye className="h-4 w-4" />}
                               </button>
 
-                              {adminDocStatusV135(doc) === 'on_file_unverified' && (
-                                <button type="button" onClick={()=>{
-                                  setHistoricalDecisionTarget(doc);setHistoricalDecision('');
-                                  setHistoricalEvidenceReference('');setHistoricalVerified(false);
-                                }} className="rounded-lg border border-purple-200 px-2 py-1.5 text-[11px] font-semibold text-purple-700"
-                                title="Only use after verifying an existing decision; no Zoho upload">Verify history</button>
+                              {adminProviderViewOnlyV194(doc) && (
+                                <span className="text-xs text-gray-500" title="This file already exists in Zoho; no new approval or upload is required.">
+                                  View only
+                                </span>
                               )}
-                              {adminDocStatusV135(doc) === "pending" && Boolean(getDocumentApprovalKey(doc)) && (
+                              {adminCandidateUploadReviewV194(doc) && Boolean(getDocumentApprovalKey(doc)) && (
                                 <>
                                   <button
                                     type="button"
@@ -3737,7 +3888,7 @@ const UsersTable = ({ users, onSelectUser, onMessageUser, onBroadcast, departmen
                       <div className="h-full bg-purple-600 rounded-full" style={{ width: `${Math.max(0, Math.min(100, u.pipeline?.percentage || 0))}%` }} />
                     </div>
                   </td>
-                  <td className="px-5 py-3 text-sm font-semibold text-gray-700 whitespace-nowrap">{u.department || '—'}</td>
+                  <td className="px-5 py-3 text-sm font-semibold text-gray-700 whitespace-nowrap">{u.department || 'Unclassified'}{u.departmentProvisional && <span className="ml-1 text-[10px] font-normal text-amber-700" title="Provisional Recruiting assignment; no verified pipeline/Zoho department yet">(provisional)</span>}</td>
                   <td className="px-5 py-3 text-sm text-gray-700 min-w-[180px]">{u.departmentCurrentStage || (u.pipelineLoaded ? (u.pipeline?.currentStage || 'Not started') : 'View profile')}</td>
                   <td className="px-5 py-3 text-sm text-gray-600 whitespace-nowrap">{formatDate(u.orientationStartDate)}</td>
                   <td className="px-5 py-3 text-sm text-gray-600 whitespace-nowrap">{formatDate(u.independentFloorStartDate)}</td>
