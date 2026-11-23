@@ -1132,6 +1132,76 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
   const [auditEvents, setAuditEvents] = useState([]);
   const [auditSummary, setAuditSummary] = useState({ total: 0, recruit: 0, crm: 0, fields: 0 });
   const [auditLoading, setAuditLoading] = useState(false);
+  const [manualAccess, setManualAccess] = useState(null);
+  const [manualAccessLoading, setManualAccessLoading] = useState(false);
+  const [manualAccessBusy, setManualAccessBusy] = useState(false);
+  const [manualAccessError, setManualAccessError] = useState('');
+  const [manualAccessNotice, setManualAccessNotice] = useState('');
+  const manualAccessVersionRef = useRef(0);
+  const refreshManualAccess = async () => {
+    if (!user?.email) return;
+    const {adminToken}=getTokens();
+    if (!adminToken) {setManualAccessError('Admin session unavailable');return;}
+    const version = manualAccessVersionRef.current;
+    setManualAccessLoading(true);setManualAccessError('');
+    try {
+      const response=await fetch(`${API_BASE}/api/admin/candidate/${encodeURIComponent(user.email)}/access-control`,{
+        cache:'no-store',credentials:'include',headers:{Authorization:`AdminBearer ${adminToken}`,'x-admin-token':adminToken}
+      });
+      const data=await response.json().catch(()=>({}));
+      if (!response.ok||!data.success) throw new Error(`${data.error||'Could not load access status'}${data.code ? ` (${data.code})` : ''}`);
+      if(version===manualAccessVersionRef.current) setManualAccess(data);
+    } catch(error) {if(version===manualAccessVersionRef.current) setManualAccessError(error.message||'Could not load access status');}
+    finally {setManualAccessLoading(false);}
+  };
+  useEffect(()=>{manualAccessVersionRef.current++;setManualAccess(null);setManualAccessNotice('');setManualAccessError('');},[user?.email]);
+  useEffect(()=>{if(activeTab==='audit') void refreshManualAccess();},[activeTab,user?.email]);
+  const changeManualAccess=async action=>{
+    if(manualAccessBusy||manualAccessLoading)return;
+    const disabled=action==='disable';
+    const reason=disabled?window.prompt('Reason for disabling portal access (required):',''):'';
+    if(disabled && (reason===null || !reason.trim())) return;
+    if(disabled && reason.trim().length<3){
+      setManualAccessError('Please enter at least 3 characters for the disable reason.');
+      return;
+    }
+    const confirmation=disabled
+      ? `Disable portal access for ${user?.name || user?.email}?\n\nThis will block their sign-in and authenticated requests. Their documents and profile will remain saved.`
+      : `Reinstate portal access for ${user?.name || user?.email}?\n\nThey will be able to sign in again, subject to the normal login rules.`;
+    if(!window.confirm(confirmation))return;
+    const {adminToken}=getTokens();
+    if(!adminToken)return setManualAccessError('Admin session unavailable');
+    manualAccessVersionRef.current++; // Discard any older status GET after a successful POST.
+    setManualAccessBusy(true);
+    setManualAccessError('');
+    setManualAccessNotice('');
+    try{
+      const response=await fetch(`${API_BASE}/api/admin/candidate/${encodeURIComponent(user.email)}/access-control`,{
+        method:'POST',credentials:'include',headers:{Authorization:`AdminBearer ${adminToken}`,
+          'x-admin-token':adminToken,'Content-Type':'application/json'},body:JSON.stringify({action,reason:reason||''})
+      });
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok||data.success!==true || typeof data.disabled!=='boolean' || data.disabled!==disabled)
+        throw new Error(`${data.error||'The backend did not confirm the access status change'}${data.code ? ` (${data.code})` : ''}`);
+      // The POST response is authoritative: apply it immediately rather than
+      // relying on another GET, which could fail during Azure load.
+      setManualAccess(previous=>({
+        ...(previous||{}),...data,disabled:data.disabled,
+        history:[{
+          action, reason:reason||null, changed_by:data.changed_by||'admin',
+          changed_at:data.changed_at||new Date().toISOString()
+        },...(previous?.history||[])].slice(0,20)
+      }));
+      const notice=disabled
+        ? 'Confirmed: candidate portal access has been disabled and saved.'
+        : 'Confirmed: candidate portal access has been reinstated and saved.';
+      setManualAccessNotice(notice);
+      toast.success(notice);
+    }catch(error){
+      // Never claim Disabled/Reinstated unless PostgreSQL confirmed the write.
+      setManualAccessError(error.message||'Access change failed');
+    }finally{setManualAccessBusy(false);}
+  };
   const [docActionError, setDocActionError] = useState(null);
   const [viewingDocId, setViewingDocId] = useState(null);
   const [viewingDocument, setViewingDocument] = useState(null);
@@ -1695,7 +1765,7 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
           if(!response.ok||body.success!==true){
             const details=Object.entries(body.byModule||{}).map(([name,info])=>
               `${name}: ${(info?.errors||[]).join('; ')}`).filter(item=>!item.endsWith(': ')).join(' | ');
-            setDocActionError(``);
+            setDocActionError(`${body.error||'Zoho Recruit/CRM documents unavailable'}${body.code==='DOCUMENT_INVENTORY_NOT_SAVED'?' (Database inventory persistence needs repair before approvals can work.)':''}${details?` — ${details}`:''}`);
             return;
           }
           writeLast();
@@ -3522,6 +3592,32 @@ const UserDetailModal = ({ user, onClose, onMessage }) => {
               {/* TAB 6: RECRUIT / CRM FIELD AUDIT */}
               {activeTab === 'audit' && (
                 <div className="space-y-6">
+                  <Section title={<><Shield className="w-5 h-5 text-purple-600" /> Candidate Portal Access</>}>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className={`text-sm font-semibold ${manualAccess?.disabled === true ? 'text-red-700' : manualAccess?.disabled === false ? 'text-green-700' : 'text-gray-700'}`}>Portal access: {manualAccessBusy ? 'Saving…' : manualAccess ? (manualAccess.disabled ? 'Disabled' : 'Enabled') : manualAccessLoading ? 'Checking…' : 'Unverified'}</p>
+                        <p className="text-xs text-gray-500">Disabling blocks candidate logins and authenticated requests. The candidate's data remains saved.</p>
+                        {manualAccess?.changed_at && <p className="text-xs text-gray-500">Last changed: {new Date(manualAccess.changed_at).toLocaleString()}</p>}
+                      </div>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={()=>void refreshManualAccess()} disabled={manualAccessLoading||manualAccessBusy}
+                          className="rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-50">Check status</button>
+                        {manualAccess?.disabled === true ?
+                          <button type="button" disabled={manualAccessBusy} onClick={()=>void changeManualAccess('reinstate')}
+                            className="rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Reinstate access</button> :
+                          <button type="button" disabled={manualAccessBusy} onClick={()=>void changeManualAccess('disable')}
+                            className="rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Disable access</button>}
+                      </div>
+                    </div>
+                    {manualAccessNotice && <p role="status" className="mt-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm font-medium text-green-800">{manualAccessNotice}</p>}
+                    {manualAccessError && <p role="alert" className="mt-2 text-sm text-red-600">{manualAccessError}</p>}
+                    {!!manualAccess?.history?.length && <div className="mt-3 space-y-1 text-xs text-gray-600">
+                      <p className="font-semibold">Recent access changes</p>
+                      {manualAccess.history.slice(0,5).map((event,i)=><p key={`${event.changed_at}-${i}`}>
+                        {event.action} · {event.changed_by} · {new Date(event.changed_at).toLocaleString()}{event.reason ? ` · ${event.reason}` : ''}
+                      </p>)}
+                    </div>}
+                  </Section>
                   <Section title={<><Shield className="w-5 h-5 text-purple-600" /> Recruit / CRM Field Audit</>}>
                     <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <p className="text-sm text-gray-500">
